@@ -1,0 +1,123 @@
+import type { Chat, Health, Message, User } from "../types";
+import { consumeSSE, type ServerEvent } from "./sse";
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export function validateBackendUrl(value: string): string {
+  const url = new URL(value.trim());
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(local && url.protocol === "http:")) {
+    throw new Error(
+      "Для удалённого backend нужен HTTPS. HTTP разрешён только для localhost.",
+    );
+  }
+  if (url.username || url.password || url.search || url.hash)
+    throw new Error("Укажите URL без пароля, query и fragment.");
+  return url.toString().replace(/\/$/, "");
+}
+
+export class Api {
+  constructor(
+    public base: string,
+    private token: string | null,
+  ) {}
+  private async response(path: string, init: RequestInit = {}) {
+    const headers = new Headers(init.headers);
+    if (init.body) headers.set("Content-Type", "application/json");
+    if (this.token) headers.set("Authorization", `Bearer ${this.token}`);
+    const response = await fetch(this.base + path, {
+      ...init,
+      headers,
+      signal: init.signal ?? AbortSignal.timeout(15000),
+      credentials: "omit",
+      redirect: "error",
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new ApiError(
+        response.status,
+        typeof body.detail === "string"
+          ? body.detail
+          : `Ошибка запроса (${response.status})`,
+      );
+    }
+    return response;
+  }
+  async json<T>(path: string, init?: RequestInit): Promise<T> {
+    return (await this.response(path, init)).json();
+  }
+  auth(mode: "login" | "register", email: string, password: string) {
+    return this.json<{ access_token: string }>(`/auth/${mode}`, {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+  }
+  me() {
+    return this.json<User>("/auth/me");
+  }
+  health() {
+    return this.json<Health>("/health");
+  }
+  private async all<T>(path: string, limit: number): Promise<T[]> {
+    const result: T[] = [];
+    for (let offset = 0; ; offset += limit) {
+      const page = await this.json<T[]>(
+        `${path}?offset=${offset}&limit=${limit}`,
+      );
+      result.push(...page);
+      if (page.length < limit) return result;
+    }
+  }
+  chats() {
+    return this.all<Chat>("/chats", 100);
+  }
+  messages(id: string) {
+    return this.all<Message>(`/chats/${id}/messages`, 200);
+  }
+  async settledMessages(id: string): Promise<Message[]> {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const state = await this.json<{ active: boolean }>(
+        `/chats/${id}/generation`,
+      );
+      if (!state.active) return this.messages(id);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(
+      "Сервер ещё завершает ответ. Откройте диалог повторно через несколько секунд.",
+    );
+  }
+  createChat() {
+    return this.json<Chat>("/chats", { method: "POST", body: "{}" });
+  }
+  async deleteChat(id: string) {
+    await this.response(`/chats/${id}`, { method: "DELETE" });
+  }
+  async stream(
+    id: string,
+    content: string,
+    signal: AbortSignal,
+    onEvent: (event: ServerEvent) => void,
+  ) {
+    const response = await this.response(`/chats/${id}/stream`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+      signal,
+    });
+    if (!response.body) throw new Error("Streaming не поддерживается");
+    let finished = false;
+    await consumeSSE(response.body, (event) => {
+      if (event.event === "done") finished = true;
+      if (event.event === "error") throw new Error(String(event.data.detail));
+      onEvent(event);
+    });
+    if (!finished && !signal.aborted)
+      throw new Error("Соединение прервано. Частичный ответ сохранён.");
+  }
+}
