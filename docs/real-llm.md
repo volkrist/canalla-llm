@@ -84,7 +84,7 @@ The RunPod account API key is still missing; it must be entered only in backend 
 
 ![Native real-provider Offline — no GPU running](screenshots/native-real-offline.png)
 
-Read-only RunPod preflight on 2026-09-14: NVIDIA L40S 48 GB, US-TX-3, $1.09/hour, stock LOW. Other compatible options under $1.20 were unavailable there.
+Read-only RunPod preflight on 2026-09-14 initially returned NVIDIA L40S 48 GB, US-TX-3, $1.09/hour, stock LOW. The final refresh returned no available compatible NVIDIA GPU with at least 48 GB within $1.20/hour in US-TX-3 (Secure Cloud, CUDA >= 12.8). The earlier LOW stock is no longer current.
 All three existing Pods returned EXITED. No paid mutation has been made. Availability/price must be rechecked immediately before the approved run.
 
 Planned controlled E2E: one new Pod → existing Volume → model Ready → Russian streaming question → Stop generation → usage → Stop AI → verify terminated/EXITED.
