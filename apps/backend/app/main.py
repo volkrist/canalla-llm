@@ -14,7 +14,7 @@ from .compute.routes import admin as admin_router
 from .compute.routes import router as compute_router
 from .compute.runpod_api import RunPodError
 from .config import get_settings
-from .providers import make_provider
+from .providers import LLMError, make_provider
 from .security import current_user
 
 settings = get_settings()
@@ -24,6 +24,8 @@ settings = get_settings()
 async def lifespan(application):
     compute = getattr(application.state, "compute_override", None) or RunPodController(settings)
     application.state.compute = compute
+    if compute.llm:
+        application.state.provider = compute.llm
     try:
         await compute.recover()
     except RunPodError as error:
@@ -49,7 +51,7 @@ async def lifespan(application):
 
 app = FastAPI(
     title="Alex LLM API",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
     docs_url="/docs" if settings.app_env != "production" else None,
     redoc_url=None,
@@ -82,13 +84,30 @@ async def runpod_error(request, error):
 async def llm_status(user=Depends(current_user)):
     if settings.llm_provider == "mock":
         return {"provider": "mock", "available": True, "state": "mock"}
-    available = await app.state.provider.health()
+    state = await app.state.provider.status()
+    compute_state = app.state.compute.get_compute_status(user)["state"]
+    if state == "offline" and compute_state in {
+        "creating",
+        "starting_pod",
+        "starting_environment",
+        "mounting_storage",
+        "starting_llm",
+        "connecting",
+    }:
+        state = "starting"
     return {
         "provider": settings.llm_provider,
-        "available": available,
-        "state": "ready" if available else "offline",
+        "available": state == "ready",
+        "state": state,
         "model": settings.llm_model,
     }
+
+
+@app.exception_handler(LLMError)
+async def llm_error(request, error):
+    return JSONResponse(
+        status_code=503, content={"detail": str(error), "code": error.code, "request_id": str(uuid4())}
+    )
 
 
 @app.get("/health")

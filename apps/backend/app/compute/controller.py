@@ -1,4 +1,5 @@
 import asyncio
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -11,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from ..config import Settings
 from ..database import SessionLocal
 from ..models import Message, User, now
+from ..providers import LlamaCppProvider
 from .models import (
     ComputeControl,
     ComputeEvent,
@@ -51,6 +53,27 @@ class RunPodController:
             clock,
         )
         self.local_lock = asyncio.Lock()
+        self.llm = (
+            LlamaCppProvider(settings, target=self.connection_target)
+            if settings.llm_provider == "llamacpp"
+            else None
+        )
+
+    def connection_target(self):
+        if self.settings.llm_connection_mode == "static":
+            return self.settings.llm_base_url
+        with self.sessions() as db:
+            control = db.get(ComputeControl, 1)
+            row = (
+                db.get(ComputeSession, control.active_session_id)
+                if control and control.active_session_id
+                else None
+            )
+            if not row or not row.managed or row.pending_stop or not row.pod_id or row.stopped_at:
+                return None
+            if not re.fullmatch(r"[a-zA-Z0-9-]{1,64}", row.pod_id):
+                return None
+            return f"https://{row.pod_id}-{self.settings.runpod_gateway_port}.proxy.runpod.net"
 
     def initialize(self):
         with self.sessions() as db:
@@ -194,6 +217,17 @@ class RunPodController:
                 "session": self.session_out(session, user.role == "admin") if session else None,
                 "can_control": user.role == "admin" or self.settings.allow_user_compute_start,
                 "active_generations": active,
+                "active_users": [
+                    {"id": uid, "email": email}
+                    for uid, email in db.execute(
+                        select(User.id, User.email)
+                        .join(GenerationUsage, GenerationUsage.user_id == User.id)
+                        .where(GenerationUsage.completed_at.is_(None), GenerationUsage.provider == "llamacpp")
+                        .distinct()
+                    )
+                ]
+                if user.role == "admin"
+                else [],
                 "queued_requests": 0,
                 "error_code": error_code,
                 "message": ERROR_MESSAGES.get(error_code) if error_code else None,
@@ -336,6 +370,8 @@ class RunPodController:
 
     async def start_compute(self, user, request: StartRequest):
         async with self.operation():
+            if self.llm and len(self.settings.llm_api_key) < 32:
+                raise RunPodError("llm_key_missing", 422)
             with self.sessions() as db:
                 control = db.get(ComputeControl, 1)
                 existing = db.scalar(
@@ -542,6 +578,12 @@ class RunPodController:
                     or (row.managed and estimate(row, self.clock())[1] >= row.session_budget)
                 ):
                     raise HTTPException(409, "Compute останавливается или достигнут бюджет сессии")
+                if (
+                    provider == "llamacpp"
+                    and self.settings.llm_connection_mode == "runpod"
+                    and (not row or row.status != "ready")
+                ):
+                    raise HTTPException(409, "AI ещё не готов. Дождитесь загрузки модели.")
                 usage = GenerationUsage(
                     user_id=user_id,
                     chat_id=chat_id,
@@ -553,11 +595,14 @@ class RunPodController:
                 db.commit()
                 return usage.id
 
-    def finish_generation(self, usage_id, status, message_id=None):
+    def finish_generation(self, usage_id, status, message_id=None, tokens=None):
         with self.sessions() as db:
             usage = db.get(GenerationUsage, usage_id)
             if usage:
                 usage.status, usage.completed_at, usage.message_id = status, self.clock(), message_id
+                for field, value in (tokens or {}).items():
+                    if field in {"input_tokens", "output_tokens", "total_tokens"}:
+                        setattr(usage, field, value)
             control = db.get(ComputeControl, 1)
             if control and control.active_session_id:
                 row = db.get(ComputeSession, control.active_session_id)
@@ -699,8 +744,23 @@ class RunPodController:
             if phase == "error":
                 await self._terminate(row.id, "startup_failed")
                 return
+            llm_error = None
+            if self.llm and pod.status == "RUNNING":
+                observed = await self.llm.status()
+                if observed == "ready":
+                    phase = "ready"
+                elif observed == "loading_model":
+                    phase = "loading_model"
+                else:
+                    phase = "connecting"
+                    llm_error = (
+                        observed
+                        if observed in {"connection_auth_failed", "model_mismatch", "malformed_response"}
+                        else "connection_failed"
+                    )
             with self.sessions() as db:
                 saved = db.get(ComputeSession, row.id)
+                saved.error_code = llm_error
                 if saved.status != phase:
                     self.event(db, phase, saved)
                 saved.status = phase

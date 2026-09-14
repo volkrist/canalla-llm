@@ -112,6 +112,18 @@ def usage_for(user_id, at):
                 "estimated_cost": float(cost.quantize(Decimal("0.000001"))),
                 "requests": requests,
             }
+            token_sums = db.execute(
+                select(
+                    func.sum(GenerationUsage.input_tokens),
+                    func.sum(GenerationUsage.output_tokens),
+                    func.sum(GenerationUsage.total_tokens),
+                ).where(
+                    GenerationUsage.user_id == user_id,
+                    GenerationUsage.created_at >= since,
+                    GenerationUsage.created_at <= at,
+                )
+            ).one()
+            periods[name].update(zip(("input_tokens", "output_tokens", "total_tokens"), token_sums))
         return {
             "periods": periods,
             "timezone": "UTC",

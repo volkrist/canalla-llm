@@ -1,11 +1,13 @@
 """Official RunPod REST v2 only. No MCP, OAuth extraction, or automatic write retries."""
 
 import asyncio
+import base64
 import json
 import re
 import shlex
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from urllib.parse import quote
 
 import httpx
@@ -36,6 +38,10 @@ ERROR_MESSAGES = {
     "session_budget": "Достигнут бюджет compute-сессии.",
     "price_violation": "RunPod подтвердил цену выше лимита. Созданный compute освобождается.",
     "not_found": "Ресурс больше не существует в RunPod.",
+    "llm_key_missing": "Для защищённого подключения настройте LLM_API_KEY на backend (не менее 32 символов).",
+    "connection_auth_failed": "Не удалось авторизовать защищённое подключение AI.",
+    "connection_failed": "Не удалось подключиться к AI. Backend продолжает проверку.",
+    "model_mismatch": "Запущенная модель не совпадает с настроенным alias.",
 }
 
 
@@ -212,6 +218,25 @@ class RunPodAPI:
         return self.parse_pod(await self.request("GET", "/pods/" + quote(pod_id, safe="")))
 
     async def create_pod(self, name: str, gpu: GpuOption):
+        real = self.settings.llm_provider == "llamacpp"
+        if real and len(self.settings.llm_api_key) < 32:
+            raise RunPodError("llm_key_missing", 422)
+        args = startup_command(self.settings.runpod_llm_port, self.settings.runpod_startup_timeout)
+        environment = {}
+        if real:
+            runtime = base64.b64encode(Path(__file__).with_name("remote_runtime.py").read_bytes()).decode(
+                "ascii"
+            )
+            args = "python3 -u -c " + shlex.quote(
+                "import base64; exec(compile(base64.b64decode('" + runtime + "'), 'alex-runtime', 'exec'))"
+            )
+            environment = {
+                "ALEX_GATEWAY_KEY": self.settings.llm_api_key,
+                "ALEX_LLM_PORT": str(self.settings.runpod_llm_port),
+                "ALEX_GATEWAY_PORT": str(self.settings.runpod_gateway_port),
+                "ALEX_LLM_MODEL": self.settings.llm_model,
+                "ALEX_STARTUP_TIMEOUT": str(self.settings.runpod_startup_timeout),
+            }
         data = await self.request(
             "POST",
             "/pods",
@@ -225,11 +250,11 @@ class RunPodAPI:
                 "mounts": {
                     "network": [{"volumeId": self.settings.runpod_network_volume_id, "path": "/workspace"}]
                 },
-                "ports": [],
-                "env": {},
+                "ports": [f"{self.settings.runpod_gateway_port}/http"] if real else [],
+                "env": environment,
                 "startJupyter": False,
                 "startSsh": False,
-                "args": startup_command(self.settings.runpod_llm_port, self.settings.runpod_startup_timeout),
+                "args": args,
             },
         )
         return self.parse_pod(data)

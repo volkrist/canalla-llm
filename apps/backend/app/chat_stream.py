@@ -9,6 +9,7 @@ from sqlalchemy import and_, delete, or_, select
 from .compute.models import GenerationUsage
 from .database import SessionLocal
 from .models import Chat, Message, now
+from .providers import LLMError
 from .schemas import MessageOut
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,10 @@ def sse(event, data):
 async def stream_response(chat, content, request, user, db, action="send", target_id=None):
     if chat.id in request.app.state.generating:
         raise HTTPException(409, "В этом диалоге уже идёт генерация")
+    if request.app.state.provider_name == "llamacpp":
+        state = await request.app.state.provider.status()
+        if state != "ready":
+            raise LLMError(state)
     target = None
     if target_id:
         rows = ordered_messages(db, chat.id)
@@ -92,7 +97,8 @@ async def stream_response(chat, content, request, user, db, action="send", targe
     async def generate():
         parts = []
         status = "stopped"
-        iterator = request.app.state.provider.stream_chat(history)
+        tokens = {}
+        iterator = request.app.state.provider.stream_with_usage(history, tokens)
         try:
             yield sse("meta", meta)
             async for token in iterator:
@@ -110,8 +116,10 @@ async def stream_response(chat, content, request, user, db, action="send", targe
             yield sse(
                 "error",
                 {
-                    "detail": "Ответ прерван. Нажмите «Повторить».",
-                    "code": "stream_interrupted",
+                    "detail": str(error)
+                    if isinstance(error, LLMError)
+                    else "Ответ прерван. Нажмите «Повторить».",
+                    "code": error.code if isinstance(error, LLMError) else "stream_interrupted",
                     "request_id": usage_id,
                 },
             )
@@ -125,7 +133,7 @@ async def stream_response(chat, content, request, user, db, action="send", targe
                         if saved_chat:
                             saved_chat.updated_at = now()
                         save_db.commit()
-                compute.finish_generation(usage_id, status, assistant_id)
+                compute.finish_generation(usage_id, status, assistant_id, tokens)
             finally:
                 request.app.state.generating.discard(chat_id)
                 await iterator.aclose()

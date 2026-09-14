@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://127.0.0.1:8080"
     llm_model: str = "orcarouter-qwen38-27b-q5km"
     llm_api_key: str = ""
+    llm_connection_mode: Literal["runpod", "static"] = "runpod"
+    runpod_gateway_port: int = Field(default=9000, ge=1024, le=65535)
     mock_delay: float = Field(default=0.035, ge=0, le=1)
     admin_emails: list[str] = []
     allow_user_compute_start: bool = False
@@ -55,6 +57,16 @@ class Settings(BaseSettings):
                 raise ValueError("Production JWT_SECRET must be at least 48 characters")
         if urlparse(self.llm_base_url).scheme not in {"http", "https"}:
             raise ValueError("LLM_BASE_URL must be an HTTP(S) URL")
+        if self.llm_provider == "llamacpp" and self.llm_connection_mode == "static":
+            target = urlparse(self.llm_base_url)
+            if target.username or target.password or target.query or target.fragment:
+                raise ValueError("LLM_BASE_URL must not contain credentials or query parameters")
+            if target.scheme != "https" and target.hostname not in {"localhost", "127.0.0.1", "::1"}:
+                raise ValueError(
+                    "Remote LLM requires HTTPS; HTTP is permitted only through a loopback tunnel"
+                )
+            if target.scheme == "https" and len(self.llm_api_key) < 32:
+                raise ValueError("Remote LLM requires a backend-only API key of at least 32 characters")
         return self
 
 

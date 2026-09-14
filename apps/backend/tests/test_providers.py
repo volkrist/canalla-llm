@@ -15,7 +15,7 @@ def test_llamacpp_transport_without_network(monkeypatch):
         calls.append(request)
         assert request.headers["Authorization"] == "Bearer backend-only-test-key"
         if request.url.path == "/v1/models":
-            return httpx.Response(200, json={"data": []})
+            return httpx.Response(200, json={"data": [{"id": "configured-model"}]})
         assert request.url.path == "/v1/chat/completions"
         assert json.loads(request.content)["model"] == "configured-model"
         return httpx.Response(
