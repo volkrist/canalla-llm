@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.2.0**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.3.0**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -86,6 +86,8 @@ alex-llm/
 
 ## Implemented
 
+- 0.3.0: real llama.cpp transport, authenticated Pod gateway, dynamic endpoint recovery, model-alias readiness, supplier token usage, and visible Start/Stop AI controls. [Real LLM setup and preflight](docs/real-llm.md). Paid integration requires explicit approval and has not yet been executed.
+
 - Chat rename/search/pin, Markdown/JSON export (one or all), user-message editing, edit-and-resend and regeneration with linear-history truncation.
 - Per-account/backend/chat local drafts, keyboard shortcuts, configurable Enter, timestamps, syntax highlighting, safe system-browser links and native save dialog.
 - Separate backend/mock/compute status, RunPod REST v2 controller, GPU discovery and price confirmation, persistent sessions, budget/idle stop and usage/admin views.
@@ -155,7 +157,7 @@ multiple users share one tracked compute session. Before horizontal scaling, add
 account recovery, token revocation, observability, backups and code signing.
 PostgreSQL is supported by design and migrations; live PostgreSQL execution is a separate validation step.
 
-RunPod provisioning is implemented through official REST v2; the runtime has no MCP dependency. The real chat inference adapter remains inactive.
+RunPod provisioning is implemented through official REST v2; the runtime has no MCP dependency. Set backend `LLM_PROVIDER=llamacpp` to use real inference; `mock` remains available for development.
 Memory, RAG, web search, browser agents, terminal tools, coding agent, LoRA and fine-tuning are outside this stage.
 
 See [architecture and API](docs/architecture.md), [security and deployment](docs/security.md), and [verification report](docs/verification.md).

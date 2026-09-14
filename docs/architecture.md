@@ -10,7 +10,7 @@ FastAPI ─── SQLAlchemy ─── SQLite / later PostgreSQL
     ▼
 LLMProvider
     ├── MockLLMProvider   (active)
-    └── LlamaCppProvider  (inactive; backend env only)
+    └── LlamaCppProvider  (backend selection; authenticated gateway to current Pod)
 ```
 
 The desktop has no infrastructure SDK or shell plugin. Tauri dialog/fs plugins save exports only to user-selected paths;
@@ -109,6 +109,11 @@ SSE meta includes `replace_after_id`: the client replaces that user message and 
 Compute endpoints and billing semantics are described in [runpod-controller.md](runpod-controller.md).
 
 ## Existing inference infrastructure
+
+Version 0.3.0 adds `remote_runtime.py`, a dependency-free authenticated Pod gateway and idempotent wrapper around the existing scripts.
+LlamaCppProvider resolves the current managed Pod from persistent compute control on each request. Readiness requires an exact model alias from `/v1/models`.
+Usage is collected per stream, without shared mutable counters, then persisted with the existing GenerationUsage relationship.
+Migration 0003 adds nullable `total_tokens`. Missing supplier usage remains null. See [the real-LLM contract](real-llm.md).
 
 User-provided reference for the future stage: model `orcarouter/Qwen3.8-27B-Uncensored`, Q5_K_M, llama.cpp,
 network volume `uwgeaie5b0`, datacenter `US-TX-3`, scripts `/workspace/start-llm.sh` and `/workspace/check-llm.sh`.

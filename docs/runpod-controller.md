@@ -1,6 +1,6 @@
-# RunPod Compute Controller — 0.2.0
+# RunPod Compute Controller — 0.3.0
 
-The chat remains `LLM_PROVIDER=mock`. Compute can be managed independently and does not imply that a chat answer came from OrcaRouter.
+`LLM_PROVIDER=mock` keeps independent demo chat; `llamacpp` activates the protected real-model connection described in [real-llm.md](real-llm.md).
 No paid resources were created, started, stopped or deleted while developing this release.
 
 ## Configuration and roles
@@ -70,7 +70,7 @@ No percentage, TPS, token count or public inference URL is fabricated.
 The container wrapper checks existing `/workspace/start-llm.sh` and `/workspace/check-llm.sh`, starts the existing script,
 checks localhost health and emits phase markers. The backend reads only known markers through authenticated supplier logs, never exposes raw logs.
 Ready requires a fresh marker; unavailable/stale logs produce `health_unknown`. Some fast phases can occur between polling intervals.
-No public Pod ports are opened by this implementation.
+In mock mode no Pod ports are published. In llama.cpp mode only `9000/http` is published through RunPod HTTPS, protected by a backend-only key; raw llama.cpp `8080` is not published.
 
 The exact compatibility of the image, existing scripts and model is **not live-validated**. A real paid test requires separate explicit approval.
 Startup timeout defaults to 900 seconds and terminates managed compute. Idle timeout applies only after readiness, without active generation.
