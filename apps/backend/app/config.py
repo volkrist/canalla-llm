@@ -1,8 +1,9 @@
+from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +25,22 @@ class Settings(BaseSettings):
     llm_model: str = "orcarouter-qwen38-27b-q5km"
     llm_api_key: str = ""
     mock_delay: float = Field(default=0.035, ge=0, le=1)
+    admin_emails: list[str] = []
+    allow_user_compute_start: bool = False
+    runpod_api_key: SecretStr = SecretStr("")
+    runpod_network_volume_id: str = "uwgeaie5b0"
+    runpod_datacenter: str = "US-TX-3"
+    runpod_min_vram_gb: int = Field(default=48, ge=1, le=1024)
+    runpod_max_hourly_price: Decimal = Field(default=Decimal("1.20"), gt=0, le=100)
+    runpod_max_session_budget: Decimal = Field(default=Decimal("3.00"), gt=0, le=1000)
+    runpod_auto_stop_minutes: Literal[0, 5, 10, 15, 30] = 10
+    runpod_search_interval: int = Field(default=30, ge=15, le=300)
+    runpod_image: str = "runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404"
+    runpod_min_cuda_version: str = "12.8"
+    runpod_llm_port: int = Field(default=8080, ge=1024, le=65535)
+    runpod_startup_timeout: int = Field(default=900, ge=60, le=3600)
+    compute_poll_seconds: float = Field(default=5, ge=1, le=60)
+    compute_background_enabled: bool = True
 
     @model_validator(mode="after")
     def validate_security(self):

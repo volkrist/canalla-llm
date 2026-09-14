@@ -17,6 +17,10 @@ if __name__ == "__main__":
             CORS_ORIGINS='["http://127.0.0.1:1421"]',
             LLM_PROVIDER="mock",
             MOCK_DELAY="0.025",
+            RUNPOD_API_KEY="",
+            COMPUTE_BACKGROUND_ENABLED="false",
+            ADMIN_EMAILS="[]",
+            ALLOW_USER_COMPUTE_START="false",
         )
         import sys
 

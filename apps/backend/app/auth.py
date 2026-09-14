@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from .database import get_db
 from .models import User
 from .schemas import Credentials, TokenOut, UserOut
-from .security import create_token, current_user, dummy_hash, password_hash
+from .security import create_token, current_user, dummy_hash, password_hash, sync_role
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -20,6 +20,7 @@ def register(body: Credentials, db: Session = Depends(get_db)):
     except IntegrityError:
         db.rollback()
         raise HTTPException(409, "This email is already registered") from None
+    sync_role(user, db)
     return TokenOut(access_token=create_token(user.id))
 
 

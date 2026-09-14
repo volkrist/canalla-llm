@@ -1,15 +1,16 @@
-import asyncio
 import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .chat_stream import ordered_messages, stream_response
+from .compute.models import GenerationUsage
 from .database import SessionLocal, get_db
 from .models import Chat, Message, User, now
-from .schemas import ChatCreate, ChatOut, MessageCreate, MessageOut
+from .schemas import ChatCreate, ChatOut, ChatUpdate, MessageCreate, MessageOut
 from .security import current_user
 
 router = APIRouter(prefix="/chats", tags=["chats"])
@@ -24,7 +25,13 @@ def owned_chat(db: Session, chat_id: str, user_id: str):
 
 
 def idle(request: Request, chat_id: str):
-    if chat_id in request.app.state.generating:
+    with SessionLocal() as db:
+        pending = db.scalar(
+            select(GenerationUsage.id).where(
+                GenerationUsage.chat_id == chat_id, GenerationUsage.completed_at.is_(None)
+            )
+        )
+    if chat_id in request.app.state.generating or pending:
         raise HTTPException(409, "This chat is generating a response. Stop it before changing the chat.")
 
 
@@ -34,11 +41,13 @@ def list_chats(
     db: Session = Depends(get_db),
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
+    q: str = Query("", max_length=200),
 ):
     return db.scalars(
         select(Chat)
         .where(Chat.user_id == user.id)
-        .order_by(Chat.updated_at.desc(), Chat.id)
+        .where(Chat.title.icontains(q.strip(), autoescape=True))
+        .order_by(Chat.pinned.desc(), Chat.updated_at.desc(), Chat.id)
         .offset(offset)
         .limit(limit)
     ).all()
@@ -50,6 +59,97 @@ def create_chat(body: ChatCreate, user: User = Depends(current_user), db: Sessio
     db.add(chat)
     db.commit()
     return chat
+
+
+def export_content(db, chats, format):
+    data = [
+        {
+            "chat": ChatOut.model_validate(chat).model_dump(mode="json"),
+            "messages": [
+                MessageOut.model_validate(message).model_dump(mode="json")
+                for message in ordered_messages(db, chat.id)
+            ],
+        }
+        for chat in chats
+    ]
+    if format == "json":
+        return Response(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": 'attachment; filename="alex-chats.json"'},
+        )
+    parts = []
+    for item in data:
+        parts.append("# " + item["chat"]["title"])
+        for message in item["messages"]:
+            parts.append(
+                f"## {'Р’С‹' if message['role'] == 'user' else 'Alex LLM'} В· {message['created_at']}\n\n{message['content']}"
+            )
+    return Response(
+        "\n\n".join(parts),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="alex-chats.md"'},
+    )
+
+
+@router.get("/export")
+def export_all(
+    format: str = Query("json", pattern="^(json|markdown)$"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    chats = db.scalars(select(Chat).where(Chat.user_id == user.id).order_by(Chat.updated_at.desc())).all()
+    return export_content(db, chats, format)
+
+
+@router.get("/{chat_id}/export")
+def export_chat(
+    chat_id: str,
+    format: str = Query("markdown", pattern="^(json|markdown)$"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    return export_content(db, [owned_chat(db, chat_id, user.id)], format)
+
+
+@router.patch("/{chat_id}", response_model=ChatOut)
+async def update_chat(
+    chat_id: str,
+    body: ChatUpdate,
+    request: Request,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    chat = owned_chat(db, chat_id, user.id)
+    idle(request, chat_id)
+    for key, value in body.model_dump(exclude_none=True).items():
+        setattr(chat, key, value)
+    chat.updated_at = now()
+    db.commit()
+    return chat
+
+
+@router.patch("/{chat_id}/messages/{message_id}", response_model=MessageOut)
+async def edit_message(
+    chat_id: str,
+    message_id: str,
+    body: MessageCreate,
+    request: Request,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    chat = owned_chat(db, chat_id, user.id)
+    idle(request, chat_id)
+    message = db.scalar(select(Message).where(Message.id == message_id, Message.chat_id == chat_id))
+    if not message:
+        raise HTTPException(404, "РЎРѕРѕР±С‰РµРЅРёРµ РЅРµ РЅР°Р№РґРµРЅРѕ")
+    if message.role != "user":
+        raise HTTPException(
+            422, "Р РµРґР°РєС‚РёСЂРѕРІР°С‚СЊ РјРѕР¶РЅРѕ С‚РѕР»СЊРєРѕ СЃРІРѕС‘ СЃРѕРѕР±С‰РµРЅРёРµ"
+        )
+    message.content, message.edited_at, chat.updated_at = body.content, now(), now()
+    db.commit()
+    return message
 
 
 @router.get("/{chat_id}", response_model=ChatOut)
@@ -117,10 +217,6 @@ async def post_message(
     return add_user_message(db, chat, body.content)
 
 
-def sse(event: str, data: dict):
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-
 @router.post("/{chat_id}/stream")
 async def stream_chat(
     chat_id: str,
@@ -129,73 +225,37 @@ async def stream_chat(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
-    chat = owned_chat(db, chat_id, user.id)
-    idle(request, chat_id)
-    # Single-worker MVP: all mutating chat routes enter here on the same event loop.
-    request.app.state.generating.add(chat_id)
-    try:
-        user_message = add_user_message(db, chat, body.content)
-        rows = db.scalars(
-            select(Message)
-            .where(Message.chat_id == chat_id)
-            .order_by(Message.created_at.desc(), Message.id.desc())
-            .limit(100)
-        ).all()
-        history = [{"role": row.role, "content": row.content} for row in reversed(rows)]
-        # Bound provider context even when a conversation contains very large messages.
-        while len(history) > 1 and sum(len(m["content"]) for m in history) > 64000:
-            history.pop(0)
-        assistant = Message(chat_id=chat_id, role="assistant", content="")
-        db.add(assistant)
-        db.commit()
-        assistant_id = assistant.id
-        meta = {
-            "user": MessageOut.model_validate(user_message).model_dump(mode="json"),
-            "assistant": MessageOut.model_validate(assistant).model_dump(mode="json"),
-        }
-    except BaseException:
-        request.app.state.generating.discard(chat_id)
-        raise
+    return await stream_response(owned_chat(db, chat_id, user.id), body.content, request, user, db)
 
-    async def generate():
-        parts: list[str] = []
-        error = False
-        provider_stream = request.app.state.provider.stream_chat(history)
-        try:
-            yield sse("meta", meta)
-            async for token in provider_stream:
-                if await request.is_disconnected():
-                    break
-                parts.append(token)
-                yield sse("delta", {"content": token})
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Generation failed")
-            error = True
-            yield sse("error", {"detail": "Generation failed. Please try again."})
-        finally:
-            try:
-                # Commit partial output on disconnect/Stop, using an independent session.
-                with SessionLocal() as save_db:
-                    saved = save_db.get(Message, assistant_id)
-                    if saved:
-                        if parts:
-                            saved.content = "".join(parts)
-                        else:
-                            save_db.delete(saved)
-                        saved_chat = save_db.get(Chat, chat_id)
-                        if saved_chat:
-                            saved_chat.updated_at = now()
-                        save_db.commit()
-            finally:
-                request.app.state.generating.discard(chat_id)
-                await provider_stream.aclose()
-        if not error:
-            yield sse("done", {"message_id": assistant_id})
 
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+@router.post("/{chat_id}/messages/{message_id}/resend")
+async def resend(
+    chat_id: str,
+    message_id: str,
+    body: MessageCreate,
+    request: Request,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    return await stream_response(
+        owned_chat(db, chat_id, user.id),
+        body.content,
+        request,
+        user,
+        db,
+        action="resend",
+        target_id=message_id,
+    )
+
+
+@router.post("/{chat_id}/messages/{message_id}/regenerate")
+async def regenerate(
+    chat_id: str,
+    message_id: str,
+    request: Request,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    return await stream_response(
+        owned_chat(db, chat_id, user.id), None, request, user, db, action="regenerate", target_id=message_id
     )

@@ -51,4 +51,26 @@ def current_user(
         raise error from None
     if user is None:
         raise error
+    sync_role(user, db)
+    return user
+
+
+def sync_role(user: User, db: Session):
+    role = (
+        "admin" if user.email.lower() in {email.lower() for email in get_settings().admin_emails} else "user"
+    )
+    if user.role != role:
+        user.role = role
+        db.commit()
+
+
+def admin_user(user: User = Depends(current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Требуются права администратора")
+    return user
+
+
+def compute_user(user: User = Depends(current_user)):
+    if user.role != "admin" and not get_settings().allow_user_compute_start:
+        raise HTTPException(403, "Запуск и остановка GPU доступны только администратору")
     return user
