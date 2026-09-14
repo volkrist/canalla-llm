@@ -72,6 +72,12 @@ test("real-provider controls: offline, loading, ready, generating and stop-after
     if (path.endsWith("/preferences"))
       return route.fulfill({ json: preferences });
     if (path.endsWith("/search")) {
+      if (state === "no_gpu") {
+        expect(route.request().postDataJSON()).toMatchObject({
+          auto_search: true,
+          search_interval: 30,
+        });
+      }
       state = "searching";
       return route.fulfill({
         json: {
@@ -120,6 +126,22 @@ test("real-provider controls: offline, loading, ready, generating and stop-after
   await page.getByRole("button", { name: "Закрыть", exact: true }).click();
   await expect(
     panel.getByRole("button", { name: "Отменить поиск", exact: true }),
+  ).toBeVisible();
+  await panel
+    .getByRole("button", { name: "Отменить поиск", exact: true })
+    .click();
+  state = "no_gpu";
+  await page
+    .getByRole("button", {
+      name: "Продолжить автоматический поиск",
+      exact: true,
+    })
+    .click();
+  await expect(
+    panel.getByRole("button", { name: "Отменить поиск", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("US-TX-3 · NVIDIA", { exact: false }),
   ).toBeVisible();
   await panel
     .getByRole("button", { name: "Отменить поиск", exact: true })

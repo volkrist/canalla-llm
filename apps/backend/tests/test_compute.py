@@ -155,7 +155,7 @@ def test_duplicate_and_restart_never_create_twice(compute):
 
 @pytest.mark.parametrize(
     "failure, expected",
-    [("timeout", "create_unknown"), (500, "create_unknown"), (402, "error"), (400, "no_gpu")],
+    [("timeout", "create_unknown"), (500, "create_unknown"), (402, "error"), (400, "searching")],
 )
 def test_creation_failure_is_sanitized_and_not_retried(compute, failure, expected):
     controller, supplier, user = compute
@@ -372,3 +372,62 @@ def test_auto_selection_cannot_choose_more_expensive_quote(compute):
 
     asyncio.run(scenario())
     assert not supplier.creates
+
+
+def test_auto_search_repeats_without_restart_and_never_creates(compute):
+    controller, supplier, user = compute
+
+    async def scenario():
+        supplier.price = 2
+        await controller.search_gpu(user, ComputePreferences(auto_search=True))
+        supplier.time += timedelta(seconds=30)
+        await controller.tick()
+        assert controller.get_compute_status(user)["state"] == "searching"
+        supplier.price = 0.8
+        supplier.time += timedelta(seconds=30)
+        await controller.tick()
+        assert controller.get_compute_status(user)["state"] == "gpu_found"
+        assert not supplier.creates
+        await controller.cancel_gpu_search(user)
+        supplier.time += timedelta(seconds=30)
+        await controller.tick()
+        assert controller.get_compute_status(user)["state"] == "offline"
+
+    asyncio.run(scenario())
+
+
+def test_disappeared_gpu_resumes_search_without_create(compute):
+    controller, supplier, user = compute
+
+    async def scenario():
+        quote = await controller.search_gpu(user, ComputePreferences())
+        supplier.price = 2
+        result = await controller.start_compute(
+            user,
+            StartRequest(
+                quote_id=quote["quote_id"],
+                gpu_id="gpu-48",
+                idempotency_key=str(uuid4()),
+                confirmed=True,
+            ),
+        )
+        assert result["state"] == "searching"
+        assert result["quote_id"] is None
+        assert result["next_search_at"] is not None
+        assert not supplier.creates
+
+    asyncio.run(scenario())
+
+
+def test_rejected_placement_resumes_search(compute):
+    controller, supplier, user = compute
+    supplier.failure = 409
+
+    async def scenario():
+        _, result = await start(controller, user)
+        assert result["state"] == "searching"
+        assert result["session"] is None
+        assert result["next_search_at"] is not None
+        assert len(supplier.creates) == 1
+
+    asyncio.run(scenario())

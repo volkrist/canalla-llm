@@ -368,6 +368,18 @@ class RunPodController:
             updated_at=self.clock(),
         )
 
+    def resume_search(self, user_id, prefs):
+        prefs = prefs.model_copy(update={"auto_search": True, "search_interval": 30})
+        with self.sessions() as db:
+            control = db.get(ComputeControl, 1)
+            control.search_user_id = user_id
+            control.search_settings = prefs.model_dump(mode="json")
+            control.search_state = "searching"
+            control.search_quote_id = None
+            control.error_code = "no_compatible_gpu"
+            control.next_search_at = self.clock() + timedelta(seconds=30)
+            db.commit()
+
     async def start_compute(self, user, request: StartRequest):
         async with self.operation():
             if self.llm and len(self.settings.llm_api_key) < 32:
@@ -429,14 +441,9 @@ class RunPodController:
             if selected and selected.hourly_rate > approved.hourly_rate:
                 raise RunPodError("price_changed", 409)
             candidates = [selected] if selected else []
-            if prefs.selection == "automatic":
-                candidates += [
-                    gpu
-                    for gpu in fresh
-                    if gpu.selectable and gpu.id != approved.id and gpu.hourly_rate <= approved.hourly_rate
-                ]
             if not candidates:
-                raise RunPodError("price_changed", 409)
+                self.resume_search(user.id, prefs)
+                return self.get_compute_status(user)
             session = self.new_session(user, request, candidates[0], prefs)
             session.max_hourly_price = min(prefs.max_hourly_price, approved.hourly_rate)
             with self.sessions() as db:
@@ -498,6 +505,7 @@ class RunPodController:
                     "no_compatible_gpu",
                 )
                 db.commit()
+            self.resume_search(user.id, prefs)
         return self.get_compute_status(user)
 
     def record_pod(self, row, pod):

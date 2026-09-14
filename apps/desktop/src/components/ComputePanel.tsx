@@ -140,6 +140,26 @@ export default function ComputePanel({
   useEffect(() => {
     if (open) dialog.current?.showModal();
   }, [open]);
+  useEffect(() => {
+    if (!status?.quote_id || status.quote_id === quote?.quote_id) return;
+    let cancelled = false;
+    void api
+      .json<Quote>(`/compute/quotes/${status.quote_id}`)
+      .then((found) => {
+        if (cancelled) return;
+        setQuote(found);
+        setSelected(
+          found.preferences.selection === "automatic"
+            ? found.options.find((item) => item.selectable)?.id || ""
+            : "",
+        );
+        key.current = crypto.randomUUID();
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [api, status?.quote_id, quote?.quote_id]);
   async function run(action: () => Promise<void>) {
     if (locked.current) return;
     locked.current = true;
@@ -155,15 +175,15 @@ export default function ComputePanel({
       locked.current = false;
     }
   }
-  async function search() {
+  async function search(searchPreferences = preferences) {
     await run(async () => {
       await api.json("/compute/preferences", {
         method: "PUT",
-        body: JSON.stringify(preferences),
+        body: JSON.stringify(searchPreferences),
       });
       const found = await api.json<Quote & { existing?: boolean }>(
         "/compute/search",
-        { method: "POST", body: JSON.stringify(preferences) },
+        { method: "POST", body: JSON.stringify(searchPreferences) },
       );
       if (found.existing) {
         setOpen(false);
@@ -298,6 +318,34 @@ export default function ComputePanel({
           {status.next_search_at
             ? new Date(status.next_search_at).toLocaleTimeString("ru-RU")
             : "ожидание"}
+        </p>
+      )}
+      {!status?.session && status?.configured && (
+        <p>
+          {status.datacenter} · NVIDIA · VRAM ≥{preferences.min_vram_gb} GB ·
+          цена ≤${Number(preferences.max_hourly_price).toFixed(2)}/ч
+        </p>
+      )}
+      {status?.state === "no_gpu" && status.can_control && (
+        <button
+          disabled={busy}
+          onClick={() => {
+            const next = {
+              ...preferences,
+              auto_search: true,
+              search_interval: 30,
+            };
+            setPreferences(next);
+            void search(next);
+          }}
+        >
+          Продолжить автоматический поиск
+        </button>
+      )}
+      {status?.state === "gpu_found" && gpu && (
+        <p>
+          {gpu.name} · {gpu.vram_gb} GB · {money(gpu.hourly_rate)}/ч{" "}
+          <button onClick={() => setOpen(true)}>Запустить</button>
         </p>
       )}
       {open && (
@@ -519,6 +567,22 @@ export default function ComputePanel({
                   Отменить поиск
                 </button>
               )}
+              {status?.state === "no_gpu" && status.can_control && (
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    const next = {
+                      ...preferences,
+                      auto_search: true,
+                      search_interval: 30,
+                    };
+                    setPreferences(next);
+                    void search(next);
+                  }}
+                >
+                  Продолжить автоматический поиск
+                </button>
+              )}
               {quote && (
                 <>
                   <table className="gpu-table">
@@ -596,18 +660,21 @@ export default function ComputePanel({
                         }
                         onClick={() =>
                           void run(async () => {
-                            await api.json("/compute/start", {
-                              method: "POST",
-                              body: JSON.stringify({
-                                quote_id: quote.quote_id,
-                                gpu_id: gpu.id,
-                                idempotency_key: key.current,
-                                confirmed: true,
-                              }),
-                              signal: AbortSignal.timeout(100000),
-                            });
+                            const result = await api.json<Status>(
+                              "/compute/start",
+                              {
+                                method: "POST",
+                                body: JSON.stringify({
+                                  quote_id: quote.quote_id,
+                                  gpu_id: gpu.id,
+                                  idempotency_key: key.current,
+                                  confirmed: true,
+                                }),
+                                signal: AbortSignal.timeout(100000),
+                              },
+                            );
                             setQuote(null);
-                            setOpen(false);
+                            setOpen(result.state === "searching");
                           })
                         }
                       >
