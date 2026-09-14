@@ -25,6 +25,12 @@ export interface Health {
   provider: string;
   llm_ready: boolean;
 }
+export interface LLMStatus {
+  provider: "mock" | "llamacpp";
+  available: boolean;
+  state: string;
+  model?: string;
+}
 export interface Settings {
   backendUrl: string;
   fontSize: number;

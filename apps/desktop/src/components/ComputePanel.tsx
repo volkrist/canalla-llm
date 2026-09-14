@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Api } from "../lib/api";
+import type { LLMStatus } from "../types";
 
 interface Preferences {
   selection: "automatic" | "manual";
@@ -36,10 +37,12 @@ interface Status {
   next_search_at: string | null;
   can_cancel_search: boolean;
   active_generations: number;
+  active_users?: Array<{ id: string; email: string }>;
   datacenter: string;
   session: null | {
     id: string;
     gpu_type: string;
+    gpu_vram_mb?: number;
     hourly_rate: number;
     billable_seconds: number;
     estimated_cost: number;
@@ -48,6 +51,7 @@ interface Status {
     started_at: string | null;
     ready_at: string | null;
     stop_reason: string | null;
+    pod_id?: string;
   };
 }
 const labels: Record<string, string> = {
@@ -66,6 +70,9 @@ const labels: Record<string, string> = {
   loading_model: "Загрузка модели",
   ready: "AI готов",
   health_unknown: "Проверка состояния AI",
+  connecting: "Подключение к AI…",
+  connection_auth_failed: "Ошибка авторизации AI",
+  model_mismatch: "Другая модель на сервере",
   generating: "Генерация",
   stopping: "Остановка AI",
   error: "Ошибка AI",
@@ -85,9 +92,11 @@ const money = (value: number) => `$${Number(value).toFixed(3)}`;
 export default function ComputePanel({
   api,
   technical,
+  llm,
 }: {
   api: Api;
   technical: boolean;
+  llm: LLMStatus | null;
 }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [preferences, setPreferences] = useState<Preferences>(defaults);
@@ -166,6 +175,33 @@ export default function ComputePanel({
     });
   }
   const gpu = quote?.options.find((item) => item.id === selected);
+  const displayedState =
+    llm?.provider === "llamacpp" &&
+    ["ready", "generating", "connecting", "health_unknown"].includes(
+      status?.state || "",
+    )
+      ? llm.available
+        ? status?.active_generations
+          ? "generating"
+          : "ready"
+        : llm.state
+      : status?.state;
+  async function stopAI() {
+    if (status?.active_generations || !status?.session?.managed) {
+      setConfirmStop(true);
+      setOpen(true);
+      return;
+    }
+    await run(async () => {
+      await api.json("/compute/stop", {
+        method: "POST",
+        body: JSON.stringify({
+          after_generation: false,
+          confirm_external: false,
+        }),
+      });
+    });
+  }
   return (
     <section className="compute-panel" aria-label="AI Compute">
       <div className="compute-summary">
@@ -173,30 +209,86 @@ export default function ComputePanel({
           className={`tiny-dot ${status?.state === "ready" ? "ready" : ""}`}
         />
         <strong>
-          {status ? labels[status.state] || status.state : "Compute недоступен"}
+          {status
+            ? labels[displayedState || "offline"] || displayedState
+            : "Compute недоступен"}
         </strong>
         {status?.session && (
           <span>
             {status.session.gpu_type} · {money(status.session.hourly_rate)}/ч ·{" "}
-            {Math.floor(status.session.billable_seconds / 60)} мин · ≈
-            {money(status.session.estimated_cost)}
+            {status.session.gpu_vram_mb
+              ? `${status.session.gpu_vram_mb / 1024} GB · `
+              : ""}
+            {[
+              Math.floor(status.session.billable_seconds / 3600),
+              Math.floor(status.session.billable_seconds / 60) % 60,
+              status.session.billable_seconds % 60,
+            ]
+              .map((n) => String(n).padStart(2, "0"))
+              .join(":")}{" "}
+            · ≈{money(status.session.estimated_cost)}
           </span>
         )}
         <button disabled={!status || busy} onClick={() => setOpen(true)}>
           AI / Compute
         </button>
-        {status?.session && status.can_control && (
+        {!status?.session && status?.state !== "searching" && (
           <button
-            disabled={busy}
+            disabled={busy || !status?.configured || !status?.can_control}
+            title={
+              !status?.can_control
+                ? "Нужны права управления compute"
+                : !status.configured
+                  ? "RunPod не настроен на backend"
+                  : undefined
+            }
             onClick={() => {
-              setConfirmStop(true);
               setOpen(true);
+              void search();
             }}
           >
-            Остановить AI
+            {status?.state === "error" ? "Повторить" : "Запустить AI"}
+          </button>
+        )}
+        {status?.state === "searching" && (
+          <button
+            disabled={busy || !status.can_cancel_search}
+            onClick={() =>
+              void run(async () => {
+                await api.json("/compute/search/cancel", { method: "POST" });
+                setQuote(null);
+              })
+            }
+          >
+            Отменить поиск
+          </button>
+        )}
+        {status?.session && status.can_control && (
+          <button disabled={busy} onClick={() => void stopAI()}>
+            {status.active_generations
+              ? "Остановить после ответа"
+              : "Остановить AI"}
           </button>
         )}
       </div>
+      {llm?.provider === "llamacpp" && (
+        <p>
+          {llm.model || "OrcaRouter"} ·{" "}
+          {llm.available ? "AI Ready" : labels[llm.state] || "AI Offline"}
+        </p>
+      )}
+      {error && !open && (
+        <p role="alert" className="error">
+          {error}
+          <button
+            onClick={() => {
+              setOpen(true);
+            }}
+          >
+            Подробнее
+          </button>
+        </p>
+      )}
       {status?.session?.pending_stop && (
         <p role="status">Остановка после текущего ответа</p>
       )}
@@ -229,8 +321,10 @@ export default function ComputePanel({
             </button>
           </div>
           <p>
-            Чат работает в mock-режиме. GPU управляется отдельно. Хранилище
-            остаётся в {status?.datacenter || "US-TX-3"}.
+            {llm?.provider === "mock"
+              ? "Чат работает в mock-режиме. GPU управляется отдельно."
+              : "Чат подключается к OrcaRouter через backend и защищённый HTTPS-канал."}{" "}
+            Хранилище остаётся в {status?.datacenter || "US-TX-3"}.
           </p>
           {!status?.configured && (
             <p className="muted">
@@ -242,12 +336,19 @@ export default function ComputePanel({
             <p>Запуск и остановка доступны администратору.</p>
           )}
           {status?.message && <p role="status">{status.message}</p>}
+          {status?.session && status.can_control && !confirmStop && (
+            <button disabled={busy} onClick={() => void stopAI()}>
+              {status.active_generations
+                ? "Остановить после ответа"
+                : "Остановить AI"}
+            </button>
+          )}
           {confirmStop ? (
             <div>
               <h3>Остановить compute?</h3>
               <p>
                 {status?.active_generations
-                  ? "Pod будет освобождён после текущего ответа."
+                  ? "Сейчас AI отвечает. Pod будет освобождён после текущего ответа."
                   : "Compute будет освобождён сейчас."}{" "}
                 Network Volume сохранится.
               </p>
@@ -273,7 +374,9 @@ export default function ComputePanel({
                   })
                 }
               >
-                Подтвердить остановку
+                {status?.active_generations
+                  ? "Остановить после ответа"
+                  : "Подтвердить остановку"}
               </button>
               <button onClick={() => setConfirmStop(false)}>Отмена</button>
             </div>
@@ -516,10 +619,43 @@ export default function ComputePanel({
               )}
             </>
           )}
-          {technical && status?.session && (
+          {technical && status && (
             <details>
               <summary>Технические сведения</summary>
-              <pre>{JSON.stringify(status.session, null, 2)}</pre>
+              <dl>
+                <dt>Backend</dt>
+                <dd>Healthy</dd>
+                <dt>RunPod</dt>
+                <dd>{status.configured ? "Configured" : "Not configured"}</dd>
+                <dt>Compute</dt>
+                <dd>{labels[status.state] || status.state}</dd>
+                <dt>GPU</dt>
+                <dd>{status.session?.gpu_type || "—"}</dd>
+                <dt>llama.cpp / Model</dt>
+                <dd>
+                  {llm?.available
+                    ? "Ready"
+                    : labels[llm?.state || "offline"] || "Недоступен"}
+                </dd>
+                <dt>Provider</dt>
+                <dd>{llm?.provider || "—"}</dd>
+                <dt>Активные генерации</dt>
+                <dd>{status.active_generations}</dd>
+                {status.session?.pod_id && (
+                  <>
+                    <dt>Pod</dt>
+                    <dd>{status.session.pod_id}</dd>
+                  </>
+                )}
+                {!!status.active_users?.length && (
+                  <>
+                    <dt>Сейчас используют AI</dt>
+                    <dd>
+                      {status.active_users.map((user) => user.email).join(", ")}
+                    </dd>
+                  </>
+                )}
+              </dl>
             </details>
           )}
           {error && (

@@ -3,7 +3,14 @@ import type { Api } from "../lib/api";
 interface Usage {
   periods: Record<
     string,
-    { gpu_seconds: number; estimated_cost: number; requests: number }
+    {
+      gpu_seconds: number;
+      estimated_cost: number;
+      requests: number;
+      input_tokens?: number | null;
+      output_tokens?: number | null;
+      total_tokens?: number | null;
+    }
   >;
 }
 interface Session {
@@ -100,6 +107,7 @@ export default function UsageDialog({
             <th>GPU, мин</th>
             <th>Оценка, $</th>
             <th>Запросы</th>
+            <th>Токены: вход / выход / всего</th>
           </tr>
         </thead>
         <tbody>
@@ -117,6 +125,10 @@ export default function UsageDialog({
                 <td>{(value.gpu_seconds / 60).toFixed(1)}</td>
                 <td>{value.estimated_cost.toFixed(4)}</td>
                 <td>{value.requests}</td>
+                <td>
+                  {value.input_tokens ?? "—"} / {value.output_tokens ?? "—"} /{" "}
+                  {value.total_tokens ?? "—"}
+                </td>
               </tr>
             ))}
         </tbody>

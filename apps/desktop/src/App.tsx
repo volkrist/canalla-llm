@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Api } from "./lib/api";
 import { loadSettings } from "./lib/settings";
-import type { Health, Settings, User } from "./types";
+import type { Health, LLMStatus, Settings, User } from "./types";
 import AuthScreen from "./components/AuthScreen";
 import Workspace from "./components/Workspace";
 import SettingsDialog from "./components/SettingsDialog";
@@ -13,12 +13,32 @@ export default function App() {
     null,
   );
   const [health, setHealth] = useState<Health | null>(null);
+  const [llm, setLlm] = useState<LLMStatus | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const api = useMemo(
     () => new Api(settings.backendUrl, session?.token || null),
     [settings.backendUrl, session?.token],
   );
   const logout = useCallback(() => setSession(null), []);
+  useEffect(() => {
+    let cancelled = false;
+    setLlm(null);
+    if (!session) return;
+    const check = async () => {
+      try {
+        const next = await api.json<LLMStatus>("/llm/status");
+        if (!cancelled) setLlm(next);
+      } catch {
+        if (!cancelled) setLlm(null);
+      }
+    };
+    void check();
+    const timer = setInterval(() => void check(), 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [api, session]);
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme;
   }, [settings.theme]);
@@ -55,6 +75,7 @@ export default function App() {
           api={api}
           user={session.user}
           health={health}
+          llm={llm}
           settings={settings}
           onLogout={logout}
           onSettings={() => setShowSettings(true)}

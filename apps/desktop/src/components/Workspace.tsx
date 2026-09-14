@@ -9,7 +9,7 @@ import {
   X,
 } from "lucide-react";
 import type { Api } from "../lib/api";
-import type { Health, Settings, User } from "../types";
+import type { Health, LLMStatus, Settings, User } from "../types";
 import { useChat } from "../hooks/useChat";
 import Sidebar from "./Sidebar";
 import MessageList from "./MessageList";
@@ -23,6 +23,7 @@ export default function Workspace({
   api,
   user,
   health,
+  llm,
   settings,
   onLogout,
   onSettings,
@@ -30,6 +31,7 @@ export default function Workspace({
   api: Api;
   user: User;
   health: Health | null;
+  llm: LLMStatus | null;
   settings: Settings;
   onLogout: () => void;
   onSettings: () => void;
@@ -141,7 +143,11 @@ export default function Workspace({
             {health ? "Connected" : "Offline"}
           </div>
         </header>
-        <ComputePanel api={api} technical={settings.technicalDetails} />
+        <ComputePanel
+          api={api}
+          llm={llm}
+          technical={settings.technicalDetails}
+        />
         {exportError && (
           <p role="alert" className="error">
             {exportError}
@@ -220,7 +226,7 @@ export default function Workspace({
         <Composer
           busy={chat.busy}
           streaming={chat.streaming}
-          connected={!!health?.llm_ready}
+          connected={!!health && !!llm?.available}
           onSend={chat.send}
           onStop={chat.stop}
           draft={draft}
