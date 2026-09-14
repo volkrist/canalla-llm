@@ -13,7 +13,8 @@ LLMProvider
     └── LlamaCppProvider  (inactive; backend env only)
 ```
 
-The desktop has no infrastructure SDK and no native shell/filesystem plugin.
+The desktop has no infrastructure SDK or shell plugin. Tauri dialog/fs plugins save exports only to user-selected paths;
+the opener plugin permits only HTTP(S) URLs. RunPod credentials exist only in the backend.
 React components handle presentation, `useChat` handles chat state, `Api` owns requests, and `consumeSSE` parses streaming data.
 The Rust host is deliberately small and exposes no custom commands.
 
@@ -61,10 +62,10 @@ The stream is read with authenticated `fetch`, not EventSource, because it is a 
 SSE decoding handles arbitrarily split UTF-8 bytes and LF/CRLF frames.
 
 Stop aborts fetch. The backend closes its provider iterator and persists the generated partial response in a `finally` block.
-If no tokens were generated, the empty assistant placeholder is removed; the user message remains.
+If no tokens were generated, the stopped/error assistant row remains so Retry is available.
 Concurrent generation, deleting or adding messages in that chat returns 409 while the stream is active.
 Other chats remain available. A hard process crash cannot save an in-flight partial response; only completed/cleanly cancelled
-generation is guaranteed durable in this MVP. A future generation-job model should represent crash recovery explicitly.
+generation is guaranteed durable in this MVP. GenerationUsage records interrupted work; startup marks unfinished responses as errors.
 
 Provider context uses at most the latest 100 messages and approximately 64,000 characters.
 This is a conservative character bound, not a model tokenizer-based limit.
@@ -84,8 +85,32 @@ Schema creation is through Alembic, not implicit startup `create_all`.
 .\.venv\Scripts\python.exe -m alembic check
 ```
 
-## Existing inference infrastructure — reference only
+## Compute and chat-management extensions (0.2.0)
+
+`app/compute/runpod_api.py` validates and sanitizes REST v2 responses. `controller.py` owns state transitions,
+database leases and committed create/stop intents. `routes.py` enforces authenticated roles and exposes usage.
+The monitor runs in FastAPI lifespan. Browser close/logout does not stop the backend monitor or reset accounting.
+
+Migration `0002` adds chat pinning, message status/edit timestamps, user roles, compute sessions/events/control/preferences/quotes,
+and generation usage. Existing chat data remains intact. The `compute_control` singleton stores the active session and expiring CAS lease.
+No network operation is made inside an open database write transaction.
+
+| Method | Route | Purpose |
+|---|---|---|
+| PATCH | `/chats/{id}` | Rename / pin; ownership checked |
+| GET | `/chats?q=...` | Literal title search, pinned first |
+| GET | `/chats/export`, `/chats/{id}/export` | `format=json` or `markdown`; owned data only |
+| PATCH | `/chats/{id}/messages/{message}` | Edit user text, retain later history |
+| POST | `/chats/{id}/messages/{message}/resend` | Edit user text, delete all later messages, stream replacement |
+| POST | `/chats/{id}/messages/{message}/regenerate` | Return to preceding user message, truncate tail, stream replacement |
+| GET | `/llm/status` | Explicit mock availability separate from compute |
+
+SSE meta includes `replace_after_id`: the client replaces that user message and everything after it with the returned user/assistant pair.
+Compute endpoints and billing semantics are described in [runpod-controller.md](runpod-controller.md).
+
+## Existing inference infrastructure
 
 User-provided reference for the future stage: model `orcarouter/Qwen3.8-27B-Uncensored`, Q5_K_M, llama.cpp,
 network volume `uwgeaie5b0`, datacenter `US-TX-3`, scripts `/workspace/start-llm.sh` and `/workspace/check-llm.sh`.
-These values are documentation, not a controller or active connection. No pod was created, started, stopped or deleted.
+The controller mounts that existing volume and invokes those existing scripts. No model download or volume deletion is implemented.
+No real pod was created, started, stopped or deleted during development; paid integration remains untested.

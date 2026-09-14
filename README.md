@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop MVP: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.2.0**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -86,6 +86,11 @@ alex-llm/
 
 ## Implemented
 
+- Chat rename/search/pin, Markdown/JSON export (one or all), user-message editing, edit-and-resend and regeneration with linear-history truncation.
+- Per-account/backend/chat local drafts, keyboard shortcuts, configurable Enter, timestamps, syntax highlighting, safe system-browser links and native save dialog.
+- Separate backend/mock/compute status, RunPod REST v2 controller, GPU discovery and price confirmation, persistent sessions, budget/idle stop and usage/admin views.
+- RunPod is optional: an empty backend API key shows **Not configured** and mock chat remains usable. Read [the controller guide](docs/runpod-controller.md) before enabling paid compute.
+
 - Login, registration, authenticated user endpoint; Argon2id password hashes and expiring JWTs.
 - Private chats and messages with ownership checks on every chat endpoint; deletion cascades to messages.
 - Persisted history, new chat, first-message titles, pagination, clear loading/error/offline states.
@@ -116,7 +121,7 @@ It does not overwrite an existing `.env`. Run backend commands from `apps/backen
 Desktop has just one optional public build variable: `VITE_BACKEND_URL` (default `http://127.0.0.1:8000`).
 `apps/desktop/.env.example` documents it. Settings can override the address at runtime.
 HTTP is allowed only on loopback; remote backend addresses require HTTPS. Changing the backend logs the user out.
-Only UI preferences are persisted in localStorage. JWTs live in memory; app restart requires login.
+UI preferences and per-account drafts are persisted in localStorage. JWTs live in memory; app restart requires login.
 
 **Do not put any RunPod keys, JWT secrets, database credentials or inference credentials in desktop env variables.**
 
@@ -145,12 +150,12 @@ Once that permission is available, place the template at `.github/workflows/ci.y
 
 ## Scope and next stage
 
-Run the MVP backend with **one worker**. Multiple users and chats are supported, but generation locking is currently process-local.
-Before horizontal scaling, replace the lock with a database/Redis lease, then add production deployment, rate limits,
+Run the backend with **one worker**: chat recovery assumes a single streaming worker. Compute operations use a database lease plus committed intents;
+multiple users share one tracked compute session. Before horizontal scaling, add distributed streaming-job ownership, production deployment,
 account recovery, token revocation, observability, backups and code signing.
 PostgreSQL is supported by design and migrations; live PostgreSQL execution is a separate validation step.
 
-RunPod provisioning, Memory, RAG, web search, browser, terminal, coding agent, LoRA and fine-tuning are not part of this version.
-No RunPod API or MCP calls are made. The real inference adapter is not activated.
+RunPod provisioning is implemented through official REST v2; the runtime has no MCP dependency. The real chat inference adapter remains inactive.
+Memory, RAG, web search, browser agents, terminal tools, coding agent, LoRA and fine-tuning are outside this stage.
 
 See [architecture and API](docs/architecture.md), [security and deployment](docs/security.md), and [verification report](docs/verification.md).
