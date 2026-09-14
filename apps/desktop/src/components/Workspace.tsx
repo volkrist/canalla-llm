@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowUpRight,
   AudioLines,
@@ -14,6 +14,10 @@ import { useChat } from "../hooks/useChat";
 import Sidebar from "./Sidebar";
 import MessageList from "./MessageList";
 import Composer from "./Composer";
+import { draftPrefix, readDraft, writeDraft } from "../lib/drafts";
+import ComputePanel from "./ComputePanel";
+import { exportChats } from "../lib/files";
+import UsageDialog from "./UsageDialog";
 
 export default function Workspace({
   api,
@@ -32,8 +36,48 @@ export default function Workspace({
 }) {
   const chat = useChat(api, onLogout);
   const [sidebar, setSidebar] = useState(false);
-  const [draft, setDraft] = useState("");
+  const prefix = draftPrefix(api.base, user.id);
+  const [draft, updateDraft] = useState(() => readDraft(prefix, null));
+  const setDraft = (value: string) => {
+    updateDraft(value);
+    writeDraft(prefix, chat.selected, value);
+  };
+  useEffect(() => {
+    updateDraft(readDraft(prefix, chat.selected));
+  }, [prefix, chat.selected]);
+  useEffect(() => {
+    const clear = () => updateDraft(readDraft(prefix, chat.selected));
+    window.addEventListener("alex-drafts-cleared", clear);
+    return () => window.removeEventListener("alex-drafts-cleared", clear);
+  }, [prefix, chat.selected]);
+  useEffect(() => {
+    function shortcut(event: KeyboardEvent) {
+      if (event.ctrlKey || event.metaKey) {
+        if (event.key.toLowerCase() === "n") {
+          event.preventDefault();
+          void chat.select(null);
+        }
+        if (event.key.toLowerCase() === "k") {
+          event.preventDefault();
+          setSidebar(true);
+          document.getElementById("chat-search")?.focus();
+        }
+        if (event.key === ",") {
+          event.preventDefault();
+          onSettings();
+        }
+      }
+      if (event.key === "Escape") {
+        chat.stop();
+        setDeleteId(null);
+      }
+    }
+    document.addEventListener("keydown", shortcut);
+    return () => document.removeEventListener("keydown", shortcut);
+  });
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [exportError, setExportError] = useState("");
+  const [usage, setUsage] = useState<"mine" | "admin" | null>(null);
   const title =
     chat.chats.find((item) => item.id === chat.selected)?.title ||
     "Новое начало";
@@ -64,10 +108,18 @@ export default function Workspace({
         open={sidebar}
         onClose={() => setSidebar(false)}
         onSelect={(id) => {
-          setDraft("");
           void chat.select(id);
         }}
         onDelete={setDeleteId}
+        onUpdate={chat.update}
+        onExport={(id, format) => {
+          setExportError("");
+          void exportChats(api, format, id).catch((error: Error) =>
+            setExportError(error.message),
+          );
+        }}
+        onUsage={() => setUsage("mine")}
+        onAdmin={() => setUsage("admin")}
         onSettings={onSettings}
         onLogout={onLogout}
       />
@@ -89,6 +141,12 @@ export default function Workspace({
             {health ? "Connected" : "Offline"}
           </div>
         </header>
+        <ComputePanel api={api} technical={settings.technicalDetails} />
+        {exportError && (
+          <p role="alert" className="error">
+            {exportError}
+          </p>
+        )}
         <div className="mode-line">
           <span>{health?.provider === "mock" ? "MOCK MODE" : "ALEX LLM"}</span>
           <span>
@@ -104,6 +162,15 @@ export default function Workspace({
             messages={chat.messages}
             streaming={chat.streaming}
             fontSize={settings.fontSize}
+            settings={settings}
+            busy={chat.busy}
+            onEdit={chat.edit}
+            onResend={(id, content) =>
+              chat.send(content, { kind: "resend", messageId: id })
+            }
+            onRegenerate={(id) =>
+              chat.send("", { kind: "regenerate", messageId: id })
+            }
           />
         ) : (
           <div className="welcome">
@@ -158,6 +225,7 @@ export default function Workspace({
           onStop={chat.stop}
           draft={draft}
           setDraft={setDraft}
+          enterSends={settings.enterSends}
         />
       </main>
       {deleteId && (
@@ -186,6 +254,13 @@ export default function Workspace({
             </div>
           </div>
         </div>
+      )}
+      {usage && (
+        <UsageDialog
+          api={api}
+          admin={usage === "admin"}
+          onClose={() => setUsage(null)}
+        />
       )}
     </div>
   );

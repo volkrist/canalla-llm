@@ -10,7 +10,9 @@ import {
 import { AudioLines, Check, Copy, UserRound } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { Message } from "../types";
+import rehypeHighlight from "rehype-highlight";
+import { openExternal } from "../lib/files";
+import type { Message, Settings } from "../types";
 
 function plainText(node: ReactNode): string {
   return Children.toArray(node)
@@ -67,17 +69,32 @@ export default function MessageList({
   messages,
   streaming,
   fontSize,
+  settings,
+  busy,
+  onEdit,
+  onResend,
+  onRegenerate,
 }: {
   messages: Message[];
   streaming: boolean;
   fontSize: number;
+  settings: Settings;
+  busy: boolean;
+  onEdit: (id: string, content: string) => Promise<void>;
+  onResend: (id: string, content: string) => Promise<boolean>;
+  onRegenerate: (id: string) => Promise<boolean>;
 }) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const [edited, setEdited] = useState("");
+  const [away, setAway] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   useEffect(() => {
-    if (stick.current) bottom.current?.scrollIntoView({ behavior: "instant" });
-  }, [messages]);
+    if (stick.current && settings.autoScroll)
+      bottom.current?.scrollIntoView({ behavior: "instant" });
+  }, [messages, settings.autoScroll]);
   return (
     <div
       className="message-scroll"
@@ -85,6 +102,7 @@ export default function MessageList({
       onScroll={() => {
         const el = scroll.current!;
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+        setAway(!stick.current);
       }}
     >
       <div
@@ -107,14 +125,34 @@ export default function MessageList({
               <div className="message-author">
                 {message.role === "assistant" ? "Alex LLM" : "Вы"}
                 <span>{message.role === "assistant" ? "ASSISTANT" : ""}</span>
+                {settings.timestamps && (
+                  <time dateTime={message.created_at}>
+                    {new Date(message.created_at).toLocaleTimeString("ru-RU", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </time>
+                )}
+                {message.edited_at && <span>изменено</span>}
               </div>
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeHighlight]}
                 components={{
                   pre: CodeBlock,
                   img: () => <span className="muted">[изображение]</span>,
-                  a: ({ children }) => (
-                    <span className="markdown-link">{children}</span>
+                  a: ({ children, href }) => (
+                    <button
+                      className="markdown-link"
+                      onClick={() => {
+                        if (href)
+                          void openExternal(href).catch(() =>
+                            setCopyStatus("link-error"),
+                          );
+                      }}
+                    >
+                      {children}
+                    </button>
                   ),
                 }}
               >
@@ -122,14 +160,97 @@ export default function MessageList({
               </ReactMarkdown>
               {!message.content && streaming && (
                 <span className="typing" aria-label="Генерация ответа">
-                  ● ● ●
+                  Alex думает…
                 </span>
+              )}
+              {editing === message.id ? (
+                <div className="message-editor">
+                  <textarea
+                    aria-label="Редактировать сообщение"
+                    value={edited}
+                    maxLength={32000}
+                    onChange={(event) => setEdited(event.target.value)}
+                  />
+                  <button
+                    disabled={busy || !edited.trim()}
+                    onClick={() => {
+                      void onEdit(message.id, edited.trim());
+                      setEditing(null);
+                    }}
+                  >
+                    Сохранить
+                  </button>
+                  <button
+                    disabled={busy || !edited.trim()}
+                    onClick={() => {
+                      void onResend(message.id, edited.trim());
+                      setEditing(null);
+                    }}
+                  >
+                    Изменить и отправить
+                  </button>
+                  <button onClick={() => setEditing(null)}>Отмена</button>
+                  <p className="muted">
+                    Повторная отправка удалит все сообщения после этого.
+                  </p>
+                </div>
+              ) : (
+                <div className="message-actions">
+                  <button
+                    onClick={() => {
+                      void navigator.clipboard.writeText(message.content).then(
+                        () => setCopyStatus(message.id),
+                        () => setCopyStatus("error"),
+                      );
+                    }}
+                  >
+                    {copyStatus === message.id ? "Скопировано" : "Копировать"}
+                  </button>
+                  {message.role === "user" ? (
+                    <button
+                      disabled={busy}
+                      onClick={() => {
+                        setEditing(message.id);
+                        setEdited(message.content);
+                      }}
+                    >
+                      Изменить
+                    </button>
+                  ) : (
+                    <button
+                      disabled={busy}
+                      onClick={() => void onRegenerate(message.id)}
+                    >
+                      {message.status === "error" ||
+                      message.status === "stopped"
+                        ? "Повторить"
+                        : "Перегенерировать"}
+                    </button>
+                  )}
+                </div>
+              )}
+              {copyStatus === "error" && (
+                <span role="alert">Не удалось скопировать текст</span>
+              )}
+              {copyStatus === "link-error" && (
+                <span role="alert">Не удалось открыть ссылку</span>
               )}
             </div>
           </article>
         ))}
         <div ref={bottom} />
       </div>
+      {away && (
+        <button
+          className="scroll-latest"
+          onClick={() => {
+            stick.current = true;
+            bottom.current?.scrollIntoView({ behavior: "smooth" });
+          }}
+        >
+          ↓ К последнему сообщению
+        </button>
+      )}
     </div>
   );
 }

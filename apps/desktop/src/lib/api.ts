@@ -99,15 +99,37 @@ export class Api {
   async deleteChat(id: string) {
     await this.response(`/chats/${id}`, { method: "DELETE" });
   }
+  updateChat(id: string, patch: Partial<Pick<Chat, "title" | "pinned">>) {
+    return this.json<Chat>(`/chats/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  }
+  editMessage(chat: string, id: string, content: string) {
+    return this.json<Message>(`/chats/${chat}/messages/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ content }),
+    });
+  }
+  async exportChats(format: "json" | "markdown", id?: string) {
+    return (
+      await this.response(`/chats${id ? `/${id}` : ""}/export?format=${format}`)
+    ).text();
+  }
   async stream(
     id: string,
     content: string,
     signal: AbortSignal,
     onEvent: (event: ServerEvent) => void,
+    action?: { kind: "resend" | "regenerate"; messageId: string },
   ) {
-    const response = await this.response(`/chats/${id}/stream`, {
+    const path = action
+      ? `/chats/${id}/messages/${action.messageId}/${action.kind}`
+      : `/chats/${id}/stream`;
+    const response = await this.response(path, {
       method: "POST",
-      body: JSON.stringify({ content }),
+      body:
+        action?.kind === "regenerate" ? undefined : JSON.stringify({ content }),
       signal,
     });
     if (!response.body) throw new Error("Streaming не поддерживается");

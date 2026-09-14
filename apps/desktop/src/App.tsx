@@ -20,6 +20,9 @@ export default function App() {
   );
   const logout = useCallback(() => setSession(null), []);
   useEffect(() => {
+    document.documentElement.dataset.theme = settings.theme;
+  }, [settings.theme]);
+  useEffect(() => {
     let cancelled = false;
     const publicApi = new Api(settings.backendUrl, null);
     setHealth(null);
@@ -66,6 +69,8 @@ export default function App() {
       )}
       {showSettings && (
         <SettingsDialog
+          api={session ? api : undefined}
+          userId={session?.user.id}
           value={settings}
           onSave={saveSettings}
           onClose={() => setShowSettings(false)}

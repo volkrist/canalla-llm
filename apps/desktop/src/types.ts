@@ -1,11 +1,13 @@
 export interface User {
   id: string;
   email: string;
+  role: "admin" | "user";
   created_at: string;
 }
 export interface Chat {
   id: string;
   title: string;
+  pinned: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -14,6 +16,8 @@ export interface Message {
   chat_id: string;
   role: "user" | "assistant";
   content: string;
+  status: "generating" | "complete" | "stopped" | "error";
+  edited_at: string | null;
   created_at: string;
 }
 export interface Health {
@@ -24,4 +28,10 @@ export interface Health {
 export interface Settings {
   backendUrl: string;
   fontSize: number;
+  theme: "dark" | "system";
+  language: "ru";
+  enterSends: boolean;
+  autoScroll: boolean;
+  timestamps: boolean;
+  technicalDetails: boolean;
 }

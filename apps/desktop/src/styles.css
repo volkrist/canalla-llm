@@ -8,6 +8,243 @@
   color-scheme: dark;
   font-size: 14px;
 }
+input[type="checkbox"],
+input[type="radio"] {
+  display: inline-block;
+  width: auto;
+  margin-right: 8px;
+  accent-color: #afd5b9;
+}
+.chat-search {
+  margin: 8px 0;
+  min-height: 36px;
+}
+.chat-menu {
+  position: relative;
+}
+.chat-menu summary {
+  cursor: pointer;
+  padding: 6px;
+  list-style: none;
+}
+.chat-menu-items {
+  position: absolute;
+  z-index: 10;
+  right: 0;
+  top: 26px;
+  min-width: 185px;
+  padding: 6px;
+  background: #222827;
+  border: 1px solid #404844;
+  border-radius: 10px;
+  box-shadow: 0 8px 30px #0008;
+}
+.chat-menu-items button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px;
+}
+.rename-form {
+  padding: 8px;
+}
+.rename-form button {
+  margin-top: 8px;
+  padding: 6px;
+}
+.message-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.message:hover .message-actions,
+.message:focus-within .message-actions {
+  opacity: 1;
+}
+.message-actions button {
+  font-size: 12px;
+  padding: 5px 8px;
+  color: #a7b6ad;
+}
+.message-author time {
+  margin-left: auto;
+  font-size: 11px;
+  color: #909d95;
+}
+.message-editor textarea {
+  width: 100%;
+  min-height: 110px;
+  padding: 12px;
+  color: inherit;
+  background: #1c2220;
+  border: 1px solid #53685a;
+  border-radius: 8px;
+}
+.message-editor button {
+  padding: 8px;
+}
+.scroll-latest {
+  position: sticky;
+  bottom: 12px;
+  display: block;
+  margin: 0 auto;
+  padding: 10px 16px;
+  background: #34483a;
+  box-shadow: 0 4px 20px #0006;
+}
+.compute-panel {
+  margin: 0 28px;
+  padding: 10px 0;
+  border-bottom: 1px solid #2a322e;
+  font-size: 12px;
+}
+.compute-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.compute-summary > span:not(.tiny-dot) {
+  color: #9caaa2;
+}
+.compute-summary > button:first-of-type {
+  margin-left: auto;
+}
+.compute-summary button {
+  padding: 6px 10px;
+  border: 1px solid #3b4a41;
+}
+.compute-panel p {
+  margin-bottom: 0;
+}
+.settings-dialog.compute-dialog,
+.settings-dialog.usage-dialog {
+  width: min(860px, 94vw);
+  max-width: 860px;
+  max-height: 90vh;
+  overflow: auto;
+}
+.compute-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 22px 0;
+}
+.compute-fields label {
+  display: block;
+}
+.compute-dialog button,
+.usage-dialog button {
+  padding: 8px 12px;
+}
+.gpu-table,
+.usage-dialog table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 18px 0;
+  font-size: 13px;
+}
+.gpu-table th,
+.gpu-table td,
+.usage-dialog th,
+.usage-dialog td {
+  text-align: left;
+  border-bottom: 1px solid #364039;
+  padding: 12px 8px;
+}
+.usage-dialog small {
+  display: block;
+  margin-top: 4px;
+  color: #9ba89f;
+}
+.cost-confirm {
+  padding: 18px;
+  background: #1e2b23;
+  border: 1px solid #425e4b;
+  border-radius: 12px;
+}
+.cost-confirm .primary {
+  width: 100%;
+  margin-top: 12px;
+}
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 24px;
+}
+.settings-tabs button {
+  padding: 8px 12px;
+}
+.settings-tabs button[aria-pressed="true"] {
+  background: #344b3c;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal {
+  color: #c8a4e5;
+}
+.hljs-string,
+.hljs-attr {
+  color: #acd7a9;
+}
+.hljs-number,
+.hljs-built_in {
+  color: #e2bc8d;
+}
+.hljs-comment {
+  color: #83928c;
+}
+.hljs-title {
+  color: #98cfe7;
+}
+@media (hover: none) {
+  .message-actions {
+    opacity: 1;
+  }
+}
+@media (max-width: 640px) {
+  .compute-fields {
+    grid-template-columns: 1fr;
+  }
+  .compute-panel {
+    margin: 0 14px;
+  }
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    color-scheme: light;
+    color: #25342b;
+    background: #f1f4f1;
+  }
+  :root[data-theme="system"] .app-shell,
+  :root[data-theme="system"] .workspace {
+    background: #f5f7f5;
+    color: #25342b;
+  }
+  :root[data-theme="system"] .sidebar,
+  :root[data-theme="system"] dialog,
+  :root[data-theme="system"] .composer,
+  :root[data-theme="system"] .chat-menu-items {
+    background: #e7ede8;
+    color: #25342b;
+  }
+  :root[data-theme="system"] input,
+  :root[data-theme="system"] textarea,
+  :root[data-theme="system"] select {
+    background: #f9fbf9;
+    color: #25342b;
+  }
+  :root[data-theme="system"] .code-block {
+    background: #233029;
+    color: #e3eee6;
+  }
+  :root[data-theme="system"] .cost-confirm {
+    background: #d7e7d9;
+  }
+}
 * {
   box-sizing: border-box;
 }

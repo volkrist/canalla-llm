@@ -81,7 +81,10 @@ export function useChat(api: Api, onExpired: () => void) {
     }
   }
 
-  async function send(content: string): Promise<boolean> {
+  async function send(
+    content: string,
+    action?: { kind: "resend" | "regenerate"; messageId: string },
+  ): Promise<boolean> {
     if (locked.current) return false;
     locked.current = true;
     setBusy(true);
@@ -99,27 +102,43 @@ export function useChat(api: Api, onExpired: () => void) {
         setChats((prev) => [chat, ...prev]);
       }
       setStreaming(true);
-      await api.stream(id, content, abort.signal, (event) => {
-        if (!active.current) return;
-        if (event.event === "meta") {
-          accepted = true;
-          const user = event.data.user as unknown as Message;
-          const assistant = event.data.assistant as unknown as Message;
-          setMessages((prev) => [...prev, user, assistant]);
-        }
-        if (event.event === "delta") {
-          setMessages((prev) =>
-            prev.map((message, i) =>
-              i === prev.length - 1
-                ? {
-                    ...message,
-                    content: message.content + String(event.data.content),
-                  }
-                : message,
-            ),
-          );
-        }
-      });
+      await api.stream(
+        id,
+        content,
+        abort.signal,
+        (event) => {
+          if (!active.current) return;
+          if (event.event === "meta") {
+            accepted = true;
+            const user = event.data.user as unknown as Message;
+            const assistant = event.data.assistant as unknown as Message;
+            setMessages((prev) => {
+              const replaceId = event.data.replace_after_id;
+              const index = replaceId
+                ? prev.findIndex((message) => message.id === replaceId)
+                : -1;
+              return [
+                ...(index >= 0 ? prev.slice(0, index) : prev),
+                user,
+                assistant,
+              ];
+            });
+          }
+          if (event.event === "delta") {
+            setMessages((prev) =>
+              prev.map((message, i) =>
+                i === prev.length - 1
+                  ? {
+                      ...message,
+                      content: message.content + String(event.data.content),
+                    }
+                  : message,
+              ),
+            );
+          }
+        },
+        action,
+      );
     } catch (e) {
       if (!abort.signal.aborted) handleError(e);
     } finally {
@@ -135,7 +154,6 @@ export function useChat(api: Api, onExpired: () => void) {
       if (active.current) {
         setStreaming(false);
         setBusy(false);
-        setMessages((prev) => prev.filter((message) => message.content !== ""));
         api
           .chats()
           .then((data) => {
@@ -158,6 +176,28 @@ export function useChat(api: Api, onExpired: () => void) {
     select,
     remove,
     send,
+    update: async (
+      id: string,
+      patch: Partial<Pick<Chat, "title" | "pinned">>,
+    ) => {
+      try {
+        await api.updateChat(id, patch);
+        setChats(await api.chats());
+      } catch (e) {
+        handleError(e);
+      }
+    },
+    edit: async (id: string, content: string) => {
+      if (!selected || locked.current) return;
+      try {
+        const saved = await api.editMessage(selected, id, content);
+        setMessages((prev) =>
+          prev.map((message) => (message.id === id ? saved : message)),
+        );
+      } catch (e) {
+        handleError(e);
+      }
+    },
     stop: () => controller.current?.abort(),
     clearError: () => setError(""),
   };

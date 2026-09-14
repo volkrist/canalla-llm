@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ArrowUp, Square } from "lucide-react";
 
 export default function Composer({
@@ -9,6 +9,7 @@ export default function Composer({
   onStop,
   draft,
   setDraft,
+  enterSends = true,
 }: {
   busy: boolean;
   streaming: boolean;
@@ -17,7 +18,16 @@ export default function Composer({
   onStop: () => void;
   draft: string;
   setDraft: (text: string) => void;
+  enterSends?: boolean;
 }) {
+  const textarea = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const element = textarea.current;
+    if (element) {
+      element.style.height = "auto";
+      element.style.height = `${Math.min(element.scrollHeight, 220)}px`;
+    }
+  }, [draft]);
   const [sending, setSending] = useState(false);
   async function submit() {
     const text = draft.trim();
@@ -32,6 +42,7 @@ export default function Composer({
     if (
       event.key === "Enter" &&
       !event.shiftKey &&
+      (enterSends || event.ctrlKey || event.metaKey) &&
       !event.nativeEvent.isComposing
     ) {
       event.preventDefault();
@@ -42,6 +53,7 @@ export default function Composer({
     <div className="composer-wrap">
       <div className="composer">
         <textarea
+          ref={textarea}
           aria-label="Сообщение"
           placeholder="Напишите сообщение Alex…"
           value={draft}
@@ -77,7 +89,8 @@ export default function Composer({
         </div>
       </div>
       <p className="composer-hint">
-        Enter — отправить <span>·</span> Shift + Enter — новая строка
+        {enterSends ? "Enter" : "Ctrl + Enter"} — отправить <span>·</span> Shift
+        + Enter — новая строка
       </p>
     </div>
   );
