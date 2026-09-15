@@ -23,6 +23,7 @@ from .presence import PresenceManager
 from .presence import router as presence_router
 from .providers import LLMError, make_provider
 from .security import current_user
+from .tools.routes import router as tools_router
 
 
 class RedactTicket(logging.Filter):
@@ -109,6 +110,7 @@ app.include_router(admin_router)
 app.include_router(personal_router)
 app.include_router(presence_router)
 app.include_router(documents_router)
+app.include_router(tools_router)
 
 
 @app.exception_handler(RunPodError)

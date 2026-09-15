@@ -34,3 +34,20 @@ def test_upgrade_preserves_existing_history(tmp_path):
         assert db.execute("SELECT title,pinned FROM chats").fetchone() == ("Keep me", 0)
         assert db.execute("SELECT role FROM users").fetchone() == ("user",)
         assert db.execute("SELECT search_state FROM compute_control WHERE id=1").fetchone() == ("offline",)
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0007",)
+        for table in ("tool_runs", "web_source_snapshots", "tool_preferences"):
+            assert db.execute(f"PRAGMA foreign_key_list({table})").fetchall()
+    subprocess.run([sys.executable, "-m", "alembic", "check"], env=env, check=True, capture_output=True)
+
+
+def test_clean_install_tools_schema(tmp_path):
+    path = tmp_path / "clean.db"
+    env = {**os.environ, "DATABASE_URL": "sqlite:///" + path.as_posix()}
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"], env=env, check=True, capture_output=True
+    )
+    subprocess.run([sys.executable, "-m", "alembic", "check"], env=env, check=True, capture_output=True)
+    with sqlite3.connect(path) as db:
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert db.execute("SELECT count(*) FROM tool_runs").fetchone() == (0,)

@@ -3,6 +3,7 @@ from app import models  # noqa: F401
 from app.compute import models as compute_models  # noqa: F401
 from app.database import Base, engine
 from app.documents import models as document_models  # noqa: F401
+from app.tools import models as tool_models  # noqa: F401
 
 target_metadata = Base.metadata
 
