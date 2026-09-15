@@ -8,6 +8,7 @@ export function useChat(api: Api, onExpired: () => void) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState(false);
+  const [phase, setPhase] = useState("idle");
   const [error, setError] = useState("");
   const controller = useRef<AbortController | null>(null);
   const active = useRef(true);
@@ -89,6 +90,8 @@ export function useChat(api: Api, onExpired: () => void) {
     locked.current = true;
     setBusy(true);
     setError("");
+    setPhase("sending");
+    setStreaming(true);
     const abort = new AbortController();
     controller.current = abort;
     let accepted = false;
@@ -110,6 +113,7 @@ export function useChat(api: Api, onExpired: () => void) {
           if (!active.current) return;
           if (event.event === "meta") {
             accepted = true;
+            setPhase("waiting");
             const user = event.data.user as unknown as Message;
             const assistant = event.data.assistant as unknown as Message;
             setMessages((prev) => {
@@ -125,6 +129,7 @@ export function useChat(api: Api, onExpired: () => void) {
             });
           }
           if (event.event === "delta") {
+            setPhase("streaming");
             setMessages((prev) =>
               prev.map((message, i) =>
                 i === prev.length - 1
@@ -139,7 +144,9 @@ export function useChat(api: Api, onExpired: () => void) {
         },
         action,
       );
+      setPhase("completed");
     } catch (e) {
+      setPhase(abort.signal.aborted ? "stopped" : "error");
       if (!abort.signal.aborted) handleError(e);
     } finally {
       controller.current = null;
@@ -172,6 +179,7 @@ export function useChat(api: Api, onExpired: () => void) {
     messages,
     busy,
     streaming,
+    phase,
     error,
     select,
     remove,

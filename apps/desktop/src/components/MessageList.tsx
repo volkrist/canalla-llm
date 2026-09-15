@@ -160,7 +160,7 @@ export default function MessageList({
               </ReactMarkdown>
               {!message.content && streaming && (
                 <span className="typing" aria-label="Генерация ответа">
-                  Alex думает…
+                  Ожидаем первый ответ модели…
                 </span>
               )}
               {editing === message.id ? (

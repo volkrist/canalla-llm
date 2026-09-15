@@ -296,3 +296,35 @@ def test_context_reaches_mock_provider_once_and_settings_apply(client, auth):
         assert client.get("/chats/" + chat + "/context-preview", headers=a).json()["memories"] == []
     finally:
         app.state.provider = original
+
+
+def test_generation_context_snapshot_and_ttft(client, auth):
+    headers = auth()
+    project = client.post("/projects", headers=headers, json={"name": "Original project"}).json()
+    memory = client.post(
+        "/memory",
+        headers=headers,
+        json={"content": "Original memory", "category": "fact", "importance": 5, "is_pinned": True},
+    ).json()
+    chat = client.post("/chats", headers=headers, json={}).json()
+    client.patch("/chats/" + chat["id"], headers=headers, json={"project_id": project["id"]})
+    client.post("/chats/" + chat["id"] + "/stream", headers=headers, json={"content": "Test snapshot"})
+    messages = client.get("/chats/" + chat["id"] + "/messages", headers=headers).json()
+    answer = messages[-1]
+    assert answer["generation_started_at"] and answer["first_token_at"] and answer["completed_at"]
+    assert answer["ttft_ms"] >= 0
+    assert answer["cancellation"]["provider_stream_closed"] is True
+    assert answer["cancellation"]["upstream_cancel_confirmed"] is None
+    path = "/messages/" + answer["id"] + "/context"
+    before = client.get(path, headers=headers).json()
+    assert before["project"] == "Original project"
+    assert before["memory_count"] == 1
+    assert before["memory_chars"] == len("Original memory")
+    assert before["current_prompt_chars"] == len("Test snapshot")
+    client.patch("/projects/" + project["id"], headers=headers, json={"name": "Renamed project"})
+    client.delete("/memory/" + memory["id"], headers=headers)
+    after = client.get(path, headers=headers).json()
+    assert after["project"] == before["project"]
+    assert after["memory_count"] == 1
+    assert after["total_chars"] == before["total_chars"]
+    assert client.get(path, headers=auth("snapshot-other@example.com")).status_code == 404

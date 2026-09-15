@@ -4,6 +4,7 @@ import { ArrowUp, Square } from "lucide-react";
 export default function Composer({
   busy,
   streaming,
+  phase = "idle",
   connected,
   onSend,
   onStop,
@@ -13,6 +14,7 @@ export default function Composer({
 }: {
   busy: boolean;
   streaming: boolean;
+  phase?: string;
   connected: boolean;
   onSend: (text: string) => Promise<boolean>;
   onStop: () => void;
@@ -20,6 +22,17 @@ export default function Composer({
   setDraft: (text: string) => void;
   enterSends?: boolean;
 }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!streaming) return;
+    const start = Date.now();
+    setElapsed(0);
+    const timer = setInterval(
+      () => setElapsed(Math.floor((Date.now() - start) / 1000)),
+      1000,
+    );
+    return () => clearInterval(timer);
+  }, [streaming]);
   const textarea = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     const element = textarea.current;
@@ -66,7 +79,15 @@ export default function Composer({
         <div className="composer-toolbar">
           <span>
             <span className="tiny-dot" />{" "}
-            {streaming ? "Alex отвечает…" : "Ваш следующий вопрос"}
+            {streaming
+              ? `${phase === "sending" ? "Отправляем запрос…" : phase === "streaming" ? "Ответ поступает…" : elapsed < 8 ? "Ожидаем первый ответ модели…" : "Модель обрабатывает запрос…"} ${elapsed} с`
+              : phase === "stopped"
+                ? "Генерация остановлена"
+                : phase === "error"
+                  ? "Ошибка генерации"
+                  : phase === "completed"
+                    ? "Ответ завершён"
+                    : "Ваш следующий вопрос"}
           </span>
           {streaming ? (
             <button

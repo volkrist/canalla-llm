@@ -85,13 +85,20 @@ async def stream_response(chat, content, request, user, db, action="send", targe
             role="assistant",
             content="",
             status="generating",
+            generation_started_at=now(),
             created_at=max(
                 now(), user_message.created_at.replace(tzinfo=timezone.utc) + timedelta(microseconds=1)
             ),
         )
         db.add(assistant)
         db.flush()
-        db.add(MessageContext(message_id=assistant.id, memory_ids=context["memory_ids"]))
+        db.add(
+            MessageContext(
+                message_id=assistant.id,
+                memory_ids=context["memory_ids"],
+                snapshot={k: v for k, v in context.items() if k not in {"messages", "memories"}},
+            )
+        )
         db.get(GenerationUsage, usage_id).message_id = assistant.id
         db.commit()
         assistant_id, chat_id = assistant.id, chat.id
@@ -110,18 +117,31 @@ async def stream_response(chat, content, request, user, db, action="send", targe
         parts = []
         status = "stopped"
         tokens = {}
+        first_token_at = None
+        cancellation = {"upstream_cancel_confirmed": None}
+        started = assistant.generation_started_at
         iterator = request.app.state.provider.stream_with_usage(history, tokens)
         try:
             await request.app.state.presence.publish()
             yield sse("meta", meta)
             async for token in iterator:
                 if await request.is_disconnected():
+                    cancellation.update(
+                        application_cancelled=True,
+                        cancel_requested_at=now().isoformat(),
+                        client_stream_closed_at=now().isoformat(),
+                    )
                     break
+                if first_token_at is None:
+                    first_token_at = now()
                 parts.append(token)
                 yield sse("delta", {"content": token})
             else:
                 status = "complete"
         except asyncio.CancelledError:
+            cancellation["cancel_requested_at"] = now().isoformat()
+            cancellation["client_stream_closed_at"] = now().isoformat()
+            cancellation["application_cancelled"] = True
             raise
         except Exception as error:
             status = "error"
@@ -137,11 +157,29 @@ async def stream_response(chat, content, request, user, db, action="send", targe
                 },
             )
         finally:
+            # Shield cleanup so cancellation cannot skip provider closure and persistence.
+            import anyio
+
+            with anyio.CancelScope(shield=True):
+                try:
+                    await iterator.aclose()
+                    cancellation["provider_stream_closed_at"] = now().isoformat()
+                    cancellation["provider_stream_closed"] = True
+                except Exception:
+                    cancellation["provider_stream_closed"] = False
             try:
                 with SessionLocal() as save_db:
                     saved = save_db.get(Message, assistant_id)
                     if saved:
                         saved.content, saved.status = "".join(parts), status
+                        saved.first_token_at = first_token_at
+                        saved.completed_at = now()
+                        saved.ttft_ms = (
+                            max(0, int((first_token_at - started).total_seconds() * 1000))
+                            if first_token_at
+                            else None
+                        )
+                        saved.cancellation = cancellation
                         saved_chat = save_db.get(Chat, chat_id)
                         if saved_chat:
                             saved_chat.updated_at = now()
@@ -149,8 +187,8 @@ async def stream_response(chat, content, request, user, db, action="send", targe
                 compute.finish_generation(usage_id, status, assistant_id, tokens)
             finally:
                 request.app.state.generating.discard(chat_id)
-                await iterator.aclose()
-                await request.app.state.presence.publish()
+                with anyio.CancelScope(shield=True):
+                    await request.app.state.presence.publish()
         if status == "complete":
             yield sse("done", {"message_id": assistant_id})
 

@@ -92,9 +92,9 @@ const labels: Record<string, string> = {
 };
 const defaults: Preferences = {
   selection: "automatic",
-  min_vram_gb: 48,
-  max_hourly_price: 1.2,
-  session_budget: 3,
+  min_vram_gb: 0,
+  max_hourly_price: 0,
+  session_budget: 0,
   auto_stop_minutes: 10,
   gpu_id: "NVIDIA L40S",
   auto_search: true,
@@ -113,6 +113,7 @@ export default function ComputePanel({
 }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [preferences, setPreferences] = useState<Preferences>(defaults);
+  const [preferencesReady, setPreferencesReady] = useState(false);
   const [open, setOpen] = useState(false);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [selected, setSelected] = useState("");
@@ -141,7 +142,10 @@ export default function ComputePanel({
     void api
       .json<Preferences>("/compute/preferences")
       .then((value) => {
-        if (!cancelled) setPreferences(value);
+        if (!cancelled) {
+          setPreferences(value);
+          setPreferencesReady(true);
+        }
       })
       .catch(() => {});
     const timer = setInterval(() => void refresh(), 3000);
@@ -189,6 +193,7 @@ export default function ComputePanel({
     }
   }
   async function search(searchPreferences = preferences) {
+    if (!preferencesReady) return;
     searchPreferences = { ...searchPreferences, auto_connect: true };
     await run(async () => {
       await api.json("/compute/preferences", {
@@ -240,6 +245,12 @@ export default function ComputePanel({
       });
     });
   }
+  if (!preferencesReady)
+    return (
+      <section className="compute-panel" aria-label="AI Compute">
+        Загрузка настроек Compute…
+      </section>
+    );
   return (
     <section className="compute-panel" aria-label="AI Compute">
       <div className="compute-summary">
@@ -449,6 +460,19 @@ export default function ComputePanel({
             </div>
           ) : (
             <>
+              <p>
+                Сохранённые лимиты: максимум{" "}
+                {money(
+                  status?.preferences?.max_hourly_price ??
+                    effective.max_hourly_price,
+                )}
+                /ч · бюджет{" "}
+                {money(
+                  status?.preferences?.session_budget ??
+                    effective.session_budget,
+                )}
+                .
+              </p>
               <p>
                 Поиск автоматически создаст один платный Pod при совпадении
                 условий. Закрытие окна не отменяет поиск.

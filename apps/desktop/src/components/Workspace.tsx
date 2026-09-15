@@ -239,6 +239,7 @@ export default function Workspace({
           </p>
         )}
         <Composer
+          phase={chat.phase}
           busy={chat.busy}
           streaming={chat.streaming}
           connected={!!health && !!llm?.available}

@@ -69,3 +69,8 @@ class MessageOut(BaseModel):
     created_at: datetime
     status: str
     edited_at: datetime | None
+    generation_started_at: datetime | None = None
+    first_token_at: datetime | None = None
+    completed_at: datetime | None = None
+    ttft_ms: int | None = None
+    cancellation: dict | None = None

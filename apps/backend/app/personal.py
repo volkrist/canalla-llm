@@ -215,3 +215,17 @@ def used_memory(key: str, user: User = Depends(current_user), db: Session = Depe
     return db.scalars(
         select(Memory).where(Memory.user_id == user.id, Memory.id.in_(context.memory_ids if context else []))
     ).all()
+
+
+@router.get("/messages/{key}/context")
+def used_context(key: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    message = db.scalar(select(Message).join(Chat).where(Message.id == key, Chat.user_id == user.id))
+    if not message:
+        raise HTTPException(404, "Сообщение не найдено")
+    context = db.get(MessageContext, key)
+    memories = used_memory(key, user, db)
+    snapshot = context.snapshot if context else None
+    return {
+        **(snapshot or {"metadata_available": False}),
+        "memories": [MemoryOut.model_validate(m).model_dump(mode="json") for m in memories],
+    }

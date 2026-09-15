@@ -135,7 +135,21 @@ class ContextBuilder:
         return {
             "messages": messages,
             "memory_ids": ids,
-            "memories": [{"id": m.id, "content": m.content, "score": score} for m, score in selected],
+            "memories": [
+                {"id": m.id, "content": m.content, "category": m.category, "score": score}
+                for m, score in selected
+            ],
+            "memory_count": len(selected),
+            "memory_categories": [m.category for m, _ in selected],
+            "memory_chars": sum(len(m.content) for m, _ in selected),
+            "history_chars": size,
+            "project_chars": len(
+                (project.name + "\n" + project.description)[: self.settings.context_project_chars]
+            )
+            if project
+            else 0,
+            "current_prompt_chars": len(current.content),
+            "metadata_available": True,
             "project": project.name if project else None,
             "recent_message_count": len(history),
             "budgets": {

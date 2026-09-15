@@ -85,9 +85,16 @@ export default function PersonalPanel({
   const [deleting, setDeleting] = useState<string | null>(null);
   const [preview, setPreview] = useState<null | {
     memories: { id: string; content: string }[];
-    project: string | null;
-    recent_message_count: number;
-    total_chars: number;
+    project?: string | null;
+    metadata_available?: boolean;
+    memory_count?: number;
+    memory_categories?: string[];
+    memory_chars?: number;
+    history_chars?: number;
+    project_chars?: number;
+    current_prompt_chars?: number;
+    recent_message_count?: number;
+    total_chars?: number;
     messages?: { role: string; content: string }[];
   }>(null);
   const [error, setError] = useState("");
@@ -175,14 +182,11 @@ export default function PersonalPanel({
       setTab("Контекст");
       setPreview(null);
       void run(async () =>
-        setPreview({
-          memories: await api.json<Memory[]>(
-            `/messages/${(event as CustomEvent<string>).detail}/memory`,
+        setPreview(
+          await api.json(
+            `/messages/${(event as CustomEvent<string>).detail}/context`,
           ),
-          project: null,
-          recent_message_count: 0,
-          total_chars: 0,
-        }),
+        ),
       );
     };
     const settings = () => setTab("Профиль");
@@ -722,10 +726,29 @@ export default function PersonalPanel({
           {tab === "Контекст" && preview && (
             <>
               <p>
-                Проект: {preview.project || "Без проекта"} · Сообщений истории:{" "}
-                {preview.recent_message_count} · Символов: {preview.total_chars}
+                Проект:{" "}
+                {preview.metadata_available === false
+                  ? "нет данных"
+                  : preview.project || "Без проекта"}{" "}
+                · Сообщений истории: {preview.recent_message_count ?? "—"} ·
+                Символов: {preview.total_chars ?? "—"}
               </p>
-              <h3>Использовано памяти: {preview.memories.length}</h3>
+              <h3>
+                Использовано памяти:{" "}
+                {preview.memory_count ?? preview.memories.length}
+              </h3>
+              <p>
+                Категории:{" "}
+                {preview.memory_categories
+                  ?.map((c) => categoryNames[c] || c)
+                  .join(", ") || "—"}
+              </p>
+              <p>
+                Символы: память {preview.memory_chars ?? "—"} · история{" "}
+                {preview.history_chars ?? "—"} · проект{" "}
+                {preview.project_chars ?? "—"} · запрос{" "}
+                {preview.current_prompt_chars ?? "—"}
+              </p>
               {preview.memories.map((m) => (
                 <p key={m.id}>{m.content}</p>
               ))}

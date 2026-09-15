@@ -54,6 +54,11 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(16))
     content: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(16), default="complete", server_default="complete")
+    generation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    first_token_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ttft_ms: Mapped[int | None] = mapped_column(Integer)
+    cancellation: Mapped[dict | None] = mapped_column(JSON)
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
@@ -91,6 +96,7 @@ class MessageContext(Base):
     __tablename__ = "message_contexts"
     message_id: Mapped[str] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True)
     memory_ids: Mapped[list] = mapped_column(JSON, default=list)
+    snapshot: Mapped[dict | None] = mapped_column(JSON)
 
 
 class PresenceSession(Base):
