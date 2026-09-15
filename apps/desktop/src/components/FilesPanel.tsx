@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Api } from "../lib/api";
+import EmbeddingModelStatus from "./EmbeddingModelStatus";
 
 interface Document {
   id: string;
@@ -41,6 +42,7 @@ export default function FilesPanel({
   projectId: string | null;
 }) {
   const [open, setOpen] = useState(false);
+  const [modelReady, setModelReady] = useState(false);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState("");
@@ -128,6 +130,7 @@ export default function FilesPanel({
         >
           <button onClick={() => setOpen(false)}>Закрыть файлы</button>
           <h2>Файлы и RAG</h2>
+          <EmbeddingModelStatus api={api} onReady={setModelReady} />
           <p>
             PDF, DOCX, TXT, MD · до 25 MB. Документы станут доступны чату после
             индексации. Сканированные PDF без текста не поддерживаются.
@@ -156,7 +159,7 @@ export default function FilesPanel({
               type="file"
               multiple
               accept=".pdf,.docx,.txt,.md"
-              disabled={busy}
+              disabled={busy || !modelReady}
               onChange={(e) => {
                 const files = Array.from(e.target.files || []);
                 e.target.value = "";

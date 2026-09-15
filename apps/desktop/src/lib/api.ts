@@ -54,6 +54,15 @@ export class Api {
   async json<T>(path: string, init?: RequestInit): Promise<T> {
     return (await this.response(path, init)).json();
   }
+  async events(
+    path: string,
+    signal: AbortSignal,
+    onEvent: (event: ServerEvent) => void,
+  ) {
+    const response = await this.response(path, { signal });
+    if (!response.body) throw new Error("Поток событий недоступен");
+    await consumeSSE(response.body, onEvent);
+  }
   auth(mode: "login" | "register", email: string, password: string) {
     return this.json<{ access_token: string }>(`/auth/${mode}`, {
       method: "POST",

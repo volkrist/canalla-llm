@@ -39,8 +39,10 @@ def validate_vectors(vectors, count, dimension):
 
 
 class LocalEmbeddingProvider(EmbeddingProvider):
-    def __init__(self, settings=None):
+    def __init__(self, settings=None, *, verified_root: Path | None = None):
         self.settings = settings or get_settings()
+        # Only the lifecycle manager supplies a staging root for its verification smoke.
+        self._verified_root = verified_root
         self._model = None
         self._tokenizer = None
         self._lock = threading.RLock()
@@ -49,9 +51,12 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         with self._lock:
             if self._model is not None:
                 return
-            root = Path(self.settings.embedding_model_dir)
+            from .model_manager import get_model_manager
+
+            root = self._verified_root or get_model_manager().ready_path()
             if (
                 self.settings.embedding_model_name != MODEL
+                or root is None
                 or not (root / "onnx/model_quantized.onnx").is_file()
             ):
                 raise EmbeddingUnavailable("Embedding service unavailable. Подготовьте локальную модель.")
@@ -112,19 +117,10 @@ def get_embedding():
 
 
 if __name__ == "__main__":
-    # Explicit administrator preparation; never invoked by upload or retrieval.
-    from huggingface_hub import snapshot_download
+    from .model_manager import get_model_manager
 
-    snapshot_download(
-        "Xenova/multilingual-e5-small",
-        revision=REVISION,
-        allow_patterns=[
-            "config.json",
-            "tokenizer.json",
-            "tokenizer_config.json",
-            "special_tokens_map.json",
-            "onnx/model_quantized.onnx",
-        ],
-        local_dir=get_settings().embedding_model_dir,
-    )
-    print("Local embedding model prepared:", MODEL, REVISION)
+    manager = get_model_manager()
+    manager.prepare("local-administrator")
+    if manager._thread:
+        manager._thread.join()
+    print(manager.status())

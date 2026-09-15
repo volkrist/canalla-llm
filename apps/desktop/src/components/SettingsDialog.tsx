@@ -5,6 +5,7 @@ import { validateBackendUrl } from "../lib/api";
 import type { Api } from "../lib/api";
 import { exportChats } from "../lib/files";
 import { clearDrafts, draftPrefix } from "../lib/drafts";
+import EmbeddingModelStatus from "./EmbeddingModelStatus";
 
 export default function SettingsDialog({
   value,
@@ -58,6 +59,7 @@ export default function SettingsDialog({
             "Чат",
             "AI / Compute",
             "Personalization / Memory",
+            "Files / RAG",
             "Данные",
             "Дополнительно",
           ].map((tab) => (
@@ -71,6 +73,12 @@ export default function SettingsDialog({
             </button>
           ))}
         </nav>
+        {section === "Files / RAG" &&
+          (api ? (
+            <EmbeddingModelStatus api={api} />
+          ) : (
+            <p>Войдите в аккаунт.</p>
+          ))}
         {section === "Personalization / Memory" && (
           <button
             type="button"

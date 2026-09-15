@@ -1,9 +1,12 @@
+import asyncio
 import hashlib
+import json
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -14,12 +17,57 @@ from ..database import get_db
 from ..models import Chat, MessageContext, User, now
 from ..personal import owned, validate_project
 from ..security import current_user
+from .model_manager import get_model_manager
 from .models import Document, RagPreferences
 from .service import DocumentIndexJob, mutation_lock
 from .storage import LocalDocumentStorage
 from .vector import SQLVectorStore
 
 router = APIRouter(tags=["files"])
+
+
+@router.get("/rag/model")
+def model_status(user: User = Depends(current_user)):
+    return get_model_manager().status(user.id, user.role == "admin")
+
+
+@router.post("/rag/model/prepare")
+@router.post("/rag/model/retry")
+def model_prepare(user: User = Depends(current_user)):
+    return get_model_manager().prepare(user.id)
+
+
+@router.post("/rag/model/cancel")
+def model_cancel(user: User = Depends(current_user)):
+    try:
+        return get_model_manager().cancel(user.id, user.role == "admin")
+    except PermissionError as error:
+        raise HTTPException(403, str(error)) from None
+
+
+@router.get("/rag/model/events")
+def model_events(user: User = Depends(current_user)):
+    actor, admin = user.id, user.role == "admin"
+
+    async def events():
+        previous = None
+        for _ in range(600):
+            value = await asyncio.to_thread(get_model_manager().status, actor, admin)
+            encoded = json.dumps(value, ensure_ascii=False)
+            if encoded != previous:
+                yield f"event: model\ndata: {encoded}\n\n"
+                previous = encoded
+            else:
+                yield ": heartbeat\n\n"
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 TYPES = {
     "pdf": "application/pdf",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

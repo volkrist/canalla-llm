@@ -39,7 +39,8 @@ class Settings(BaseSettings):
     document_max_per_user: int = Field(default=100, ge=1, le=500)
     document_max_chars: int = Field(default=500000, ge=100, le=1000000)
     document_max_chunks: int = Field(default=1000, ge=1, le=2000)
-    embedding_model_dir: str = ".data/embeddings/e5-small"
+    alex_llm_data_dir: str = ""
+    embedding_model_dir: str = ""  # Optional legacy import directory; not the active installation.
     embedding_model_name: str = "intfloat/multilingual-e5-small"
     embedding_threads: int = Field(default=2, ge=1, le=8)
     rag_max_chars: int = Field(default=12000, ge=100, le=20000)
