@@ -90,7 +90,7 @@ alex-llm/
 
 - Chat rename/search/pin, Markdown/JSON export (one or all), user-message editing, edit-and-resend and regeneration with linear-history truncation.
 - Per-account/backend/chat local drafts, keyboard shortcuts, configurable Enter, timestamps, syntax highlighting, safe system-browser links and native save dialog.
-- Separate backend/mock/compute status, RunPod REST v2 controller, GPU discovery and price confirmation, persistent sessions, budget/idle stop and usage/admin views.
+- Separate backend/mock/compute status, RunPod REST v2 controller, GPU discovery with automatic connection under saved UI limits, persistent sessions, budget/idle stop and usage/admin views.
 - RunPod is optional: an empty backend API key shows **Not configured** and mock chat remains usable. Read [the controller guide](docs/runpod-controller.md) before enabling paid compute.
 
 - Login, registration, authenticated user endpoint; Argon2id password hashes and expiring JWTs.

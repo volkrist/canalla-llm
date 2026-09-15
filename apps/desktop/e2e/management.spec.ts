@@ -74,19 +74,21 @@ test("rename, pin, drafts, edit/resend, export and usage", async ({ page }) => {
   await expect(composer).toHaveValue("Многострочный\n");
 });
 
-test("test-only compute fixtures: search, price confirmation, startup and ready", async ({
+test("test-only compute fixtures: live settings and automatic connection", async ({
   page,
 }) => {
   // All compute requests are intercepted in this test. No production fake-state switch exists.
   let state = "offline",
     creates = 0;
-  const preferences = {
+  let preferences = {
     selection: "automatic",
     min_vram_gb: 48,
     max_hourly_price: 1.2,
     session_budget: 3,
     auto_stop_minutes: 10,
-    auto_search: false,
+    auto_connect: false,
+    gpu_id: "NVIDIA L40S",
+    auto_search: true,
     search_interval: 30,
   };
   await page.route("**/compute/**", async (route) => {
@@ -94,6 +96,9 @@ test("test-only compute fixtures: search, price confirmation, startup and ready"
     const session = ["starting_pod", "ready"].includes(state)
       ? {
           id: "fixture-session",
+          session_budget: preferences.session_budget,
+          max_hourly_price: preferences.max_hourly_price,
+          auto_stop_minutes: preferences.auto_stop_minutes,
           gpu_type: "NVIDIA L40S · TEST",
           hourly_rate: 1.09,
           billable_seconds: 120,
@@ -109,6 +114,12 @@ test("test-only compute fixtures: search, price confirmation, startup and ready"
       return route.fulfill({
         json: {
           configured: true,
+          preferences,
+          limits: {
+            min_vram_gb: 48,
+            max_hourly_price: 100,
+            session_budget: 1000,
+          },
           state,
           can_control: true,
           message: null,
@@ -121,33 +132,23 @@ test("test-only compute fixtures: search, price confirmation, startup and ready"
           next_search_at: null,
         },
       });
-    if (path.endsWith("/preferences"))
+    if (path.endsWith("/preferences")) {
+      if (route.request().method() === "PUT")
+        preferences = route.request().postDataJSON();
       return route.fulfill({ json: preferences });
-    if (path.endsWith("/search"))
-      return route.fulfill({
-        json: {
-          quote_id: "fixture",
-          expires_at: new Date(Date.now() + 90000).toISOString(),
-          preferences,
-          selected_gpu_id: "l40s",
-          options: [
-            {
-              id: "l40s",
-              name: "NVIDIA L40S · TEST",
-              vram_gb: 48,
-              hourly_rate: 1.09,
-              selectable: true,
-              availability: "LOW",
-              reason: null,
-            },
-          ],
-        },
-      });
-    if (path.endsWith("/start")) {
+    }
+    if (path.endsWith("/search")) {
+      const body = route.request().postDataJSON();
+      expect(body.auto_connect).toBe(true);
+      expect(body.gpu_id).toBe("NVIDIA L40S");
       creates++;
       state = "starting_pod";
-      return route.fulfill({ json: {} });
+      return route.fulfill({ json: { existing: true, status: { state } } });
     }
+    if (path.endsWith("/start"))
+      throw new Error(
+        "UI must not require a second create/confirmation request",
+      );
     return route.fulfill({
       status: 404,
       json: { detail: "Unmocked test route" },
@@ -177,18 +178,19 @@ test("test-only compute fixtures: search, price confirmation, startup and ready"
   });
   await page.screenshot({ path: "test-results/gpu-search-test.png" });
   await page.getByRole("button", { name: "AI / Compute", exact: true }).click();
-  await page.getByRole("button", { name: "Найти GPU", exact: true }).click();
+  await page.getByLabel("Бюджет сессии, $", { exact: true }).fill("5");
+  await page.getByLabel("Максимум $/час", { exact: true }).fill("1.6");
+  await page
+    .getByRole("button", { name: "Сохранить параметры compute", exact: true })
+    .click();
+  await expect.poll(() => preferences.session_budget).toBe(5);
+  expect(creates).toBe(0);
+  await page
+    .getByRole("button", { name: "Найти GPU и подключиться", exact: true })
+    .click();
   await expect(
     page.getByText("Подтверждение платного запуска", { exact: true }),
-  ).toBeVisible();
-  expect(creates).toBe(0);
-  await page.screenshot({ path: "test-results/gpu-confirm-test.png" });
-  await page
-    .getByRole("button", {
-      name: "Подтверждаю запуск за $1.090/час",
-      exact: true,
-    })
-    .click();
+  ).toBeHidden();
   await expect(page.getByText("Запуск Pod", { exact: true })).toBeVisible();
   expect(creates).toBe(1);
   await page.screenshot({ path: "test-results/gpu-starting-test.png" });

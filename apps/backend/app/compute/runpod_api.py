@@ -178,7 +178,9 @@ class RunPodAPI:
                 stock = dc["availability"] if dc else "NONE"
                 compatible = memory >= preferences.min_vram_gb
                 reason = (
-                    "insufficient_vram"
+                    "gpu_not_selected"
+                    if preferences.gpu_id and gpu["id"] != preferences.gpu_id
+                    else "insufficient_vram"
                     if not compatible
                     else "price_limit"
                     if price > preferences.max_hourly_price

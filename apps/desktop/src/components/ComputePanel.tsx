@@ -8,6 +8,8 @@ interface Preferences {
   max_hourly_price: number;
   session_budget: number;
   auto_stop_minutes: number;
+  gpu_id?: string | null;
+  auto_connect?: boolean;
   auto_search: boolean;
   search_interval: number;
 }
@@ -39,8 +41,18 @@ interface Status {
   active_generations: number;
   active_users?: Array<{ id: string; email: string }>;
   datacenter: string;
+  preferences?: Preferences;
+  search_preferences?: Preferences | null;
+  limits?: {
+    min_vram_gb: number;
+    max_hourly_price: number;
+    session_budget: number;
+  };
   session: null | {
     id: string;
+    session_budget: number;
+    max_hourly_price: number;
+    auto_stop_minutes: number;
     gpu_type: string;
     gpu_vram_mb?: number;
     hourly_rate: number;
@@ -84,7 +96,8 @@ const defaults: Preferences = {
   max_hourly_price: 1.2,
   session_budget: 3,
   auto_stop_minutes: 10,
-  auto_search: false,
+  gpu_id: "NVIDIA L40S",
+  auto_search: true,
   search_interval: 30,
 };
 const money = (value: number) => `$${Number(value).toFixed(3)}`;
@@ -176,6 +189,7 @@ export default function ComputePanel({
     }
   }
   async function search(searchPreferences = preferences) {
+    searchPreferences = { ...searchPreferences, auto_connect: true };
     await run(async () => {
       await api.json("/compute/preferences", {
         method: "PUT",
@@ -185,7 +199,9 @@ export default function ComputePanel({
         "/compute/search",
         { method: "POST", body: JSON.stringify(searchPreferences) },
       );
+      setPreferences(searchPreferences);
       if (found.existing) {
+        setQuote(null);
         setOpen(false);
         return;
       }
@@ -194,6 +210,8 @@ export default function ComputePanel({
       key.current = crypto.randomUUID();
     });
   }
+  const effective =
+    status?.search_preferences || status?.preferences || preferences;
   const gpu = quote?.options.find((item) => item.id === selected);
   const displayedState =
     llm?.provider === "llamacpp" &&
@@ -322,8 +340,9 @@ export default function ComputePanel({
       )}
       {!status?.session && status?.configured && (
         <p>
-          {status.datacenter} · NVIDIA · VRAM ≥{preferences.min_vram_gb} GB ·
-          цена ≤${Number(preferences.max_hourly_price).toFixed(2)}/ч
+          {status.datacenter} · {effective.gpu_id || "NVIDIA"} · VRAM ≥
+          {effective.min_vram_gb} GB · цена ≤$
+          {Number(effective.max_hourly_price).toFixed(2)}/ч
         </p>
       )}
       {status?.state === "no_gpu" && status.can_control && (
@@ -430,7 +449,36 @@ export default function ComputePanel({
             </div>
           ) : (
             <>
+              <p>
+                Поиск автоматически создаст один платный Pod при совпадении
+                условий. Закрытие окна не отменяет поиск.
+              </p>
+              {status?.session && (
+                <p>
+                  Текущая сессия: бюджет {money(status.session.session_budget)},
+                  максимум {money(status.session.max_hourly_price)}/ч,
+                  автоостановка{" "}
+                  {status.session.auto_stop_minutes || "выключена"} мин.
+                  Сохранённые изменения бюджета, цены и автоостановки
+                  применяются сразу; GPU — при следующем запуске.
+                </p>
+              )}
               <div className="compute-fields">
+                <label>
+                  Точный GPU (пусто — любой подходящий NVIDIA)
+                  <input
+                    value={preferences.gpu_id || ""}
+                    placeholder="NVIDIA L40S"
+                    maxLength={160}
+                    onChange={(e) => {
+                      setPreferences({
+                        ...preferences,
+                        gpu_id: e.target.value.trim() || null,
+                      });
+                      setQuote(null);
+                    }}
+                  />
+                </label>
                 <label>
                   Выбор GPU
                   <select
@@ -460,7 +508,18 @@ export default function ComputePanel({
                     {label}
                     <input
                       type="number"
-                      min={field === "min_vram_gb" ? 48 : 0.01}
+                      min={
+                        field === "min_vram_gb"
+                          ? status?.limits?.min_vram_gb || 48
+                          : 0.01
+                      }
+                      max={
+                        field === "min_vram_gb"
+                          ? 1024
+                          : field === "max_hourly_price"
+                            ? status?.limits?.max_hourly_price || 100
+                            : status?.limits?.session_budget || 1000
+                      }
                       step={field === "min_vram_gb" ? 1 : 0.01}
                       value={preferences[field]}
                       onChange={(e) => {
@@ -511,10 +570,15 @@ export default function ComputePanel({
                 disabled={busy}
                 onClick={() =>
                   void run(async () => {
-                    await api.json("/compute/preferences", {
-                      method: "PUT",
-                      body: JSON.stringify(preferences),
-                    });
+                    const saved = await api.json<Preferences>(
+                      "/compute/preferences",
+                      {
+                        method: "PUT",
+                        body: JSON.stringify(preferences),
+                      },
+                    );
+                    setPreferences(saved);
+                    setQuote(null);
                   })
                 }
               >
@@ -529,7 +593,7 @@ export default function ComputePanel({
                 }
                 onClick={() => void search()}
               >
-                {busy ? "Проверка…" : "Найти GPU"}
+                {busy ? "Проверка…" : "Найти GPU и подключиться"}
               </button>
               {status?.quote_id && !quote && (
                 <button
@@ -617,17 +681,19 @@ export default function ComputePanel({
                           <td>
                             {item.reason === "price_limit"
                               ? "Выше лимита"
-                              : item.reason === "insufficient_vram"
-                                ? "Мало VRAM"
-                                : !item.selectable
-                                  ? "Нет в наличии"
-                                  : "Доступна"}
+                              : item.reason === "gpu_not_selected"
+                                ? "Другой GPU"
+                                : item.reason === "insufficient_vram"
+                                  ? "Мало VRAM"
+                                  : !item.selectable
+                                    ? "Нет в наличии"
+                                    : "Доступна"}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  {gpu && (
+                  {gpu && !quote.preferences.auto_connect && (
                     <div className="cost-confirm">
                       <h3>Подтверждение платного запуска</h3>
                       <p>

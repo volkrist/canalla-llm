@@ -14,24 +14,25 @@ class ComputePreferences(BaseModel):
     max_hourly_price: Decimal = Field(default=Decimal("1.20"), gt=0, le=100, max_digits=8, decimal_places=4)
     session_budget: Decimal = Field(default=Decimal("3.00"), gt=0, le=1000, max_digits=9, decimal_places=4)
     auto_stop_minutes: Literal[0, 5, 10, 15, 30] = 10
+    gpu_id: str | None = Field(default=None, min_length=1, max_length=160)
+    auto_connect: bool = False
     auto_search: bool = False
     search_interval: int = Field(default=30, ge=15, le=300)
 
     def enforce(self, settings: Settings):
         if self.min_vram_gb < settings.runpod_min_vram_gb:
             raise ValueError(f"Минимум VRAM на сервере: {settings.runpod_min_vram_gb} GB")
-        if self.max_hourly_price > settings.runpod_max_hourly_price:
-            raise ValueError(f"Лимит сервера: ${settings.runpod_max_hourly_price}/час")
-        if self.session_budget > settings.runpod_max_session_budget:
-            raise ValueError(f"Бюджет сессии не может превышать ${settings.runpod_max_session_budget}")
+        if self.auto_connect and self.selection == "manual" and not self.gpu_id:
+            raise ValueError("Для автоподключения выберите точный GPU или автоматический выбор")
         return self
 
     @classmethod
     def defaults(cls, settings: Settings):
         return cls(
+            gpu_id="NVIDIA L40S",
             min_vram_gb=settings.runpod_min_vram_gb,
-            max_hourly_price=settings.runpod_max_hourly_price,
-            session_budget=settings.runpod_max_session_budget,
+            max_hourly_price=Decimal("1.20"),
+            session_budget=Decimal("3.00"),
             auto_stop_minutes=settings.runpod_auto_stop_minutes,
             search_interval=settings.runpod_search_interval,
         )

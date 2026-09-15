@@ -190,7 +190,7 @@ def test_price_change_requires_new_confirmation(compute):
     assert not supplier.creates
 
 
-def test_budget_waits_for_generation_then_stops(compute):
+def test_budget_stops_even_during_generation(compute):
     controller, supplier, user = compute
 
     async def scenario():
@@ -203,8 +203,8 @@ def test_budget_waits_for_generation_then_stops(compute):
         usage = await controller.begin_generation(user.id, chat.id, "mock")
         supplier.time += timedelta(seconds=60)
         await controller.tick()
-        assert not supplier.actions
-        assert controller.get_compute_status(user)["session"]["pending_stop"]
+        assert supplier.actions == [{"action": "terminate"}]
+        assert controller.get_compute_status(user)["session"] is None
         with pytest.raises(HTTPException):
             await controller.begin_generation(user.id, chat.id, "mock")
         controller.finish_generation(usage, "complete")
@@ -431,3 +431,146 @@ def test_rejected_placement_resumes_search(compute):
         assert len(supplier.creates) == 1
 
     asyncio.run(scenario())
+
+
+def test_auto_connect_exact_gpu_once_and_recovery(compute):
+    controller, supplier, user = compute
+
+    async def scenario():
+        prefs = ComputePreferences(auto_connect=True, gpu_id="gpu-48")
+        result = await controller.search_gpu(user, prefs)
+        assert result["status"]["session"]["gpu_type"] == "gpu-48"
+        await controller.search_gpu(user, prefs)
+        restarted = RunPodController(controller.settings, api=controller.api, clock=controller.clock)
+        await restarted.recover()
+        assert len(supplier.creates) == 1
+
+    asyncio.run(scenario())
+
+
+def test_auto_connect_waits_for_exact_gpu_not_cheaper_fallback(compute):
+    controller, supplier, user = compute
+
+    async def scenario():
+        # gpu-80 is available but forbidden by the exact target, even under a higher limit.
+        supplier.price = 4
+        prefs = ComputePreferences(auto_connect=True, gpu_id="gpu-48", max_hourly_price=2)
+        await controller.search_gpu(user, prefs)
+        assert controller.get_compute_status(user)["state"] == "searching"
+        assert not supplier.creates
+        supplier.price = 1.5
+        supplier.time += timedelta(seconds=31)
+        await controller.tick()
+        assert len(supplier.creates) == 1
+        assert supplier.creates[0]["gpu"]["id"] == "gpu-48"
+
+    asyncio.run(scenario())
+
+
+def test_auto_connect_rechecks_price_and_cancel_disarms(compute):
+    controller, supplier, user = compute
+    original = controller.api.gpu_options
+    count = 0
+
+    async def changing(prefs):
+        nonlocal count
+        count += 1
+        if count > 1:
+            supplier.price = 1.1
+        return await original(prefs)
+
+    controller.api.gpu_options = changing
+
+    async def scenario():
+        await controller.search_gpu(user, ComputePreferences(auto_connect=True, gpu_id="gpu-48"))
+        assert not supplier.creates
+        assert controller.get_compute_status(user)["state"] == "searching"
+        await controller.cancel_gpu_search(user)
+        supplier.time += timedelta(minutes=1)
+        await controller.tick()
+        assert not supplier.creates
+
+    asyncio.run(scenario())
+
+
+def test_auto_connect_rechecks_permissions_after_wait(compute):
+    controller, supplier, user = compute
+
+    async def scenario():
+        supplier.price = 4
+        await controller.search_gpu(user, ComputePreferences(auto_connect=True, gpu_id="gpu-48"))
+        with SessionLocal() as db:
+            db.get(User, user.id).role = "user"
+            db.commit()
+        supplier.price = 0.8
+        supplier.time += timedelta(seconds=31)
+        await controller.tick()
+        assert not supplier.creates
+        assert controller.get_compute_status(user)["next_search_at"] is None
+
+    asyncio.run(scenario())
+
+
+def test_live_preferences_ignore_legacy_env_cap_and_survive_restart(compute):
+    controller, supplier, user = compute
+    controller.settings.runpod_max_session_budget = Decimal("0.82")
+    controller.settings.runpod_max_hourly_price = Decimal("1.09")
+
+    async def scenario():
+        await start(controller, user)
+        prefs = ComputePreferences(session_budget=5, max_hourly_price=1.6, auto_stop_minutes=5)
+        await controller.update_preferences(user, prefs)
+        current = controller.get_compute_status(user)
+        assert current["session"]["session_budget"] == 5
+        assert current["session"]["max_hourly_price"] == 1.6
+        assert current["session"]["auto_stop_minutes"] == 5
+        restarted = RunPodController(controller.settings, api=controller.api, clock=controller.clock)
+        assert restarted.preferences(user.id).session_budget == 5
+        assert len(supplier.creates) == 1
+
+    asyncio.run(scenario())
+
+
+def test_changed_preferences_invalidate_quote(compute):
+    controller, supplier, user = compute
+
+    async def scenario():
+        quote = await controller.search_gpu(user, ComputePreferences())
+        await controller.update_preferences(user, ComputePreferences(max_hourly_price=0.5))
+        with pytest.raises(RunPodError):
+            await controller.start_compute(
+                user,
+                StartRequest(
+                    quote_id=quote["quote_id"], gpu_id="gpu-48", idempotency_key=str(uuid4()), confirmed=True
+                ),
+            )
+        assert not supplier.creates
+
+    asyncio.run(scenario())
+
+
+def test_live_search_preferences_restrict_next_attempt(compute):
+    controller, supplier, user = compute
+
+    async def scenario():
+        supplier.price = 4
+        await controller.search_gpu(user, ComputePreferences(auto_connect=True, gpu_id="gpu-48"))
+        await controller.update_preferences(
+            user, ComputePreferences(auto_connect=True, gpu_id="gpu-80", max_hourly_price=1.7)
+        )
+        await controller.tick()
+        assert len(supplier.creates) == 1
+        assert supplier.creates[0]["gpu"]["id"] == "gpu-80"
+
+    asyncio.run(scenario())
+
+
+def test_preferences_route_requires_compute_permission(client, auth):
+    assert client.put("/compute/preferences", headers=auth(), json={"session_budget": 5}).status_code == 403
+
+
+def test_auto_manual_requires_exact_gpu():
+    from app.config import get_settings
+
+    with pytest.raises(ValueError):
+        ComputePreferences(selection="manual", auto_connect=True).enforce(get_settings())

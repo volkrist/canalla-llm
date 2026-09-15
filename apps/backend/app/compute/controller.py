@@ -119,7 +119,7 @@ class RunPodController:
         with self.sessions() as db:
             row = db.get(ComputePreference, user_id)
             return (
-                ComputePreferences.model_validate(row.values)
+                ComputePreferences.model_validate({"gpu_id": "NVIDIA L40S", **row.values})
                 if row
                 else ComputePreferences.defaults(self.settings)
             )
@@ -133,6 +133,41 @@ class RunPodController:
             else:
                 db.add(ComputePreference(user_id=user_id, values=preferences.model_dump(mode="json")))
             db.commit()
+        return preferences
+
+    async def update_preferences(self, user, preferences):
+        async with self.operation():
+            preferences.enforce(self.settings)
+            with self.sessions() as db:
+                control = db.get(ComputeControl, 1)
+                row = db.get(ComputeSession, control.active_session_id) if control.active_session_id else None
+                if row and row.managed and row.started_by_user_id != user.id and user.role != "admin":
+                    raise HTTPException(
+                        403, "Настройки активной сессии может менять инициатор или администратор"
+                    )
+                if row and row.managed:
+                    row.session_budget = preferences.session_budget
+                    row.max_hourly_price = preferences.max_hourly_price
+                    row.auto_stop_minutes = preferences.auto_stop_minutes
+                    row.updated_at = self.clock()
+                if control.search_user_id == user.id:
+                    searching = control.next_search_at is not None
+                    control.search_settings = preferences.model_dump(mode="json")
+                    control.search_quote_id = None
+                    control.next_search_at = (
+                        self.clock()
+                        if searching and (preferences.auto_search or preferences.auto_connect)
+                        else None
+                    )
+                    if not row:
+                        control.search_state = "searching" if control.next_search_at else "offline"
+                saved_preferences = db.get(ComputePreference, user.id)
+                values = preferences.model_dump(mode="json")
+                if saved_preferences:
+                    saved_preferences.values = values
+                else:
+                    db.add(ComputePreference(user_id=user.id, values=values))
+                db.commit()
         return preferences
 
     def event(self, db, kind, session=None, actor=None, code=None):
@@ -235,10 +270,12 @@ class RunPodController:
                 "next_search_at": utc(control.next_search_at).isoformat() if control.next_search_at else None,
                 "quote_id": control.search_quote_id if control.search_user_id == user.id else None,
                 "can_cancel_search": control.search_user_id == user.id or user.role == "admin",
+                "preferences": self.preferences(user.id).model_dump(mode="json"),
+                "search_preferences": control.search_settings if control.next_search_at else None,
                 "limits": {
                     "min_vram_gb": self.settings.runpod_min_vram_gb,
-                    "max_hourly_price": float(self.settings.runpod_max_hourly_price),
-                    "session_budget": float(self.settings.runpod_max_session_budget),
+                    "max_hourly_price": 100,
+                    "session_budget": 1000,
                 },
                 "datacenter": self.settings.runpod_datacenter,
                 "model": self.settings.llm_model,
@@ -290,11 +327,15 @@ class RunPodController:
                 quote.id,
             )
             control.search_state = (
-                "gpu_found" if available else "searching" if prefs.auto_search else "no_gpu"
+                "gpu_found"
+                if available
+                else "searching"
+                if (prefs.auto_search or prefs.auto_connect)
+                else "no_gpu"
             )
             control.next_search_at = (
                 self.clock() + timedelta(seconds=prefs.search_interval)
-                if not available and prefs.auto_search
+                if (prefs.auto_search or prefs.auto_connect) and (not available or prefs.auto_connect)
                 else None
             )
             control.error_code = code
@@ -314,7 +355,41 @@ class RunPodController:
                 control = db.get(ComputeControl, 1)
                 if control.active_session_id:
                     return {"existing": True, "status": self.get_compute_status(user)}
-            return await self._search(user.id, prefs)
+            self.save_preferences(user.id, prefs)
+            quote = await self._search(user.id, prefs)
+            return await self.auto_connect(user.id, prefs, quote)
+
+    async def auto_connect(self, user_id, prefs, quote):
+        if not prefs.auto_connect:
+            return quote
+        with self.sessions() as db:
+            user = db.get(User, user_id)
+            if not user or not (user.role == "admin" or self.settings.allow_user_compute_start):
+                control = db.get(ComputeControl, 1)
+                control.next_search_at = None
+                control.search_state = "offline"
+                control.search_quote_id = None
+                db.commit()
+                return quote
+        gpu = next((g for g in quote["options"] if g.selectable), None)
+        if not gpu:
+            return quote
+        try:
+            result = await self._start_compute_locked(
+                user,
+                StartRequest(
+                    quote_id=quote["quote_id"],
+                    gpu_id=gpu.id,
+                    idempotency_key="auto-" + quote["quote_id"],
+                    confirmed=True,
+                ),
+            )
+        except RunPodError as error:
+            if error.code != "price_changed":
+                raise
+            self.resume_search(user.id, prefs)
+            result = self.get_compute_status(user)
+        return {"existing": True, "status": result}
 
     async def cancel_gpu_search(self, user):
         async with self.operation():
@@ -382,130 +457,140 @@ class RunPodController:
 
     async def start_compute(self, user, request: StartRequest):
         async with self.operation():
-            if self.llm and len(self.settings.llm_api_key) < 32:
-                raise RunPodError("llm_key_missing", 422)
-            with self.sessions() as db:
-                control = db.get(ComputeControl, 1)
-                existing = db.scalar(
-                    select(ComputeSession).where(ComputeSession.idempotency_key == request.idempotency_key)
-                )
-                if existing:
-                    if existing.started_by_user_id != user.id:
-                        raise HTTPException(409, "Этот ключ запроса уже использован")
-                    return self.get_compute_status(user)
-                if control.active_session_id:
-                    return self.get_compute_status(user)
-                quote = db.get(ComputeQuote, request.quote_id)
-                if not quote or quote.user_id != user.id:
-                    raise HTTPException(404, "Предложение не найдено")
-                if utc(quote.expires_at) <= self.clock():
-                    raise RunPodError("price_changed", 409)
-                prefs = ComputePreferences.model_validate(quote.preferences).enforce(self.settings)
-                approved = next(
-                    (GpuOption.model_validate(g) for g in quote.options if g["id"] == request.gpu_id), None
-                )
-                if not approved or not approved.selectable or approved.hourly_rate > prefs.max_hourly_price:
-                    raise RunPodError("price_limit", 409)
-                if prefs.selection == "automatic":
-                    cheapest = min(
-                        (GpuOption.model_validate(g) for g in quote.options if g["selectable"]),
-                        key=lambda gpu: (gpu.hourly_rate, gpu.id),
-                    )
-                    if approved.id != cheapest.id:
-                        raise RunPodError("price_changed", 409)
-            self.rate_limit(user.id, "start")
-            await self.api.volume()
-            pods = await self.api.list_pods()
-            active_pods = [
-                pod for pod in pods if self.matches_volume(pod) and pod.status not in {"EXITED", "TERMINATED"}
-            ]
-            if active_pods:
-                if len(active_pods) > 1:
-                    raise RunPodError("multiple_compute", 409)
-                pod = active_pods[0]
-                session = self.new_session(user, request, approved, prefs, managed=False)
-                session.pod_id, session.pod_name, session.status = pod.id, pod.name, "external_compute"
-                session.gpu_type = pod.gpu.get("id", "Unknown GPU")
-                session.hourly_rate = pod.cost
-                session.gpu_vram_mb = 0  # Host RAM is not VRAM; do not infer it from pod.gpu.memory.
-                if pod.started_at:
-                    session.started_at = utc(datetime.fromisoformat(pod.started_at.replace("Z", "+00:00")))
-                with self.sessions() as db:
-                    db.add(session)
-                    db.flush()
-                    db.get(ComputeControl, 1).active_session_id = session.id
-                    db.commit()
+            return await self._start_compute_locked(user, request)
+
+    async def _start_compute_locked(self, user, request: StartRequest):
+        if self.llm and len(self.settings.llm_api_key) < 32:
+            raise RunPodError("llm_key_missing", 422)
+        with self.sessions() as db:
+            control = db.get(ComputeControl, 1)
+            existing = db.scalar(
+                select(ComputeSession).where(ComputeSession.idempotency_key == request.idempotency_key)
+            )
+            if existing:
+                if existing.started_by_user_id != user.id:
+                    raise HTTPException(409, "Этот ключ запроса уже использован")
                 return self.get_compute_status(user)
-            fresh = await self.api.gpu_options(prefs)
-            selected = next((gpu for gpu in fresh if gpu.id == approved.id and gpu.selectable), None)
-            if selected and selected.hourly_rate > approved.hourly_rate:
+            if control.active_session_id:
+                return self.get_compute_status(user)
+            quote = db.get(ComputeQuote, request.quote_id)
+            if not quote or quote.user_id != user.id:
+                raise HTTPException(404, "Предложение не найдено")
+            if control.search_quote_id != quote.id:
                 raise RunPodError("price_changed", 409)
-            candidates = [selected] if selected else []
-            if not candidates:
-                self.resume_search(user.id, prefs)
-                return self.get_compute_status(user)
-            session = self.new_session(user, request, candidates[0], prefs)
-            session.max_hourly_price = min(prefs.max_hourly_price, approved.hourly_rate)
+            if utc(quote.expires_at) <= self.clock():
+                raise RunPodError("price_changed", 409)
+            prefs = ComputePreferences.model_validate(quote.preferences).enforce(self.settings)
+            approved = next(
+                (GpuOption.model_validate(g) for g in quote.options if g["id"] == request.gpu_id), None
+            )
+            if (
+                not approved
+                or not approved.selectable
+                or approved.hourly_rate > prefs.max_hourly_price
+                or (prefs.gpu_id and approved.id != prefs.gpu_id)
+            ):
+                raise RunPodError("price_limit", 409)
+            if prefs.selection == "automatic":
+                cheapest = min(
+                    (GpuOption.model_validate(g) for g in quote.options if g["selectable"]),
+                    key=lambda gpu: (gpu.hourly_rate, gpu.id),
+                )
+                if approved.id != cheapest.id:
+                    raise RunPodError("price_changed", 409)
+        self.rate_limit(user.id, "start")
+        await self.api.volume()
+        pods = await self.api.list_pods()
+        active_pods = [
+            pod for pod in pods if self.matches_volume(pod) and pod.status not in {"EXITED", "TERMINATED"}
+        ]
+        if active_pods:
+            if len(active_pods) > 1:
+                raise RunPodError("multiple_compute", 409)
+            pod = active_pods[0]
+            session = self.new_session(user, request, approved, prefs, managed=False)
+            session.pod_id, session.pod_name, session.status = pod.id, pod.name, "external_compute"
+            session.gpu_type = pod.gpu.get("id", "Unknown GPU")
+            session.hourly_rate = pod.cost
+            session.gpu_vram_mb = 0  # Host RAM is not VRAM; do not infer it from pod.gpu.memory.
+            if pod.started_at:
+                session.started_at = utc(datetime.fromisoformat(pod.started_at.replace("Z", "+00:00")))
             with self.sessions() as db:
                 db.add(session)
                 db.flush()
-                control = db.get(ComputeControl, 1)
-                control.active_session_id = session.id
-                control.next_search_at, control.search_quote_id, control.error_code = None, None, None
-                self.event(db, "creating", session, user.id)
+                db.get(ComputeControl, 1).active_session_id = session.id
                 db.commit()
-            for gpu in candidates[:3]:
+            return self.get_compute_status(user)
+        fresh = await self.api.gpu_options(prefs)
+        selected = next((gpu for gpu in fresh if gpu.id == approved.id and gpu.selectable), None)
+        if selected and selected.hourly_rate > approved.hourly_rate:
+            raise RunPodError("price_changed", 409)
+        candidates = [selected] if selected else []
+        if not candidates:
+            self.resume_search(user.id, prefs)
+            return self.get_compute_status(user)
+        session = self.new_session(user, request, candidates[0], prefs)
+        session.max_hourly_price = min(prefs.max_hourly_price, approved.hourly_rate)
+        with self.sessions() as db:
+            db.add(session)
+            db.flush()
+            control = db.get(ComputeControl, 1)
+            control.active_session_id = session.id
+            control.next_search_at, control.search_quote_id, control.error_code = None, None, None
+            self.event(db, "creating", session, user.id)
+            db.commit()
+        for gpu in candidates[:3]:
+            with self.sessions() as db:
+                row = db.get(ComputeSession, session.id)
+                row.gpu_type, row.gpu_vram_mb, row.hourly_rate = (
+                    gpu.id,
+                    gpu.vram_gb * 1024,
+                    gpu.hourly_rate,
+                )
+                row.status = "creating"
+                db.commit()
+            try:
+                pod = await self.api.create_pod(session.pod_name, gpu)
+            except RunPodError as error:
+                if error.code == "placement_rejected" or error.status == 403:
+                    continue
                 with self.sessions() as db:
                     row = db.get(ComputeSession, session.id)
-                    row.gpu_type, row.gpu_vram_mb, row.hourly_rate = (
-                        gpu.id,
-                        gpu.vram_gb * 1024,
-                        gpu.hourly_rate,
+                    unknown = (
+                        error.code in {"runpod_timeout", "runpod_unavailable", "malformed_response"}
+                        or error.status >= 500
                     )
-                    row.status = "creating"
+                    row.status, row.error_code = (
+                        ("create_unknown", "create_unknown") if unknown else ("error", error.code)
+                    )
+                    if not unknown:
+                        row.stopped_at = self.clock()
+                        db.get(ComputeControl, 1).active_session_id = None
+                        db.get(ComputeControl, 1).error_code = error.code
+                        db.get(ComputeControl, 1).search_state = "error"
+                    self.event(db, row.status, row, user.id, row.error_code)
                     db.commit()
-                try:
-                    pod = await self.api.create_pod(session.pod_name, gpu)
-                except RunPodError as error:
-                    if error.code == "placement_rejected" or error.status == 403:
-                        continue
-                    with self.sessions() as db:
-                        row = db.get(ComputeSession, session.id)
-                        unknown = (
-                            error.code in {"runpod_timeout", "runpod_unavailable", "malformed_response"}
-                            or error.status >= 500
-                        )
-                        row.status, row.error_code = (
-                            ("create_unknown", "create_unknown") if unknown else ("error", error.code)
-                        )
-                        if not unknown:
-                            row.stopped_at = self.clock()
-                            db.get(ComputeControl, 1).active_session_id = None
-                            db.get(ComputeControl, 1).error_code = error.code
-                            db.get(ComputeControl, 1).search_state = "error"
-                        self.event(db, row.status, row, user.id, row.error_code)
-                        db.commit()
-                    return self.get_compute_status(user)
-                with self.sessions() as db:
-                    row = db.get(ComputeSession, session.id)
-                    row.pod_id, row.status = pod.id, "starting_pod"
-                    self.record_pod(row, pod)
-                    self.event(db, "starting_pod", row, user.id)
-                    db.commit()
-                if pod.cost > min(prefs.max_hourly_price, approved.hourly_rate):
-                    await self._terminate(session.id, "price_violation")
                 return self.get_compute_status(user)
             with self.sessions() as db:
                 row = db.get(ComputeSession, session.id)
-                row.status, row.error_code, row.stopped_at = "error", "placement_rejected", self.clock()
-                control = db.get(ComputeControl, 1)
-                control.active_session_id, control.search_state, control.error_code = (
-                    None,
-                    "no_gpu",
-                    "no_compatible_gpu",
-                )
+                row.pod_id, row.status = pod.id, "starting_pod"
+                self.record_pod(row, pod)
+                self.event(db, "starting_pod", row, user.id)
                 db.commit()
-            self.resume_search(user.id, prefs)
+            if pod.cost > min(prefs.max_hourly_price, approved.hourly_rate):
+                await self._terminate(session.id, "price_violation")
+            return self.get_compute_status(user)
+        with self.sessions() as db:
+            row = db.get(ComputeSession, session.id)
+            row.status, row.error_code, row.stopped_at = "error", "placement_rejected", self.clock()
+            control = db.get(ComputeControl, 1)
+            control.active_session_id, control.search_state, control.error_code = (
+                None,
+                "no_gpu",
+                "no_compatible_gpu",
+            )
+            db.commit()
+        self.resume_search(user.id, prefs)
         return self.get_compute_status(user)
 
     def record_pod(self, row, pod):
@@ -531,7 +616,7 @@ class RunPodController:
             if not row.pod_id:
                 raise RunPodError("create_unknown", 409)
             row.pending_stop, row.stop_reason = True, reason
-            if self.active_generations(db):
+            if self.active_generations(db) and reason not in {"session_budget", "price_violation"}:
                 db.commit()
                 return
             row.status = "stopping"
@@ -655,7 +740,8 @@ class RunPodController:
                     user_id, prefs = None, None
             if not row:
                 try:
-                    await self._search(user_id, prefs)
+                    quote = await self._search(user_id, prefs)
+                    await self.auto_connect(user_id, prefs, quote)
                 except RunPodError as error:
                     with self.sessions() as db:
                         control = db.get(ComputeControl, 1)
@@ -698,7 +784,9 @@ class RunPodController:
                     return
                 saved.error_code = None
                 active = self.active_generations(db)
-                budget = saved.managed and saved.estimated_cost >= saved.session_budget
+                # Reserve one polling interval plus the supplier request timeout for shutdown.
+                reserve = saved.hourly_rate * Decimal(str(self.settings.compute_poll_seconds + 15)) / 3600
+                budget = saved.managed and saved.estimated_cost + reserve >= saved.session_budget
                 idle_expired = (
                     saved.managed
                     and saved.status == "ready"
@@ -737,7 +825,7 @@ class RunPodController:
                     saved.pending_stop, saved.stop_reason = True, reason
                 db.commit()
             if reason:
-                if not active:
+                if not active or reason in {"session_budget", "price_violation"}:
                     await self._terminate(row.id, reason)
                 return
             if not row.managed:

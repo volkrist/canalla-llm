@@ -30,9 +30,9 @@ def preferences(request: Request, user: User = Depends(current_user)):
 
 
 @router.put("/preferences")
-def update_preferences(body: ComputePreferences, request: Request, user: User = Depends(current_user)):
+async def update_preferences(body: ComputePreferences, request: Request, user: User = Depends(compute_user)):
     try:
-        return controller(request).save_preferences(user.id, body)
+        return await controller(request).update_preferences(user, body)
     except ValueError as error:
         raise HTTPException(422, str(error)) from None
 
