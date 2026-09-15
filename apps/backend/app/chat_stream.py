@@ -1,14 +1,16 @@
 import asyncio
 import json
 import logging
+from datetime import timedelta, timezone
 
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, delete, or_, select
 
 from .compute.models import GenerationUsage
+from .context_builder import ContextBuilder
 from .database import SessionLocal
-from .models import Chat, Message, now
+from .models import Chat, Message, MessageContext, now
 from .providers import LLMError
 from .schemas import MessageOut
 
@@ -59,7 +61,13 @@ async def stream_response(chat, content, request, user, db, action="send", targe
     request.app.state.generating.add(chat.id)
     try:
         if action == "send":
-            user_message = Message(chat_id=chat.id, role="user", content=content)
+            prior = ordered_messages(db, chat.id)
+            created = now()
+            if prior:
+                created = max(
+                    created, prior[-1].created_at.replace(tzinfo=timezone.utc) + timedelta(microseconds=1)
+                )
+            user_message = Message(chat_id=chat.id, role="user", content=content, created_at=created)
             db.add(user_message)
             if chat.title == "New chat":
                 chat.title = content[:80]
@@ -70,16 +78,20 @@ async def stream_response(chat, content, request, user, db, action="send", targe
                 target.content, target.edited_at = content, now()
         chat.updated_at = now()
         db.flush()
-        history = [
-            {"role": row.role, "content": row.content}
-            for row in ordered_messages(db, chat.id)[-100:]
-            if row.content
-        ]
-        while len(history) > 1 and sum(len(message["content"]) for message in history) > 64000:
-            history.pop(0)
-        assistant = Message(chat_id=chat.id, role="assistant", content="", status="generating")
+        context = ContextBuilder().build(db, user, chat, user_message, track=True)
+        history = context["messages"]
+        assistant = Message(
+            chat_id=chat.id,
+            role="assistant",
+            content="",
+            status="generating",
+            created_at=max(
+                now(), user_message.created_at.replace(tzinfo=timezone.utc) + timedelta(microseconds=1)
+            ),
+        )
         db.add(assistant)
         db.flush()
+        db.add(MessageContext(message_id=assistant.id, memory_ids=context["memory_ids"]))
         db.get(GenerationUsage, usage_id).message_id = assistant.id
         db.commit()
         assistant_id, chat_id = assistant.id, chat.id
@@ -100,6 +112,7 @@ async def stream_response(chat, content, request, user, db, action="send", targe
         tokens = {}
         iterator = request.app.state.provider.stream_with_usage(history, tokens)
         try:
+            await request.app.state.presence.publish()
             yield sse("meta", meta)
             async for token in iterator:
                 if await request.is_disconnected():
@@ -137,6 +150,7 @@ async def stream_response(chat, content, request, user, db, action="send", targe
             finally:
                 request.app.state.generating.discard(chat_id)
                 await iterator.aclose()
+                await request.app.state.presence.publish()
         if status == "complete":
             yield sse("done", {"message_id": assistant_id})
 

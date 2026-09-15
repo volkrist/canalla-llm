@@ -18,6 +18,7 @@ import { draftPrefix, readDraft, writeDraft } from "../lib/drafts";
 import ComputePanel from "./ComputePanel";
 import { exportChats } from "../lib/files";
 import UsageDialog from "./UsageDialog";
+import PersonalPanel from "./PersonalPanel";
 
 export default function Workspace({
   api,
@@ -143,6 +144,20 @@ export default function Workspace({
             {health ? "Connected" : "Offline"}
           </div>
         </header>
+        <PersonalPanel
+          api={api}
+          onLogout={onLogout}
+          chatId={chat.selected}
+          projectId={
+            chat.chats.find((c) => c.id === chat.selected)?.project_id || null
+          }
+          onProject={async (id) => {
+            if (chat.selected)
+              await chat.update(chat.selected, { project_id: id });
+          }}
+          prompt={draft}
+          technical={settings.technicalDetails}
+        />
         <ComputePanel
           api={api}
           llm={llm}

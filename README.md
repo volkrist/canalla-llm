@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.3.0**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.4.0**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -161,3 +161,14 @@ RunPod provisioning is implemented through official REST v2; the runtime has no 
 Memory, RAG, web search, browser agents, terminal tools, coding agent, LoRA and fine-tuning are outside this stage.
 
 See [architecture and API](docs/architecture.md), [security and deployment](docs/security.md), and [verification report](docs/verification.md).
+
+## Version 0.4.0 — local Presence and personal context
+
+Adds WebSocket Presence, profile/custom instructions, projects, curated long-term memory and backend ContextBuilder. This stage uses MockLLMProvider only; no paid RunPod E2E has been performed.
+
+- [Presence architecture and authentication](docs/presence.md)
+- [Memory and projects](docs/memory.md)
+- [Context selection and budgets](docs/context-builder.md)
+- [0.4.0 verification report](docs/verification-0.4.md)
+
+Run `alembic upgrade head` before starting this version. Use a single backend worker. Keep `LLM_PROVIDER=mock` for this stage and `COMPUTE_BACKGROUND_ENABLED=false`; local offline launches also override `RUNPOD_API_KEY` to an empty process value so compute recovery cannot contact RunPod. Stored credentials need not be displayed or removed. The existing real provider/controller remains available for a future explicitly authorized E2E.

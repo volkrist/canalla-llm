@@ -178,7 +178,7 @@ export function useChat(api: Api, onExpired: () => void) {
     send,
     update: async (
       id: string,
-      patch: Partial<Pick<Chat, "title" | "pinned">>,
+      patch: Partial<Pick<Chat, "title" | "pinned" | "project_id">>,
     ) => {
       try {
         await api.updateChat(id, patch);

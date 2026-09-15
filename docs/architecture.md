@@ -119,3 +119,7 @@ User-provided reference for the future stage: model `orcarouter/Qwen3.8-27B-Unce
 network volume `uwgeaie5b0`, datacenter `US-TX-3`, scripts `/workspace/start-llm.sh` and `/workspace/check-llm.sh`.
 The controller mounts that existing volume and invokes those existing scripts. No model download or volume deletion is implemented.
 No real pod was created, started, stopped or deleted during development; paid integration remains untested.
+
+## 0.4.0 personal context and realtime state
+
+Presence sessions/tickets and personal projects/memories are separate from chats and compute. `ContextBuilder -> LLMProvider` is the only generation context path. GenerationUsage is also the backend source for Using AI. See [presence](presence.md), [memory](memory.md), and [context-builder](context-builder.md) for ownership boundaries, schemas, events, scoring and single-worker limitations. RAG and automatic memory extraction remain future work.

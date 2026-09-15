@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from . import context_builder  # noqa: F401
 from .auth import router as auth_router
 from .chats import router as chats_router
 from .compute.controller import RunPodController
@@ -14,14 +15,41 @@ from .compute.routes import admin as admin_router
 from .compute.routes import router as compute_router
 from .compute.runpod_api import RunPodError
 from .config import get_settings
+from .personal import router as personal_router
+from .presence import PresenceManager
+from .presence import router as presence_router
 from .providers import LLMError, make_provider
 from .security import current_user
+
+
+class RedactTicket(logging.Filter):
+    def filter(self, record):
+        import re
+
+        def redact(value):
+            if not isinstance(value, str):
+                return value
+            return re.sub(r"\?[^\s\"']+", "?[redacted]", value)
+
+        record.msg = redact(record.msg)
+        if isinstance(record.args, tuple):
+            record.args = tuple(redact(value) for value in record.args)
+        elif isinstance(record.args, dict):
+            record.args = {key: redact(value) for key, value in record.args.items()}
+        return True
+
+
+for logger_name in ("uvicorn.access", "uvicorn.error"):
+    logging.getLogger(logger_name).addFilter(RedactTicket())
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(application):
+    application.state.presence = PresenceManager(settings)
+    application.state.presence.reconcile()
+    presence_task = asyncio.create_task(application.state.presence.monitor())
     compute = getattr(application.state, "compute_override", None) or RunPodController(settings)
     application.state.compute = compute
     if compute.llm:
@@ -43,6 +71,9 @@ async def lifespan(application):
     try:
         yield
     finally:
+        presence_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await presence_task
         if task:
             task.cancel()
             with suppress(asyncio.CancelledError):
@@ -51,7 +82,7 @@ async def lifespan(application):
 
 app = FastAPI(
     title="Alex LLM API",
-    version="0.3.0",
+    version="0.4.0",
     lifespan=lifespan,
     docs_url="/docs" if settings.app_env != "production" else None,
     redoc_url=None,
@@ -70,6 +101,8 @@ app.include_router(auth_router)
 app.include_router(chats_router)
 app.include_router(compute_router)
 app.include_router(admin_router)
+app.include_router(personal_router)
+app.include_router(presence_router)
 
 
 @app.exception_handler(RunPodError)

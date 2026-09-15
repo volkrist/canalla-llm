@@ -99,7 +99,10 @@ export class Api {
   async deleteChat(id: string) {
     await this.response(`/chats/${id}`, { method: "DELETE" });
   }
-  updateChat(id: string, patch: Partial<Pick<Chat, "title" | "pinned">>) {
+  updateChat(
+    id: string,
+    patch: Partial<Pick<Chat, "title" | "pinned" | "project_id">>,
+  ) {
     return this.json<Chat>(`/chats/${id}`, {
       method: "PATCH",
       body: JSON.stringify(patch),

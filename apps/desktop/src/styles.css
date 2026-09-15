@@ -1225,3 +1225,96 @@ p {
     min-height: 600px;
   }
 }
+.personal-panel {
+  border-bottom: 1px solid #303638;
+  padding: 8px 20px;
+  font-size: 12px;
+}
+.personal-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.personal-nav > span {
+  flex: 1;
+  min-width: 170px;
+}
+.personal-panel button {
+  padding: 6px 10px;
+}
+.personal-dialog {
+  width: min(780px, 94vw);
+  max-height: 86vh;
+  overflow: auto;
+}
+.personal-dialog label {
+  display: flex;
+  gap: 8px;
+  flex-direction: column;
+  margin: 12px 0;
+}
+.personal-dialog label:has(input[type="checkbox"]) {
+  flex-direction: row;
+}
+.personal-dialog input,
+.personal-dialog select,
+.personal-dialog textarea,
+.project-picker select {
+  background: #191e20;
+  color: #e6efea;
+  border: 1px solid #435049;
+  border-radius: 7px;
+  padding: 9px;
+}
+.personal-dialog textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+.personal-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #35433b;
+  border-radius: 10px;
+  padding: 14px;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.personal-card > div {
+  flex: 1;
+  min-width: 0;
+}
+.personal-card p {
+  white-space: pre-wrap;
+}
+.initials {
+  background: #284d3a;
+  color: #91e5b9;
+  border-radius: 50%;
+  padding: 12px;
+}
+.project-picker {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 8px;
+}
+.memory-editor {
+  border: 1px solid #66ad83;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+}
+.context-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .personal-panel {
+    padding: 8px;
+  }
+  .personal-card {
+    flex-wrap: wrap;
+  }
+}

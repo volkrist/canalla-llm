@@ -122,6 +122,11 @@ async def update_chat(
 ):
     chat = owned_chat(db, chat_id, user.id)
     idle(request, chat_id)
+    if "project_id" in body.model_fields_set:
+        from .personal import validate_project
+
+        validate_project(db, body.project_id, user.id)
+        chat.project_id = body.project_id
     for key, value in body.model_dump(exclude_none=True).items():
         setattr(chat, key, value)
     chat.updated_at = now()

@@ -1,6 +1,7 @@
 export interface User {
   id: string;
   email: string;
+  display_name: string;
   role: "admin" | "user";
   created_at: string;
 }
@@ -8,6 +9,7 @@ export interface Chat {
   id: string;
   title: string;
   pinned: boolean;
+  project_id: string | null;
   created_at: string;
   updated_at: string;
 }

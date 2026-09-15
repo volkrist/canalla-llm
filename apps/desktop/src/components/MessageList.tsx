@@ -197,6 +197,29 @@ export default function MessageList({
               ) : (
                 <div className="message-actions">
                   <button
+                    disabled={message.status === "generating"}
+                    onClick={() =>
+                      window.dispatchEvent(
+                        new CustomEvent("alex-remember", { detail: message }),
+                      )
+                    }
+                  >
+                    Запомнить
+                  </button>
+                  {message.role === "assistant" && (
+                    <button
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new CustomEvent("alex-used-memory", {
+                            detail: message.id,
+                          }),
+                        )
+                      }
+                    >
+                      Использованная память
+                    </button>
+                  )}
+                  <button
                     onClick={() => {
                       void navigator.clipboard.writeText(message.content).then(
                         () => setCopyStatus(message.id),

@@ -27,6 +27,18 @@ await page
   .getByRole("button", { name: "Создать аккаунт", exact: true })
   .click();
 await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+await expect(page.locator(".personal-nav").first()).toContainText("Online", {
+  timeout: 15000,
+});
+await page.getByRole("button", { name: "Пользователи", exact: true }).click();
+await expect(page.getByRole("dialog")).toContainText("Online");
+await page.screenshot({
+  path: "../../docs/screenshots/0.4/native-presence.png",
+});
+await page
+  .getByRole("dialog")
+  .getByRole("button", { name: "Закрыть", exact: true })
+  .click();
 await page
   .getByRole("textbox", { name: "Сообщение", exact: true })
   .fill("Привет из Windows!");

@@ -18,6 +18,7 @@ class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
     email: str
+    display_name: str
     role: Literal["user", "admin"]
     created_at: datetime
 
@@ -37,12 +38,14 @@ class ChatOut(ChatCreate):
     created_at: datetime
     updated_at: datetime
     pinned: bool
+    project_id: str | None
 
 
 class ChatUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     title: str | None = Field(default=None, min_length=1, max_length=120)
     pinned: bool | None = None
+    project_id: str | None = None
 
 
 class MessageCreate(BaseModel):

@@ -53,19 +53,36 @@ export default function SettingsDialog({
         </div>
         <p className="muted">Настройте своё рабочее пространство.</p>
         <nav className="settings-tabs">
-          {["Общие", "Чат", "AI / Compute", "Данные", "Дополнительно"].map(
-            (tab) => (
-              <button
-                type="button"
-                aria-pressed={section === tab}
-                key={tab}
-                onClick={() => setSection(tab)}
-              >
-                {tab}
-              </button>
-            ),
-          )}
+          {[
+            "Общие",
+            "Чат",
+            "AI / Compute",
+            "Personalization / Memory",
+            "Данные",
+            "Дополнительно",
+          ].map((tab) => (
+            <button
+              type="button"
+              aria-pressed={section === tab}
+              key={tab}
+              onClick={() => setSection(tab)}
+            >
+              {tab}
+            </button>
+          ))}
         </nav>
+        {section === "Personalization / Memory" && (
+          <button
+            type="button"
+            disabled={!api}
+            onClick={() => {
+              onClose();
+              window.dispatchEvent(new Event("alex-personal-settings"));
+            }}
+          >
+            Профиль, инструкции и настройки памяти
+          </button>
+        )}
         {section === "AI / Compute" && (
           <>
             <p>Выбор GPU, лимит цены, бюджет сессии и автоостановка.</p>
