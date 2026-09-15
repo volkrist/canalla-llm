@@ -44,6 +44,8 @@ class MockLLMProvider(LLMProvider):
             "Пример кода:\n\n```python\ndef greet(name: str) -> str:\n"
             '    return f"Hello, {name}!"\n\nprint(greet("Alex LLM"))\n```\n'
         )
+        if any(m["content"].startswith("[Untrusted reference material — documents:") for m in messages):
+            response += "\nВ запрос передан контекст документов. Это проверка доставки контекста; mock не делает выводы по источникам.\n"
         for start in range(0, len(response), 7):
             await asyncio.sleep(self.delay)
             yield response[start : start + 7]

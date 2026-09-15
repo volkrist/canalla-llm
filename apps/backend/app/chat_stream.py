@@ -10,6 +10,7 @@ from sqlalchemy import and_, delete, or_, select
 from .compute.models import GenerationUsage
 from .context_builder import ContextBuilder
 from .database import SessionLocal
+from .documents.service import mutation_lock
 from .models import Chat, Message, MessageContext, now
 from .providers import LLMError
 from .schemas import MessageOut
@@ -59,6 +60,7 @@ async def stream_response(chat, content, request, user, db, action="send", targe
     compute = request.app.state.compute
     usage_id = await compute.begin_generation(user.id, chat.id, request.app.state.provider_name)
     request.app.state.generating.add(chat.id)
+    mutation_lock.acquire()
     try:
         if action == "send":
             prior = ordered_messages(db, chat.id)
@@ -112,6 +114,8 @@ async def stream_response(chat, content, request, user, db, action="send", targe
         request.app.state.generating.discard(chat.id)
         compute.finish_generation(usage_id, "error")
         raise
+    finally:
+        mutation_lock.release()
 
     async def generate():
         parts = []

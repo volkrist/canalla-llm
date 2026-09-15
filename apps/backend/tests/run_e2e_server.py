@@ -21,6 +21,7 @@ if __name__ == "__main__":
             COMPUTE_BACKGROUND_ENABLED="false",
             ADMIN_EMAILS="[]",
             ALLOW_USER_COMPUTE_START="false",
+            DOCUMENT_STORAGE_DIR=str(Path(directory) / "documents"),
         )
         import sys
 

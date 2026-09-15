@@ -30,7 +30,8 @@ export class Api {
   ) {}
   private async response(path: string, init: RequestInit = {}) {
     const headers = new Headers(init.headers);
-    if (init.body) headers.set("Content-Type", "application/json");
+    if (init.body && !(init.body instanceof FormData))
+      headers.set("Content-Type", "application/json");
     if (this.token) headers.set("Authorization", `Bearer ${this.token}`);
     const response = await fetch(this.base + path, {
       ...init,

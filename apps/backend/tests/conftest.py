@@ -14,6 +14,7 @@ os.environ["RUNPOD_API_KEY"] = ""
 os.environ["COMPUTE_BACKGROUND_ENABLED"] = "false"
 os.environ["ADMIN_EMAILS"] = "[]"
 os.environ["ALLOW_USER_COMPUTE_START"] = "false"
+os.environ["DOCUMENT_STORAGE_DIR"] = _tmp.name + "/documents"
 
 from app.database import Base, engine  # noqa: E402
 from app.main import app  # noqa: E402

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Api } from "../lib/api";
 import type { Message } from "../types";
+import { SourceList, type Source } from "./SourcePanel";
 import { lastSeen, usePresence } from "../hooks/usePresence";
 interface Project {
   id: string;
@@ -93,6 +94,10 @@ export default function PersonalPanel({
     history_chars?: number;
     project_chars?: number;
     current_prompt_chars?: number;
+    sources?: Source[];
+    document_chunk_count?: number;
+    document_chars?: number;
+    rag_warning?: string;
     recent_message_count?: number;
     total_chars?: number;
     messages?: { role: string; content: string }[];
@@ -752,6 +757,14 @@ export default function PersonalPanel({
               {preview.memories.map((m) => (
                 <p key={m.id}>{m.content}</p>
               ))}
+              <p>
+                Документы: {preview.document_chunk_count ?? "—"} фрагментов ·{" "}
+                {preview.document_chars ?? "—"} символов
+              </p>
+              {preview.rag_warning && (
+                <p role="status">{preview.rag_warning}</p>
+              )}
+              <SourceList sources={preview.sources || []} />
               {preview.messages && (
                 <details>
                   <summary>Порядок контекста</summary>

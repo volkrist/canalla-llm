@@ -123,3 +123,11 @@ No real pod was created, started, stopped or deleted during development; paid in
 ## 0.4.0 personal context and realtime state
 
 Presence sessions/tickets and personal projects/memories are separate from chats and compute. `ContextBuilder -> LLMProvider` is the only generation context path. GenerationUsage is also the backend source for Using AI. See [presence](presence.md), [memory](memory.md), and [context-builder](context-builder.md) for ownership boundaries, schemas, events, scoring and single-worker limitations. RAG and automatic memory extraction remain future work.
+
+## 0.5.0 documents and generation snapshots
+
+`app/documents` owns LocalDocumentStorage, isolated LocalExtractor, token-aware DocumentChunker, CPU LocalEmbeddingProvider, SQLVectorStore, DocumentIndexJob and authenticated routes. Upload endpoints are byte bounded before multipart spooling; binaries never enter SQL. Document/chunk ownership and project scope are mandatory in database queries. Index replacement is one transaction; jobs are serialized and stale jobs reconcile at startup. Run one backend worker.
+
+ContextBuilder adds a distinct untrusted document section after memory and before history/current prompt. MessageContext.snapshot stores actual generation metadata and source references/excerpts. Deletion redacts old excerpts; it does not rerun historical retrieval. All settings and budgets are validated on the backend. Tables use standard SQLAlchemy types compatible with PostgreSQL; pgvector is a future VectorStore implementation, not included now.
+
+Migrations 0005 add context/TTFT fields; 0006 adds documents, document_chunks and rag_preferences. Existing compute/session/auth/presence behavior is retained. See [rag.md](rag.md) and [files.md](files.md).

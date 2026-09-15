@@ -99,7 +99,10 @@ export function useChat(api: Api, onExpired: () => void) {
     try {
       if (!id) {
         const chat = await api.createChat();
-        if (!active.current || abort.signal.aborted) return false;
+        if (!active.current || abort.signal.aborted) {
+          if (active.current) setPhase("stopped");
+          return false;
+        }
         id = chat.id;
         setSelected(id);
         setChats((prev) => [chat, ...prev]);

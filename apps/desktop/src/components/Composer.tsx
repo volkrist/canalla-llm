@@ -77,6 +77,13 @@ export default function Composer({
           rows={2}
         />
         <div className="composer-toolbar">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => window.dispatchEvent(new Event("alex-attach"))}
+          >
+            Прикрепить файл
+          </button>
           <span>
             <span className="tiny-dot" />{" "}
             {streaming

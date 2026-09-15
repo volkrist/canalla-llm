@@ -328,3 +328,60 @@ def test_generation_context_snapshot_and_ttft(client, auth):
     assert after["memory_count"] == 1
     assert after["total_chars"] == before["total_chars"]
     assert client.get(path, headers=auth("snapshot-other@example.com")).status_code == 404
+
+
+def test_cancel_before_first_token_persists_honest_telemetry(client, auth, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    from sqlalchemy import select
+
+    from app.chat_stream import stream_response
+    from app.database import SessionLocal
+    from app.main import app
+    from app.models import Chat, Message, User
+    from app.providers import MockLLMProvider
+
+    headers = auth()
+    key = client.post("/chats", headers=headers, json={}).json()["id"]
+
+    async def scenario():
+        entered, closed = asyncio.Event(), asyncio.Event()
+
+        class Slow(MockLLMProvider):
+            async def stream_chat(self, messages):
+                try:
+                    entered.set()
+                    await asyncio.sleep(60)
+                    yield "Never delivered"
+                finally:
+                    closed.set()
+
+        async def disconnected():
+            return False
+
+        monkeypatch.setattr(app.state, "provider", Slow())
+        request = SimpleNamespace(app=app, is_disconnected=disconnected)
+        with SessionLocal() as db:
+            chat = db.get(Chat, key)
+            response = await stream_response(chat, "Wait then stop", request, db.get(User, chat.user_id), db)
+            iterator = response.body_iterator
+            assert "event: meta" in await anext(iterator)
+            pending = asyncio.create_task(anext(iterator))
+            await entered.wait()
+            pending.cancel()
+            try:
+                await pending
+            except asyncio.CancelledError:
+                pass
+            assert closed.is_set()
+        with SessionLocal() as db:
+            answer = db.scalar(select(Message).where(Message.chat_id == key, Message.role == "assistant"))
+            assert answer.status == "stopped" and answer.content == ""
+            assert answer.first_token_at is None and answer.ttft_ms is None
+            assert answer.completed_at is not None
+            assert answer.cancellation["application_cancelled"] is True
+            assert answer.cancellation["provider_stream_closed"] is True
+            assert answer.cancellation["upstream_cancel_confirmed"] is None
+
+    asyncio.run(scenario())

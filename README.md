@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.4.0**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.5.0**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -172,3 +172,11 @@ Adds WebSocket Presence, profile/custom instructions, projects, curated long-ter
 - [0.4.0 verification report](docs/verification-0.4.md)
 
 Run `alembic upgrade head` before starting this version. Use a single backend worker. Keep `LLM_PROVIDER=mock` for this stage and `COMPUTE_BACKGROUND_ENABLED=false`; local offline launches also override `RUNPOD_API_KEY` to an empty process value so compute recovery cannot contact RunPod. Stored credentials need not be displayed or removed. The existing real provider/controller remains available for a future explicitly authorized E2E.
+
+## Version 0.5.0 — local Files and RAG
+
+Upload PDF/DOCX/TXT/MD, index with real multilingual CPU embeddings, retrieve owner/project-scoped chunks and inspect saved sources under answers. No GPU is required for indexing. [Files](docs/files.md) · [RAG setup and limits](docs/rag.md).
+
+After installing backend dependencies, run `python -m alembic upgrade head` and explicitly prepare the embedding model with `python -m app.documents.embedding`. Runtime does not download models. `.data/` stores local documents/model cache and is gitignored. Missing embeddings do not prevent ordinary chats.
+
+Generation metadata now retains its actual context snapshot and nullable TTFT/cancellation telemetry. Compute preferences remain persisted and editable through the UI; the existing session's snapshot is shown separately. This release was tested locally with MockLLMProvider, not a paid OrcaRouter RAG session.

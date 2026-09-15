@@ -13,6 +13,8 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { openExternal } from "../lib/files";
 import type { Message, Settings } from "../types";
+import type { Api } from "../lib/api";
+import SourcePanel from "./SourcePanel";
 
 function plainText(node: ReactNode): string {
   return Children.toArray(node)
@@ -66,6 +68,7 @@ function CodeBlock({ children, ...props }: ComponentPropsWithoutRef<"pre">) {
 }
 
 export default function MessageList({
+  api,
   messages,
   streaming,
   fontSize,
@@ -75,6 +78,7 @@ export default function MessageList({
   onResend,
   onRegenerate,
 }: {
+  api?: Api;
   messages: Message[];
   streaming: boolean;
   fontSize: number;
@@ -162,6 +166,13 @@ export default function MessageList({
                 <span className="typing" aria-label="Генерация ответа">
                   Ожидаем первый ответ модели…
                 </span>
+              )}
+              {message.role === "assistant" && api && (
+                <SourcePanel
+                  api={api}
+                  messageId={message.id}
+                  status={message.status}
+                />
               )}
               {editing === message.id ? (
                 <div className="message-editor">

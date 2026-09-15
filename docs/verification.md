@@ -1,6 +1,6 @@
 # Alex LLM — отчёты проверки
 
-Текущий этап 0.3.0: [подключение LLM и локальная проверка](real-llm.md). Платный E2E ожидает отдельного подтверждения.
+Текущий локальный этап: **0.5.0 Files / RAG**. Исторические отчёты ниже относятся к указанным версиям. Реальный платный RAG E2E в этом этапе не выполняется.
 
 ## Сохранённый отчёт 0.2.0 — этап 2
 
@@ -59,3 +59,26 @@ SHA256 installer: `D6958D5AD93F421AB3661A47F54F5A48529B1D1C68DB8C21BE4C15AE3E428
 ## 0.4.0
 
 Current local Presence/Memory/ContextBuilder checks are recorded in [verification-0.4.md](verification-0.4.md). Earlier GPU preflight observations in this document are historical and do not establish a successful real-model E2E.
+
+
+## 0.5.0 — Files / RAG, 15 сентября 2026
+
+- Предварительный compute commit: `1a6cb8654b68b93240d886cc61ef175bf7613208`, отдельно запушен в main; после него clean. Cleanup commit: `73e020b`.
+- Used Memory отображает сохранённые backend metadata конкретного generation: project, выбранная память/категории/символы, история, полный размер и текущий запрос ровно один раз. Старые записи без metadata показывают неизвестные значения.
+- Compute UI загружает canonical preferences; не допускает поиска до их загрузки, показывает сохранённые и активные лимиты отдельно. Значение 0.82 может существовать как сохранённое предпочтение пользователя, но не является скрытым hard ceiling.
+- TTFT UX: sending → ожидание первого ответа → обработка запроса после 8 секунд → streaming → completed/stopped/error. Реальный elapsed, без процентов. Timestamps/TTFT nullable; upstream_cancel_confirmed остаётся null без отдельного доказательства. Отмена до первого токена покрыта тестом.
+- PDF/DOCX/TXT/MD → безопасное local storage → extraction → token-aware chunks → реальные локальные CPU embeddings → ownership/project filtered cosine retrieval → ContextBuilder → MockLLM → persisted source panel. [Архитектура RAG](rag.md), [Файлы и ограничения](files.md).
+- Backend: 120 pytest PASS, включая три реальных CPU-теста RU/EN/KO; файловые проверки включают ограничение parser memory. Ruff check/format PASS. Frontend: 13 unit PASS; TypeScript, Vite, Prettier PASS. Playwright: 10 PASS, существующие функции и три файловых сценария.
+- npm audit: 0 vulnerabilities. pip-audit: no known vulnerabilities (локальный пакет alex-llm-backend отсутствует на PyPI и проверяется исходниками/тестами). Обновлён локальный инструмент pip, исходно устаревший; зависимости приложения без известных findings.
+- Alembic: clean install, 0005→0006, upgrade реальной локальной БД после SQLite backup PASS. Все 14 прежних таблиц сохранили количество строк; foreign_key_check PASS; alembic check без новых операций.
+- CPU benchmark: quantized E5, 384 dimensions; cache 135,392,183 bytes; cold first batch 3.0151 s; warm query embedding 0.0059 s; TXT 2,900 bytes indexing 0.3121 s, Ready. RU/EN/KO queries selected the correct document among three examples. Порог по умолчанию откалиброван до 0.72: русский запрос к английскому источнику даёт 0.753, нерелевантные примеры 0.671/0.652. Это небольшая локальная выборка, не общий benchmark качества или worst-case latency.
+- Read-only RunPod: только `ry246k5siqujgu` / `orcarouter-l40s` / EXITED; RUNNING GPU 0. Active managed sessions 0, search offline. Network Volume `uwgeaie5b0`, STANDARD 50 GB, US-TX-3 сохранён. Paid mutations 0.
+- Ограничения: single backend worker; exact local vector scan; OCR и selected-file-only mode не реализованы; panel показывает переданные источники, не гарантирует цитирование моделью. Нет inline citation rewriting, cloud storage или pgvector. Real OrcaRouter RAG остаётся для отдельно разрешённого этапа.
+- Известные предупреждения: Vite bundle >500 kB; два deprecation warnings TestClient/AnyIO; Windows asyncio иногда пишет connection reset при закрытии тестового WebSocket. Проверки завершаются успешно. Интерактивная установка NSIS не выполнялась; приложение не подписано.
+
+![Источник PDF](screenshots/0.5/source.png)
+![Индексация в Files](screenshots/0.5/indexing.png)
+
+- cargo check PASS; Tauri 0.5.0 release PASS; NSIS x64 installer PASS. EXE и Setup обновлены в outputs, существующий Desktop shortcut указывает на EXE 0.5.0. Рабочий backend /health сообщает mock, API version 0.5.0, compute monitor отключён.
+- EXE SHA256: `306A6B8BA0C9AFA22911946947532B2D0C6D9E5E87BEF8B59530E49FD8E92F11`.
+- Installer SHA256: `9109D06655FA65D5F01611AC488C5552FC151E8A7F5FD98AD0AB89D55212D02C`.

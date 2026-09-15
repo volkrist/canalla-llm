@@ -15,6 +15,9 @@ from .compute.routes import admin as admin_router
 from .compute.routes import router as compute_router
 from .compute.runpod_api import RunPodError
 from .config import get_settings
+from .documents.limits import UploadLimit
+from .documents.routes import router as documents_router
+from .documents.service import reconcile_jobs
 from .personal import router as personal_router
 from .presence import PresenceManager
 from .presence import router as presence_router
@@ -47,6 +50,7 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(application):
+    reconcile_jobs()
     application.state.presence = PresenceManager(settings)
     application.state.presence.reconcile()
     presence_task = asyncio.create_task(application.state.presence.monitor())
@@ -82,7 +86,7 @@ async def lifespan(application):
 
 app = FastAPI(
     title="Alex LLM API",
-    version="0.4.0",
+    version="0.5.0",
     lifespan=lifespan,
     docs_url="/docs" if settings.app_env != "production" else None,
     redoc_url=None,
@@ -90,6 +94,7 @@ app = FastAPI(
 app.state.provider = make_provider(settings)
 app.state.provider_name = settings.llm_provider
 app.state.generating = set()
+app.add_middleware(UploadLimit)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -103,6 +108,7 @@ app.include_router(compute_router)
 app.include_router(admin_router)
 app.include_router(personal_router)
 app.include_router(presence_router)
+app.include_router(documents_router)
 
 
 @app.exception_handler(RunPodError)

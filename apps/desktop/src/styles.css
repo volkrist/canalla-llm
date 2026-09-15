@@ -1318,3 +1318,45 @@ p {
     flex-wrap: wrap;
   }
 }
+
+/* Files and source excerpts share the existing application palette. */
+.files-toolbar {
+  padding: 0 24px;
+}
+.files-dialog,
+.source-dialog {
+  position: fixed;
+  inset: 4vh 3vw;
+  width: min(880px, 94vw);
+  max-height: 90vh;
+  overflow: auto;
+  z-index: 100;
+}
+.files-dialog fieldset {
+  display: grid;
+  gap: 10px;
+  margin: 20px 0;
+  border: 1px solid #414e41;
+}
+.document-row {
+  padding: 14px 0;
+  border-bottom: 1px solid #414e41;
+}
+.document-row button {
+  margin-right: 8px;
+}
+.source-list {
+  display: grid;
+  gap: 5px;
+  margin: 12px 0;
+  font-size: 13px;
+}
+.source-list button {
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.source-dialog .context-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

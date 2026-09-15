@@ -19,6 +19,7 @@ import ComputePanel from "./ComputePanel";
 import { exportChats } from "../lib/files";
 import UsageDialog from "./UsageDialog";
 import PersonalPanel from "./PersonalPanel";
+import FilesPanel from "./FilesPanel";
 
 export default function Workspace({
   api,
@@ -158,6 +159,12 @@ export default function Workspace({
           prompt={draft}
           technical={settings.technicalDetails}
         />
+        <FilesPanel
+          api={api}
+          projectId={
+            chat.chats.find((c) => c.id === chat.selected)?.project_id || null
+          }
+        />
         <ComputePanel
           api={api}
           llm={llm}
@@ -180,6 +187,7 @@ export default function Workspace({
         </div>
         {chat.messages.length ? (
           <MessageList
+            api={api}
             messages={chat.messages}
             streaming={chat.streaming}
             fontSize={settings.fontSize}
