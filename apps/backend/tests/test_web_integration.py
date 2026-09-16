@@ -59,6 +59,32 @@ def test_llamacpp_tools_contract_and_usage():
     assert usage["total_tokens"] == 40
 
 
+def test_generation_usage_combines_planner_and_final_provider_counts(client, auth, fake_tools, monkeypatch):
+    from app.compute.models import GenerationUsage
+
+    class ReportedProvider:
+        supports_tools = True
+
+        async def plan_tools(self, messages, tools, usage):
+            usage.update(_planner_calls=1, prompt_tokens=30, completion_tokens=10, total_tokens=40)
+            return {"role": "assistant", "content": "No tools needed"}
+
+        async def stream_with_usage(self, messages, usage):
+            usage.update(input_tokens=100, output_tokens=20, total_tokens=120)
+            yield "Local test answer"
+
+    monkeypatch.setattr(client.app.state, "provider", ReportedProvider())
+    headers = auth()
+    chat = client.post("/chats", headers=headers, json={}).json()["id"]
+    response = client.post(
+        f"/chats/{chat}/stream", headers=headers, json={"content": "Explain a list", "web_mode": "auto"}
+    )
+    assert "event: done" in response.text
+    with SessionLocal() as db:
+        row = db.scalar(select(GenerationUsage).where(GenerationUsage.chat_id == chat))
+        assert (row.input_tokens, row.output_tokens, row.total_tokens) == (130, 30, 160)
+
+
 @pytest.fixture
 def fake_tools(client, monkeypatch):
     registry = fake_registry()

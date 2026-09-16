@@ -265,9 +265,13 @@ async def stream_response(chat, content, request, user, db, action="send", targe
                         save_db.commit()
                 # Only aggregate counts when every planner response reported its usage.
                 if planner_usage.get("_planner_calls") and not planner_usage.get("_planner_usage_incomplete"):
-                    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-                        if key in tokens and key in planner_usage:
-                            tokens[key] += planner_usage[key]
+                    for upstream, column in (
+                        ("prompt_tokens", "input_tokens"),
+                        ("completion_tokens", "output_tokens"),
+                        ("total_tokens", "total_tokens"),
+                    ):
+                        if column in tokens and upstream in planner_usage:
+                            tokens[column] += planner_usage[upstream]
                 compute.finish_generation(usage_id, status, assistant_id, tokens)
             finally:
                 request.app.state.generating.discard(chat_id)
