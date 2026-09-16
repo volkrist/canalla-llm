@@ -3,9 +3,29 @@
 use std::fs;
 use std::path::PathBuf;
 
-const TARGET: &str = "Alex LLM/device-credential";
+fn credential_target() -> String {
+    let raw = std::env::var("ALEX_DEVICE_CREDENTIAL_TARGET")
+        .unwrap_or_else(|_| "Alex LLM/device-credential".into());
+    if raw.starts_with("Alex LLM/")
+        && raw.len() <= 80
+        && raw
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | ' ' | '.'))
+    {
+        raw
+    } else {
+        "Alex LLM/device-credential".into()
+    }
+}
 
-fn data_dir() -> PathBuf {
+pub fn data_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("ALEX_DEVICE_DIR") {
+        let path = PathBuf::from(dir);
+        if !path.as_os_str().is_empty() {
+            let _ = fs::create_dir_all(&path);
+            return path;
+        }
+    }
     let root = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".into());
     let dir = PathBuf::from(root).join("Alex LLM");
     let _ = fs::create_dir_all(&dir);
@@ -17,24 +37,24 @@ fn fallback_path() -> PathBuf {
 }
 
 pub fn store(value: &str) -> Result<(), String> {
-    if cred_write(TARGET, value).is_ok() {
+    if cred_write(&credential_target(), value).is_ok() {
         return Ok(());
     }
     dpapi_write(value)
 }
 
 pub fn load() -> Option<String> {
-    cred_read(TARGET).ok().or_else(dpapi_read)
+    cred_read(&credential_target()).ok().or_else(dpapi_read)
 }
 
 pub fn delete() -> Result<(), String> {
-    let _ = cred_delete(TARGET);
+    let _ = cred_delete(&credential_target());
     let _ = fs::remove_file(fallback_path());
     Ok(())
 }
 
 pub fn storage_kind() -> &'static str {
-    if cred_read(TARGET).is_ok() {
+    if cred_read(&credential_target()).is_ok() {
         "windows_credential_manager"
     } else if fallback_path().exists() {
         "dpapi_file_fallback"
