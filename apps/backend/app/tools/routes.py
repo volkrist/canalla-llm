@@ -1,6 +1,7 @@
-from datetime import timedelta
+import socket
+from datetime import timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -12,11 +13,29 @@ from ..database import get_db
 from ..models import Chat, Message, User, now
 from ..security import current_user
 from .contracts import ToolError
-from .executor import ExecutionContext, ToolExecutor, public_run, public_source
-from .models import ToolPreferences, ToolRun, WebSourceSnapshot
+from .executor import ExecutionContext, ToolExecutor, public_job, public_run, public_source
+from .local.devices import HostResult, PairRequest, public_device, require_device
+from .models import PairedDevice, ToolPreferences, ToolRun, WebSourceSnapshot
 from .policy import ToolLimits, WebSettings, preferences
 
 router = APIRouter(tags=["tools"])
+
+
+def _device(
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+    device_id: str | None = Header(default=None, alias="X-Alex-Device-Id"),
+    credential: str | None = Header(default=None, alias="X-Alex-Device-Credential"),
+):
+    return require_device(db, user, device_id, credential)
+
+
+def _tor_connected(settings):
+    try:
+        with socket.create_connection((settings.tor_socks_host, settings.tor_socks_port), 0.25):
+            return True
+    except OSError:
+        return False
 
 
 class ExplicitTool(BaseModel):
@@ -153,6 +172,8 @@ def provider_status(user: User = Depends(current_user)):
         else "local_soft",
         "browser_delete_supported": settings.tinyfish_browser_delete_supported,
         "pricing_checked_at": "2026-09-15",
+        "tor_search_configured": bool(settings.tor_search_providers),
+        "tor_status": "Connected" if _tor_connected(settings) else "Not configured",
         "limits": {
             "calls": settings.tools_max_calls,
             "searches": settings.tools_max_search,
@@ -236,3 +257,102 @@ def sources(key: str, user: User = Depends(current_user), db: Session = Depends(
             .order_by(WebSourceSnapshot.rank)
         )
     ]
+
+
+@router.post("/tools/devices/pair")
+def pair_device(body: PairRequest, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from .local.devices import hash_credential, issue_credential
+
+    credential = issue_credential()
+    row = PairedDevice(
+        user_id=user.id,
+        display_name=body.display_name,
+        platform=body.platform,
+        capabilities={"tools": body.capabilities},
+        credential_hash=hash_credential(credential),
+        last_seen=now(),
+    )
+    db.add(row)
+    db.commit()
+    payload = public_device(row)
+    payload["credential"] = credential
+    return payload
+
+
+@router.get("/tools/devices")
+def list_devices(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return [
+        public_device(row)
+        for row in db.scalars(select(PairedDevice).where(PairedDevice.user_id == user.id))
+        if not row.revoked_at
+    ]
+
+
+@router.post("/tools/devices/heartbeat")
+def device_heartbeat(device: PairedDevice = Depends(_device)):
+    return public_device(device)
+
+
+@router.get("/tools/devices/jobs")
+def device_jobs(
+    user: User = Depends(current_user), db: Session = Depends(get_db), device: PairedDevice = Depends(_device)
+):
+    rows = db.scalars(
+        select(ToolRun).where(
+            ToolRun.user_id == user.id,
+            ToolRun.assigned_device_id == device.id,
+            ToolRun.status == "waiting_host",
+        )
+    )
+    return [public_job(row) for row in rows]
+
+
+@router.post("/tools/runs/{key}/host-result")
+def host_result(
+    key: str,
+    body: HostResult,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+    device: PairedDevice = Depends(_device),
+):
+    from .security import sanitized
+
+    row = db.scalar(
+        select(ToolRun).where(
+            ToolRun.id == key,
+            ToolRun.user_id == user.id,
+            ToolRun.assigned_device_id == device.id,
+            ToolRun.status == "waiting_host",
+        )
+    )
+    if not row:
+        raise HTTPException(404, "Запуск не найден")
+    if row.input_digest != body.digest:
+        raise HTTPException(409, "confirmation_mismatch")
+    started = row.started_at.replace(tzinfo=timezone.utc) if row.started_at.tzinfo is None else row.started_at
+    if started < now() - timedelta(minutes=5):
+        raise HTTPException(409, "confirmation_expired")
+    metadata = {
+        **row.result_metadata,
+        "host_result": {
+            "exit_code": body.exit_code,
+            "stdout": sanitized(body.stdout, (), 20000),
+            "stderr": sanitized(body.stderr, (), 20000),
+            "text": sanitized(body.text or body.stdout, (), 20000),
+            **{
+                field: body.metadata[field]
+                for field in ("cwd", "before_sha256", "after_sha256", "files_changed")
+                if field in body.metadata
+            },
+        },
+    }
+    changed = db.execute(
+        update(ToolRun)
+        .where(ToolRun.id == key, ToolRun.status == "waiting_host", ToolRun.assigned_device_id == device.id)
+        .values(status="host_ready", result_metadata=metadata)
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+    if changed.rowcount != 1:
+        raise HTTPException(409, "Результат уже принят")
+    return {"status": "host_ready"}

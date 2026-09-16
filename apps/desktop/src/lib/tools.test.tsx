@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ToolActivity from "../components/ToolActivity";
 import Composer from "../components/Composer";
 import type { Api } from "./api";
-import type { ToolRun } from "./tools";
+import { summarizeFamily, type ToolRun } from "./tools";
 
 const run: ToolRun = {
   id: "one",
@@ -65,8 +65,51 @@ describe("tool presentation", () => {
     );
     expect(html.split("TinyFish API не настроен").length - 1).toBe(1);
   });
-  it("exposes all Web modes and an explicit search action", () => {
+  it("collapses web search/fetch and keeps confirmation outside the summary", () => {
     const html = renderToStaticMarkup(
+      <ToolActivity
+        api={{} as Api}
+        runs={[
+          {
+            ...run,
+            id: "s1",
+            tool_name: "web_search",
+            status: "completed",
+            risk_level: "READ_ONLY",
+          },
+          {
+            ...run,
+            id: "f1",
+            tool_name: "web_fetch",
+            status: "completed",
+            risk_level: "READ_ONLY",
+          },
+          {
+            ...run,
+            id: "f2",
+            tool_name: "web_fetch",
+            status: "completed",
+            risk_level: "READ_ONLY",
+          },
+          run,
+        ]}
+        state="completed"
+      />,
+    );
+    expect(html).toContain("Веб · 3 запросов · 1 Search · 2 Fetch · Завершено");
+    expect(html).toContain("Разрешить один раз");
+    expect(html.indexOf("alertdialog")).toBeLessThan(html.indexOf("Веб ·"));
+  });
+  it("summarizes computer file actions", () => {
+    expect(
+      summarizeFamily("computer", [
+        { ...run, tool_name: "write_file", status: "completed" },
+        { ...run, tool_name: "read_file", status: "completed" },
+      ]),
+    ).toBe("Компьютер · 2 действий · 1 файлов изменено · Завершено");
+  });
+  it("shows force-web only in Auto mode", () => {
+    const auto = renderToStaticMarkup(
       <Composer
         busy={false}
         streaming={false}
@@ -78,9 +121,35 @@ describe("tool presentation", () => {
         webMode="auto"
       />,
     );
-    expect(html).toContain('value="off"');
-    expect(html).toContain('value="auto" selected');
-    expect(html).toContain('value="on"');
-    expect(html).toContain("Найти в интернете");
+    expect(auto).toContain('value="off"');
+    expect(auto).toContain('value="auto" selected');
+    expect(auto).toContain('value="on"');
+    expect(auto).toContain("Найти в интернете");
+    const on = renderToStaticMarkup(
+      <Composer
+        busy={false}
+        streaming={false}
+        connected
+        onSend={async () => true}
+        onStop={() => {}}
+        draft="question"
+        setDraft={() => {}}
+        webMode="on"
+      />,
+    );
+    const off = renderToStaticMarkup(
+      <Composer
+        busy={false}
+        streaming={false}
+        connected
+        onSend={async () => true}
+        onStop={() => {}}
+        draft="question"
+        setDraft={() => {}}
+        webMode="off"
+      />,
+    );
+    expect(on).not.toContain("Найти в интернете");
+    expect(off).not.toContain("Найти в интернете");
   });
 });

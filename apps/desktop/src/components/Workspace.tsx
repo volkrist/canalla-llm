@@ -22,6 +22,12 @@ import PersonalPanel from "./PersonalPanel";
 import FilesPanel from "./FilesPanel";
 import ToolActivity from "./ToolActivity";
 import BrowserPanel from "./BrowserPanel";
+import {
+  pairLocalDevice,
+  readDeviceStatus,
+  runHostJobs,
+  type DeviceStatus,
+} from "../lib/host";
 
 export default function Workspace({
   api,
@@ -43,11 +49,48 @@ export default function Workspace({
   const chat = useChat(api, onLogout);
   const [sidebar, setSidebar] = useState(false);
   const [browser, setBrowser] = useState(false);
+  const [device, setDevice] = useState<DeviceStatus>({
+    paired: false,
+    online: false,
+  });
   useEffect(() => {
     const open = () => setBrowser(true);
     window.addEventListener("alex-browser-advanced", open);
     return () => window.removeEventListener("alex-browser-advanced", open);
   }, []);
+  useEffect(() => {
+    let live = true;
+    const token = api.authToken();
+    if (!token) return;
+    const refresh = async () => {
+      try {
+        const prefs = await api.json<{
+          device_display_name?: string;
+          workspace_roots?: string[];
+        }>("/tools/preferences");
+        const alias = prefs.device_display_name?.trim() || "Alex-PC";
+        await pairLocalDevice(api.base, token, alias);
+        const status = await readDeviceStatus();
+        if (live) setDevice(status);
+        await runHostJobs(api.base, token, prefs.workspace_roots || []);
+      } catch {
+        const status = await readDeviceStatus().catch(() => ({
+          paired: false,
+          online: false,
+        }));
+        if (live) setDevice(status);
+      }
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 8000);
+    const onJobs = () => void refresh();
+    window.addEventListener("alex-host-jobs", onJobs);
+    return () => {
+      live = false;
+      clearInterval(timer);
+      window.removeEventListener("alex-host-jobs", onJobs);
+    };
+  }, [api]);
   const prefix = draftPrefix(api.base, user.id);
   const [draft, updateDraft] = useState(() => readDraft(prefix, null));
   const setDraft = (value: string) => {
@@ -257,6 +300,10 @@ export default function Workspace({
         <Composer
           webMode={chat.webMode}
           setWebMode={chat.setWebMode}
+          computerMode={chat.computerMode}
+          setComputerMode={chat.setComputerMode}
+          deviceLabel={device.display_name || "Alex-PC"}
+          deviceOnline={!!device.online}
           phase={chat.phase}
           busy={chat.busy}
           streaming={chat.streaming}

@@ -8,6 +8,22 @@ from pathlib import Path
 
 import uvicorn
 
+
+def _embedding_data_dir():
+    configured = os.environ.get("ALEX_LLM_DATA_DIR", "").strip()
+    if configured:
+        return configured
+    local = Path(os.environ.get("LOCALAPPDATA", ""))
+    candidates = [local / "Alex LLM"]
+    packages = local / "Packages"
+    if packages.is_dir():
+        candidates.extend(packages.glob("*/LocalCache/Local/Alex LLM"))
+    for root in candidates:
+        if (root / "models/embeddings/multilingual-e5-small/active.json").is_file():
+            return str(root)
+    return ""
+
+
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="alex-e2e-") as directory:
         os.environ.update(
@@ -23,6 +39,7 @@ if __name__ == "__main__":
             ADMIN_EMAILS="[]",
             ALLOW_USER_COMPUTE_START="false",
             DOCUMENT_STORAGE_DIR=str(Path(directory) / "documents"),
+            ALEX_LLM_DATA_DIR=_embedding_data_dir(),
         )
         import sys
 

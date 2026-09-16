@@ -29,6 +29,9 @@ async function login(page: Page, request: APIRequestContext) {
   await expect(page.getByLabel("Web mode", { exact: true })).toHaveValue(
     "auto",
   );
+  await expect(page.getByLabel("Computer mode", { exact: true })).toHaveValue(
+    "ask",
+  );
   return headers;
 }
 async function send(page: Page, value: string) {
@@ -52,6 +55,12 @@ test("Web settings warnings and explicit Browser commands require per-action app
   await expect(
     page.getByText("TinyFish API: Not configured", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByText(/Tor Search provider not configured/),
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("Computer mode default", { exact: true }),
+  ).toHaveValue("ask");
   await expect(
     page.getByLabel("Разрешить платный Agent", { exact: true }),
   ).toBeDisabled();
@@ -130,6 +139,9 @@ test("Web Search + Fetch snapshots, RAG D1 + W1 and isolation", async ({
     .getByRole("button", { name: "Закрыть файлы", exact: true })
     .click();
   await page.getByLabel("Web mode", { exact: true }).selectOption("on");
+  await expect(
+    page.getByRole("button", { name: "Найти в интернете", exact: true }),
+  ).toHaveCount(0);
   await send(
     page,
     "Где Аврора хранит резервные копии? Сравни с current Aurora documentation.",
@@ -171,7 +183,7 @@ test("Web Search + Fetch snapshots, RAG D1 + W1 and isolation", async ({
   ).toBe(404);
 });
 
-test("Agent confirmation denial and Stop propagate without an external action", async ({
+test("Planner does not auto-route TinyFish Agent", async ({
   page,
   request,
 }) => {
@@ -187,34 +199,21 @@ test("Agent confirmation denial and Stop propagate without an external action", 
   await page.getByLabel("Web mode", { exact: true }).selectOption("on");
   await send(page, "Тест Agent действие");
   await expect(
-    page.getByRole("alertdialog", { name: "Подтвердить внешнее действие" }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Отменить действие", exact: true })
-    .click();
-  await expect(
     page.getByRole("button", { name: "Stop generation", exact: true }),
   ).toBeHidden({ timeout: 15000 });
-  let runs = await (
+  await expect(
+    page.getByRole("alertdialog", { name: "Подтвердить внешнее действие" }),
+  ).toHaveCount(0);
+  const runs = await (
     await request.get("http://127.0.0.1:8001/tools/runs", { headers })
   ).json();
-  expect(runs[0].status).toBe("stopped");
-  expect(runs[0].provider_run_id).toBeNull();
-  await send(page, "Тест Agent чтение");
-  await expect(
-    page.getByText("web_agent_read · Выполнение web-задачи", { exact: false }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Stop generation", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "Send", exact: true }),
-  ).toBeVisible({ timeout: 15000 });
-  runs = await (
-    await request.get("http://127.0.0.1:8001/tools/runs", { headers })
-  ).json();
-  expect(runs[0].status).toBe("stopped");
-  expect(runs[0].result_metadata.supplier_stop_confirmed).toBe(true);
+  expect(
+    runs.filter((row: { tool_name: string }) =>
+      ["web_agent_read", "test_agent_action", "browser_start"].includes(
+        row.tool_name,
+      ),
+    ),
+  ).toEqual([]);
 });
 
 test("Missing TinyFish key degrades gracefully; Web Off makes no new tool calls", async ({
@@ -240,6 +239,9 @@ test("Missing TinyFish key degrades gracefully; Web Off makes no new tool calls"
     await request.get("http://127.0.0.1:8001/tools/runs", { headers })
   ).json();
   await page.getByLabel("Web mode", { exact: true }).selectOption("off");
+  await expect(
+    page.getByRole("button", { name: "Найти в интернете", exact: true }),
+  ).toHaveCount(0);
   await send(page, "current news");
   await expect(
     page.getByRole("button", { name: "Stop generation", exact: true }),

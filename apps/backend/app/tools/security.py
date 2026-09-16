@@ -72,7 +72,26 @@ def input_summary(definition, args, secrets=()):
     # Full payload is held only by the running executor. Audit stores bounded safe preview.
     values = args.model_dump()
     result = {"action": definition.name, "provider": definition.provider}
-    for key in ("query", "url", "urls", "goal", "action", "selector", "text"):
-        if key in values:
+    for key in (
+        "query",
+        "url",
+        "urls",
+        "goal",
+        "action",
+        "selector",
+        "text",
+        "path",
+        "executable",
+        "argv",
+        "cwd",
+        "source",
+        "destination",
+        "root",
+        "content",
+        "expected_before_sha256",
+        "timeout_seconds",
+        "tool_run_id",
+    ):
+        if key in values and values[key] not in (None, "", [], {}):
             result[key] = sanitized(json.dumps(values[key], ensure_ascii=False), secrets, 500)
     return result

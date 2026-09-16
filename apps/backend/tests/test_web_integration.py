@@ -162,3 +162,47 @@ def test_planner_never_receives_private_memory_or_documents(client, auth, fake_t
         f"/chats/{chat}/stream", headers=headers, json={"content": "Current docs", "web_mode": "on"}
     )
     assert "event: done" in response.text
+
+
+def test_server_policy_search_is_audited_not_as_model(client, auth, fake_tools, monkeypatch):
+    class Silent:
+        supports_tools = True
+
+        async def plan_tools(self, messages, tools, usage):
+            names = [item["function"]["name"] for item in tools]
+            assert "web_agent_read" not in names
+            assert "browser_start" not in names
+            return {"tool_calls": []}
+
+        async def stream_with_usage(self, messages, usage):
+            yield "Local test answer"
+
+    monkeypatch.setattr(client.app.state, "provider", Silent())
+    headers = auth()
+    chat = client.post("/chats", headers=headers, json={}).json()["id"]
+    response = client.post(
+        f"/chats/{chat}/stream",
+        headers=headers,
+        json={"content": "Какая актуальная версия Python?", "web_mode": "on"},
+    )
+    assert "event: done" in response.text
+    runs = client.get("/tools/runs", headers=headers).json()
+    origins = {(row["tool_name"], row.get("origin")) for row in runs}
+    assert ("web_search", "server_policy") in origins
+    assert ("web_fetch", "server_policy") in origins
+    greeting = client.post(
+        f"/chats/{chat}/stream", headers=headers, json={"content": "Привет!", "web_mode": "on"}
+    )
+    assert "event: done" in greeting.text
+    after = client.get("/tools/runs", headers=headers).json()
+    assert len(after) == len(runs)
+
+
+def test_agent_not_auto_routed():
+    from app.tools.registry import make_registry
+
+    names = [item.name for item in make_registry().definitions()]
+    assert "web_search" in names and "web_fetch" in names
+    assert "web_agent_read" not in names
+    assert "browser_start" not in names
+    assert "delete_file" not in names

@@ -231,7 +231,13 @@ async def stream_chat(
     db: Session = Depends(get_db),
 ):
     return await stream_response(
-        owned_chat(db, chat_id, user.id), body.content, request, user, db, web_mode=body.web_mode
+        owned_chat(db, chat_id, user.id),
+        body.content,
+        request,
+        user,
+        db,
+        web_mode=body.web_mode,
+        computer_mode=body.computer_mode,
     )
 
 
@@ -253,6 +259,7 @@ async def resend(
         action="resend",
         target_id=message_id,
         web_mode=body.web_mode,
+        computer_mode=body.computer_mode,
     )
 
 

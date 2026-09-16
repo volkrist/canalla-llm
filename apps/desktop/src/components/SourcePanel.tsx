@@ -19,13 +19,15 @@ export interface Source {
 
 export function SourceList({ sources }: { sources: Source[] }) {
   const [selectedId, setSelected] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const selected = sources.find((source) => source.chunk_id === selectedId);
+  const visible = expanded ? sources : sources.slice(0, 3);
   return (
     <>
       {sources.length > 0 && (
         <div className="source-list">
-          <strong>Источники, переданные модели</strong>
-          {sources.map((source) => (
+          <strong>Документы D</strong>
+          {visible.map((source) => (
             <button
               key={source.chunk_id}
               onClick={() => setSelected(source.chunk_id)}
@@ -36,6 +38,14 @@ export function SourceList({ sources }: { sources: Source[] }) {
               {source.deleted ? " · Источник был удалён" : ""}
             </button>
           ))}
+          {sources.length > 3 && (
+            <button
+              type="button"
+              onClick={() => setExpanded((value) => !value)}
+            >
+              {expanded ? "Скрыть" : "Показать ещё"}
+            </button>
+          )}
         </div>
       )}
       {selected && (

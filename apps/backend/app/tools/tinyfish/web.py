@@ -60,7 +60,7 @@ class SearchArgs(BaseModel):
 
 class FetchArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    urls: list[str] = Field(min_length=1, max_length=10)
+    urls: list[str] = Field(min_length=1, max_length=3)
     purpose: str | None = Field(default=None, max_length=2000)
     fresh: bool = False
 

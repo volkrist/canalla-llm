@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Api } from "../lib/api";
-import type { WebMode } from "../lib/tools";
+import type { ComputerMode, WebMode } from "../lib/tools";
 
 interface Preferences {
   search_enabled: boolean;
@@ -11,6 +11,10 @@ interface Preferences {
   agent_daily_budget: number;
   agent_max_runtime: number;
   browser_enabled: boolean;
+  tor_enabled: boolean;
+  computer_mode: ComputerMode;
+  workspace_roots: string[];
+  device_display_name: string;
 }
 interface Status {
   agent_read_only_enforced: boolean;
@@ -20,6 +24,8 @@ interface Status {
   browser_minute_price: number;
   agent_max_steps_supported: boolean;
   browser_delete_supported: boolean;
+  tor_status: string;
+  tor_search_configured: boolean;
   limits: Record<string, number>;
 }
 export default function WebToolsSettings({ api }: { api: Api }) {
@@ -35,7 +41,20 @@ export default function WebToolsSettings({ api }: { api: Api }) {
     ])
       .then(([prefs, state]) => {
         if (live) {
-          setValue(prefs);
+          setValue({
+            search_enabled: prefs.search_enabled,
+            fetch_enabled: prefs.fetch_enabled,
+            default_mode: prefs.default_mode,
+            agent_enabled: prefs.agent_enabled,
+            agent_run_budget: prefs.agent_run_budget,
+            agent_daily_budget: prefs.agent_daily_budget,
+            agent_max_runtime: prefs.agent_max_runtime,
+            browser_enabled: prefs.browser_enabled,
+            tor_enabled: prefs.tor_enabled ?? false,
+            computer_mode: prefs.computer_mode ?? "ask",
+            workspace_roots: prefs.workspace_roots ?? [],
+            device_display_name: prefs.device_display_name ?? "",
+          });
           setStatus(state);
         }
       })
@@ -223,6 +242,73 @@ export default function WebToolsSettings({ api }: { api: Api }) {
                 Открыть Browser Advanced
               </button>
             )}
+          </fieldset>
+          <fieldset>
+            <legend>Tor</legend>
+            <p>
+              Tor SOCKS: {status?.tor_status || "Проверка…"}
+              {status && !status.tor_search_configured
+                ? " · Tor Search provider not configured"
+                : ""}
+            </p>
+            <label>
+              <input
+                type="checkbox"
+                checked={value.tor_enabled}
+                onChange={(e) => change({ tor_enabled: e.target.checked })}
+              />
+              Разрешить Tor Search/Fetch (не TinyFish)
+            </label>
+          </fieldset>
+          <fieldset>
+            <legend>Local Computer</legend>
+            <label>
+              Computer{" "}
+              <select
+                aria-label="Computer mode default"
+                value={value.computer_mode}
+                onChange={(e) =>
+                  change({ computer_mode: e.target.value as ComputerMode })
+                }
+              >
+                <option value="off">Off</option>
+                <option value="ask">Ask</option>
+                <option value="trusted">Trusted Workspace</option>
+              </select>
+            </label>
+            <label>
+              Имя устройства
+              <input
+                aria-label="Device display name"
+                value={value.device_display_name}
+                maxLength={80}
+                onChange={(e) =>
+                  change({ device_display_name: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              Trusted workspace roots (по строке)
+              <textarea
+                aria-label="Workspace roots"
+                rows={3}
+                value={(value.workspace_roots || []).join("\n")}
+                onChange={(e) =>
+                  change({
+                    workspace_roots: e.target.value
+                      .split("\n")
+                      .map((item) => item.trim())
+                      .filter(Boolean)
+                      .slice(0, 8),
+                  })
+                }
+              />
+            </label>
+            <p>
+              Trusted Workspace автоматически разрешает только файловые операции
+              внутри roots. run_process / PowerShell / Python всегда требуют
+              подтверждение. Device credential хранится в OS storage, не в JS.
+            </p>
           </fieldset>
           {status && (
             <p>

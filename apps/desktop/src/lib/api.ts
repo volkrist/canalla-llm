@@ -28,6 +28,9 @@ export class Api {
     public base: string,
     private token: string | null,
   ) {}
+  authToken() {
+    return this.token;
+  }
   private async response(path: string, init: RequestInit = {}) {
     const headers = new Headers(init.headers);
     if (init.body && !(init.body instanceof FormData))
@@ -146,6 +149,7 @@ export class Api {
     onEvent: (event: ServerEvent) => void,
     action?: { kind: "resend" | "regenerate"; messageId: string },
     webMode?: "off" | "auto" | "on",
+    computerMode?: "off" | "ask" | "trusted",
   ) {
     const path = action
       ? `/chats/${id}/messages/${action.messageId}/${action.kind}`
@@ -155,7 +159,11 @@ export class Api {
       body:
         action?.kind === "regenerate"
           ? undefined
-          : JSON.stringify({ content, web_mode: webMode }),
+          : JSON.stringify({
+              content,
+              web_mode: webMode,
+              computer_mode: computerMode,
+            }),
       signal,
     });
     if (!response.body) throw new Error("Streaming не поддерживается");

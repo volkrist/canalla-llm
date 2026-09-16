@@ -1377,6 +1377,12 @@ p {
   flex-shrink: 0;
   font-size: 12px;
 }
+.tool-summary {
+  margin: 6px 0;
+}
+.tool-summary summary {
+  cursor: pointer;
+}
 .tool-activity p {
   margin: 5px 0;
 }

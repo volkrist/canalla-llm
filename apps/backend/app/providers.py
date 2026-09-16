@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 import httpx
 
 from .config import Settings
+from .tools.web_router import classify_web
 
 
 class LLMProvider(ABC):
@@ -58,12 +59,24 @@ class MockLLMProvider(LLMProvider):
                     ]
                 }
             return {"tool_calls": []}
-        on = "Web mode=on" in str(messages[0].get("content", ""))
-        needed = on or re.search(r"(?i)сегодня|сейчас|найди.*интернет|latest|current|https?://", prompt)
-        if not needed:
+        policy = str(messages[0].get("content", ""))
+        mode = "auto"
+        if "Web mode=on" in policy:
+            mode = "on"
+        elif "Web mode=off" in policy:
+            mode = "off"
+        intent = classify_web(prompt, mode)
+        if not intent.required:
             return {"tool_calls": []}
         urls = re.findall(r"https?://[^\s<>]+", prompt)
-        name, args = ("web_fetch", {"urls": urls[:1]}) if urls else ("web_search", {"query": prompt[:500]})
+        name, args = (
+            ("web_fetch", {"urls": urls[:1], "fresh": intent.fresh})
+            if urls
+            else (
+                "web_search",
+                {"query": intent.query},
+            )
+        )
         return {
             "tool_calls": [
                 {
@@ -97,7 +110,7 @@ class MockLLMProvider(LLMProvider):
             response += "\nВ запрос передан контекст документов. Это проверка доставки контекста; mock не делает выводы по источникам.\n"
         for message in messages:
             if message.get("content", "").startswith("[Untrusted reference material — web/tools]"):
-                labels = sorted(set(re.findall(r"\[W\d+\]", message["content"])))
+                labels = sorted(set(re.findall(r"\[(?:W|T)\d+\]", message["content"])))
                 response += "\nWeb-контекст передан mock-провайдеру: " + " ".join(labels) + ".\n"
         for start in range(0, len(response), 7):
             await asyncio.sleep(self.delay)

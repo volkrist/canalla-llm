@@ -14,41 +14,46 @@ from .tinyfish.web import FetchArgs, SearchArgs, TinyFishFetchProvider, TinyFish
 
 def make_registry():
     registry = ToolRegistry()
-    for name, description, schema, capability, cost, timeout, provider in (
-        (
+    registry.register(
+        ToolDefinition(
             "web_search",
             "Find public sources for a query, with dates, domains and language filters.",
             SearchArgs,
             "search",
+            RiskLevel.READ_ONLY,
             "free",
             90,
-            TinyFishSearchProvider(),
+            "tinyfish",
         ),
-        (
+        TinyFishSearchProvider(),
+    )
+    registry.register(
+        ToolDefinition(
             "web_fetch",
             "Read public URLs as reference text. Use fresh=true for current information.",
             FetchArgs,
             "fetch",
+            RiskLevel.READ_ONLY,
             "free",
             90,
-            TinyFishFetchProvider(),
+            "tinyfish",
         ),
-        (
+        TinyFishFetchProvider(),
+    )
+    registry.register(
+        ToolDefinition(
             "web_agent_read",
             "Paid multi-step public reading only. Never use for writes, login, submissions or purchases.",
             AgentArgs,
             "agent",
+            RiskLevel.READ_ONLY,
             "paid",
             180,
-            TinyFishAgentProvider(),
+            "tinyfish",
+            auto_route=False,
         ),
-    ):
-        registry.register(
-            ToolDefinition(
-                name, description, schema, capability, RiskLevel.READ_ONLY, cost, timeout, "tinyfish"
-            ),
-            provider,
-        )
+        TinyFishAgentProvider(),
+    )
     browser = TinyFishBrowserProvider()
     for name, schema, risk, adapter, cost in (
         ("browser_start", BrowserStartArgs, RiskLevel.READ_ONLY, browser, "paid"),
@@ -75,6 +80,11 @@ def make_registry():
             ),
             adapter,
         )
+    from .local.provider import register_local_tools
+    from .tor.provider import register_tor_tools
+
+    register_tor_tools(registry)
+    register_local_tools(registry)
     return registry
 
 

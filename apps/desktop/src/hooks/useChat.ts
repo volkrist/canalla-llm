@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Api, ApiError } from "../lib/api";
 import type { Chat, Message } from "../types";
-import type { ToolRun, WebMode } from "../lib/tools";
+import type { ToolRun, WebMode, ComputerMode } from "../lib/tools";
 
 export function useChat(api: Api, onExpired: () => void) {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -12,6 +12,7 @@ export function useChat(api: Api, onExpired: () => void) {
   const [phase, setPhase] = useState("idle");
   const [error, setError] = useState("");
   const [webMode, setWebMode] = useState<WebMode>("auto");
+  const [computerMode, setComputerMode] = useState<ComputerMode>("ask");
   const [webState, setWebState] = useState("");
   const [webError, setWebError] = useState("");
   const [toolRuns, setToolRuns] = useState<ToolRun[]>([]);
@@ -19,9 +20,14 @@ export function useChat(api: Api, onExpired: () => void) {
     let live = true;
     const refresh = () =>
       void api
-        .json<{ default_mode: WebMode }>("/tools/preferences")
+        .json<{ default_mode: WebMode; computer_mode: ComputerMode }>(
+          "/tools/preferences",
+        )
         .then((value) => {
-          if (live) setWebMode(value.default_mode);
+          if (live) {
+            setWebMode(value.default_mode);
+            if (value.computer_mode) setComputerMode(value.computer_mode);
+          }
         })
         .catch(() => {});
     refresh();
@@ -161,6 +167,8 @@ export function useChat(api: Api, onExpired: () => void) {
             setWebState(run.status);
             if (run.status === "completed")
               window.dispatchEvent(new Event("alex-web-sources"));
+            if (run.status === "waiting_host")
+              window.dispatchEvent(new Event("alex-host-jobs"));
           }
           if (event.event === "meta") {
             accepted = true;
@@ -195,6 +203,7 @@ export function useChat(api: Api, onExpired: () => void) {
         },
         action,
         mode ?? webMode,
+        computerMode,
       );
       setPhase("completed");
       setWebState("completed");
@@ -240,6 +249,8 @@ export function useChat(api: Api, onExpired: () => void) {
     phase,
     webMode,
     setWebMode,
+    computerMode,
+    setComputerMode,
     webState,
     webError,
     toolRuns,

@@ -40,7 +40,9 @@ def sse(event, data):
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-async def stream_response(chat, content, request, user, db, action="send", target_id=None, web_mode=None):
+async def stream_response(
+    chat, content, request, user, db, action="send", target_id=None, web_mode=None, computer_mode=None
+):
     if chat.id in request.app.state.generating:
         raise HTTPException(409, "В этом диалоге уже идёт генерация")
     if request.app.state.provider_name == "llamacpp":
@@ -63,7 +65,9 @@ async def stream_response(chat, content, request, user, db, action="send", targe
                 raise HTTPException(422, "Перед ответом нет сообщения пользователя")
             target = previous[-1]
     compute = request.app.state.compute
-    effective_web_mode = web_mode or preferences(db, user.id).default_mode
+    prefs = preferences(db, user.id)
+    effective_web_mode = web_mode or prefs.default_mode
+    effective_computer_mode = computer_mode or prefs.computer_mode
     usage_id = await compute.begin_generation(user.id, chat.id, request.app.state.provider_name)
     request.app.state.generating.add(chat.id)
     mutation_lock.acquire()
@@ -158,6 +162,9 @@ async def stream_response(chat, content, request, user, db, action="send", targe
                 ),
                 emit,
                 mode=effective_web_mode,
+                computer_mode=effective_computer_mode,
+                tor_enabled=prefs.tor_enabled,
+                settings=prefs,
                 secrets=(
                     settings.tinyfish_api_key.get_secret_value(),
                     settings.runpod_api_key.get_secret_value(),
@@ -189,6 +196,7 @@ async def stream_response(chat, content, request, user, db, action="send", targe
                     snapshot.snapshot = {
                         **snapshot.snapshot,
                         "web_mode": effective_web_mode,
+                        "computer_mode": effective_computer_mode,
                         "web_source_count": len(tool_context.sources),
                         "web_chars": sum(len(source["excerpt"]) for source in tool_context.sources),
                         "planner_usage": planner_usage,

@@ -37,6 +37,8 @@ class ToolRun(Base):
     provider_run_id: Mapped[str | None] = mapped_column(String(160))
     error_code: Mapped[str | None] = mapped_column(String(80))
     result_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    origin: Mapped[str] = mapped_column(String(32), default="model")
+    assigned_device_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -60,3 +62,20 @@ class WebSourceSnapshot(Base):
     provider: Mapped[str] = mapped_column(String(40))
     etag: Mapped[str | None] = mapped_column(String(300))
     last_modified: Mapped[str | None] = mapped_column(String(100))
+    channel: Mapped[str] = mapped_column(String(12), default="web")
+    authority: Mapped[str | None] = mapped_column(String(40))
+    canonical_url: Mapped[str | None] = mapped_column(Text)
+    kind: Mapped[str | None] = mapped_column(String(20))
+
+
+class PairedDevice(Base):
+    __tablename__ = "paired_devices"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    display_name: Mapped[str] = mapped_column(String(80), default="Alex-PC")
+    platform: Mapped[str] = mapped_column(String(32), default="windows")
+    capabilities: Mapped[dict] = mapped_column(JSON, default=dict)
+    credential_hash: Mapped[str] = mapped_column(String(64))
+    last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

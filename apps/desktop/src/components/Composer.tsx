@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ArrowUp, Square } from "lucide-react";
-import type { WebMode } from "../lib/tools";
+import type { ComputerMode, WebMode } from "../lib/tools";
 
 export default function Composer({
   busy,
@@ -14,6 +14,10 @@ export default function Composer({
   enterSends = true,
   webMode = "auto",
   setWebMode,
+  computerMode = "ask",
+  setComputerMode,
+  deviceLabel = "Not paired",
+  deviceOnline = false,
 }: {
   busy: boolean;
   streaming: boolean;
@@ -26,6 +30,10 @@ export default function Composer({
   enterSends?: boolean;
   webMode?: WebMode;
   setWebMode?: (mode: WebMode) => void;
+  computerMode?: ComputerMode;
+  setComputerMode?: (mode: ComputerMode) => void;
+  deviceLabel?: string;
+  deviceOnline?: boolean;
 }) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -95,13 +103,38 @@ export default function Composer({
               <option value="on">On</option>
             </select>
           </label>
-          <button
-            type="button"
-            disabled={busy || !draft.trim() || !connected}
-            onClick={() => void submit("on")}
+          {webMode === "auto" && (
+            <button
+              type="button"
+              disabled={busy || !draft.trim() || !connected}
+              onClick={() => void submit("on")}
+            >
+              Найти в интернете
+            </button>
+          )}
+          <label>
+            Computer{" "}
+            <select
+              aria-label="Computer mode"
+              disabled={busy}
+              value={computerMode}
+              onChange={(e) =>
+                setComputerMode?.(e.target.value as ComputerMode)
+              }
+            >
+              <option value="off">Off</option>
+              <option value="ask">Ask</option>
+              <option value="trusted">Trusted Workspace</option>
+            </select>
+          </label>
+          <span
+            className={`connection ${deviceOnline ? "connected" : ""}`}
+            role="status"
+            aria-label="Device status"
           >
-            Найти в интернете
-          </button>
+            <span className="tiny-dot" /> Device: {deviceLabel}{" "}
+            {deviceOnline ? "Online" : "Offline"}
+          </span>
           <button
             type="button"
             disabled={busy}

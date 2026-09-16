@@ -13,13 +13,26 @@ from .contracts import ToolError, ToolResult
 from .models import ToolRun, WebSourceSnapshot
 from .policy import ToolPolicy, preferences
 from .security import digest, input_summary, sanitized, validate_url
+from .web_router import canonical_url
 
 TERMINAL = {"completed", "stopped", "failed", "denied"}
-STATES = {"search": "searching", "fetch": "reading", "agent": "running_agent", "browser": "browser_working"}
+STATES = {
+    "search": "searching",
+    "fetch": "reading",
+    "tor_search": "searching",
+    "tor_fetch": "reading",
+    "agent": "running_agent",
+    "browser": "browser_working",
+    "local_fs": "running",
+    "local_process": "running",
+    "local_info": "running",
+}
 
 
 def public_run(row):
-    return {
+    metadata = dict(getattr(row, "result_metadata", None) or {})
+    metadata.pop("host_args", None)
+    payload = {
         key: getattr(row, key)
         for key in (
             "id",
@@ -33,13 +46,24 @@ def public_run(row):
             "finished_at",
             "cancelled_at",
             "input_summary",
+            "input_digest",
             "cost_estimate",
             "cost_actual",
             "provider_run_id",
             "error_code",
-            "result_metadata",
+            "origin",
+            "assigned_device_id",
         )
+        if hasattr(row, key)
     }
+    payload["result_metadata"] = metadata
+    return payload
+
+
+def public_job(row):
+    payload = public_run(row)
+    payload["host_args"] = (row.result_metadata or {}).get("host_args") or {}
+    return payload
 
 
 def public_source(row):
@@ -62,7 +86,12 @@ def public_source(row):
             "provider",
             "etag",
             "last_modified",
+            "channel",
+            "authority",
+            "canonical_url",
+            "kind",
         )
+        if hasattr(row, key)
     }
 
 
@@ -85,15 +114,25 @@ class ExecutionContext:
     limits: object
     emit: object
     mode: str = "auto"
+    computer_mode: str = "off"
+    tor_enabled: bool = False
     explicit: bool = False
     secrets: tuple = ()
     resolver: object = None
     run_id: str | None = None
     settings: object = None
     source_count: int = 0
+    web_source_count: int = 0
+    tor_source_count: int = 0
     sources: list = field(default_factory=list)
     preview: dict = field(default_factory=dict)
     action_fingerprint: str | None = None
+    origin: str = "model"
+    assigned_device_id: str | None = None
+    host_online: bool = False
+    web_search_done: bool = False
+    web_fetch_done: bool = False
+    seen_canonical: set = field(default_factory=set)
 
     async def progress(self, **values):
         # Providers pass only documented, allowlisted metadata, never raw responses.
@@ -118,6 +157,14 @@ class ToolExecutor:
         self.registry = registry
         self.policy = policy or ToolPolicy()
 
+    def _run_metadata(self, definition, args, context, reservation):
+        metadata = {"origin": getattr(context, "origin", "model") or "model"}
+        if reservation:
+            metadata.update(reserved_budget=reservation, budget_enforcement="local_soft")
+        if definition.provider == "local_device":
+            metadata["host_args"] = args.model_dump(mode="json")
+        return metadata
+
     def create_run(self, definition, args, context):
         with SessionLocal() as db:
             # Lock the user's budget across backend processes. SQLite obtains its writer lock
@@ -135,7 +182,14 @@ class ToolExecutor:
             ):
                 raise ToolError("not_found")
             prefs = preferences(db, user.id)
-            decision = self.policy.validate(definition, prefs, mode=context.mode, explicit=context.explicit)
+            decision = self.policy.validate(
+                definition,
+                prefs,
+                mode=context.mode,
+                computer_mode=context.computer_mode,
+                tor_enabled=context.tor_enabled,
+                explicit=context.explicit,
+            )
             reservation = 0
             if definition.cost_class == "paid":
                 reservation = prefs.agent_run_budget
@@ -162,18 +216,19 @@ class ToolExecutor:
                 tool_name=definition.name,
                 provider=definition.provider,
                 risk_level=definition.risk_level.value,
+                origin=getattr(context, "origin", "model") or "model",
+                assigned_device_id=context.assigned_device_id,
                 input_summary={**input_summary(definition, args, context.secrets), **context.preview},
                 input_digest=digest(args.model_dump(mode="json")),
                 status="waiting_confirmation" if decision == "confirmation_required" else "planning",
-                result_metadata={"reserved_budget": reservation, "budget_enforcement": "local_soft"}
-                if reservation
-                else {},
+                result_metadata=self._run_metadata(definition, args, context, reservation),
             )
             db.add(row)
             db.commit()
             return row.id, prefs
 
-    async def execute(self, name, arguments, context):
+    async def execute(self, name, arguments, context, origin="model"):
+        context.origin = origin
         definition, provider = self.registry.get(name)
         try:
             if isinstance(arguments, str):
@@ -190,6 +245,18 @@ class ToolExecutor:
             r"(?i)bearer\s+|(?:password|passwd|api[_-]?key|access_token|secret)\s*[:=]", payload
         ):
             raise ToolError("sensitive_arguments")
+        if definition.provider == "local_device":
+            from .local.devices import active_device
+            from .local.provider import _guard_paths
+
+            with SessionLocal() as db:
+                prefs = preferences(db, context.user_id)
+                device = active_device(db, context.user_id)
+            if not device:
+                raise ToolError("host_offline")
+            _guard_paths(args, prefs.workspace_roots)
+            context.assigned_device_id = device.id
+            context.settings = prefs
         context.limits.consume(definition, args)
         context.preview, context.action_fingerprint = {}, None
         if (
@@ -224,6 +291,8 @@ class ToolExecutor:
                             definition,
                             fresh,
                             mode=context.mode,
+                            computer_mode=context.computer_mode,
+                            tor_enabled=context.tor_enabled,
                             explicit=context.explicit,
                             confirmed=row.confirmed_at is not None,
                         )
@@ -252,9 +321,21 @@ class ToolExecutor:
                         if reserved > fresh.agent_daily_budget + 1e-9:
                             raise ToolError("daily_budget")
                     context.settings = fresh
-                    row.status = STATES.get(definition.capability, "running")
+                    row.status = (
+                        "waiting_host"
+                        if definition.provider == "local_device"
+                        else STATES.get(definition.capability, "running")
+                    )
                     db.commit()
                     await context.emit("tool", public_run(row))
+                if definition.provider == "local_device":
+                    await self.wait_host(run_id, context)
+                    with SessionLocal() as db:
+                        hosted = db.get(ToolRun, run_id)
+                        context.preview = {
+                            **context.preview,
+                            "host_result": (hosted.result_metadata or {}).get("host_result", {}),
+                        }
                 started_provider = True
                 result = await provider.execute(args, context)
                 result.text = sanitized(
@@ -262,6 +343,10 @@ class ToolExecutor:
                 )
                 context.limits.chars += len(result.text)
                 await self.save_sources(result, context, definition)
+                if definition.capability == "search":
+                    context.web_search_done = True
+                if definition.capability == "fetch":
+                    context.web_fetch_done = True
                 with SessionLocal() as db:
                     row = db.get(ToolRun, run_id)
                     row.status, row.finished_at = "completed", now()
@@ -328,31 +413,76 @@ class ToolExecutor:
                         return
             await asyncio.sleep(0.25)
 
+    async def wait_host(self, run_id, context):
+        while True:
+            with SessionLocal() as db:
+                row = db.get(ToolRun, run_id)
+                if not row or row.user_id != context.user_id:
+                    raise ToolError("host_offline")
+                if row.status == "stopped":
+                    raise ToolError("cancelled")
+                if row.status in TERMINAL:
+                    raise ToolError("host_offline")
+                if row.started_at.replace(tzinfo=timezone.utc) < now() - timedelta(minutes=5):
+                    raise ToolError("timeout")
+                if row.status == "host_ready":
+                    return
+            await asyncio.sleep(0.25)
+
     async def save_sources(self, result: ToolResult, context, definition):
         if not context.generation_id:
             result.sources = []
             return
         saved = []
-        for source in result.sources[:10]:
-            try:
-                await validate_url(source.get("url", ""), context.resolver)
-                await validate_url(source.get("final_url") or source["url"], context.resolver)
-            except ToolError:
-                result.errors.append("unsafe_source")
+        channel = "tor" if definition.capability.startswith("tor") else "web"
+        kind = "search" if definition.capability in {"search", "tor_search"} else "fetch"
+        budget = 3 if kind == "search" else 10
+        for source in result.sources[:budget]:
+            url = source.get("url", "")
+            final_url = source.get("final_url") or url
+            if channel == "tor":
+                from .tor.urls import validate_tor_url
+
+                try:
+                    await validate_tor_url(url)
+                    await validate_tor_url(final_url)
+                except ToolError:
+                    result.errors.append("unsafe_source")
+                    continue
+            else:
+                try:
+                    await validate_url(url, context.resolver)
+                    await validate_url(final_url, context.resolver)
+                except ToolError:
+                    result.errors.append("unsafe_source")
+                    continue
+            key = canonical_url(final_url)
+            if not key:
                 continue
             available = max(0, context.limits.max_chars - context.limits.chars)
             excerpt = sanitized(source.get("excerpt", ""), context.secrets, min(available, 6000))
             if not excerpt:
                 continue
+            if key in context.seen_canonical:
+                if kind == "fetch":
+                    self._upgrade_search_source(context, key, excerpt, source, definition)
+                continue
+            context.seen_canonical.add(key)
             context.limits.chars += len(excerpt)
+            if channel == "tor":
+                context.tor_source_count += 1
+                label = f"T{context.tor_source_count}"
+            else:
+                context.web_source_count += 1
+                label = f"W{context.web_source_count}"
             context.source_count += 1
             row = WebSourceSnapshot(
                 user_id=context.user_id,
                 generation_id=context.generation_id,
                 tool_run_id=context.run_id,
-                label=f"W{context.source_count}",
-                url=sanitized(source["url"], context.secrets, 2048),
-                final_url=sanitized(source.get("final_url") or source["url"], context.secrets, 2048),
+                label=label,
+                url=sanitized(url, context.secrets, 2048),
+                final_url=sanitized(final_url, context.secrets, 2048),
                 title=sanitized(source.get("title", ""), context.secrets, 400),
                 excerpt=excerpt,
                 publisher=sanitized(source["publisher"], context.secrets, 300)
@@ -361,14 +491,18 @@ class ToolExecutor:
                 published_at=sanitized(source["published_at"], context.secrets, 80)
                 if source.get("published_at")
                 else None,
-                fetched_at=now() if definition.capability != "search" else None,
-                searched_at=now() if definition.capability == "search" else None,
+                fetched_at=now() if kind != "search" else None,
+                searched_at=now() if kind == "search" else None,
                 rank=context.source_count,
                 provider=definition.provider,
                 etag=sanitized(source["etag"], context.secrets, 300) if source.get("etag") else None,
                 last_modified=sanitized(source["last_modified"], context.secrets, 100)
                 if source.get("last_modified")
                 else None,
+                channel=channel,
+                authority=source.get("authority"),
+                canonical_url=key[:2048],
+                kind=kind,
             )
             with SessionLocal() as db:
                 db.add(row)
@@ -376,3 +510,29 @@ class ToolExecutor:
                 saved.append(public_source(row))
         result.sources = saved
         context.sources.extend(saved)
+
+    def _upgrade_search_source(self, context, key, excerpt, source, definition):
+        with SessionLocal() as db:
+            row = db.scalar(
+                select(WebSourceSnapshot).where(
+                    WebSourceSnapshot.generation_id == context.generation_id,
+                    WebSourceSnapshot.canonical_url == key,
+                    WebSourceSnapshot.user_id == context.user_id,
+                )
+            )
+            if not row or row.kind == "fetch":
+                return
+            context.limits.chars += max(0, len(excerpt) - len(row.excerpt or ""))
+            row.excerpt = excerpt
+            row.kind = "fetch"
+            row.fetched_at = now()
+            row.tool_run_id = context.run_id
+            row.provider = definition.provider
+            if source.get("title"):
+                row.title = sanitized(source.get("title", ""), context.secrets, 400)
+            db.commit()
+            public = public_source(row)
+        for item in context.sources:
+            if item.get("canonical_url") == key or item.get("id") == public["id"]:
+                item.update(public)
+                break
