@@ -1,6 +1,6 @@
-# Web in 0.7.0
+# Web in 0.8.0
 
-Composer supports Off, Auto and On. **Найти в интернете** is shown only when Web is Auto; Off and On hide it. Off makes no TinyFish web calls. Auto asks the planner for live/current lookups. On requires public evidence for factual questions; `tool_choice` stays `auto`. If WebRouter marks `web_required` and the model did not call `web_search`, the backend injects exactly one Search with `origin=server_policy` (never presented as a model tool-call). After Search, Fetch uses 1–3 canonical URLs. Current/live/verification sets Fetch `ttl=0`.
+Composer supports Off, Auto and On. **Найти в интернете** is shown only when Web is Auto; Off and On hide it. Off makes no TinyFish web calls. Auto asks the planner for live/current lookups, including «посмотри в интернете», «найди в интернете», «проверь актуальную версию» and «проверь прямо сейчас». On requires public evidence for factual questions; `tool_choice` stays `auto`. If WebRouter marks `web_required` and the model did not call `web_search`, the backend injects exactly one Search with `origin=server_policy` (never presented as a model tool-call). After Search, Fetch uses 1–3 canonical URLs. Current/live/verification sets Fetch `ttl=0`.
 
 `web_mode` does not disable Tor or Local Computer. Those have `tor_enabled` and `computer_mode`.
 

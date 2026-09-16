@@ -15,8 +15,7 @@ CRITICAL has Allow once only — never Always allow. Direct Browser definitions 
 LocalCredentialProvider keep raw secrets on the paired host; the model sees only
 a logical reference.
 
-Defaults: 8 calls, 3 searches, 3 fetch batches (1–3 URLs each), 20000 reference characters,
-180 seconds. Limits are server configurable. Every model proposal is validated again;
+Defaults: 8 web calls, 24 coding calls, hard ceiling 32, 3 searches, 3 fetch batches (1–3 URLs each), 20000 reference characters, 20 files changed, 2 MB file bytes, 120 s process runtime, 180 seconds wall. Limits are server configurable. Every model proposal is validated again;
 unknown names, extra JSON fields and malformed arguments do not execute a provider.
 Tool responses are untrusted reference data and never independently invoke tools.
 

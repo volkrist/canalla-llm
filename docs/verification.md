@@ -1,6 +1,19 @@
 # Alex LLM — отчёты проверки
 
-Текущий локальный этап: **0.7.1 Local Computer risk policy**. Исторические отчёты ниже относятся к указанным версиям. Платный OrcaRouter / TinyFish Agent / Browser E2E не выполнялся. GPU и RunPod не запускались.
+Текущий локальный этап: **0.8.0 Coding Agent foundation**. Исторические отчёты ниже относятся к указанным версиям. Платный OrcaRouter / TinyFish Agent / Browser E2E не выполнялся. GPU и RunPod не запускались.
+
+## Проверка 0.8.0 — 16 сентября 2026
+
+- Backend pytest: **216 passed, 1 skipped** (opt-in live TinyFish). Coding tools registered; git_push SENSITIVE; force-push/`git reset --hard` CRITICAL; patch CONFLICT; rotate credential; LocalTask 0009; hard ceiling 32; CredentialBroker never reveals secrets.
+- Native cargo test: **11 passed**. Disposable delete, patch conflict, HKCU test key, CRITICAL not armed, git force/hard blocked, git_status on temp repo, credential redaction, sanitized env.
+- Frontend: **20 unit passed**, TypeScript, Prettier, Vite production — PASS. CRITICAL confirmation uses «Я понимаю риск — разрешить один раз»; Forget/Rotate buttons in Web & Tools.
+- Playwright: **15 passed**, including Rotate/Forget visibility, no Agent auto-route, Web Off isolation.
+- Ruff lint/format, Alembic 0009 check, cargo check, npm audit 0, pip-audit 0 — PASS.
+- Tauri release + NSIS x64 — PASS. ProductVersion 0.8.0.
+  - EXE SHA256 `EEDA2A43B5F80E95CE34A697A63039828D3404F42FB9DD9CEE70754573837A9D`
+  - Installer SHA256 `4CA4AE80C3FFE49A8080311AD04A54DBBA42F9EBDE031E88B08BB51B43C1AD9D`
+- Destructive live tests: only temp files and HKCU `Software\AlexLLM\Test`. No format/shutdown/BitLocker/boot/UAC/service stop.
+- Paid TinyFish Agent/Browser = 0. RunPod paid actions = 0. LLM_PROVIDER=mock.
 
 ## Проверка 0.7.1 — 16 сентября 2026
 

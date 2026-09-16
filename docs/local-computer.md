@@ -1,4 +1,4 @@
-# Local Computer Host in 0.7.1
+# Local Computer Host in 0.8.0
 
 Local tools run on the paired Tauri host, not as a FastAPI shell. FastAPI only
 creates `waiting_host` jobs and records the host result.
@@ -85,3 +85,10 @@ TEMP/TMP, USERPROFILE, a few OS facts). Known secrets
 credentials) are not inherited. Windows Job Objects use `KILL_ON_JOB_CLOSE`.
 Stop closes only that job. Elevated processes go through UAC and are not
 guaranteed to join the Alex job.
+
+## Coding and Git (0.8.0)
+
+See [coding-agent.md](coding-agent.md), [device-security.md](device-security.md)
+and [local-risk-policy.md](local-risk-policy.md). Typed git tools never embed
+credentials. Rotate device credential is in Web & Tools next to Forget this device.
+`patch_file` returns CONFLICT when `expected_before_sha256` does not match.

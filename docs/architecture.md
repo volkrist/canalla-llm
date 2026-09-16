@@ -152,3 +152,7 @@ Local tools are host jobs. `paired_devices` stores a credential hash only. Tauri
 
 Trusted Workspace is no longer a path jail: Alex may use the whole local computer. Trusted roots only reduce confirmations for `READ` and in-root `NORMAL_CHANGE`. `SENSITIVE`/`CRITICAL` always confirm with an explanation and an immutable digest (`action` + arguments). CRITICAL is Allow-once only. Delete/registry/services/install remain registered. Device display name defaults to `Windows device`. Forget this device revokes the credential. ToolRun metadata records `network: direct|tor` with no Tor→Direct fallback.
 
+## 0.8.0 Coding Agent foundation
+
+Coding uses the same registry/policy/orchestrator/host stack. `LocalTask` checkpoints (migration 0009) store hashes and command digests, not file bodies. `patch_file` requires `expected_before_sha256`. Git tools are argv-only with credential helper disabled. Force-push and hard reset stay CRITICAL and host-disarmed. Rotate device credential overwrites Windows Credential Manager. Confirmation copy is split by risk. Hard ceiling: 32 tool calls.
+

@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.7.1**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.8.0**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -202,3 +202,11 @@ Run `alembic upgrade head` (0008). Keep `LLM_PROVIDER=mock`. [Web](docs/web.md) 
 ## Version 0.7.1 — Local Computer risk policy
 
 Trusted Workspace is a confirmation reduction for safe NORMAL_CHANGE inside roots, not a filesystem jail. Risk levels are READ / NORMAL_CHANGE / SENSITIVE / CRITICAL. SENSITIVE/CRITICAL show an explanation and bind Allow-once to an immutable digest. Delete, registry, services and install stay as typed tools. Device pairing stays pseudonymous (`Windows device`). Forget this device revokes the OS credential. Network-sensitive runs show Direct or Tor with no silent fallback.
+
+## Version 0.8.0 — Coding Agent foundation
+
+Local Computer is usable for daily coding: typed file/process/git/service/registry tools, `patch_file` with conflict hashes, LocalTaskController ceilings, CodingWorkspace on the existing tool stack, CredentialBroker, rotate device credential, and risk-split confirmation UX. Git push is SENSITIVE; force-push and `git reset --hard` are CRITICAL and fail-closed on the host.
+
+Run `alembic upgrade head` (0009). Keep `LLM_PROVIDER=mock`. Do not start GPU/RunPod or TinyFish Agent/Browser.
+
+[Coding Agent](docs/coding-agent.md) · [Device security](docs/device-security.md) · [Local risk policy](docs/local-risk-policy.md) · [Local Computer](docs/local-computer.md)

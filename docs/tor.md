@@ -1,4 +1,4 @@
-# Tor in 0.7.0
+# Tor in 0.8.0
 
 Tor is a separate capability from TinyFish Web. `web_mode` does not enable or
 disable it. The user toggle is `tor_enabled` in Web & Tools settings.
