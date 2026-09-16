@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ArrowUp, Square } from "lucide-react";
+import type { WebMode } from "../lib/tools";
 
 export default function Composer({
   busy,
@@ -11,16 +12,20 @@ export default function Composer({
   draft,
   setDraft,
   enterSends = true,
+  webMode = "auto",
+  setWebMode,
 }: {
   busy: boolean;
   streaming: boolean;
   phase?: string;
   connected: boolean;
-  onSend: (text: string) => Promise<boolean>;
+  onSend: (text: string, mode?: WebMode) => Promise<boolean>;
   onStop: () => void;
   draft: string;
   setDraft: (text: string) => void;
   enterSends?: boolean;
+  webMode?: WebMode;
+  setWebMode?: (mode: WebMode) => void;
 }) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -42,12 +47,12 @@ export default function Composer({
     }
   }, [draft]);
   const [sending, setSending] = useState(false);
-  async function submit() {
+  async function submit(mode?: WebMode) {
     const text = draft.trim();
     if (!text || busy || sending || !connected) return;
     setSending(true);
     setDraft("");
-    const accepted = await onSend(text);
+    const accepted = await onSend(text, mode ?? webMode);
     if (!accepted) setDraft(text);
     setSending(false);
   }
@@ -77,6 +82,26 @@ export default function Composer({
           rows={2}
         />
         <div className="composer-toolbar">
+          <label>
+            Web{" "}
+            <select
+              aria-label="Web mode"
+              disabled={busy}
+              value={webMode}
+              onChange={(e) => setWebMode?.(e.target.value as WebMode)}
+            >
+              <option value="off">Off</option>
+              <option value="auto">Auto</option>
+              <option value="on">On</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={busy || !draft.trim() || !connected}
+            onClick={() => void submit("on")}
+          >
+            Найти в интернете
+          </button>
           <button
             type="button"
             disabled={busy}

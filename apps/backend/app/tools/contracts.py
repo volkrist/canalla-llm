@@ -91,3 +91,8 @@ class ToolRegistry:
 
     def definitions(self, auto_only=True):
         return [d for d, _ in self._tools.values() if not auto_only or d.auto_route]
+
+    async def close(self):
+        for _, provider in self._tools.values():
+            if hasattr(provider, "close_all"):
+                await provider.close_all()

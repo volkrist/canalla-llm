@@ -1,7 +1,9 @@
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
@@ -9,11 +11,112 @@ from ..config import get_settings
 from ..database import get_db
 from ..models import Chat, Message, User, now
 from ..security import current_user
-from .executor import public_run, public_source
+from .contracts import ToolError
+from .executor import ExecutionContext, ToolExecutor, public_run, public_source
 from .models import ToolPreferences, ToolRun, WebSourceSnapshot
-from .policy import WebSettings, preferences
+from .policy import ToolLimits, WebSettings, preferences
 
 router = APIRouter(tags=["tools"])
+
+
+class ExplicitTool(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    chat_id: str = Field(max_length=36)
+    name: str = Field(max_length=80)
+    arguments: dict
+
+
+@router.post("/tools/execute")
+async def execute_tool(
+    body: ExplicitTool, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    import asyncio
+    import json
+
+    import anyio
+
+    if not db.scalar(select(Chat.id).where(Chat.id == body.chat_id, Chat.user_id == user.id)):
+        raise HTTPException(404, "Диалог не найден")
+    if len(json.dumps(body.arguments)) > 16000:
+        raise HTTPException(422, "Слишком большой запрос инструмента")
+    owner = user.id
+
+    async def stream():
+        queue = asyncio.Queue(maxsize=64)
+
+        async def emit(event, value):
+            if queue.full():
+                queue.get_nowait()
+            queue.put_nowait((event, jsonable_encoder(value)))
+
+        settings = get_settings()
+        context = ExecutionContext(
+            owner,
+            body.chat_id,
+            None,
+            ToolLimits(max_calls=1, max_seconds=settings.tools_max_seconds),
+            emit,
+            mode="on",
+            explicit=True,
+            secrets=(
+                settings.tinyfish_api_key.get_secret_value(),
+                settings.jwt_secret,
+                settings.runpod_api_key.get_secret_value(),
+                settings.llm_api_key,
+            ),
+            resolver=getattr(request.app.state, "tool_dns_override", None),
+        )
+        task = asyncio.create_task(
+            ToolExecutor(request.app.state.tools).execute(body.name, body.arguments, context)
+        )
+        try:
+            while not task.done() or not queue.empty():
+                try:
+                    event, data = await asyncio.wait_for(queue.get(), 0.25)
+                    yield f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+                except TimeoutError:
+                    if await request.is_disconnected():
+                        raise asyncio.CancelledError()
+            result = await task
+            yield (
+                "event: tool_result\ndata: "
+                + json.dumps({"text": result.text, "metadata": result.metadata}, ensure_ascii=False)
+                + "\n\n"
+            )
+            yield "event: done\ndata: {}\n\n"
+        except ToolError as error:
+            yield "event: tool_error\ndata: " + json.dumps({"code": error.code}) + "\n\n"
+        finally:
+            if not task.done():
+                task.cancel()
+            with anyio.CancelScope(shield=True):
+                try:
+                    await task
+                except (asyncio.CancelledError, ToolError):
+                    pass
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+
+
+@router.post("/tools/browser/{session_id}/stop")
+async def stop_browser(session_id: str, request: Request, user: User = Depends(current_user)):
+    try:
+        _, provider = request.app.state.tools.get("browser_start")
+        return await provider.stop(session_id, user.id)
+    except ToolError as error:
+        raise HTTPException(404 if error.code == "not_found" else 409, error.code) from None
+
+
+@router.get("/tools/browser/{session_id}/screenshot")
+def browser_screenshot(session_id: str, request: Request, user: User = Depends(current_user)):
+    try:
+        _, provider = request.app.state.tools.get("browser_start")
+        session = provider.owned(session_id, user.id)
+        if not session.image:
+            raise ToolError("not_found")
+        return Response(session.image, media_type="image/png", headers={"Cache-Control": "no-store"})
+    except ToolError:
+        raise HTTPException(404, "Снимок не найден") from None
 
 
 @router.get("/tools/preferences")
@@ -44,6 +147,7 @@ def provider_status(user: User = Depends(current_user)):
         "agent_step_price": settings.tinyfish_agent_step_price,
         "browser_minute_price": settings.tinyfish_browser_minute_price,
         "agent_max_steps_supported": settings.tinyfish_agent_max_steps_supported,
+        "agent_read_only_enforced": False,
         "agent_budget_enforcement": "provider_steps_and_local"
         if settings.tinyfish_agent_max_steps_supported
         else "local_soft",

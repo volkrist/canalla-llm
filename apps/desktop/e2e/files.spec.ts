@@ -72,7 +72,7 @@ test("Files: real CPU indexing, RAG sources, reindex, rename and deletion", asyn
     "В запрос передан контекст документов",
     { timeout: 25000 },
   );
-  await page.getByRole("button", { name: /\[S1\] Аврора/ }).click();
+  await page.getByRole("button", { name: /\[D1\] Аврора/ }).click();
   await expect(
     page.getByRole("dialog", { name: "Источник", exact: true }),
   ).toContainText("17 дней");
@@ -192,10 +192,10 @@ test("Files: project scope and PDF page source", async ({ page, request }) => {
     .getByRole("button", { name: "Aurora backups Seoul", exact: true })
     .click();
   await expect(
-    page.getByRole("button", { name: /\[S1\] aurora.pdf — стр. 2/ }),
+    page.getByRole("button", { name: /\[D1\] aurora.pdf — стр. 2/ }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: /\[S1\] aurora.pdf — стр. 2/ })
+    .getByRole("button", { name: /\[D1\] aurora.pdf — стр. 2/ })
     .click();
   await page.screenshot({ path: "test-results/rag-source.png" });
 });

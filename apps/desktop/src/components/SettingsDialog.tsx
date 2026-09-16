@@ -6,6 +6,8 @@ import type { Api } from "../lib/api";
 import { exportChats } from "../lib/files";
 import { clearDrafts, draftPrefix } from "../lib/drafts";
 import EmbeddingModelStatus from "./EmbeddingModelStatus";
+import WebToolsSettings from "./WebToolsSettings";
+import { version } from "../../package.json";
 
 export default function SettingsDialog({
   value,
@@ -30,6 +32,10 @@ export default function SettingsDialog({
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
+  useEffect(() => {
+    window.addEventListener("alex-browser-advanced", onClose);
+    return () => window.removeEventListener("alex-browser-advanced", onClose);
+  }, [onClose]);
   function save(event: FormEvent) {
     event.preventDefault();
     try {
@@ -60,8 +66,10 @@ export default function SettingsDialog({
             "AI / Compute",
             "Personalization / Memory",
             "Files / RAG",
+            "Web & Tools",
             "Данные",
             "Дополнительно",
+            "О программе",
           ].map((tab) => (
             <button
               type="button"
@@ -73,6 +81,9 @@ export default function SettingsDialog({
             </button>
           ))}
         </nav>
+        {section === "О программе" && <p>Alex LLM {version}</p>}
+        {section === "Web & Tools" &&
+          (api ? <WebToolsSettings api={api} /> : <p>Войдите в аккаунт.</p>)}
         {section === "Files / RAG" &&
           (api ? (
             <EmbeddingModelStatus api={api} />

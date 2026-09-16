@@ -220,13 +220,13 @@ def test_rag_scope_context_snapshot_delete(client, auth, monkeypatch):
     class Capture(MockLLMProvider):
         async def stream_chat(self, messages):
             captured.extend(messages)
-            yield "Captured retrieval [S1]"
+            yield "Captured retrieval [D1]"
 
     monkeypatch.setattr(app.state, "provider", Capture())
     assert (
         client.post(f"/chats/{key}/stream", headers=a, json={"content": "Aurora backups?"}).status_code == 200
     )
-    assert any("[S1]" in m["content"] and "Seoul" in m["content"] for m in captured)
+    assert any("[D1]" in m["content"] and "Seoul" in m["content"] for m in captured)
     message = client.get(f"/chats/{key}/messages", headers=a).json()[-1]
     url = "/messages/" + message["id"] + "/context"
     snapshot = client.get(url, headers=a).json()

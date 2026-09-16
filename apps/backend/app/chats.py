@@ -230,7 +230,9 @@ async def stream_chat(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
-    return await stream_response(owned_chat(db, chat_id, user.id), body.content, request, user, db)
+    return await stream_response(
+        owned_chat(db, chat_id, user.id), body.content, request, user, db, web_mode=body.web_mode
+    )
 
 
 @router.post("/{chat_id}/messages/{message_id}/resend")
@@ -250,6 +252,7 @@ async def resend(
         db,
         action="resend",
         target_id=message_id,
+        web_mode=body.web_mode,
     )
 
 

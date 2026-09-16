@@ -64,7 +64,7 @@ def retrieve(db, user, chat, prompt):
                 "uploaded_at": document.created_at.replace(tzinfo=timezone.utc).isoformat(),
                 "rank": len(sources) + 1,
                 "similarity": similarity,
-                "label": f"S{len(sources) + 1}",
+                "label": f"D{len(sources) + 1}",
                 "excerpt": chunk.content,
                 "deleted": False,
             }

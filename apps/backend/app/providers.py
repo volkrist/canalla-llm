@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
@@ -9,6 +10,11 @@ from .config import Settings
 
 
 class LLMProvider(ABC):
+    supports_tools = False
+
+    async def plan_tools(self, messages, tools, usage):
+        raise LLMError("tools_unsupported")
+
     @abstractmethod
     def stream_chat(self, messages: list[dict[str, str]]) -> AsyncIterator[str]: ...
 
@@ -28,6 +34,49 @@ class LLMProvider(ABC):
 
 
 class MockLLMProvider(LLMProvider):
+    supports_tools = True
+
+    async def plan_tools(self, messages, tools, usage):
+        # Deterministic mock-only planner. Production decisions come from llama.cpp.
+        prompt = next((m.get("content", "") for m in reversed(messages) if m["role"] == "user"), "")
+        previous = [m for m in messages if m["role"] == "tool"]
+        if previous:
+            last = json.loads(previous[-1]["content"])
+            if len(previous) == 1 and last.get("sources") and not last.get("error"):
+                return {
+                    "tool_calls": [
+                        {
+                            "id": "mock-fetch",
+                            "type": "function",
+                            "function": {
+                                "name": "web_fetch",
+                                "arguments": json.dumps(
+                                    {"urls": [last["sources"][0]["final_url"]], "fresh": True}
+                                ),
+                            },
+                        }
+                    ]
+                }
+            return {"tool_calls": []}
+        on = "Web mode=on" in str(messages[0].get("content", ""))
+        needed = on or re.search(r"(?i)сегодня|сейчас|найди.*интернет|latest|current|https?://", prompt)
+        if not needed:
+            return {"tool_calls": []}
+        urls = re.findall(r"https?://[^\s<>]+", prompt)
+        name, args = ("web_fetch", {"urls": urls[:1]}) if urls else ("web_search", {"query": prompt[:500]})
+        return {
+            "tool_calls": [
+                {
+                    "id": "mock-web",
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": json.dumps(args, ensure_ascii=False),
+                    },
+                }
+            ]
+        }
+
     def __init__(self, delay: float = 0.035):
         self.delay = delay
 
@@ -46,6 +95,10 @@ class MockLLMProvider(LLMProvider):
         )
         if any(m["content"].startswith("[Untrusted reference material — documents:") for m in messages):
             response += "\nВ запрос передан контекст документов. Это проверка доставки контекста; mock не делает выводы по источникам.\n"
+        for message in messages:
+            if message.get("content", "").startswith("[Untrusted reference material — web/tools]"):
+                labels = sorted(set(re.findall(r"\[W\d+\]", message["content"])))
+                response += "\nWeb-контекст передан mock-провайдеру: " + " ".join(labels) + ".\n"
         for start in range(0, len(response), 7):
             await asyncio.sleep(self.delay)
             yield response[start : start + 7]
@@ -53,6 +106,46 @@ class MockLLMProvider(LLMProvider):
 
 class LlamaCppProvider(LLMProvider):
     """Backend-only adapter. base_url points to the server root or its /v1 path."""
+
+    supports_tools = True
+
+    async def plan_tools(self, messages, tools, usage):
+        try:
+            async with self.client(httpx.Timeout(90, connect=10)) as client:
+                response = await client.post(
+                    self.endpoint() + "/chat/completions",
+                    json={
+                        "model": self.model,
+                        "messages": messages,
+                        "stream": False,
+                        "tools": tools,
+                        "tool_choice": "auto",
+                        "max_tokens": 1200,
+                    },
+                )
+                if not response.is_success:
+                    raise LLMError("tools_unsupported" if response.status_code == 400 else "llm_unavailable")
+                if len(response.content) > 256000:
+                    raise LLMError("malformed_response")
+                value = response.json()
+                message = value["choices"][0]["message"]
+                if not isinstance(message, dict) or not isinstance(message.get("tool_calls", []), list):
+                    raise LLMError("malformed_response")
+                usage["_planner_calls"] = usage.get("_planner_calls", 0) + 1
+                reported = value.get("usage") or {}
+                for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                    count = reported.get(key)
+                    if isinstance(count, int) and count >= 0:
+                        usage[key] = usage.get(key, 0) + count
+                    else:
+                        usage["_planner_usage_incomplete"] = True
+                return message
+        except httpx.TimeoutException:
+            raise LLMError("llm_timeout") from None
+        except httpx.HTTPError:
+            raise LLMError("llm_unavailable") from None
+        except (ValueError, KeyError, IndexError, TypeError):
+            raise LLMError("malformed_response") from None
 
     def __init__(self, settings: Settings, target=None, transport=None):
         self.base = settings.llm_base_url.rstrip("/")

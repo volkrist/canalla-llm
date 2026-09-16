@@ -367,8 +367,13 @@ def test_cancel_before_first_token_persists_honest_telemetry(client, auth, monke
             response = await stream_response(chat, "Wait then stop", request, db.get(User, chat.user_id), db)
             iterator = response.body_iterator
             assert "event: meta" in await anext(iterator)
-            pending = asyncio.create_task(anext(iterator))
-            await entered.wait()
+
+            async def consume():
+                async for _ in iterator:
+                    pass
+
+            pending = asyncio.create_task(consume())
+            await asyncio.wait_for(entered.wait(), 5)
             pending.cancel()
             try:
                 await pending

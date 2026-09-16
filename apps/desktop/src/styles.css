@@ -1360,3 +1360,45 @@ p {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.composer-toolbar {
+  flex-wrap: wrap;
+}
+.composer-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+.tool-activity {
+  width: min(900px, calc(100% - 40px));
+  margin: 0 auto 8px;
+  max-height: 24vh;
+  overflow: auto;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+.tool-activity p {
+  margin: 5px 0;
+}
+.tool-confirm {
+  padding: 12px;
+  border: 1px solid #af9656;
+  border-radius: 10px;
+}
+.tool-confirm button {
+  margin-right: 8px;
+}
+.web-sources {
+  margin-top: 12px;
+  font-size: 13px;
+}
+.web-sources details {
+  margin-top: 8px;
+}
+.web-sources pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.embedding-model {
+  padding: 10px 0;
+}

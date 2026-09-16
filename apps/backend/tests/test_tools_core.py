@@ -19,6 +19,8 @@ class Args(BaseModel):
 
 
 class FakeProvider:
+    read_only_enforced = True
+
     def __init__(self):
         self.called = 0
 
@@ -244,7 +246,8 @@ def test_loop_bounds_prompt_injection_and_context(setup):
         ToolOrchestrator(registry, ToolExecutor(registry)).prepare(Planner(), history, 1, context, {})
     )
     assert provider.called == 1
-    assert result[0] == history[0] and result[-1] == history[-1]
+    assert result[0]["role"] == "system" and result[0]["content"].startswith(history[0]["content"])
+    assert result[-1] == history[-1]
     assert result[1]["role"] == "user" and "untrusted" in result[1]["content"].lower()
     assert "unknown_tool" in result[1]["content"]
 
@@ -254,3 +257,14 @@ def test_sanitized_key_and_status(client, auth):
     assert "abcdef" not in sanitized("api_key=abcdef")
     response = client.get("/tools/status", headers=auth()).json()
     assert "configured" in response and not any("key" in key for key in response)
+
+
+def test_real_agent_requires_enforceable_read_only_boundary(setup, client):
+    headers, context, _ = setup
+    provider, registry = FakeProvider(), ToolRegistry()
+    provider.read_only_enforced = False
+    registry.register(replace(definition(), capability="agent", cost_class="paid"), provider)
+    assert client.put("/tools/preferences", headers=headers, json={"agent_enabled": True}).status_code == 200
+    with pytest.raises(ToolError, match="agent_read_only_boundary_unavailable"):
+        asyncio.run(ToolExecutor(registry).execute("test_read", {"query": "read"}, context))
+    assert provider.called == 0

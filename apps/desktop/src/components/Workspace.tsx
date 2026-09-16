@@ -20,6 +20,8 @@ import { exportChats } from "../lib/files";
 import UsageDialog from "./UsageDialog";
 import PersonalPanel from "./PersonalPanel";
 import FilesPanel from "./FilesPanel";
+import ToolActivity from "./ToolActivity";
+import BrowserPanel from "./BrowserPanel";
 
 export default function Workspace({
   api,
@@ -40,6 +42,12 @@ export default function Workspace({
 }) {
   const chat = useChat(api, onLogout);
   const [sidebar, setSidebar] = useState(false);
+  const [browser, setBrowser] = useState(false);
+  useEffect(() => {
+    const open = () => setBrowser(true);
+    window.addEventListener("alex-browser-advanced", open);
+    return () => window.removeEventListener("alex-browser-advanced", open);
+  }, []);
   const prefix = draftPrefix(api.base, user.id);
   const [draft, updateDraft] = useState(() => readDraft(prefix, null));
   const setDraft = (value: string) => {
@@ -247,17 +255,32 @@ export default function Workspace({
           </p>
         )}
         <Composer
+          webMode={chat.webMode}
+          setWebMode={chat.setWebMode}
           phase={chat.phase}
           busy={chat.busy}
           streaming={chat.streaming}
           connected={!!health && !!llm?.available}
-          onSend={chat.send}
+          onSend={(text, mode) => chat.send(text, undefined, mode)}
           onStop={chat.stop}
           draft={draft}
           setDraft={setDraft}
           enterSends={settings.enterSends}
         />
+        <ToolActivity
+          api={api}
+          runs={chat.toolRuns}
+          state={chat.webState}
+          error={chat.webError}
+        />
       </main>
+      {browser && (
+        <BrowserPanel
+          api={api}
+          chatId={chat.selected}
+          onClose={() => setBrowser(false)}
+        />
+      )}
       {deleteId && (
         <div className="confirm-overlay">
           <div

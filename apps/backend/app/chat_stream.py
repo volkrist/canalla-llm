@@ -4,16 +4,21 @@ import logging
 from datetime import timedelta, timezone
 
 from fastapi import HTTPException
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, delete, or_, select
 
 from .compute.models import GenerationUsage
+from .config import get_settings
 from .context_builder import ContextBuilder
 from .database import SessionLocal
 from .documents.service import mutation_lock
 from .models import Chat, Message, MessageContext, now
 from .providers import LLMError
 from .schemas import MessageOut
+from .tools.executor import ExecutionContext
+from .tools.policy import ToolLimits, preferences
+from .tools.registry import make_orchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +40,7 @@ def sse(event, data):
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-async def stream_response(chat, content, request, user, db, action="send", target_id=None):
+async def stream_response(chat, content, request, user, db, action="send", target_id=None, web_mode=None):
     if chat.id in request.app.state.generating:
         raise HTTPException(409, "В этом диалоге уже идёт генерация")
     if request.app.state.provider_name == "llamacpp":
@@ -58,6 +63,7 @@ async def stream_response(chat, content, request, user, db, action="send", targe
                 raise HTTPException(422, "Перед ответом нет сообщения пользователя")
             target = previous[-1]
     compute = request.app.state.compute
+    effective_web_mode = web_mode or preferences(db, user.id).default_mode
     usage_id = await compute.begin_generation(user.id, chat.id, request.app.state.provider_name)
     request.app.state.generating.add(chat.id)
     mutation_lock.acquire()
@@ -124,10 +130,72 @@ async def stream_response(chat, content, request, user, db, action="send", targe
         first_token_at = None
         cancellation = {"upstream_cancel_confirmed": None}
         started = assistant.generation_started_at
-        iterator = request.app.state.provider.stream_with_usage(history, tokens)
+        iterator = None
+        tool_task = None
+        planner_usage = {}
         try:
             await request.app.state.presence.publish()
             yield sse("meta", meta)
+            settings = get_settings()
+            queue = asyncio.Queue(maxsize=64)
+
+            async def emit(event, value):
+                if queue.full():
+                    queue.get_nowait()
+                queue.put_nowait((event, jsonable_encoder(value)))
+
+            tool_context = ExecutionContext(
+                user.id,
+                chat_id,
+                assistant_id,
+                ToolLimits(
+                    max_calls=settings.tools_max_calls,
+                    max_search=settings.tools_max_search,
+                    max_fetch=settings.tools_max_fetch,
+                    max_pages=settings.tools_max_pages,
+                    max_chars=settings.tools_max_chars,
+                    max_seconds=settings.tools_max_seconds,
+                ),
+                emit,
+                mode=effective_web_mode,
+                secrets=(
+                    settings.tinyfish_api_key.get_secret_value(),
+                    settings.runpod_api_key.get_secret_value(),
+                    settings.jwt_secret,
+                    settings.llm_api_key,
+                ),
+                resolver=getattr(request.app.state, "tool_dns_override", None),
+            )
+            tool_task = asyncio.create_task(
+                make_orchestrator(request.app.state.tools).prepare(
+                    request.app.state.provider,
+                    history,
+                    context["web_insert_index"],
+                    tool_context,
+                    planner_usage,
+                )
+            )
+            while not tool_task.done() or not queue.empty():
+                try:
+                    event, value = await asyncio.wait_for(queue.get(), 0.25)
+                    yield sse(event, value)
+                except TimeoutError:
+                    if await request.is_disconnected():
+                        raise asyncio.CancelledError()
+            enriched_history = await tool_task
+            with SessionLocal() as snapshot_db:
+                snapshot = snapshot_db.get(MessageContext, assistant_id)
+                if snapshot:
+                    snapshot.snapshot = {
+                        **snapshot.snapshot,
+                        "web_mode": effective_web_mode,
+                        "web_source_count": len(tool_context.sources),
+                        "web_chars": sum(len(source["excerpt"]) for source in tool_context.sources),
+                        "planner_usage": planner_usage,
+                        "total_chars": sum(len(m["content"]) for m in enriched_history),
+                    }
+                    snapshot_db.commit()
+            iterator = request.app.state.provider.stream_with_usage(enriched_history, tokens)
             async for token in iterator:
                 if await request.is_disconnected():
                     cancellation.update(
@@ -165,8 +233,15 @@ async def stream_response(chat, content, request, user, db, action="send", targe
             import anyio
 
             with anyio.CancelScope(shield=True):
+                if tool_task and not tool_task.done():
+                    tool_task.cancel()
+                    try:
+                        await tool_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
                 try:
-                    await iterator.aclose()
+                    if iterator:
+                        await iterator.aclose()
                     cancellation["provider_stream_closed_at"] = now().isoformat()
                     cancellation["provider_stream_closed"] = True
                 except Exception:
@@ -188,6 +263,11 @@ async def stream_response(chat, content, request, user, db, action="send", targe
                         if saved_chat:
                             saved_chat.updated_at = now()
                         save_db.commit()
+                # Only aggregate counts when every planner response reported its usage.
+                if planner_usage.get("_planner_calls") and not planner_usage.get("_planner_usage_incomplete"):
+                    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                        if key in tokens and key in planner_usage:
+                            tokens[key] += planner_usage[key]
                 compute.finish_generation(usage_id, status, assistant_id, tokens)
             finally:
                 request.app.state.generating.discard(chat_id)

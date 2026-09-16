@@ -58,10 +58,20 @@ export class Api {
     path: string,
     signal: AbortSignal,
     onEvent: (event: ServerEvent) => void,
+    init: RequestInit = {},
   ) {
-    const response = await this.response(path, { signal });
+    const response = await this.response(path, { ...init, signal });
     if (!response.body) throw new Error("Поток событий недоступен");
     await consumeSSE(response.body, onEvent);
+  }
+  async imageData(path: string): Promise<string> {
+    const blob = await (await this.response(path)).blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error("Не удалось прочитать снимок"));
+      reader.readAsDataURL(blob);
+    });
   }
   auth(mode: "login" | "register", email: string, password: string) {
     return this.json<{ access_token: string }>(`/auth/${mode}`, {
@@ -135,6 +145,7 @@ export class Api {
     signal: AbortSignal,
     onEvent: (event: ServerEvent) => void,
     action?: { kind: "resend" | "regenerate"; messageId: string },
+    webMode?: "off" | "auto" | "on",
   ) {
     const path = action
       ? `/chats/${id}/messages/${action.messageId}/${action.kind}`
@@ -142,7 +153,9 @@ export class Api {
     const response = await this.response(path, {
       method: "POST",
       body:
-        action?.kind === "regenerate" ? undefined : JSON.stringify({ content }),
+        action?.kind === "regenerate"
+          ? undefined
+          : JSON.stringify({ content, web_mode: webMode }),
       signal,
     });
     if (!response.body) throw new Error("Streaming не поддерживается");

@@ -51,6 +51,7 @@ class ChatUpdate(BaseModel):
 class MessageCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     content: str = Field(min_length=1, max_length=32000)
+    web_mode: Literal["off", "auto", "on"] | None = None
 
     @field_validator("content")
     @classmethod

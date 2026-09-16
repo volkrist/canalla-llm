@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Api, ApiError } from "../lib/api";
 import type { Chat, Message } from "../types";
+import type { ToolRun, WebMode } from "../lib/tools";
 
 export function useChat(api: Api, onExpired: () => void) {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -10,6 +11,26 @@ export function useChat(api: Api, onExpired: () => void) {
   const [streaming, setStreaming] = useState(false);
   const [phase, setPhase] = useState("idle");
   const [error, setError] = useState("");
+  const [webMode, setWebMode] = useState<WebMode>("auto");
+  const [webState, setWebState] = useState("");
+  const [webError, setWebError] = useState("");
+  const [toolRuns, setToolRuns] = useState<ToolRun[]>([]);
+  useEffect(() => {
+    let live = true;
+    const refresh = () =>
+      void api
+        .json<{ default_mode: WebMode }>("/tools/preferences")
+        .then((value) => {
+          if (live) setWebMode(value.default_mode);
+        })
+        .catch(() => {});
+    refresh();
+    window.addEventListener("alex-tools-settings", refresh);
+    return () => {
+      live = false;
+      window.removeEventListener("alex-tools-settings", refresh);
+    };
+  }, [api]);
   const controller = useRef<AbortController | null>(null);
   const active = useRef(true);
   const locked = useRef(false);
@@ -53,6 +74,15 @@ export function useChat(api: Api, onExpired: () => void) {
       if (active.current) {
         setSelected(id);
         setMessages(data);
+        setWebState("");
+        setWebError("");
+        setToolRuns(
+          id
+            ? await api.json<ToolRun[]>(
+                "/tools/runs?chat_id=" + encodeURIComponent(id),
+              )
+            : [],
+        );
       }
     } catch (e) {
       handleError(e);
@@ -85,11 +115,15 @@ export function useChat(api: Api, onExpired: () => void) {
   async function send(
     content: string,
     action?: { kind: "resend" | "regenerate"; messageId: string },
+    mode?: WebMode,
   ): Promise<boolean> {
     if (locked.current) return false;
     locked.current = true;
     setBusy(true);
     setError("");
+    setWebError("");
+    setWebState("");
+    setToolRuns([]);
     setPhase("sending");
     setStreaming(true);
     const abort = new AbortController();
@@ -114,6 +148,20 @@ export function useChat(api: Api, onExpired: () => void) {
         abort.signal,
         (event) => {
           if (!active.current) return;
+          if (event.event === "web_status") {
+            setWebState(String(event.data.state));
+            if (event.data.code) setWebError(String(event.data.code));
+          }
+          if (event.event === "tool") {
+            const run = event.data as unknown as ToolRun;
+            setToolRuns((previous) => [
+              ...previous.filter((item) => item.id !== run.id),
+              run,
+            ]);
+            setWebState(run.status);
+            if (run.status === "completed")
+              window.dispatchEvent(new Event("alex-web-sources"));
+          }
           if (event.event === "meta") {
             accepted = true;
             setPhase("waiting");
@@ -146,10 +194,13 @@ export function useChat(api: Api, onExpired: () => void) {
           }
         },
         action,
+        mode ?? webMode,
       );
       setPhase("completed");
+      setWebState("completed");
     } catch (e) {
       setPhase(abort.signal.aborted ? "stopped" : "error");
+      setWebState(abort.signal.aborted ? "stopped" : "failed");
       if (!abort.signal.aborted) handleError(e);
     } finally {
       controller.current = null;
@@ -157,6 +208,10 @@ export function useChat(api: Api, onExpired: () => void) {
         try {
           const saved = await api.settledMessages(id);
           if (active.current) setMessages(saved);
+          const runs = await api.json<ToolRun[]>(
+            "/tools/runs?chat_id=" + encodeURIComponent(id),
+          );
+          if (active.current) setToolRuns(runs);
         } catch (e) {
           handleError(e);
         }
@@ -183,6 +238,11 @@ export function useChat(api: Api, onExpired: () => void) {
     busy,
     streaming,
     phase,
+    webMode,
+    setWebMode,
+    webState,
+    webError,
+    toolRuns,
     error,
     select,
     remove,

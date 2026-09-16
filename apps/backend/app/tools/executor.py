@@ -92,6 +92,8 @@ class ExecutionContext:
     settings: object = None
     source_count: int = 0
     sources: list = field(default_factory=list)
+    preview: dict = field(default_factory=dict)
+    action_fingerprint: str | None = None
 
     async def progress(self, **values):
         # Providers pass only documented, allowlisted metadata, never raw responses.
@@ -160,7 +162,7 @@ class ToolExecutor:
                 tool_name=definition.name,
                 provider=definition.provider,
                 risk_level=definition.risk_level.value,
-                input_summary=input_summary(definition, args, context.secrets),
+                input_summary={**input_summary(definition, args, context.secrets), **context.preview},
                 input_digest=digest(args.model_dump(mode="json")),
                 status="waiting_confirmation" if decision == "confirmation_required" else "planning",
                 result_metadata={"reserved_budget": reservation, "budget_enforcement": "local_soft"}
@@ -181,7 +183,23 @@ class ToolExecutor:
             args = definition.input_model.model_validate(arguments)
         except (ValueError, TypeError, ValidationError):
             raise ToolError("invalid_arguments") from None
+        import re
+
+        payload = json.dumps(args.model_dump(mode="json"), ensure_ascii=False)
+        if any(secret and secret in payload for secret in context.secrets) or re.search(
+            r"(?i)bearer\s+|(?:password|passwd|api[_-]?key|access_token|secret)\s*[:=]", payload
+        ):
+            raise ToolError("sensitive_arguments")
         context.limits.consume(definition, args)
+        context.preview, context.action_fingerprint = {}, None
+        if (
+            definition.capability == "agent"
+            and definition.risk_level.value == "READ_ONLY"
+            and not getattr(provider, "read_only_enforced", False)
+        ):
+            raise ToolError("agent_read_only_boundary_unavailable")
+        if hasattr(provider, "preview"):
+            context.preview = await provider.preview(args, context)
         run_id, prefs = self.create_run(definition, args, context)
         context.run_id, context.settings = run_id, prefs
         started_provider = False
@@ -214,6 +232,26 @@ class ToolExecutor:
                         raise ToolError("confirmation_required")
                     if definition.cost_class == "paid" and fresh.agent_run_budget < prefs.agent_run_budget:
                         raise ToolError("budget_changed")
+                    if definition.cost_class == "paid":
+                        midnight = now().replace(hour=0, minute=0, second=0, microsecond=0)
+                        ledger = db.scalars(
+                            select(ToolRun).where(
+                                ToolRun.user_id == context.user_id, ToolRun.started_at >= midnight
+                            )
+                        ).all()
+                        reserved = sum(
+                            float(
+                                r.cost_actual
+                                if r.cost_actual is not None
+                                else r.cost_estimate
+                                if r.cost_estimate is not None
+                                else r.result_metadata.get("reserved_budget", 0)
+                            )
+                            for r in ledger
+                        )
+                        if reserved > fresh.agent_daily_budget + 1e-9:
+                            raise ToolError("daily_budget")
+                    context.settings = fresh
                     row.status = STATES.get(definition.capability, "running")
                     db.commit()
                     await context.emit("tool", public_run(row))
@@ -264,6 +302,8 @@ class ToolExecutor:
                     if not started_provider:
                         row.result_metadata = {**row.result_metadata, "reserved_budget": 0}
                     db.commit()
+                    if not isinstance(error, asyncio.CancelledError):
+                        await context.emit("tool", public_run(row))
             if isinstance(error, asyncio.CancelledError):
                 raise
             raise ToolError(code) from None

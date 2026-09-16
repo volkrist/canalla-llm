@@ -23,6 +23,8 @@ from .presence import PresenceManager
 from .presence import router as presence_router
 from .providers import LLMError, make_provider
 from .security import current_user
+from .tools.executor import reconcile_tools
+from .tools.registry import make_registry
 from .tools.routes import router as tools_router
 
 
@@ -52,6 +54,8 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(application):
     reconcile_jobs()
+    reconcile_tools()
+    application.state.tools = getattr(application.state, "tools_override", None) or make_registry()
     application.state.presence = PresenceManager(settings)
     application.state.presence.reconcile()
     presence_task = asyncio.create_task(application.state.presence.monitor())
@@ -76,6 +80,7 @@ async def lifespan(application):
     try:
         yield
     finally:
+        await application.state.tools.close()
         presence_task.cancel()
         with suppress(asyncio.CancelledError):
             await presence_task
@@ -87,7 +92,7 @@ async def lifespan(application):
 
 app = FastAPI(
     title="Alex LLM API",
-    version="0.5.0",
+    version="0.6.0",
     lifespan=lifespan,
     docs_url="/docs" if settings.app_env != "production" else None,
     redoc_url=None,

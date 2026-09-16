@@ -18,6 +18,7 @@ if __name__ == "__main__":
             LLM_PROVIDER="mock",
             MOCK_DELAY="0.025",
             RUNPOD_API_KEY="",
+            TINYFISH_API_KEY="",
             COMPUTE_BACKGROUND_ENABLED="false",
             ADMIN_EMAILS="[]",
             ALLOW_USER_COMPUTE_START="false",
@@ -26,4 +27,11 @@ if __name__ == "__main__":
         import sys
 
         subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], check=True)
-        uvicorn.run("app.main:app", host="127.0.0.1", port=8001)
+        from fakes_web import TestToolLLM, fake_registry, public_dns
+
+        from app.main import app
+
+        app.state.tools_override = fake_registry()
+        app.state.tool_dns_override = public_dns
+        app.state.provider = TestToolLLM(delay=0.025)
+        uvicorn.run(app, host="127.0.0.1", port=8001)

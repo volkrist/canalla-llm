@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Api } from "../lib/api";
+import WebSources from "./WebSources";
 
 export interface Source {
   document_id: string;
@@ -102,6 +103,7 @@ export default function SourcePanel({
     <>
       {warning && <p role="status">{warning}</p>}
       <SourceList sources={sources} />
+      <WebSources api={api} messageId={messageId} status={status} />
     </>
   );
 }

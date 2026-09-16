@@ -37,7 +37,8 @@ class ToolOrchestrator:
             "On requires web evidence when useful; Auto decides semantically whether external evidence helps. "
             "For fresh sources use fetch fresh=true. Tool limits are enforced by the server."
         )
-        planning = [{"role": "system", "content": policy}, *history]
+        # The planner cannot exfiltrate memory/document excerpts it never receives.
+        planning = [{"role": "system", "content": policy}, history[-1]]
         notes = []
         await context.emit("web_status", {"state": "planning"})
         while context.limits.calls < context.limits.max_calls and context.limits.remaining > 0:
@@ -104,13 +105,12 @@ class ToolOrchestrator:
                     }
                 )
             # Bound cumulative tool transcript independently of final source context.
-            if (
-                sum(len(str(m.get("content", ""))) for m in planning[len(history) + 1 :])
-                > context.limits.max_chars * 2
-            ):
+            if sum(len(str(m.get("content", ""))) for m in planning[2:]) > context.limits.max_chars * 2:
                 notes.append("Tool context limit reached.")
                 break
         if context.limits.calls >= context.limits.max_calls:
             notes.append("Tool call limit reached.")
+        if context.mode == "on" and not context.sources:
+            notes.append("No web results available. Do not claim to have checked the web.")
         await context.emit("web_status", {"state": "finishing", "sources": len(context.sources)})
         return ContextBuilder.with_web(history, insert_at, context.sources, notes)
