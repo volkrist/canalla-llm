@@ -5,6 +5,7 @@ import {
   forgetLocalDevice,
   listUserCredentials,
   readDeviceStatus,
+  rotateDeviceCredential,
   storeUserCredential,
   type DeviceStatus,
 } from "../lib/host";
@@ -111,6 +112,18 @@ export default function WebToolsSettings({ api }: { api: Api }) {
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось забыть устройство");
+    }
+  }
+  async function rotate() {
+    const token = api.authToken();
+    if (!token) return;
+    try {
+      setDevice(await rotateDeviceCredential(api.base, token));
+      setError("");
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Не удалось сменить credential",
+      );
     }
   }
   async function saveCredential() {
@@ -372,6 +385,9 @@ export default function WebToolsSettings({ api }: { api: Api }) {
             </p>
             <button type="button" onClick={() => void forget()}>
               Forget this device
+            </button>
+            <button type="button" onClick={() => void rotate()}>
+              Rotate device credential
             </button>
             <fieldset>
               <legend>Локальные credentials</legend>

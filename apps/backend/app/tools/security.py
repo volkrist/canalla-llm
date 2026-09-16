@@ -55,6 +55,7 @@ def sanitized(text, secrets=(), limit=20000):
     for secret in secrets:
         if secret:
             value = value.replace(secret, "[redacted]")
+    value = re.sub(r"(?i)https?://[^/\s:@]+:[^/\s@]+@", "https://[redacted]@", value)
     value = re.sub(r"(?i)(bearer\s+)[\w.\-]+", r"\1[redacted]", value)
     value = re.sub(
         r"(?i)((?:api[_-]?key|password|passwd|secret|access_token|authorization)\s*[:=]\s*)[^\s,;&]+",
@@ -75,10 +76,11 @@ def input_summary(definition, args, secrets=()):
     # Full payload is held only by the running executor. Audit stores bounded safe preview.
     from .contracts import RiskLevel
     from .explain import explanation
-    from .policy import LOCAL_CAPABILITIES
+    from .policy import LOCAL_CAPABILITIES, effective_risk
 
     values = args.model_dump()
     result = {"action": definition.name, "provider": definition.provider}
+    risk = effective_risk(definition, args)
     for key in (
         "query",
         "url",
@@ -107,12 +109,22 @@ def input_summary(definition, args, secrets=()):
         "device",
         "paths",
         "elevate",
+        "pid",
+        "rev",
+        "remote",
+        "branch",
+        "force",
+        "mode",
+        "ref",
+        "message",
+        "old_text",
+        "new_text",
+        "start_type",
+        "max_count",
+        "delete",
     ):
         if key in values and values[key] not in (None, "", [], {}, False):
             result[key] = sanitized(json.dumps(values[key], ensure_ascii=False), secrets, 500)
-    if (
-        definition.risk_level in {RiskLevel.SENSITIVE, RiskLevel.CRITICAL}
-        or definition.capability in LOCAL_CAPABILITIES
-    ):
-        result.update(explanation(definition, args))
+    if risk in {RiskLevel.SENSITIVE, RiskLevel.CRITICAL} or definition.capability in LOCAL_CAPABILITIES:
+        result.update(explanation(definition, args, risk=risk))
     return result

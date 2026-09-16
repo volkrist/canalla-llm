@@ -35,8 +35,14 @@ def test_upgrade_preserves_existing_history(tmp_path):
         assert db.execute("SELECT role FROM users").fetchone() == ("user",)
         assert db.execute("SELECT search_state FROM compute_control WHERE id=1").fetchone() == ("offline",)
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0008",)
-        for table in ("tool_runs", "web_source_snapshots", "tool_preferences", "paired_devices"):
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0009",)
+        for table in (
+            "tool_runs",
+            "web_source_snapshots",
+            "tool_preferences",
+            "paired_devices",
+            "local_tasks",
+        ):
             assert db.execute(f"PRAGMA foreign_key_list({table})").fetchall()
     subprocess.run([sys.executable, "-m", "alembic", "check"], env=env, check=True, capture_output=True)
 

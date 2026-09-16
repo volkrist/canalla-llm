@@ -336,6 +336,9 @@ def test_planner_hides_paid_tools_and_keeps_channels_independent():
     assert "run_python" in names
     assert "delete_file" in names
     assert "registry_write" in names
+    assert "patch_file" in names
+    assert "git_status" in names
+    assert "git_push" in names
     web_only = SimpleNamespace(
         mode="on",
         tor_enabled=False,

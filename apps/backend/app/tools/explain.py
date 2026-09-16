@@ -19,6 +19,10 @@ ELEVATED_TOOLS = {
     "bitlocker_change",
     "system_shutdown",
     "set_environment",
+    "start_service",
+    "stop_service",
+    "restart_service",
+    "change_service_settings",
 }
 
 
@@ -36,6 +40,11 @@ def target_of(args) -> str:
         "package",
         "device",
         "key",
+        "cwd",
+        "pid",
+        "rev",
+        "remote",
+        "branch",
     ):
         value = getattr(args, key, None)
         if value:
@@ -47,7 +56,9 @@ def target_of(args) -> str:
     return getattr(args, "action", None) or ""
 
 
-def explanation(definition, args=None) -> dict[str, str]:
+def explanation(definition, args=None, risk=None) -> dict[str, str]:
+    from .policy import effective_risk
+
     purpose = (getattr(args, "purpose", None) or "").strip() if args is not None else ""
     elevate = bool(getattr(args, "elevate", False)) if args is not None else False
     hive = getattr(args, "hive", None) if args is not None else None
@@ -57,11 +68,12 @@ def explanation(definition, args=None) -> dict[str, str]:
     action = definition.description
     if definition.name.startswith("delete") and target:
         action = f"удалить {target}"
+    level = risk or effective_risk(definition, args)
     return {
         "reason": purpose or "Модель запросила это действие для текущей задачи.",
         "action_detail": action,
         "target": target,
-        "consequences": CONSEQUENCES[definition.risk_level],
-        "risk_level": definition.risk_level.value,
+        "consequences": CONSEQUENCES[level],
+        "risk_level": level.value,
         "elevation_required": "yes" if elevate else "no",
     }

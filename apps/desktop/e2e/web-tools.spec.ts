@@ -62,6 +62,12 @@ test("Web settings warnings and explicit Browser commands require per-action app
     page.getByLabel("Computer mode default", { exact: true }),
   ).toHaveValue("ask");
   await expect(
+    page.getByRole("button", { name: "Forget this device", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Rotate device credential", exact: true }),
+  ).toBeVisible();
+  await expect(
     page.getByLabel("Разрешить платный Agent", { exact: true }),
   ).toBeDisabled();
   await expect(page.getByText(/Бюджет soft\/local/)).toBeVisible();

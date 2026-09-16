@@ -153,6 +153,9 @@ class LocalDeviceProvider(ToolProvider):
         payload = (context.preview or {}).get("host_result") or {}
         if not payload:
             raise ToolError("host_offline")
+        error = str(payload.get("error") or payload.get("text") or "")
+        if error in {"conflict", "hash_mismatch"} or payload.get("conflict"):
+            raise ToolError("conflict")
         return ToolResult(
             text=str(payload.get("text") or payload.get("stdout") or "")[:20000],
             metadata={
@@ -169,6 +172,10 @@ class LocalDeviceProvider(ToolProvider):
                     "available",
                     "executed",
                     "armed",
+                    "conflict",
+                    "error",
+                    "branch",
+                    "dirty",
                 )
                 if k in payload
             },
@@ -461,3 +468,6 @@ def register_local_tools(registry):
             ToolDefinition(name, description, schema, capability, risk, "free", 120, "local_device"),
             adapter,
         )
+    from .coding import register_coding_tools
+
+    register_coding_tools(registry)

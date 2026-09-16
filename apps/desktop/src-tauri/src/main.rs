@@ -2,6 +2,7 @@
 
 mod credential;
 mod fs_guard;
+mod git;
 mod host;
 mod process;
 
@@ -15,6 +16,7 @@ fn main() {
             host::device_status,
             host::execute_host_jobs,
             host::forget_device,
+            host::rotate_device_credential,
             host::store_user_credential,
             host::list_user_credentials,
             host::delete_user_credential

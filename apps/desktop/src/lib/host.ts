@@ -44,6 +44,17 @@ export async function forgetLocalDevice(backendUrl: string, token: string) {
   return invoke<DeviceStatus>("forget_device", { backendUrl, token });
 }
 
+export async function rotateDeviceCredential(
+  backendUrl: string,
+  token: string,
+) {
+  if (!isTauri()) return { paired: false, online: false };
+  return invoke<DeviceStatus>("rotate_device_credential", {
+    backendUrl,
+    token,
+  });
+}
+
 export async function storeUserCredential(name: string, secret: string) {
   if (!isTauri()) return { stored: false };
   return invoke<{ reference: string; stored: boolean }>(

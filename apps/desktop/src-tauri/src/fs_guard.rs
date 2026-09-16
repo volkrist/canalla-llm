@@ -107,6 +107,7 @@ pub fn resolve(path: &str, _roots: &[String]) -> Result<PathBuf, String> {
     Ok(resolved)
 }
 
+#[allow(dead_code)]
 pub fn inside_trusted(path: &Path, roots: &[String]) -> bool {
     if roots.is_empty() {
         return false;

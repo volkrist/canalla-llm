@@ -181,6 +181,12 @@ def provider_status(user: User = Depends(current_user)):
             "pages": settings.tools_max_pages,
             "chars": settings.tools_max_chars,
             "seconds": settings.tools_max_seconds,
+            "coding_calls": settings.tools_max_coding_calls,
+            "hard_calls": settings.tools_hard_max_calls,
+            "local_calls": settings.tools_max_local_calls,
+            "files_changed": settings.tools_max_files_changed,
+            "file_bytes": settings.tools_max_file_bytes,
+            "process_seconds": settings.tools_max_process_seconds,
         },
     }
 
@@ -252,6 +258,22 @@ def forget_device(key: str, user: User = Depends(current_user), db: Session = De
     row.revoked_at = now()
     db.commit()
     return {"revoked": True, "device_id": row.id}
+
+
+@router.post("/tools/devices/{key}/rotate")
+def rotate_device(key: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from .local.devices import hash_credential, issue_credential, public_device
+
+    row = db.scalar(select(PairedDevice).where(PairedDevice.id == key, PairedDevice.user_id == user.id))
+    if not row or row.revoked_at:
+        raise HTTPException(404, "Устройство не найдено")
+    credential = issue_credential()
+    row.credential_hash = hash_credential(credential)
+    row.last_seen = now()
+    db.commit()
+    payload = public_device(row)
+    payload["credential"] = credential
+    return payload
 
 
 @router.get("/messages/{key}/web-sources")
@@ -351,7 +373,20 @@ def host_result(
             "text": sanitized(body.text or body.stdout, (), 20000),
             **{
                 field: body.metadata[field]
-                for field in ("cwd", "before_sha256", "after_sha256", "files_changed")
+                for field in (
+                    "cwd",
+                    "before_sha256",
+                    "after_sha256",
+                    "files_changed",
+                    "conflict",
+                    "error",
+                    "reference",
+                    "available",
+                    "executed",
+                    "armed",
+                    "branch",
+                    "dirty",
+                )
                 if field in body.metadata
             },
         },

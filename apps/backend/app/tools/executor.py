@@ -10,8 +10,8 @@ from sqlalchemy import select, update
 from ..database import SessionLocal
 from ..models import Chat, Message, User, now
 from .contracts import RiskLevel, ToolError, ToolResult
-from .models import ToolRun, WebSourceSnapshot
-from .policy import ToolPolicy, network_channel, preferences
+from .models import LocalTask, ToolRun, WebSourceSnapshot
+from .policy import ToolPolicy, effective_risk, network_channel, preferences
 from .security import digest, input_summary, sanitized, validate_url
 from .web_router import canonical_url
 
@@ -30,7 +30,7 @@ STATES = {
     "local_service": "running",
     "local_install": "running",
     "local_system": "running",
-    "local_credential": "running",
+    "local_git": "running",
 }
 
 
@@ -108,6 +108,11 @@ def reconcile_tools():
             .where(ToolRun.status.not_in(TERMINAL))
             .values(status="failed", finished_at=now(), error_code="backend_interrupted")
         )
+        db.execute(
+            update(LocalTask)
+            .where(LocalTask.finished_at.is_(None))
+            .values(status="FAILED", finished_at=now())
+        )
         db.commit()
 
 
@@ -138,6 +143,12 @@ class ExecutionContext:
     web_search_done: bool = False
     web_fetch_done: bool = False
     seen_canonical: set = field(default_factory=set)
+    user_prompt: str = ""
+    workspace: object = None
+    task_id: str | None = None
+    files_changed: int = 0
+    task_commands: list = field(default_factory=list)
+    coding_task: bool = False
 
     async def progress(self, **values):
         # Providers pass only documented, allowlisted metadata, never raw responses.
@@ -224,7 +235,7 @@ class ToolExecutor:
                 generation_id=context.generation_id,
                 tool_name=definition.name,
                 provider=definition.provider,
-                risk_level=definition.risk_level.value,
+                risk_level=effective_risk(definition, args).value,
                 origin=getattr(context, "origin", "model") or "model",
                 assigned_device_id=context.assigned_device_id,
                 input_summary={**input_summary(definition, args, context.secrets), **context.preview},
@@ -286,6 +297,10 @@ class ToolExecutor:
                     await context.emit("tool", public_run(row))
                     waiting = row.status == "waiting_confirmation"
                 if waiting:
+                    from .local.task import LocalTaskController
+
+                    with SessionLocal() as db:
+                        LocalTaskController().checkpoint(db, context, "WAITING_CONFIRMATION")
                     await self.wait_confirmation(run_id, context)
                 # Revalidate permissions and the immutable payload immediately before execution.
                 with SessionLocal() as db:
@@ -373,8 +388,23 @@ class ToolExecutor:
                         **result.metadata,
                         "partial_errors": result.errors[:10],
                     }
+                    digest_value = row.input_digest
                     db.commit()
                     await context.emit("tool", public_run(row))
+                from .local.task import LocalTaskController
+                from .policy import LOCAL_CAPABILITIES
+
+                if definition.capability in LOCAL_CAPABILITIES:
+                    LocalTaskController().note_command(
+                        context, definition.name, digest_value, result.metadata
+                    )
+                    status = (
+                        "VERIFYING"
+                        if definition.name in {"run_python", "run_process", "run_powershell"}
+                        else "EXECUTING"
+                    )
+                    with SessionLocal() as db:
+                        LocalTaskController().checkpoint(db, context, status)
                 return result
         except BaseException as error:
             cancelled = isinstance(error, asyncio.CancelledError) or (

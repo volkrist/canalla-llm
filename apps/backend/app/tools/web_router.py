@@ -13,12 +13,14 @@ EXPLICIT_WEB = re.compile(
     r"(?i)("
     r"найд[иьё].{0,48}интернет|посмотри.{0,48}интернет|посмотр[ие].{0,48}сети|"
     r"проверь.{0,48}сети|актуальн\w*\s+информац|search the web|look(?:\s+it)?\s+up\s+online|"
-    r"найди в сети|в интернете|google\b|browse the web"
+    r"найди в сети|в интернете|google\b|browse the web|"
+    r"посмотри в интернете|найди в интернете|проверь актуальн|проверь прямо сейчас|"
+    r"актуальн\w+\s+документац|актуальн\w+\s+верси"
     r")"
 )
 FRESH = re.compile(
     r"(?i)сегодня|сейчас|последн|latest|today|current|price|availability|news|"
-    r"version|weather|актуальн|свеж|\blive\b|verify|провер"
+    r"version|weather|актуальн|свеж|\blive\b|verify|провер|прямо сейчас|документац"
 )
 URL = re.compile(r"https?://[^\s<>]+")
 

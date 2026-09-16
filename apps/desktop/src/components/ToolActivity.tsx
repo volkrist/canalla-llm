@@ -36,6 +36,54 @@ function formatCost(run: ToolRun) {
   return "";
 }
 
+function ConfirmationCopy({ run }: { run: ToolRun }) {
+  const risk = run.risk_level || run.input_summary.risk_level || "";
+  const summary = run.input_summary;
+  if (risk === "CRITICAL") {
+    return (
+      <>
+        <h3>Высокий риск</h3>
+        <p>
+          <strong>Зачем:</strong> {summary.reason}
+        </p>
+        <p>
+          <strong>Точное действие:</strong>{" "}
+          {summary.action_detail || run.tool_name}
+        </p>
+        <p>
+          <strong>Affected target:</strong> {summary.target}
+        </p>
+        <p>
+          <strong>Irreversible consequences:</strong> {summary.consequences}
+        </p>
+      </>
+    );
+  }
+  if (risk === "SENSITIVE") {
+    return (
+      <>
+        <h3>Alex LLM хочет выполнить чувствительное действие</h3>
+        <p>
+          <strong>Зачем:</strong> {summary.reason}
+        </p>
+        <p>
+          <strong>Что изменится:</strong>{" "}
+          {summary.action_detail || run.tool_name}
+        </p>
+        <p>
+          <strong>Риск:</strong> {summary.consequences}
+        </p>
+      </>
+    );
+  }
+  return (
+    <>
+      <h3>Alex хочет выполнить:</h3>
+      <p>{summary.action_detail || summary.target || run.tool_name}</p>
+    </>
+  );
+}
+
 function RunDetails({
   run,
   busy,
@@ -47,6 +95,11 @@ function RunDetails({
   error?: string;
   onConfirm: (id: string, allow: boolean) => void;
 }) {
+  const risk = run.risk_level || run.input_summary.risk_level || "";
+  const allowLabel =
+    risk === "CRITICAL"
+      ? "Я понимаю риск — разрешить один раз"
+      : "Разрешить один раз";
   return (
     <div>
       <p>
@@ -69,7 +122,7 @@ function RunDetails({
           aria-label="Подтвердить внешнее действие"
           className="tool-confirm"
         >
-          <h3>Alex LLM хочет выполнить внешнее действие</h3>
+          <ConfirmationCopy run={run} />
           {EXPLAIN_KEYS.some((key) => run.input_summary[key]) ? (
             <>
               {EXPLAIN_KEYS.map((key) =>
@@ -108,7 +161,7 @@ function RunDetails({
             disabled={busy === run.id}
             onClick={() => onConfirm(run.id, true)}
           >
-            Разрешить один раз
+            {allowLabel}
           </button>
           <button
             type="button"

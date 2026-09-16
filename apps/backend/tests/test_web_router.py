@@ -9,6 +9,9 @@ def test_explicit_auto_phrases_require_search():
         "актуальная информация по Python",
         "What is the latest version?",
         "current news",
+        "проверь актуальную версию",
+        "проверь прямо сейчас курс",
+        "Посмотри актуальную документацию FastAPI",
     ):
         assert classify_web(prompt, "auto").required
 

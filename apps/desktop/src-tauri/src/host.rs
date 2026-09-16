@@ -151,6 +151,28 @@ pub async fn forget_device(backend_url: String, token: String) -> Result<Value, 
 }
 
 #[tauri::command]
+pub async fn rotate_device_credential(backend_url: String, token: String) -> Result<Value, String> {
+    let record = load_record().ok_or("device_not_paired")?;
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{backend_url}/tools/devices/{}/rotate", record.device_id))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let body: Value = response.json().await.map_err(|e| e.to_string())?;
+    let credential = body.get("credential").and_then(Value::as_str).ok_or("rotate_failed")?;
+    crate::credential::store(credential)?;
+    Ok(json!({
+        "device_id": record.device_id,
+        "display_name": record.display_name,
+        "online": true,
+        "storage": crate::credential::storage_kind(),
+        "rotated": true,
+    }))
+}
+
+#[tauri::command]
 pub fn store_user_credential(name: String, secret: String) -> Result<Value, String> {
     crate::credential::store_named(&name, &secret)?;
     Ok(json!({"reference": name, "stored": true}))
@@ -268,6 +290,8 @@ fn run_local_tool(
         "copy_file" => fs_copy(args, roots),
         "move_file" => fs_move(args, roots),
         "search_files" => fs_search(args, roots),
+        "search_code" => fs_search_code(args, roots),
+        "patch_file" => fs_patch(args, roots),
         "delete_file" => fs_delete_file(str_arg(args, "path"), roots),
         "delete_directory" => fs_delete_dir(str_arg(args, "path"), roots),
         "mass_delete" => critical_tool("mass_delete", args),
@@ -276,11 +300,20 @@ fn run_local_tool(
             crate::process::stop_job(&str_arg(args, "tool_run_id"));
             ok_text("stopped".into())
         }
-        "process_status" => ok_text("unknown".into()),
-        "registry_read" => registry_op(false, args, tool_run_id),
-        "registry_write" => registry_op(true, args, tool_run_id),
-        "windows_service_status" => service_op(args, tool_run_id, false),
-        "windows_service_control" => service_op(args, tool_run_id, true),
+        "process_status" => ok_text(crate::process::job_status(&str_arg(args, "tool_run_id")).into()),
+        "list_processes" => list_processes(tool_run_id),
+        "inspect_process" => inspect_process(args, tool_run_id),
+        "list_volumes" => list_volumes(tool_run_id),
+        "list_installed_software" => list_installed_software(tool_run_id),
+        "registry_read" | "read_registry" => registry_op("query", args, tool_run_id),
+        "registry_write" | "write_registry" => registry_op("add", args, tool_run_id),
+        "delete_registry_value" => registry_op("delete_value", args, tool_run_id),
+        "delete_registry_key" => registry_op("delete_key", args, tool_run_id),
+        "windows_service_status" | "query_service" => service_op(args, tool_run_id, false),
+        "windows_service_control" | "start_service" | "stop_service" | "restart_service" => {
+            service_named(name, args, tool_run_id)
+        }
+        "change_service_settings" => change_service_settings(args, tool_run_id),
         "scheduled_task" => scheduled_task(args, tool_run_id),
         "firewall_rule" => firewall_rule(args, tool_run_id),
         "install_software" => winget_op("install", args, tool_run_id),
@@ -291,6 +324,7 @@ fn run_local_tool(
         "format_volume" | "manage_partition" | "boot_config" | "bitlocker_change" | "system_shutdown" => {
             critical_tool(name, args)
         }
+        name if name.starts_with("git_") => crate::git::run_git(name, args, roots, tool_run_id),
         _ => err_text("unknown_tool"),
     }
 }
@@ -336,6 +370,34 @@ fn err_text(code: &str) -> LocalOutcome {
     }
 }
 
+pub(crate) fn err_public(code: &str) -> LocalOutcome {
+    err_text(code)
+}
+
+pub(crate) fn critical_blocked(name: &str, args: &Value) -> LocalOutcome {
+    critical_tool(name, args)
+}
+
+pub(crate) fn redact_text(text: &str) -> String {
+    let mut result = text.to_string();
+    for scheme in ["https://", "http://"] {
+        let mut start = 0;
+        while let Some(idx) = result[start..].find(scheme) {
+            let abs = start + idx + scheme.len();
+            if let Some(at) = result[abs..].find('@') {
+                let creds = &result[abs..abs + at];
+                if creds.contains(':') && !creds.contains('/') {
+                    result.replace_range(abs..abs + at, "[redacted]");
+                    start = abs + "[redacted]".len();
+                    continue;
+                }
+            }
+            start = abs;
+        }
+    }
+    result
+}
+
 fn fs_list(path: String, roots: &[String]) -> LocalOutcome {
     let Ok(dir) = crate::fs_guard::resolve(&path, roots) else {
         return err_text("path_denied");
@@ -374,7 +436,7 @@ fn fs_write(args: &Value, roots: &[String]) -> LocalOutcome {
     if let Some(expected) = expected.filter(|value| !value.is_empty()) {
         match before.as_deref() {
             Some(actual) if actual == expected => {}
-            _ => return err_text("hash_mismatch"),
+            _ => return err_text("conflict"),
         }
     }
     let tmp = file.with_file_name(format!(
@@ -483,15 +545,113 @@ fn fs_search(args: &Value, roots: &[String]) -> LocalOutcome {
         return err_text("path_denied");
     };
     let mut hits = Vec::new();
-    if let Ok(entries) = fs::read_dir(dir) {
+    fn walk(dir: &std::path::Path, query: &str, hits: &mut Vec<String>, depth: u32) {
+        if depth > 4 || hits.len() >= 200 {
+            return;
+        }
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if name.to_lowercase().contains(&query) {
-                hits.push(name);
+            if name.eq_ignore_ascii_case(".git")
+                || name.eq_ignore_ascii_case("node_modules")
+                || name.eq_ignore_ascii_case(".venv")
+            {
+                continue;
+            }
+            if name.to_lowercase().contains(query) {
+                hits.push(entry.path().to_string_lossy().into_owned());
+            }
+            if entry.path().is_dir() {
+                walk(&entry.path(), query, hits, depth + 1);
             }
         }
     }
+    walk(&dir, &query, &mut hits, 0);
     ok_text(hits.join("\n"))
+}
+
+fn fs_search_code(args: &Value, roots: &[String]) -> LocalOutcome {
+    let root = str_arg(args, "root");
+    let query = str_arg(args, "query");
+    let Ok(dir) = crate::fs_guard::resolve(&root, roots) else {
+        return err_text("path_denied");
+    };
+    let mut hits = Vec::new();
+    fn walk(dir: &std::path::Path, query: &str, hits: &mut Vec<String>, files: &mut u32, depth: u32) {
+        if depth > 6 || hits.len() >= 50 || *files >= 400 {
+            return;
+        }
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.eq_ignore_ascii_case(".git")
+                || name.eq_ignore_ascii_case("node_modules")
+                || name.eq_ignore_ascii_case(".venv")
+                || name.eq_ignore_ascii_case("target")
+            {
+                continue;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, query, hits, files, depth + 1);
+                continue;
+            }
+            *files += 1;
+            let Ok(text) = fs::read_to_string(&path) else {
+                continue;
+            };
+            if text.len() > 200_000 {
+                continue;
+            }
+            for (index, line) in text.lines().enumerate() {
+                if line.contains(query) {
+                    hits.push(format!("{}:{}:{}", path.to_string_lossy(), index + 1, line.trim()));
+                    if hits.len() >= 50 {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+    let mut files = 0;
+    walk(&dir, &query, &mut hits, &mut files, 0);
+    ok_text(hits.join("\n"))
+}
+
+fn fs_patch(args: &Value, roots: &[String]) -> LocalOutcome {
+    let path = str_arg(args, "path");
+    let Ok(file) = crate::fs_guard::resolve(&path, roots) else {
+        return err_text("path_denied");
+    };
+    let expected = str_arg(args, "expected_before_sha256");
+    let old_text = args.get("old_text").and_then(Value::as_str).unwrap_or_default();
+    let new_text = args.get("new_text").and_then(Value::as_str).unwrap_or_default();
+    let Ok(bytes) = fs::read(&file) else {
+        return err_text("read_failed");
+    };
+    let before = sha256_hex(&bytes);
+    if before != expected {
+        let mut out = err_text("conflict");
+        out.metadata = json!({"error": "conflict", "conflict": true, "before_sha256": before});
+        return out;
+    }
+    let Ok(text) = String::from_utf8(bytes) else {
+        return err_text("read_failed");
+    };
+    if !text.contains(old_text) {
+        return err_text("patch_mismatch");
+    }
+    let updated = text.replacen(old_text, new_text, 1);
+    let mut write_args = args.clone();
+    if let Some(object) = write_args.as_object_mut() {
+        object.insert("content".into(), json!(updated));
+        object.insert("expected_before_sha256".into(), json!(before));
+    }
+    fs_write(&write_args, roots)
 }
 
 fn run_exec(
@@ -530,7 +690,7 @@ fn run_exec(
     }
     argv.extend(extra);
     let elevate = args.get("elevate").and_then(Value::as_bool).unwrap_or(false);
-    crate::process::run_job(
+    let mut out = crate::process::run_job(
         tool_run_id,
         &exe,
         &argv,
@@ -538,7 +698,11 @@ fn run_exec(
         Duration::from_secs(timeout),
         should_stop,
         elevate,
-    )
+    );
+    out.stdout = redact_text(&out.stdout);
+    out.stderr = redact_text(&out.stderr);
+    out.text = redact_text(&out.text);
+    out
 }
 
 fn python_executable() -> String {
@@ -598,7 +762,7 @@ fn system32_exe(name: &str) -> String {
 }
 
 fn run_host_command(tool_run_id: &str, exe: &str, argv: &[String], elevate: bool) -> LocalOutcome {
-    crate::process::run_job(
+    let mut out = crate::process::run_job(
         tool_run_id,
         exe,
         argv,
@@ -606,10 +770,14 @@ fn run_host_command(tool_run_id: &str, exe: &str, argv: &[String], elevate: bool
         Duration::from_secs(60),
         || false,
         elevate,
-    )
+    );
+    out.stdout = redact_text(&out.stdout);
+    out.stderr = redact_text(&out.stderr);
+    out.text = redact_text(&out.text);
+    out
 }
 
-fn registry_op(write: bool, args: &Value, tool_run_id: &str) -> LocalOutcome {
+fn registry_op(action: &str, args: &Value, tool_run_id: &str) -> LocalOutcome {
     let hive = str_arg(args, "hive");
     if hive != "HKCU" && hive != "HKLM" {
         return err_text("path_denied");
@@ -621,19 +789,39 @@ fn registry_op(write: bool, args: &Value, tool_run_id: &str) -> LocalOutcome {
     let path = format!("{hive}\\{key}");
     let name = str_arg(args, "name");
     let elevate = hive == "HKLM" || args.get("elevate").and_then(Value::as_bool).unwrap_or(false);
-    if write {
-        let value = str_arg(args, "value");
-        let mut argv = vec!["add".into(), path, "/f".into()];
-        if !name.is_empty() {
-            argv.extend(["/v".into(), name, "/d".into(), value, "/t".into(), "REG_SZ".into()]);
+    match action {
+        "add" => {
+            let value = str_arg(args, "value");
+            let mut argv = vec!["add".into(), path, "/f".into()];
+            if !name.is_empty() {
+                argv.extend(["/v".into(), name, "/d".into(), value, "/t".into(), "REG_SZ".into()]);
+            }
+            run_host_command(tool_run_id, &system32_exe("reg.exe"), &argv, elevate)
         }
-        run_host_command(tool_run_id, &system32_exe("reg.exe"), &argv, elevate)
-    } else {
-        let mut argv = vec!["query".into(), path];
-        if !name.is_empty() {
-            argv.extend(["/v".into(), name]);
+        "delete_value" => {
+            if name.is_empty() {
+                return err_text("invalid_arguments");
+            }
+            run_host_command(
+                tool_run_id,
+                &system32_exe("reg.exe"),
+                &["delete".into(), path, "/v".into(), name, "/f".into()],
+                elevate,
+            )
         }
-        run_host_command(tool_run_id, &system32_exe("reg.exe"), &argv, false)
+        "delete_key" => run_host_command(
+            tool_run_id,
+            &system32_exe("reg.exe"),
+            &["delete".into(), path, "/f".into()],
+            elevate,
+        ),
+        _ => {
+            let mut argv = vec!["query".into(), path];
+            if !name.is_empty() {
+                argv.extend(["/v".into(), name]);
+            }
+            run_host_command(tool_run_id, &system32_exe("reg.exe"), &argv, false)
+        }
     }
 }
 
@@ -648,6 +836,112 @@ fn service_op(args: &Value, tool_run_id: &str, control: bool) -> LocalOutcome {
     }
     let verb = if action == "stop" { "stop" } else { "start" };
     run_host_command(tool_run_id, &system32_exe("sc.exe"), &[verb.into(), name], true)
+}
+
+fn service_named(tool: &str, args: &Value, tool_run_id: &str) -> LocalOutcome {
+    let name = str_arg(args, "name");
+    if name.is_empty() {
+        return err_text("invalid_arguments");
+    }
+    match tool {
+        "start_service" => run_host_command(tool_run_id, &system32_exe("sc.exe"), &["start".into(), name], true),
+        "stop_service" => run_host_command(tool_run_id, &system32_exe("sc.exe"), &["stop".into(), name], true),
+        "restart_service" => {
+            let _ = run_host_command(tool_run_id, &system32_exe("sc.exe"), &["stop".into(), name.clone()], true);
+            run_host_command(tool_run_id, &system32_exe("sc.exe"), &["start".into(), name], true)
+        }
+        _ => service_op(args, tool_run_id, true),
+    }
+}
+
+fn change_service_settings(args: &Value, tool_run_id: &str) -> LocalOutcome {
+    let name = str_arg(args, "name");
+    let start_type = str_arg(args, "start_type");
+    if name.is_empty() || !matches!(start_type.as_str(), "demand" | "auto" | "disabled") {
+        return err_text("invalid_arguments");
+    }
+    run_host_command(
+        tool_run_id,
+        &system32_exe("sc.exe"),
+        &["config".into(), name, "start=".into(), start_type],
+        true,
+    )
+}
+
+fn list_processes(tool_run_id: &str) -> LocalOutcome {
+    let mut out = run_host_command(
+        tool_run_id,
+        &system32_exe("tasklist.exe"),
+        &["/FO".into(), "CSV".into(), "/NH".into()],
+        false,
+    );
+    let rows: Vec<String> = out
+        .stdout
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split(',');
+            let image = parts.next()?.trim_matches('"').to_string();
+            let pid = parts.next()?.trim_matches('"').to_string();
+            if image.is_empty() || pid.is_empty() {
+                return None;
+            }
+            Some(format!("{image} {pid}"))
+        })
+        .take(200)
+        .collect();
+    out.text = rows.join("\n");
+    out.stdout = out.text.clone();
+    out
+}
+
+fn inspect_process(args: &Value, tool_run_id: &str) -> LocalOutcome {
+    let pid = args.get("pid").and_then(Value::as_u64).unwrap_or(0);
+    if pid == 0 {
+        return err_text("invalid_arguments");
+    }
+    let mut out = run_host_command(
+        tool_run_id,
+        &system32_exe("tasklist.exe"),
+        &["/FI".into(), format!("PID eq {pid}"), "/FO".into(), "LIST".into()],
+        false,
+    );
+    let kept: Vec<String> = out
+        .stdout
+        .lines()
+        .filter(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower.starts_with("image name:") || lower.starts_with("pid:") || lower.starts_with("session")
+        })
+        .map(str::to_string)
+        .collect();
+    out.text = kept.join("\n");
+    out.stdout = out.text.clone();
+    out
+}
+
+fn list_volumes(tool_run_id: &str) -> LocalOutcome {
+    run_host_command(
+        tool_run_id,
+        &system32_exe("wmic.exe"),
+        &[
+            "logicaldisk".into(),
+            "get".into(),
+            "DeviceID,FileSystem,FreeSpace,Size".into(),
+        ],
+        false,
+    )
+}
+
+fn list_installed_software(tool_run_id: &str) -> LocalOutcome {
+    run_host_command(
+        tool_run_id,
+        &system32_exe("reg.exe"),
+        &[
+            "query".into(),
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall".into(),
+        ],
+        false,
+    )
 }
 
 fn scheduled_task(args: &Value, tool_run_id: &str) -> LocalOutcome {
@@ -839,5 +1133,80 @@ mod tests {
             &["delete".into(), r"HKCU\Software\AlexLLM\Test".into(), "/f".into()],
             false,
         );
+    }
+
+    #[test]
+    fn patch_file_conflicts_when_hash_changes() {
+        let dir = std::env::temp_dir().join("alex-llm-patch-test");
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("notes.txt");
+        fs::write(&file, "hello").unwrap();
+        let before = super::sha256_hex(b"hello");
+        fs::write(&file, "changed").unwrap();
+        let args = json!({
+            "path": file.to_string_lossy(),
+            "old_text": "hello",
+            "new_text": "world",
+            "expected_before_sha256": before
+        });
+        let out = run_local_tool("patch_file", &args, &[], "patch-run", || false);
+        assert_eq!(out.text, "conflict");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "changed");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn git_force_push_and_hard_reset_are_not_armed() {
+        let args = json!({"cwd": std::env::temp_dir().to_string_lossy(), "remote": "origin", "force": true});
+        let push = run_local_tool("git_push", &args, &[], "git-push", || false);
+        assert_eq!(push.text, "critical_not_armed");
+        let reset = run_local_tool(
+            "git_reset",
+            &json!({"cwd": std::env::temp_dir().to_string_lossy(), "mode": "hard", "ref": "HEAD"}),
+            &[],
+            "git-reset",
+            || false,
+        );
+        assert_eq!(reset.text, "critical_not_armed");
+    }
+
+    #[test]
+    fn redact_embedded_git_credentials() {
+        let text = redact_text("https://user:ghp_secret@github.com/org/repo.git");
+        assert!(!text.contains("ghp_secret"));
+        assert!(text.contains("[redacted]"));
+    }
+
+    #[test]
+    fn git_status_on_disposable_repo_when_git_exists() {
+        let git = [
+            r"C:\Program Files\Git\cmd\git.exe",
+            r"C:\Program Files (x86)\Git\cmd\git.exe",
+        ]
+        .into_iter()
+        .find(|path| std::path::Path::new(path).exists());
+        let Some(git) = git else {
+            return;
+        };
+        let dir = std::env::temp_dir().join("alex-llm-git-status");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let init = std::process::Command::new(git)
+            .args(["init"])
+            .current_dir(&dir)
+            .output()
+            .unwrap();
+        assert!(init.status.success());
+        fs::write(dir.join("readme.txt"), "hi").unwrap();
+        let out = run_local_tool(
+            "git_status",
+            &json!({"cwd": dir.to_string_lossy()}),
+            &[],
+            "git-status",
+            || false,
+        );
+        assert_eq!(out.exit_code, Some(0), "{}", out.stderr);
+        assert!(out.stdout.contains("readme.txt") || out.text.contains("readme.txt"));
+        let _ = fs::remove_dir_all(&dir);
     }
 }

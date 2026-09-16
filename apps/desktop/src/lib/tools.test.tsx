@@ -143,9 +143,9 @@ describe("tool presentation", () => {
         state="waiting_confirmation"
       />,
     );
-    expect(html).toContain("Разрешить один раз");
+    expect(html).toContain("Я понимаю риск — разрешить один раз");
+    expect(html).toContain("Высокий риск");
     expect(html).not.toContain("Always allow");
-    expect(html).toContain("CRITICAL");
     const tor = renderToStaticMarkup(
       <ToolActivity
         api={{} as Api}

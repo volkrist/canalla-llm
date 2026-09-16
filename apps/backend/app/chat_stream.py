@@ -141,6 +141,12 @@ async def stream_response(
             await request.app.state.presence.publish()
             yield sse("meta", meta)
             settings = get_settings()
+            coding = effective_computer_mode != "off"
+            max_calls = (
+                min(settings.tools_max_coding_calls, settings.tools_hard_max_calls)
+                if coding
+                else min(settings.tools_max_calls, settings.tools_hard_max_calls)
+            )
             queue = asyncio.Queue(maxsize=64)
 
             async def emit(event, value):
@@ -153,12 +159,17 @@ async def stream_response(
                 chat_id,
                 assistant_id,
                 ToolLimits(
-                    max_calls=settings.tools_max_calls,
+                    max_calls=max_calls,
                     max_search=settings.tools_max_search,
                     max_fetch=settings.tools_max_fetch,
                     max_pages=settings.tools_max_pages,
                     max_chars=settings.tools_max_chars,
                     max_seconds=settings.tools_max_seconds,
+                    max_local_calls=settings.tools_max_local_calls,
+                    max_files_changed=settings.tools_max_files_changed,
+                    max_file_bytes=settings.tools_max_file_bytes,
+                    max_process_seconds=settings.tools_max_process_seconds,
+                    hard_max_calls=settings.tools_hard_max_calls,
                 ),
                 emit,
                 mode=effective_web_mode,
@@ -173,6 +184,7 @@ async def stream_response(
                 ),
                 resolver=getattr(request.app.state, "tool_dns_override", None),
             )
+            tool_context.user_prompt = content if action == "send" else user_message.content
             tool_task = asyncio.create_task(
                 make_orchestrator(request.app.state.tools).prepare(
                     request.app.state.provider,

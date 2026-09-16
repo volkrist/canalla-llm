@@ -39,11 +39,21 @@ pub fn sanitized_env() -> HashMap<String, String> {
     }
     env.insert(
         "PATH".into(),
-        format!(
-            r"{root}\System32;{root}\System32\WindowsPowerShell\v1.0;{root}\System32\Wbem",
-            root = system_root
-        ),
+        {
+            let mut path = format!(
+                r"{root}\System32;{root}\System32\WindowsPowerShell\v1.0;{root}\System32\Wbem",
+                root = system_root
+            );
+            for git_dir in [r"C:\Program Files\Git\cmd", r"C:\Program Files (x86)\Git\cmd"] {
+                if std::path::Path::new(git_dir).exists() {
+                    path.push(';');
+                    path.push_str(git_dir);
+                }
+            }
+            path
+        },
     );
+    env.insert("GIT_TERMINAL_PROMPT".into(), "0".into());
     env
 }
 
@@ -175,6 +185,13 @@ pub fn run_job(
 pub fn stop_job(tool_run_id: &str) {
     if let Ok(mut map) = jobs().lock() {
         map.remove(tool_run_id);
+    }
+}
+
+pub fn job_status(tool_run_id: &str) -> &'static str {
+    match jobs().lock() {
+        Ok(map) if map.contains_key(tool_run_id) => "running",
+        _ => "unknown",
     }
 }
 
