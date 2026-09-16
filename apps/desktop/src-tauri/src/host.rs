@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Write;
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -14,10 +16,7 @@ pub struct DeviceRecord {
 }
 
 fn data_dir() -> PathBuf {
-    let root = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".into());
-    let dir = PathBuf::from(root).join("Alex LLM");
-    let _ = fs::create_dir_all(&dir);
-    dir
+    crate::credential::data_dir()
 }
 
 fn record_path() -> PathBuf {
@@ -189,6 +188,11 @@ pub fn delete_user_credential(name: String) -> Result<Value, String> {
     Ok(json!({"reference": name, "deleted": true}))
 }
 
+fn inflight_jobs() -> &'static Mutex<HashSet<String>> {
+    static JOBS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    JOBS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
 #[tauri::command]
 pub async fn execute_host_jobs(backend_url: String, token: String, roots: Vec<String>) -> Result<Value, String> {
     let client = reqwest::Client::new();
@@ -200,46 +204,69 @@ pub async fn execute_host_jobs(backend_url: String, token: String, roots: Vec<St
         .await
         .map_err(|e| e.to_string())?;
     let jobs: Vec<Value> = response.json().await.map_err(|e| e.to_string())?;
-    let mut done = 0;
+    let mut started = 0;
     for job in jobs {
         let id = job.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
+        if id.is_empty() {
+            continue;
+        }
+        {
+            let Ok(mut guard) = inflight_jobs().lock() else {
+                continue;
+            };
+            if !guard.insert(id.clone()) {
+                continue;
+            }
+        }
         let digest = job.get("input_digest").and_then(Value::as_str).unwrap_or_default().to_string();
         let name = job.get("tool_name").and_then(Value::as_str).unwrap_or_default().to_string();
         let args = job.get("host_args").cloned().unwrap_or(Value::Object(Default::default()));
         let backend = backend_url.clone();
+        let post_url = backend_url.clone();
         let token_copy = token.clone();
+        let token_post = token.clone();
         let run_id = id.clone();
         let roots_for_job = roots.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            let stop_id = run_id.clone();
-            run_local_tool(&name, &args, &roots_for_job, &run_id, move || {
-                poll_stopped(&backend, &token_copy, &stop_id)
+        tokio::spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                let stop_id = run_id.clone();
+                let token_stop = token_copy.clone();
+                let backend_stop = backend.clone();
+                run_local_tool(&name, &args, &roots_for_job, &run_id, move || {
+                    poll_stopped(&backend_stop, &token_stop, &stop_id)
+                })
             })
-        })
-        .await
-        .map_err(|e| e.to_string())?;
-        let _ = client
-            .post(format!("{backend_url}/tools/runs/{id}/host-result"))
-            .headers(device_headers(&token)?)
-            .json(&json!({
-                "digest": digest,
-                "status": "completed",
-                "exit_code": result.exit_code,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "text": result.text,
-                "metadata": result.metadata,
-            }))
-            .send()
             .await;
-        done += 1;
+            if let Ok(result) = result {
+                if let Ok(headers) = device_headers(&token_post) {
+                    let _ = reqwest::Client::new()
+                        .post(format!("{post_url}/tools/runs/{id}/host-result"))
+                        .headers(headers)
+                        .json(&json!({
+                            "digest": digest,
+                            "status": "completed",
+                            "exit_code": result.exit_code,
+                            "stdout": result.stdout,
+                            "stderr": result.stderr,
+                            "text": result.text,
+                            "metadata": result.metadata,
+                        }))
+                        .send()
+                        .await;
+                }
+            }
+            if let Ok(mut guard) = inflight_jobs().lock() {
+                guard.remove(&id);
+            }
+        });
+        started += 1;
     }
     let _ = client
         .post(format!("{backend_url}/tools/devices/heartbeat"))
         .headers(device_headers(&token)?)
         .send()
         .await;
-    Ok(json!({"completed": done}))
+    Ok(json!({"started": started, "completed": started}))
 }
 
 fn poll_stopped(backend_url: &str, token: &str, run_id: &str) -> bool {
@@ -419,8 +446,14 @@ fn fs_read(path: String, roots: &[String]) -> LocalOutcome {
     let Ok(file) = crate::fs_guard::resolve(&path, roots) else {
         return err_text("path_denied");
     };
-    match fs::read_to_string(&file) {
-        Ok(text) => ok_text(text.chars().take(20000).collect()),
+    match fs::read(&file) {
+        Ok(bytes) => {
+            let digest = sha256_hex(&bytes);
+            let body: String = String::from_utf8_lossy(&bytes).chars().take(20000).collect();
+            let mut out = ok_text(format!("sha256={digest}\n{body}"));
+            out.metadata = json!({"before_sha256": digest, "sha256": digest});
+            out
+        }
         Err(_) => err_text("read_failed"),
     }
 }
@@ -682,7 +715,15 @@ fn run_exec(
             r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe".to_string(),
             vec!["-NoProfile".into(), "-NonInteractive".into()],
         ),
-        "run_python" => (python_executable(), vec!["-3".into()]),
+        "run_python" => {
+            let exe = python_executable();
+            let prefix = if exe.to_ascii_lowercase().ends_with("py.exe") {
+                vec!["-3".into()]
+            } else {
+                vec![]
+            };
+            (exe, prefix)
+        }
         _ => (str_arg(args, "executable"), vec![]),
     };
     if exe.is_empty() {
@@ -706,6 +747,25 @@ fn run_exec(
 }
 
 fn python_executable() -> String {
+    if let Ok(value) = std::env::var("ALEX_PYTHON") {
+        if std::path::Path::new(&value).is_file() {
+            return value;
+        }
+    }
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let root = std::path::PathBuf::from(local).join("Programs").join("Python");
+        if let Ok(entries) = fs::read_dir(&root) {
+            let mut dirs: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+            dirs.sort();
+            dirs.reverse();
+            for dir in dirs {
+                let candidate = dir.join("python.exe");
+                if candidate.is_file() {
+                    return candidate.to_string_lossy().into_owned();
+                }
+            }
+        }
+    }
     let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
     for candidate in [
         format!(r"{root}\py.exe"),
@@ -1133,6 +1193,29 @@ mod tests {
             &["delete".into(), r"HKCU\Software\AlexLLM\Test".into(), "/f".into()],
             false,
         );
+    }
+
+    #[test]
+    fn read_file_includes_sha256_prefix() {
+        let dir = std::env::temp_dir().join("alex-llm-read-sha");
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("notes.txt");
+        fs::write(&file, "hello-sha").unwrap();
+        let out = run_local_tool(
+            "read_file",
+            &json!({"path": file.to_string_lossy()}),
+            &[],
+            "read-sha",
+            || false,
+        );
+        let digest = super::sha256_hex(b"hello-sha");
+        assert!(
+            out.text.starts_with(&format!("sha256={digest}\n")),
+            "text={}",
+            out.text
+        );
+        assert_eq!(out.metadata["sha256"], digest);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -116,7 +116,7 @@ def register_coding_tools(registry):
             PatchArgs,
             "local_fs",
             RiskLevel.NORMAL_CHANGE,
-            "Replace old_text with new_text if expected_before_sha256 matches. CONFLICT if the file changed.",
+            "Replace old_text with new_text. expected_before_sha256 must equal the sha256 from the latest read_file of that path. CONFLICT if the file changed.",
             files,
         ),
         (

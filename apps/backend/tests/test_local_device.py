@@ -482,3 +482,60 @@ def test_registry_key_policy_does_not_execute():
         assert_registry_key("HKCU", r"..\Windows")
     with pytest.raises(ToolError):
         assert_registry_key("HKCU", r"SAM\SAM")
+
+
+def test_explicit_execute_uses_preference_computer_mode(setup, client):
+    headers, context, _events = setup
+    client.put(
+        "/tools/preferences",
+        headers=headers,
+        json={"computer_mode": "trusted", "workspace_roots": [r"C:\AlexWorkspace"]},
+    )
+    paired = client.post(
+        "/tools/devices/pair", headers=headers, json={"display_name": "E2E-PC", "platform": "windows"}
+    ).json()
+    device_headers = {
+        **headers,
+        "X-Alex-Device-Id": paired["device_id"],
+        "X-Alex-Device-Credential": paired["credential"],
+    }
+    client.post("/tools/devices/heartbeat", headers=device_headers)
+
+    def host():
+        for _ in range(80):
+            jobs = client.get("/tools/devices/jobs", headers=device_headers).json()
+            if jobs:
+                job = jobs[0]
+                with SessionLocal() as db:
+                    digest_value = db.get(ToolRun, job["id"]).input_digest
+                client.post(
+                    f"/tools/runs/{job['id']}/host-result",
+                    headers=device_headers,
+                    json={
+                        "digest": digest_value,
+                        "status": "completed",
+                        "text": "platform=windows",
+                        "stdout": "platform=windows",
+                        "stderr": "",
+                        "metadata": {},
+                    },
+                )
+                return
+            time.sleep(0.05)
+
+    worker = threading.Thread(target=host, daemon=True)
+    worker.start()
+    with client.stream(
+        "POST",
+        "/tools/execute",
+        headers=headers,
+        json={"chat_id": context.chat_id, "name": "get_system_info", "arguments": {}},
+    ) as response:
+        body = "".join(response.iter_text())
+    worker.join(timeout=2)
+    assert "computer_disabled" not in body
+    assert "tool_result" in body or "done" in body
+    runs = client.get("/tools/runs", headers=headers, params={"chat_id": context.chat_id}).json()
+    assert runs and runs[0]["origin"] == "explicit"
+    listed = client.get("/tools/devices", headers=headers).json()
+    assert "credential" not in listed[0]

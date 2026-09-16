@@ -156,8 +156,15 @@ class LocalDeviceProvider(ToolProvider):
         error = str(payload.get("error") or payload.get("text") or "")
         if error in {"conflict", "hash_mismatch"} or payload.get("conflict"):
             raise ToolError("conflict")
+        text = str(payload.get("text") or payload.get("stdout") or "")
+        stderr = str(payload.get("stderr") or "")
+        sha = payload.get("before_sha256") or payload.get("sha256")
+        if sha and f"sha256={sha}" not in text:
+            text = f"sha256={sha}\n{text}"
+        if stderr and stderr not in text:
+            text = f"{text}\nstderr:\n{stderr}".strip()
         return ToolResult(
-            text=str(payload.get("text") or payload.get("stdout") or "")[:20000],
+            text=text[:20000],
             metadata={
                 k: payload.get(k)
                 for k in (
@@ -167,6 +174,7 @@ class LocalDeviceProvider(ToolProvider):
                     "cwd",
                     "before_sha256",
                     "after_sha256",
+                    "sha256",
                     "files_changed",
                     "reference",
                     "available",
@@ -220,7 +228,7 @@ def register_local_tools(registry):
             PathArgs,
             "local_fs",
             RiskLevel.READ,
-            "Read a UTF-8 file on this computer.",
+            "Read a UTF-8 file. The result includes sha256=<hex> for patch_file.",
             provider,
         ),
         (
@@ -308,7 +316,7 @@ def register_local_tools(registry):
             InterpreterArgs,
             "local_process",
             RiskLevel.NORMAL_CHANGE,
-            "Run Python with explicit argv.",
+            'Run Python with explicit argv after the interpreter, for example ["-m", "pytest", "-q"] with cwd set to the project root.',
             process,
         ),
         (

@@ -173,9 +173,16 @@ pub fn run_job(
         .as_ref()
         .map(|o| String::from_utf8_lossy(&o.stderr).chars().take(20000).collect())
         .unwrap_or_default();
+    let combined = if stderr.is_empty() {
+        stdout.clone()
+    } else if stdout.is_empty() {
+        stderr.clone()
+    } else {
+        format!("{stdout}\nstderr:\n{stderr}")
+    };
     LocalOutcome {
         exit_code: output.as_ref().and_then(|o| o.status.code()),
-        text: stdout.clone(),
+        text: combined.chars().take(20000).collect(),
         stdout,
         stderr,
         metadata: json!({}),

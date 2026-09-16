@@ -107,6 +107,8 @@ def test_workspace_and_coding_intent():
     workspace = workspace_from_settings(SimpleNamespace(workspace_roots=[r"C:\AlexWorkspace"]))
     assert workspace.root == r"C:\AlexWorkspace"
     assert "expected_before_sha256" in workspace.as_prompt()
+    assert "sha256=" in workspace.as_prompt()
+    assert "pytest" in workspace.as_prompt()
     assert "git_push" in workspace.as_prompt()
 
 
