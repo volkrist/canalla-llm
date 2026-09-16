@@ -6,7 +6,8 @@ and other Local Computer tools.
 
 ## CodingWorkspace
 
-Built from the first Trusted Workspace root (nullable git root). The planner is
+Built from workspace roots: a listed git repo wins, otherwise a git child of a
+root, otherwise the first root. The planner is
 told to inspect `git_status`/`git_diff`, read, `patch_file` with
 `expected_before_sha256`, rerun tests, and never `git_push` or `git_reset --hard`
 without an explicit user request plus confirmation.

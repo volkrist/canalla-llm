@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.8.0**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.8.1**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -210,3 +210,11 @@ Local Computer is usable for daily coding: typed file/process/git/service/regist
 Run `alembic upgrade head` (0009). Keep `LLM_PROVIDER=mock`. Do not start GPU/RunPod or TinyFish Agent/Browser.
 
 [Coding Agent](docs/coding-agent.md) · [Device security](docs/device-security.md) · [Local risk policy](docs/local-risk-policy.md) · [Local Computer](docs/local-computer.md)
+
+## Version 0.8.1 — 0.8.x verification patch
+
+Closes local 0.8.x gaps that did not need a second GPU pod: CodingWorkspace prefers a git project among workspace roots, native host digest mismatch returns 409 with live device headers, RAG `multilingual-e5-small` reaches `model_ready=true` and indexes, and the 0.8 harness waits for catalog stock without treating an old session cost as the current budget.
+
+**Not fully verified:** model-driven Coding Agent, model-driven Tor, Stop generation, RAG-with-OrcaRouter, and Combined Web+Coding were not retested on GPU in this patch. ONE managed Pod was consumed (`qx9xehgintpwyf`, ~60s, ~$0.018) after US-TX-3 L40S stock sat at NONE, then the harness aborted during `starting_pod`. A second pod was not started.
+
+Keep `LLM_PROVIDER=mock` unless you intentionally start compute. TinyFish Agent/Browser stay unused.

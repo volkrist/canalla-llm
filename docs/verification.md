@@ -1,6 +1,30 @@
 # Alex LLM — отчёты проверки
 
-Текущий локальный этап: **0.8.0 Coding Agent foundation**. Исторические отчёты ниже относятся к указанным версиям. Платный OrcaRouter / TinyFish Agent / Browser E2E не выполнялся. GPU и RunPod не запускались.
+Текущий локальный этап: **0.8.1 verification patch**. 0.8.1 **не** fully verified: model-driven Coding Agent GPU retest не состоялся (ONE Pod уже израсходован).
+
+## Проверка 0.8.1 — 16 сентября 2026
+
+- Цель: закрыть 0.8.x реальной перепроверкой после `917c5c8` / `43463c6` / `1424c79` / `2757c7c`, без новых больших features.
+- HEAD before: `2757c7c`. Working tree был clean; `origin/main` совпадал.
+- Backend pytest: **229 passed, 1 deselected** (opt-in live TinyFish). Ruff check/format, Alembic upgrade head + check — PASS.
+- Native cargo test: **12 passed** (lib + bin). `read_file` SHA256 prefix, patch conflict, git force/hard not armed.
+- Frontend: **20 unit passed**, TypeScript, Prettier, Vite production — PASS.
+- Playwright: **15 passed**.
+- npm audit (production): **0**. pip-audit: **0** known vulnerabilities (local `alex-llm-backend` skipped, not on PyPI).
+- Tauri release + NSIS x64 — PASS. ProductVersion **0.8.1**.
+  - EXE `apps/desktop/src-tauri/target/release/alex-llm.exe` SHA256 `B9F90CBE9A1537256987F29C84E8C00FBD70EE0A7FD119EBB424AB89DF9D0E68`
+  - Installer `apps/desktop/src-tauri/target/release/bundle/nsis/Alex LLM_0.8.1_x64-setup.exe` SHA256 `CA304BEE3518B4B9898AAAF83CB89AC1072D3CB830BFF8925FC1C2FE7BB730A0`
+- RAG embedding `intfloat/multilingual-e5-small` revision `761b726dd34fb83930e26aab4e9ac3899aa1fa78`: **model_ready=true**, disposable document index **ready**, chunk_count=1. Это TEST PASS пайплайна, не model-driven OrcaRouter RAG.
+- Confirmation immutable digest: paired native Windows host, correct device headers, wrong digest **409**, approval replay **409**, JWT-only host-result **401**. **REAL PASS**.
+- Tor provider (explicit `/tools/execute`, не model-driven): Connected, SOCKS 127.0.0.1:9050, SOCKS5h ATYP 0x03, local onion DNS=false, Ahmia onion search completed, official Tor Project onion fetch completed. **REAL PASS** для direct provider; model-driven Tor **NOT TESTED** в этом прогоне.
+- Native local smoke (get_system_info, mkdir, write/read/patch, run_python): **TEST PASS**.
+- RunPod this patch: catalog US-TX-3 L40S availability NONE ~11 минут, затем LOW. Pod `qx9xehgintpwyf`, ~60 billable seconds, estimated **$0.018167**, stop_reason=manual (harness catalog-wait timeout during `starting_pod`). **RUNNING GPU FINAL = 0**. Volume `orcarouter-storage` / `uwgeaie5b0` preserved. **ONE Pod; second pod not started.**
+- Coding Agent GPU retest: **NOT TESTED** (pod aborted before OrcaRouter talk). Previous 0.8.0 REAL E2E remains **FAIL** (Alex did not patch `calculator.py`).
+- Stop generation GPU retest: **NOT TESTED**. Previous **PARTIAL**.
+- RAG with OrcaRouter: **NOT TESTED**.
+- Combined Web + Coding: **NOT TESTED**.
+- TinyFish Agent calls = **0**. TinyFish Browser calls = **0**.
+- Cursor did not fix the disposable calculator bug.
 
 ## Проверка 0.8.0 — 16 сентября 2026
 
