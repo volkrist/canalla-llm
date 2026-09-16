@@ -127,6 +127,7 @@ export const toolErrors: Record<string, string> = {
   timeout: "Достигнут лимит времени инструмента.",
   tor_not_configured: "Tor не настроен.",
   tor_search_not_configured: "Tor Search provider not configured",
+  tor_search_failed: "Tor Search did not return results",
   computer_disabled: "Режим компьютера выключен.",
   host_offline: "Локальный компьютер недоступен.",
   path_denied: "Путь недоступен или запрещён.",

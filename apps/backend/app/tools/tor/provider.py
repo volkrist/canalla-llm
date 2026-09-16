@@ -1,5 +1,6 @@
+import html
 import re
-from urllib.parse import quote, urlsplit
+from urllib.parse import parse_qs, parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -29,14 +30,73 @@ def _title(text: str) -> str:
     return re.sub(r"\s+", " ", match.group(1)).strip()[:400] if match else ""
 
 
-def _links(text: str, limit=8):
-    found = []
+HIDDEN_INPUT = re.compile(r"""<input\b[^>]*\btype=["']hidden["'][^>]*>""", re.I)
+INPUT_ATTR = re.compile(r"""([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*["']([^"']*)["']""")
+
+
+def extract_hidden_fields(html: str) -> dict[str, str]:
+    fields = {}
+    for tag in HIDDEN_INPUT.findall(html or ""):
+        attrs = {key.lower(): value for key, value in INPUT_ATTR.findall(tag)}
+        name = (attrs.get("name") or "").strip()
+        if name:
+            fields[name] = attrs.get("value") or ""
+    return fields
+
+
+def apply_search_form_fields(search_url: str, html: str) -> str:
+    fields = extract_hidden_fields(html)
+    if not fields:
+        return search_url
+    parsed = urlsplit(search_url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query.update(fields)
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
+
+
+def extract_search_hits(base_url: str, text: str, limit=8):
+    found, seen = [], set()
+    base_host = (urlsplit(base_url).hostname or "").rstrip(".").lower()
+
+    def add(url: str, label: str):
+        value = (url or "").strip()
+        host = (urlsplit(value).hostname or "").rstrip(".").lower()
+        if not value or value in seen or host == base_host:
+            return False
+        seen.add(value)
+        found.append((value, re.sub(r"\s+", " ", label).strip()[:200]))
+        return len(found) >= limit
+
     for href, label in re.findall(r'(?is)<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', text):
-        if href.startswith("http"):
-            found.append((href, re.sub(r"<[^>]+>", "", label).strip()[:200]))
-        if len(found) >= limit:
+        abs_url = urljoin(base_url, html.unescape(href.strip()))
+        parsed = urlsplit(abs_url)
+        query = parse_qs(parsed.query)
+        for key in ("redirect_url", "redirect", "url"):
+            if query.get(key):
+                abs_url = html.unescape(query[key][0])
+                break
+        if not abs_url.startswith("http"):
+            host = (urlsplit(abs_url).hostname or abs_url.split("/")[0]).lower()
+            if host.endswith(".onion"):
+                abs_url = "http://" + abs_url.lstrip("/")
+        host = (urlsplit(abs_url).hostname or "").rstrip(".").lower()
+        if not host.endswith(".onion"):
+            continue
+        label_text = re.sub(r"<[^>]+>", "", label)
+        if add(abs_url, label_text):
+            return found
+    for cite in re.findall(r"(?is)<cite[^>]*>(.*?)</cite>", text):
+        host = re.sub(r"<[^>]+>", "", cite).strip().lower()
+        if host.endswith(".onion") and add(f"http://{host}/", host):
+            return found
+    for host in re.findall(r"\b([a-z2-7]{56}\.onion|[a-z2-7]{16}\.onion)\b", text.lower()):
+        if add(f"http://{host}/", host):
             break
     return found
+
+
+def _links(text: str, limit=8, base_url=""):
+    return extract_search_hits(base_url, text, limit)
 
 
 class TorSearchProvider(ToolProvider):
@@ -54,24 +114,42 @@ class TorSearchProvider(ToolProvider):
         if not providers:
             raise ToolError("tor_search_not_configured")
         transport = self._transport(settings)
-        sources, errors = [], []
+        sources, errors, handshake = [], [], {}
         for item in providers[:3]:
             if not isinstance(item, dict) or not item.get("url_template"):
                 continue
-            url = str(item["url_template"]).replace("{query}", quote(args.query))
+            url = (
+                str(item["url_template"])
+                .replace("{query}", quote(args.query))
+                .replace("__QUERY__", quote(args.query))
+            )
             await validate_tor_url(url)
+            form_url = str(item.get("form_url") or "").strip()
+            if form_url:
+                await validate_tor_url(form_url)
+                try:
+                    form_page = await transport.fetch(form_url, timeout=45)
+                except ToolError as error:
+                    errors.append(error.code)
+                    continue
+                handshake = form_page.get("socks") or handshake
+                url = apply_search_form_fields(url, form_page.get("text") or "")
             try:
-                page = await transport.fetch(url)
+                page = await transport.fetch(url, timeout=45)
             except ToolError as error:
                 errors.append(error.code)
                 continue
             if page.get("status") and page["status"] >= 400:
                 errors.append("tor_search_failed")
                 continue
-            for href, label in _links(page.get("text", "")):
+            provider_host = (urlsplit(page.get("url") or url).hostname or "").rstrip(".").lower()
+            for href, label in extract_search_hits(page.get("url") or url, page.get("text", "")):
                 try:
                     await validate_tor_url(href)
                 except ToolError:
+                    continue
+                host = (urlsplit(href).hostname or "").rstrip(".").lower()
+                if not host.endswith(".onion") or host == provider_host:
                     continue
                 sources.append(
                     {
@@ -84,9 +162,16 @@ class TorSearchProvider(ToolProvider):
                 )
                 if len(sources) >= 5:
                     break
+            handshake = page.get("socks") or handshake
+            if len(sources) >= 5:
+                break
         if not sources:
-            raise ToolError(errors[0] if errors else "tor_search_not_configured")
-        return ToolResult(sources=sources, errors=errors, metadata={"transport": "tor-socks5h"})
+            raise ToolError(errors[0] if errors else "tor_search_failed")
+        return ToolResult(
+            sources=sources,
+            errors=errors,
+            metadata={"transport": "tor-socks5h", "socks": handshake or {}},
+        )
 
 
 class TorFetchProvider(ToolProvider):
@@ -101,7 +186,7 @@ class TorFetchProvider(ToolProvider):
     async def execute(self, args: TorFetchArgs, context):
         settings = get_settings()
         transport = self._transport(settings)
-        sources, errors = [], []
+        sources, errors, handshake = [], [], {}
         for url in args.urls[:3]:
             await validate_tor_url(url)
             try:
@@ -122,7 +207,7 @@ class TorFetchProvider(ToolProvider):
             sources.append(
                 {
                     "url": url,
-                    "final_url": url,
+                    "final_url": page.get("url") or url,
                     "title": _title(page.get("text", "")) or urlsplit(url).hostname or url,
                     "excerpt": bounded_excerpt(
                         re.sub(r"(?is)<script.*?</script>", " ", page.get("text", "")), args.purpose
@@ -130,7 +215,12 @@ class TorFetchProvider(ToolProvider):
                     "authority": classify_authority(url, reachable, settings),
                 }
             )
-        return ToolResult(sources=sources, errors=errors, metadata={"transport": "tor-socks5h"})
+            handshake = page.get("socks") or handshake
+        return ToolResult(
+            sources=sources,
+            errors=errors,
+            metadata={"transport": "tor-socks5h", "socks": handshake or {}},
+        )
 
 
 def register_tor_tools(registry):

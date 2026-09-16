@@ -9,7 +9,7 @@ disable it. The user toggle is `tor_enabled` in Web & Tools settings.
   Destination hostnames are sent as SOCKS ATYP `0x03`. `.onion` is never passed to
   the local DNS resolver.
 - `TorSearchProvider` — GET against configured `TOR_SEARCH_PROVIDERS` URL
-  templates (`{query}`), also through that transport.
+  templates (`{query}` or `__QUERY__`), also through that transport.
 - `TorFetchProvider` — reads http(s) URLs, including `.onion`, through the same
   transport.
 
@@ -18,7 +18,21 @@ and is never returned as if it were Tor Search hits.
 
 If `TOR_SEARCH_PROVIDERS` is empty, `tor_search` fails closed with
 `tor_search_not_configured`. The UI shows **Tor Search provider not configured**.
+A configured provider that is unreachable, returns HTTP 4xx/5xx, or yields no
+onion hits fails with `tor_search_failed` instead of pretending it is unconfigured.
+`TorTransport.fetch` follows up to three HTTP redirects through the same SOCKS5h
+path (ATYP `0x03`, no local DNS, no Direct fallback).
 `tor_fetch` of a known URL still works when Tor SOCKS is reachable.
+
+Operators should copy live URL templates from an official publisher at
+configuration time (for example the onion search URL currently published on
+Ahmia's clearnet site). If the provider's public search form includes a
+rotating anti-bot field, set `form_url` to that homepage; Alex fetches the
+form through SOCKS5h and appends the hidden fields before searching.
+Application defaults stay empty so an expired address is not shipped as if it
+were still valid. Prefer `TOR_SEARCH_PROVIDERS_FILE` or
+`TOR_OFFICIAL_MAPPING_FILE` for JSON lists; environment JSON also works.
+`TOR_OFFICIAL_MAPPING` remains provenance only and is never used as a search index.
 
 ## Authority
 

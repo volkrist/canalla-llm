@@ -59,6 +59,7 @@ async def execute_tool(
     if len(json.dumps(body.arguments)) > 16000:
         raise HTTPException(422, "Слишком большой запрос инструмента")
     owner = user.id
+    prefs = preferences(db, user.id)
 
     async def stream():
         queue = asyncio.Queue(maxsize=64)
@@ -76,7 +77,10 @@ async def execute_tool(
             ToolLimits(max_calls=1, max_seconds=settings.tools_max_seconds),
             emit,
             mode="on",
+            computer_mode=prefs.computer_mode,
+            tor_enabled=prefs.tor_enabled,
             explicit=True,
+            settings=prefs,
             secrets=(
                 settings.tinyfish_api_key.get_secret_value(),
                 settings.jwt_secret,
@@ -86,7 +90,9 @@ async def execute_tool(
             resolver=getattr(request.app.state, "tool_dns_override", None),
         )
         task = asyncio.create_task(
-            ToolExecutor(request.app.state.tools).execute(body.name, body.arguments, context)
+            ToolExecutor(request.app.state.tools).execute(
+                body.name, body.arguments, context, origin="explicit"
+            )
         )
         try:
             while not task.done() or not queue.empty():
