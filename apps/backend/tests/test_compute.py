@@ -511,6 +511,40 @@ def test_auto_connect_rechecks_permissions_after_wait(compute):
     asyncio.run(scenario())
 
 
+def test_explicit_null_gpu_id_is_not_repinned(compute):
+    controller, _, user = compute
+    controller.save_preferences(
+        user.id, ComputePreferences(selection="automatic", gpu_id=None, auto_connect=True)
+    )
+    loaded = controller.preferences(user.id)
+    assert loaded.gpu_id is None
+    assert loaded.selection == "automatic"
+
+
+def test_missing_gpu_id_key_keeps_l40s_default(compute):
+    from app.compute.models import ComputePreference
+
+    controller, _, user = compute
+    with SessionLocal() as db:
+        db.add(
+            ComputePreference(
+                user_id=user.id,
+                values={
+                    "selection": "automatic",
+                    "min_vram_gb": 48,
+                    "max_hourly_price": "1.20",
+                    "session_budget": "3.00",
+                    "auto_stop_minutes": 10,
+                    "auto_connect": False,
+                    "auto_search": False,
+                    "search_interval": 30,
+                },
+            )
+        )
+        db.commit()
+    assert controller.preferences(user.id).gpu_id == "NVIDIA L40S"
+
+
 def test_live_preferences_ignore_legacy_env_cap_and_survive_restart(compute):
     controller, supplier, user = compute
     controller.settings.runpod_max_session_budget = Decimal("0.82")

@@ -118,11 +118,12 @@ class RunPodController:
     def preferences(self, user_id):
         with self.sessions() as db:
             row = db.get(ComputePreference, user_id)
-            return (
-                ComputePreferences.model_validate({"gpu_id": "NVIDIA L40S", **row.values})
-                if row
-                else ComputePreferences.defaults(self.settings)
-            )
+            if not row:
+                return ComputePreferences.defaults(self.settings)
+            values = dict(row.values or {})
+            if "gpu_id" not in values:
+                values["gpu_id"] = "NVIDIA L40S"
+            return ComputePreferences.model_validate(values)
 
     def save_preferences(self, user_id, preferences):
         preferences.enforce(self.settings)
