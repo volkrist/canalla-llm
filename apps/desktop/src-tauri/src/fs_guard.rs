@@ -1,4 +1,4 @@
-//! Canonical workspace path checks: no `..`, UNC, junction/symlink escape, or secret files.
+//! Canonical local path checks: no `..`, UNC, or secret files. Trusted roots are not a jail.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -41,7 +41,15 @@ fn strip_extended(path: PathBuf) -> PathBuf {
 
 fn is_unc(value: &str) -> bool {
     let trimmed = value.trim();
+    if trimmed.starts_with(r"\\?\") {
+        return true;
+    }
     trimmed.starts_with(r"\\") || trimmed.starts_with("//")
+}
+
+fn has_drive(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
 }
 
 fn deny_secret(canonical: &Path) -> Result<(), String> {
@@ -71,13 +79,16 @@ fn canonicalize_existing(path: &Path) -> Result<PathBuf, String> {
         .map_err(|_| "path_denied".to_string())
 }
 
-/// Resolve `path` against trusted roots. Non-existent files resolve via the parent directory.
-pub fn resolve(path: &str, roots: &[String]) -> Result<PathBuf, String> {
+/// Resolve a local drive-letter path. Trusted workspace roots do not restrict access.
+pub fn resolve(path: &str, _roots: &[String]) -> Result<PathBuf, String> {
     let value = path.trim();
-    if value.is_empty() || is_unc(value) || value.contains('\0') {
+    if value.is_empty() || is_unc(value) || value.contains('\0') || !has_drive(value) {
         return Err("path_denied".into());
     }
-    if Path::new(value).components().any(|part| matches!(part, std::path::Component::ParentDir)) {
+    if Path::new(value)
+        .components()
+        .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
         return Err("path_denied".into());
     }
     let candidate = PathBuf::from(value);
@@ -93,7 +104,13 @@ pub fn resolve(path: &str, roots: &[String]) -> Result<PathBuf, String> {
         return Err("path_denied".into());
     };
     deny_secret(&resolved)?;
-    let mut allowed = false;
+    Ok(resolved)
+}
+
+pub fn inside_trusted(path: &Path, roots: &[String]) -> bool {
+    if roots.is_empty() {
+        return false;
+    }
     for root in roots {
         let base = canonicalize_existing(Path::new(root)).or_else(|_| {
             PathBuf::from(root)
@@ -102,13 +119,51 @@ pub fn resolve(path: &str, roots: &[String]) -> Result<PathBuf, String> {
                 .map_err(|_| "path_denied".to_string())
         });
         let Ok(base) = base else { continue };
-        if resolved.starts_with(&base) {
-            allowed = true;
-            break;
+        if path.starts_with(&base) {
+            return true;
         }
     }
-    if !allowed {
-        return Err("path_denied".into());
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    #[test]
+    fn local_system_path_is_allowed() {
+        let roots = vec![r"C:\AlexWorkspace".to_string()];
+        assert!(resolve(r"C:\Windows", &roots).is_ok());
+        assert!(resolve(r"\\server\share\file", &[]).is_err());
+        assert!(resolve(r"C:\AlexWorkspace\..\Windows\win.ini", &roots).is_err());
+        assert!(resolve("notes.txt", &[]).is_err());
     }
-    Ok(resolved)
+
+    #[test]
+    fn secret_names_denied() {
+        let dir = env::temp_dir().join("alex-llm-fs-secret");
+        let _ = fs::create_dir_all(&dir);
+        let secret = dir.join(".env");
+        fs::write(&secret, "x").unwrap();
+        assert!(resolve(secret.to_str().unwrap(), &[]).is_err());
+        let _ = fs::remove_file(&secret);
+        let _ = fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn trusted_helper_does_not_jail_resolve() {
+        let tmp = env::temp_dir().join("alex-llm-trusted-root");
+        fs::create_dir_all(&tmp).unwrap();
+        let outside = env::temp_dir();
+        let roots = vec![tmp.to_string_lossy().into_owned()];
+        let resolved = resolve(outside.to_str().unwrap(), &roots).unwrap();
+        assert!(!inside_trusted(&resolved, &roots));
+        let inner = tmp.join("file.txt");
+        fs::write(&inner, "ok").unwrap();
+        let resolved_inner = resolve(inner.to_str().unwrap(), &roots).unwrap();
+        assert!(inside_trusted(&resolved_inner, &roots));
+        let _ = fs::remove_file(&inner);
+        let _ = fs::remove_dir(&tmp);
+    }
 }

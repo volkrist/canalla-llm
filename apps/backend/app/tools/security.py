@@ -64,12 +64,19 @@ def sanitized(text, secrets=(), limit=20000):
     return "".join(c for c in value if c in "\n\t" or ord(c) >= 32)[:limit]
 
 
-def digest(args):
-    return hashlib.sha256(json.dumps(args, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+def digest(args, action=None):
+    payload = args if action is None else {"action": action, "command": action, "arguments": args}
+    if action is not None and isinstance(args, dict) and args.get("path") is not None:
+        payload = {**payload, "path": args.get("path")}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 def input_summary(definition, args, secrets=()):
     # Full payload is held only by the running executor. Audit stores bounded safe preview.
+    from .contracts import RiskLevel
+    from .explain import explanation
+    from .policy import LOCAL_CAPABILITIES
+
     values = args.model_dump()
     result = {"action": definition.name, "provider": definition.provider}
     for key in (
@@ -91,7 +98,21 @@ def input_summary(definition, args, secrets=()):
         "expected_before_sha256",
         "timeout_seconds",
         "tool_run_id",
+        "purpose",
+        "reference",
+        "hive",
+        "key",
+        "name",
+        "package",
+        "device",
+        "paths",
+        "elevate",
     ):
-        if key in values and values[key] not in (None, "", [], {}):
+        if key in values and values[key] not in (None, "", [], {}, False):
             result[key] = sanitized(json.dumps(values[key], ensure_ascii=False), secrets, 500)
+    if (
+        definition.risk_level in {RiskLevel.SENSITIVE, RiskLevel.CRITICAL}
+        or definition.capability in LOCAL_CAPABILITIES
+    ):
+        result.update(explanation(definition, args))
     return result

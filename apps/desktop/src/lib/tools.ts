@@ -25,18 +25,39 @@ export const COMPUTER_TOOLS = new Set([
   "copy_file",
   "move_file",
   "search_files",
+  "delete_file",
+  "delete_directory",
+  "mass_delete",
   "run_process",
   "run_powershell",
   "run_python",
   "process_status",
   "stop_process",
   "get_system_info",
+  "registry_read",
+  "registry_write",
+  "windows_service_status",
+  "windows_service_control",
+  "scheduled_task",
+  "firewall_rule",
+  "install_software",
+  "uninstall_software",
+  "set_environment",
+  "credential_list",
+  "credential_use",
+  "format_volume",
+  "manage_partition",
+  "boot_config",
+  "bitlocker_change",
+  "system_shutdown",
 ]);
 export const FILE_CHANGE_TOOLS = new Set([
   "write_file",
   "copy_file",
   "move_file",
   "create_directory",
+  "delete_file",
+  "delete_directory",
 ]);
 export const toolStates: Record<string, string> = {
   planning: "Планирование",
@@ -81,9 +102,13 @@ export const toolErrors: Record<string, string> = {
   tor_search_not_configured: "Tor Search provider not configured",
   computer_disabled: "Режим компьютера выключен.",
   host_offline: "Локальный компьютер недоступен.",
-  path_denied: "Путь вне разрешённой директории.",
+  path_denied: "Путь недоступен или запрещён.",
   secret_path: "Чтение этого файла запрещено.",
   confirmation_denied: "Действие отклонено.",
+  confirmation_mismatch: "Payload изменился. Нужно новое подтверждение.",
+  credentials_stay_on_host: "Секрет остаётся на локальном компьютере.",
+  critical_not_armed: "Критическое действие подготовлено и не выполнено.",
+  uac_declined: "Пользователь отклонил запрос UAC.",
 };
 export function isPendingConfirmation(run: ToolRun) {
   return run.status === "waiting_confirmation";
@@ -91,8 +116,16 @@ export function isPendingConfirmation(run: ToolRun) {
 export function familyOf(run: ToolRun) {
   if (WEB_TOOLS.has(run.tool_name)) return "web";
   if (TOR_TOOLS.has(run.tool_name)) return "tor";
-  if (COMPUTER_TOOLS.has(run.tool_name)) return "computer";
+  if (COMPUTER_TOOLS.has(run.tool_name) || run.provider === "local_device")
+    return "computer";
   return "other";
+}
+
+export function networkLabel(run: ToolRun) {
+  const value = run.result_metadata?.network;
+  if (value === "tor") return "Network: Tor";
+  if (value === "direct") return "Network: Direct";
+  return "";
 }
 export function groupStatus(runs: ToolRun[]) {
   if (

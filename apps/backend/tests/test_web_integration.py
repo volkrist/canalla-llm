@@ -204,5 +204,7 @@ def test_agent_not_auto_routed():
     names = [item.name for item in make_registry().definitions()]
     assert "web_search" in names and "web_fetch" in names
     assert "web_agent_read" not in names
-    assert "browser_start" not in names
-    assert "delete_file" not in names
+    all_names = [item.name for item in make_registry().definitions(auto_only=False)]
+    assert "delete_file" in all_names
+    assert "registry_write" in all_names
+    assert "system_shutdown" in all_names

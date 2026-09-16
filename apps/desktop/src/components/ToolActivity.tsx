@@ -3,11 +3,30 @@ import type { Api } from "../lib/api";
 import {
   familyOf,
   isPendingConfirmation,
+  networkLabel,
   summarizeFamily,
   toolErrors,
   toolStates,
   type ToolRun,
 } from "../lib/tools";
+
+const EXPLAIN_KEYS = [
+  "reason",
+  "action_detail",
+  "target",
+  "consequences",
+  "risk_level",
+  "elevation_required",
+] as const;
+
+const EXPLAIN_LABELS: Record<(typeof EXPLAIN_KEYS)[number], string> = {
+  reason: "Причина",
+  action_detail: "Действие",
+  target: "Объект",
+  consequences: "Риск",
+  risk_level: "Уровень риска",
+  elevation_required: "Требуется UAC/admin",
+};
 
 function formatCost(run: ToolRun) {
   if (run.cost_actual != null)
@@ -34,6 +53,7 @@ function RunDetails({
         {run.tool_name} · {toolStates[run.status] || run.status}
         {formatCost(run)}
         {run.origin === "server_policy" ? " · политика сервера" : ""}
+        {networkLabel(run) ? ` · ${networkLabel(run)}` : ""}
       </p>
       {run.error_code && run.error_code !== error && (
         <p>{toolErrors[run.error_code] || "Операция не выполнена"}</p>
@@ -50,14 +70,38 @@ function RunDetails({
           className="tool-confirm"
         >
           <h3>Alex LLM хочет выполнить внешнее действие</h3>
-          {Object.entries(run.input_summary).map(([key, value]) => (
-            <p key={key}>
-              <strong>{key}:</strong> {value}
-            </p>
-          ))}
+          {EXPLAIN_KEYS.some((key) => run.input_summary[key]) ? (
+            <>
+              {EXPLAIN_KEYS.map((key) =>
+                run.input_summary[key] ? (
+                  <p key={key}>
+                    <strong>{EXPLAIN_LABELS[key]}:</strong>{" "}
+                    {run.input_summary[key]}
+                  </p>
+                ) : null,
+              )}
+              {Object.entries(run.input_summary)
+                .filter(
+                  ([key]) => !(EXPLAIN_KEYS as readonly string[]).includes(key),
+                )
+                .map(([key, value]) => (
+                  <p key={key}>
+                    <strong>{key}:</strong> {value}
+                  </p>
+                ))}
+            </>
+          ) : (
+            Object.entries(run.input_summary).map(([key, value]) => (
+              <p key={key}>
+                <strong>{key}:</strong> {value}
+              </p>
+            ))
+          )}
+          {networkLabel(run) && <p>{networkLabel(run)}</p>}
           <p>
             Провайдер: {run.provider}. Разрешение относится только к этому
-            действию.
+            точному payload. Если команда, путь или аргументы изменятся, нужно
+            новое подтверждение.
           </p>
           <button
             type="button"
@@ -71,7 +115,7 @@ function RunDetails({
             disabled={busy === run.id}
             onClick={() => onConfirm(run.id, false)}
           >
-            Отменить действие
+            Отмена
           </button>
         </div>
       )}

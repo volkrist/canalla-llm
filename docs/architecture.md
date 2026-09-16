@@ -148,3 +148,7 @@ Tor uses a custom SOCKS5h client (ATYP 0x03, loopback proxy). Tor Search is conf
 
 Local tools are host jobs. `paired_devices` stores a credential hash only. Tauri keeps the secret in Credential Manager / DPAPI. Host results bind device, digest, owner, pending status, one-time consume and expiry. Trusted Workspace auto-allows seven filesystem tools inside canonical roots; process tools still confirm. Child processes use a sanitized environment and a Job Object with `KILL_ON_JOB_CLOSE`. Migration 0008 adds origin, assigned device, source channel/authority/canonical/kind and `paired_devices`.
 
+## 0.7.1 Local Computer risk policy
+
+Trusted Workspace is no longer a path jail: Alex may use the whole local computer. Trusted roots only reduce confirmations for `READ` and in-root `NORMAL_CHANGE`. `SENSITIVE`/`CRITICAL` always confirm with an explanation and an immutable digest (`action` + arguments). CRITICAL is Allow-once only. Delete/registry/services/install remain registered. Device display name defaults to `Windows device`. Forget this device revokes the credential. ToolRun metadata records `network: direct|tor` with no Tor→Direct fallback.
+

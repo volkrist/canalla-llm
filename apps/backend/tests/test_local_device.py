@@ -8,7 +8,7 @@ from app.database import SessionLocal
 from app.models import Message
 from app.tools.contracts import ToolError
 from app.tools.executor import ExecutionContext, ToolExecutor
-from app.tools.local.paths import assert_allowed_path
+from app.tools.local.paths import assert_allowed_path, assert_local_path, inside_trusted
 from app.tools.local.secrets import deny_secret
 from app.tools.models import ToolRun
 from app.tools.policy import ToolLimits, ToolPolicy, WebSettings
@@ -21,21 +21,89 @@ def test_secret_and_path_policy():
         deny_secret(r"C:\work\.env")
     with pytest.raises(ToolError):
         deny_secret(r"C:\Users\me\.ssh\id_ed25519")
-    assert_allowed_path(r"C:\AlexWorkspace\file.txt", [r"C:\AlexWorkspace"])
+    assert_local_path(r"C:\AlexWorkspace\file.txt")
+    assert_local_path(r"C:\Windows\System32\cmd.exe")
+    assert_allowed_path(r"D:\mounted\share-file.txt", [r"C:\AlexWorkspace"])
+    assert not inside_trusted(r"C:\Windows\System32\cmd.exe", [r"C:\AlexWorkspace"])
+    assert inside_trusted(r"C:\AlexWorkspace\file.txt", [r"C:\AlexWorkspace"])
     with pytest.raises(ToolError):
-        assert_allowed_path(r"C:\Windows\System32\cmd.exe", [r"C:\AlexWorkspace"])
+        assert_local_path(r"C:\AlexWorkspace\..\Windows\win.ini")
     with pytest.raises(ToolError):
-        assert_allowed_path(r"C:\AlexWorkspace\..\Windows\win.ini", [r"C:\AlexWorkspace"])
+        assert_local_path(r"\\server\share\file.txt")
 
 
-def test_trusted_vs_process_confirmation():
+def test_trusted_reduces_normal_change_confirmations():
     policy = ToolPolicy()
     registry = make_registry()
     read = registry.get("read_file")[0]
+    write = registry.get("write_file")[0]
     proc = registry.get("run_python")[0]
+    delete = registry.get("delete_file")[0]
+    critical = registry.get("system_shutdown")[0]
     settings = WebSettings(computer_mode="trusted", workspace_roots=[r"C:\AlexWorkspace"])
-    assert policy.validate(read, settings, mode="off", computer_mode="trusted") == "allowed"
-    assert policy.validate(proc, settings, mode="off", computer_mode="trusted") == "confirmation_required"
+    from app.tools.local.provider import InterpreterArgs, PathArgs, ShutdownArgs, WriteArgs
+
+    inside = PathArgs(path=r"C:\AlexWorkspace\notes.txt")
+    outside = PathArgs(path=r"C:\Windows\System32\drivers\etc\hosts")
+    assert policy.validate(read, settings, mode="off", computer_mode="trusted", args=inside) == "allowed"
+    assert policy.validate(read, settings, mode="off", computer_mode="trusted", args=outside) == "allowed"
+    assert (
+        policy.validate(
+            write,
+            settings,
+            mode="off",
+            computer_mode="trusted",
+            args=WriteArgs(path=r"C:\AlexWorkspace\a.txt", content="x"),
+        )
+        == "allowed"
+    )
+    assert (
+        policy.validate(
+            write,
+            settings,
+            mode="off",
+            computer_mode="trusted",
+            args=WriteArgs(path=r"C:\Temp\a.txt", content="x"),
+        )
+        == "confirmation_required"
+    )
+    assert (
+        policy.validate(
+            proc,
+            settings,
+            mode="off",
+            computer_mode="trusted",
+            args=InterpreterArgs(argv=["-c", "print(1)"], cwd=r"C:\AlexWorkspace"),
+        )
+        == "allowed"
+    )
+    assert (
+        policy.validate(
+            proc, settings, mode="off", computer_mode="trusted", args=InterpreterArgs(argv=["-c", "print(1)"])
+        )
+        == "confirmation_required"
+    )
+    assert (
+        policy.validate(delete, settings, mode="off", computer_mode="trusted", args=inside)
+        == "confirmation_required"
+    )
+    assert (
+        policy.validate(
+            critical,
+            settings,
+            mode="off",
+            computer_mode="trusted",
+            args=ShutdownArgs(action="shutdown"),
+            confirmed=True,
+        )
+        == "allowed"
+    )
+    assert (
+        policy.validate(
+            critical, settings, mode="off", computer_mode="trusted", args=ShutdownArgs(action="shutdown")
+        )
+        == "confirmation_required"
+    )
     with pytest.raises(Exception):
         policy.validate(read, settings, mode="off", computer_mode="off")
 
@@ -68,18 +136,36 @@ def test_sanitized_child_environment_drops_secrets():
     assert r"C:\Users\me\bin" not in env["PATH"]
 
 
-def test_forbidden_tools_are_unregistered():
+def test_sensitive_tools_are_registered_and_gated():
     registry = make_registry()
     for name in (
         "delete_file",
         "delete_directory",
         "registry_write",
-        "service_install",
-        "shutdown",
-        "elevate",
+        "windows_service_control",
+        "install_software",
+        "uninstall_software",
+        "system_shutdown",
+        "format_volume",
+        "credential_use",
     ):
-        with pytest.raises(Exception):
-            registry.get(name)
+        definition = registry.get(name)[0]
+        assert definition.provider == "local_device"
+    settings = WebSettings(computer_mode="trusted", workspace_roots=[r"C:\AlexWorkspace"])
+    policy = ToolPolicy()
+    from app.tools.local.provider import PathArgs
+
+    delete = registry.get("delete_file")[0]
+    assert (
+        policy.validate(
+            delete,
+            settings,
+            mode="off",
+            computer_mode="trusted",
+            args=PathArgs(path=r"C:\AlexWorkspace\cache"),
+        )
+        == "confirmation_required"
+    )
 
 
 def test_local_host_result_requires_device(setup, client):
@@ -248,6 +334,8 @@ def test_planner_hides_paid_tools_and_keeps_channels_independent():
     assert "tor_search" in names
     assert "read_file" in names
     assert "run_python" in names
+    assert "delete_file" in names
+    assert "registry_write" in names
     web_only = SimpleNamespace(
         mode="on",
         tor_enabled=False,
@@ -260,3 +348,134 @@ def test_planner_hides_paid_tools_and_keeps_channels_independent():
     assert "read_file" not in names
     assert "tor_search" not in names
     assert "web_agent_read" not in names
+
+
+def test_pairing_defaults_to_windows_device(setup, client):
+    headers, _context, _events = setup
+    paired = client.post("/tools/devices/pair", headers=headers, json={"platform": "windows"}).json()
+    assert paired["display_name"] == "Windows device"
+    assert "credential" in paired
+    assert len(paired["credential"]) >= 43
+    forgotten = client.post(f"/tools/devices/{paired['device_id']}/forget", headers=headers)
+    assert forgotten.status_code == 200
+    listed = client.get("/tools/devices", headers=headers).json()
+    assert listed == []
+    assert client.post(f"/tools/devices/{paired['device_id']}/forget", headers=headers).status_code == 404
+
+
+def test_sensitive_explanation_and_immutable_digest(setup, client):
+    from pydantic import ValidationError
+
+    from app.tools.local.credentials import LocalCredentialProvider
+    from app.tools.routes import Confirmation
+    from app.tools.security import digest, input_summary
+
+    headers, context, events = setup
+    client.put(
+        "/tools/preferences",
+        headers=headers,
+        json={"computer_mode": "ask", "workspace_roots": [r"C:\AlexWorkspace"]},
+    )
+    paired = client.post(
+        "/tools/devices/pair",
+        headers=headers,
+        json={"display_name": "PC-1", "platform": "windows"},
+    ).json()
+    device_headers = {
+        **headers,
+        "X-Alex-Device-Id": paired["device_id"],
+        "X-Alex-Device-Credential": paired["credential"],
+    }
+    client.post("/tools/devices/heartbeat", headers=device_headers)
+    registry = client.app.state.tools
+    definition = registry.get("delete_file")[0]
+    args = definition.input_model.model_validate(
+        {"path": r"C:\AlexWorkspace\cache", "purpose": "старый cache мешает обновлению."}
+    )
+    summary = input_summary(definition, args)
+    assert summary["reason"] == "старый cache мешает обновлению."
+    assert "cache" in summary["action_detail"] or "cache" in summary["target"]
+    assert summary["risk_level"] == "SENSITIVE"
+    assert summary["elevation_required"] in {"yes", "no"}
+    first = digest(args.model_dump(mode="json"), "delete_file")
+    changed = digest({**args.model_dump(mode="json"), "path": r"C:\Windows\cache"}, "delete_file")
+    assert first != changed
+    assert digest(args.model_dump(mode="json"), "read_file") != first
+    with pytest.raises(ValidationError):
+        Confirmation.model_validate({"allow": True, "always": True})
+    with pytest.raises(ToolError, match="credentials_stay_on_host"):
+        LocalCredentialProvider().resolve("local")
+
+    def host():
+        for _ in range(80):
+            jobs = client.get("/tools/devices/jobs", headers=device_headers).json()
+            if jobs:
+                job = jobs[0]
+                with SessionLocal() as db:
+                    row = db.get(ToolRun, job["id"])
+                    digest_value = row.input_digest
+                    assert row.input_summary["reason"]
+                    assert row.input_summary["risk_level"] == "SENSITIVE"
+                client.post(
+                    f"/tools/runs/{job['id']}/host-result",
+                    headers=device_headers,
+                    json={
+                        "digest": digest_value,
+                        "status": "completed",
+                        "text": "deleted",
+                        "stdout": "deleted",
+                        "stderr": "",
+                        "metadata": {"files_changed": 1},
+                    },
+                )
+                return
+            time.sleep(0.05)
+
+    async def confirm(event, value):
+        events.append((event, value))
+        if value.get("status") == "waiting_confirmation":
+            assert "Always allow" not in str(value)
+            assert value["input_summary"]["risk_level"] == "SENSITIVE"
+            client.post(f"/tools/runs/{value['id']}/confirm", headers=headers, json={"allow": True})
+
+    context.emit = confirm
+    context.computer_mode = "ask"
+    worker = threading.Thread(target=host, daemon=True)
+    worker.start()
+    result = asyncio.run(
+        ToolExecutor(registry).execute(
+            "delete_file",
+            {"path": r"C:\AlexWorkspace\cache", "purpose": "старый cache мешает обновлению."},
+            context,
+        )
+    )
+    worker.join(timeout=2)
+    assert "deleted" in result.text
+    with pytest.raises(ValidationError):
+        definition.input_model.model_validate({"path": r"C:\x", "secret": "password"})
+
+
+def test_network_channel_and_no_tor_fallback():
+    import inspect
+
+    from app.tools.policy import network_channel
+    from app.tools.tor import provider as tor_provider
+
+    registry = make_registry()
+    assert network_channel(registry.get("web_search")[0]) == "direct"
+    assert network_channel(registry.get("tor_search")[0]) == "tor"
+    assert network_channel(registry.get("read_file")[0]) is None
+    source = inspect.getsource(tor_provider)
+    assert "TinyFishSearchProvider" not in source
+    assert "TinyFishClient" not in source
+    assert "TorTransport" in source
+
+
+def test_registry_key_policy_does_not_execute():
+    from app.tools.local.registry_keys import assert_registry_key
+
+    assert assert_registry_key("HKCU", r"Software\AlexLLM\Test") == r"Software\AlexLLM\Test"
+    with pytest.raises(ToolError):
+        assert_registry_key("HKCU", r"..\Windows")
+    with pytest.raises(ToolError):
+        assert_registry_key("HKCU", r"SAM\SAM")

@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .contracts import RiskLevel, ToolError
+from .local.paths import inside_trusted
 from .models import ToolPreferences
 
 
@@ -66,16 +67,65 @@ class ToolLimits:
 
 WEB_CAPABILITIES = {"search", "fetch", "agent", "browser"}
 TOR_CAPABILITIES = {"tor_search", "tor_fetch"}
-LOCAL_CAPABILITIES = {"local_fs", "local_process", "local_info"}
-TRUSTED_LOCAL = {
-    "list_directory",
-    "read_file",
-    "search_files",
-    "create_directory",
-    "write_file",
-    "copy_file",
-    "move_file",
+LOCAL_CAPABILITIES = {
+    "local_fs",
+    "local_process",
+    "local_info",
+    "local_registry",
+    "local_service",
+    "local_install",
+    "local_system",
+    "local_credential",
 }
+NETWORK_DIRECT = WEB_CAPABILITIES
+NETWORK_TOR = TOR_CAPABILITIES
+
+
+def network_channel(definition) -> str | None:
+    if definition.capability in NETWORK_TOR:
+        return "tor"
+    if definition.capability in NETWORK_DIRECT:
+        return "direct"
+    return None
+
+
+def effective_risk(definition, args=None):
+    risk = definition.risk_level
+    elevate = bool(getattr(args, "elevate", False)) if args is not None else False
+    if getattr(args, "hive", None) == "HKLM":
+        elevate = True
+    if elevate and risk in {RiskLevel.READ, RiskLevel.NORMAL_CHANGE}:
+        return RiskLevel.SENSITIVE
+    return risk
+
+
+def _scope_paths(definition, args):
+    if args is None:
+        return None
+    if definition.capability == "local_process":
+        cwd = getattr(args, "cwd", None)
+        return [cwd] if cwd else []
+    values = []
+    for key in ("path", "source", "destination", "root"):
+        value = getattr(args, key, None)
+        if value:
+            values.append(value)
+    for item in getattr(args, "paths", None) or []:
+        values.append(item)
+    return values
+
+
+def inside_trusted_scope(definition, args, roots) -> bool:
+    if definition.risk_level in {RiskLevel.SENSITIVE, RiskLevel.CRITICAL}:
+        return False
+    paths = _scope_paths(definition, args)
+    if paths is None:
+        return False
+    if definition.capability == "local_process":
+        return bool(paths) and all(inside_trusted(path, roots) for path in paths)
+    if not paths:
+        return True
+    return all(inside_trusted(path, roots) for path in paths)
 
 
 class ToolPolicy:
@@ -89,6 +139,7 @@ class ToolPolicy:
         tor_enabled=False,
         explicit=False,
         confirmed=False,
+        args=None,
     ):
         capability = definition.capability
         if capability in WEB_CAPABILITIES and mode == "off":
@@ -107,12 +158,19 @@ class ToolPolicy:
         }
         if capability in enabled and not enabled[capability]:
             raise ToolError("tool_disabled")
+        risk = effective_risk(definition, args)
         if capability in LOCAL_CAPABILITIES:
-            if computer_mode == "trusted" and definition.name in TRUSTED_LOCAL:
+            if risk in {RiskLevel.SENSITIVE, RiskLevel.CRITICAL}:
+                return "allowed" if confirmed else "confirmation_required"
+            if computer_mode == "ask":
+                return "allowed" if confirmed else "confirmation_required"
+            if risk == RiskLevel.READ:
                 return "allowed"
-            if not confirmed:
-                return "confirmation_required"
+            if risk == RiskLevel.NORMAL_CHANGE and inside_trusted_scope(
+                definition, args, settings.workspace_roots
+            ):
+                return "allowed"
+            return "allowed" if confirmed else "confirmation_required"
+        if risk == RiskLevel.READ:
             return "allowed"
-        if definition.risk_level != RiskLevel.READ_ONLY and not confirmed:
-            return "confirmation_required"
-        return "allowed"
+        return "allowed" if confirmed else "confirmation_required"

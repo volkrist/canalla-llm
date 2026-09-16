@@ -9,9 +9,9 @@ from sqlalchemy import select, update
 
 from ..database import SessionLocal
 from ..models import Chat, Message, User, now
-from .contracts import ToolError, ToolResult
+from .contracts import RiskLevel, ToolError, ToolResult
 from .models import ToolRun, WebSourceSnapshot
-from .policy import ToolPolicy, preferences
+from .policy import ToolPolicy, network_channel, preferences
 from .security import digest, input_summary, sanitized, validate_url
 from .web_router import canonical_url
 
@@ -26,6 +26,11 @@ STATES = {
     "local_fs": "running",
     "local_process": "running",
     "local_info": "running",
+    "local_registry": "running",
+    "local_service": "running",
+    "local_install": "running",
+    "local_system": "running",
+    "local_credential": "running",
 }
 
 
@@ -159,6 +164,9 @@ class ToolExecutor:
 
     def _run_metadata(self, definition, args, context, reservation):
         metadata = {"origin": getattr(context, "origin", "model") or "model"}
+        channel = network_channel(definition)
+        if channel:
+            metadata["network"] = channel
         if reservation:
             metadata.update(reserved_budget=reservation, budget_enforcement="local_soft")
         if definition.provider == "local_device":
@@ -189,6 +197,7 @@ class ToolExecutor:
                 computer_mode=context.computer_mode,
                 tor_enabled=context.tor_enabled,
                 explicit=context.explicit,
+                args=args,
             )
             reservation = 0
             if definition.cost_class == "paid":
@@ -219,7 +228,7 @@ class ToolExecutor:
                 origin=getattr(context, "origin", "model") or "model",
                 assigned_device_id=context.assigned_device_id,
                 input_summary={**input_summary(definition, args, context.secrets), **context.preview},
-                input_digest=digest(args.model_dump(mode="json")),
+                input_digest=digest(args.model_dump(mode="json"), definition.name),
                 status="waiting_confirmation" if decision == "confirmation_required" else "planning",
                 result_metadata=self._run_metadata(definition, args, context, reservation),
             )
@@ -261,7 +270,7 @@ class ToolExecutor:
         context.preview, context.action_fingerprint = {}, None
         if (
             definition.capability == "agent"
-            and definition.risk_level.value == "READ_ONLY"
+            and definition.risk_level == RiskLevel.READ
             and not getattr(provider, "read_only_enforced", False)
         ):
             raise ToolError("agent_read_only_boundary_unavailable")
@@ -284,7 +293,7 @@ class ToolExecutor:
                     fresh = preferences(db, context.user_id)
                     if row.status == "stopped":
                         raise ToolError("cancelled")
-                    if row.input_digest != digest(args.model_dump(mode="json")):
+                    if row.input_digest != digest(args.model_dump(mode="json"), definition.name):
                         raise ToolError("confirmation_mismatch")
                     if (
                         self.policy.validate(
@@ -295,6 +304,7 @@ class ToolExecutor:
                             tor_enabled=context.tor_enabled,
                             explicit=context.explicit,
                             confirmed=row.confirmed_at is not None,
+                            args=args,
                         )
                         != "allowed"
                     ):

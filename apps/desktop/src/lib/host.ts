@@ -38,3 +38,32 @@ export async function runHostJobs(
     roots,
   });
 }
+
+export async function forgetLocalDevice(backendUrl: string, token: string) {
+  if (!isTauri()) return { paired: false, online: false };
+  return invoke<DeviceStatus>("forget_device", { backendUrl, token });
+}
+
+export async function storeUserCredential(name: string, secret: string) {
+  if (!isTauri()) return { stored: false };
+  return invoke<{ reference: string; stored: boolean }>(
+    "store_user_credential",
+    {
+      name,
+      secret,
+    },
+  );
+}
+
+export async function listUserCredentials() {
+  if (!isTauri()) return [] as string[];
+  return invoke<string[]>("list_user_credentials");
+}
+
+export async function deleteUserCredential(name: string) {
+  if (!isTauri()) return { deleted: false };
+  return invoke<{ reference: string; deleted: boolean }>(
+    "delete_user_credential",
+    { name },
+  );
+}

@@ -7,9 +7,10 @@ from pydantic import BaseModel
 
 
 class RiskLevel(StrEnum):
-    READ_ONLY = "READ_ONLY"
-    EXTERNAL_SIDE_EFFECT = "EXTERNAL_SIDE_EFFECT"
+    READ = "READ"
+    NORMAL_CHANGE = "NORMAL_CHANGE"
     SENSITIVE = "SENSITIVE"
+    CRITICAL = "CRITICAL"
 
 
 class ToolError(Exception):

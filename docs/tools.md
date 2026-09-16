@@ -5,12 +5,15 @@ a Pydantic-validated JSON input schema, capability, risk, cost class and timeout
 ToolExecutor enforces ToolPolicy independently of model output. The model cannot
 provide a confirmation flag, change the risk or register tools.
 
-READ_ONLY tools follow Web Off/Auto/On and user preferences. EXTERNAL_SIDE_EFFECT
-and SENSITIVE tools wait for an ownership-checked one-time approval. The immutable
-payload digest binds approval to the exact pending action. Approval expires after
+READ tools follow Web Off/Auto/On and user preferences. NORMAL_CHANGE,
+SENSITIVE and CRITICAL tools wait for an ownership-checked one-time approval
+except Trusted Workspace, which auto-allows safe NORMAL_CHANGE inside workspace
+roots. The immutable payload digest binds approval to the exact pending action
+(`action` + arguments). Approval expires after
 five minutes, cannot be replayed, and permissions are rechecked before execution.
-Direct Browser definitions are never automatically routed. CredentialReference and
-ToolCredentialProvider reserve future vault/BYOK integration without storing passwords.
+CRITICAL has Allow once only — never Always allow. Direct Browser definitions are never automatically routed. CredentialReference and
+LocalCredentialProvider keep raw secrets on the paired host; the model sees only
+a logical reference.
 
 Defaults: 8 calls, 3 searches, 3 fetch batches (1–3 URLs each), 20000 reference characters,
 180 seconds. Limits are server configurable. Every model proposal is validated again;

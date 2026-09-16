@@ -20,7 +20,7 @@ def make_registry():
             "Find public sources for a query, with dates, domains and language filters.",
             SearchArgs,
             "search",
-            RiskLevel.READ_ONLY,
+            RiskLevel.READ,
             "free",
             90,
             "tinyfish",
@@ -33,7 +33,7 @@ def make_registry():
             "Read public URLs as reference text. Use fresh=true for current information.",
             FetchArgs,
             "fetch",
-            RiskLevel.READ_ONLY,
+            RiskLevel.READ,
             "free",
             90,
             "tinyfish",
@@ -46,7 +46,7 @@ def make_registry():
             "Paid multi-step public reading only. Never use for writes, login, submissions or purchases.",
             AgentArgs,
             "agent",
-            RiskLevel.READ_ONLY,
+            RiskLevel.READ,
             "paid",
             180,
             "tinyfish",
@@ -56,12 +56,12 @@ def make_registry():
     )
     browser = TinyFishBrowserProvider()
     for name, schema, risk, adapter, cost in (
-        ("browser_start", BrowserStartArgs, RiskLevel.READ_ONLY, browser, "paid"),
-        ("browser_read", BrowserReadArgs, RiskLevel.READ_ONLY, BrowserActionProvider(browser), "free"),
+        ("browser_start", BrowserStartArgs, RiskLevel.READ, browser, "paid"),
+        ("browser_read", BrowserReadArgs, RiskLevel.READ, BrowserActionProvider(browser), "free"),
         (
             "browser_write",
             BrowserWriteArgs,
-            RiskLevel.EXTERNAL_SIDE_EFFECT,
+            RiskLevel.SENSITIVE,
             BrowserActionProvider(browser),
             "free",
         ),

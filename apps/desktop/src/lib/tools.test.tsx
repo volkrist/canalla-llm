@@ -12,8 +12,17 @@ const run: ToolRun = {
   tool_name: "browser_write",
   provider: "tinyfish",
   status: "waiting_confirmation",
-  risk_level: "EXTERNAL_SIDE_EFFECT",
-  input_summary: { site: "example.com", action: "click", target: "Submit" },
+  risk_level: "SENSITIVE",
+  input_summary: {
+    reason: "нужно нажать Submit",
+    action_detail: "click",
+    target: "Submit",
+    consequences: "страница изменится",
+    risk_level: "SENSITIVE",
+    elevation_required: "no",
+    site: "example.com",
+    action: "click",
+  },
   cost_actual: null,
   cost_estimate: null,
   result_metadata: {},
@@ -29,7 +38,9 @@ describe("tool presentation", () => {
       />,
     );
     expect(html).toContain("Разрешить один раз");
-    expect(html).toContain("Отменить действие");
+    expect(html).toContain("Отмена");
+    expect(html).not.toContain("Always allow");
+    expect(html).toContain("Причина");
     expect(html).toContain("example.com");
     expect(html).not.toContain("фактически");
   });
@@ -75,21 +86,21 @@ describe("tool presentation", () => {
             id: "s1",
             tool_name: "web_search",
             status: "completed",
-            risk_level: "READ_ONLY",
+            risk_level: "READ",
           },
           {
             ...run,
             id: "f1",
             tool_name: "web_fetch",
             status: "completed",
-            risk_level: "READ_ONLY",
+            risk_level: "READ",
           },
           {
             ...run,
             id: "f2",
             tool_name: "web_fetch",
             status: "completed",
-            risk_level: "READ_ONLY",
+            risk_level: "READ",
           },
           run,
         ]}
@@ -107,6 +118,62 @@ describe("tool presentation", () => {
         { ...run, tool_name: "read_file", status: "completed" },
       ]),
     ).toBe("Компьютер · 2 действий · 1 файлов изменено · Завершено");
+  });
+  it("shows Network Direct or Tor and never Always allow for CRITICAL", () => {
+    const html = renderToStaticMarkup(
+      <ToolActivity
+        api={{} as Api}
+        runs={[
+          {
+            ...run,
+            tool_name: "system_shutdown",
+            provider: "local_device",
+            risk_level: "CRITICAL",
+            result_metadata: {},
+            input_summary: {
+              reason: "нужна перезагрузка",
+              action_detail: "reboot",
+              target: "system",
+              consequences: "работа может быть потеряна",
+              risk_level: "CRITICAL",
+              elevation_required: "yes",
+            },
+          },
+        ]}
+        state="waiting_confirmation"
+      />,
+    );
+    expect(html).toContain("Разрешить один раз");
+    expect(html).not.toContain("Always allow");
+    expect(html).toContain("CRITICAL");
+    const tor = renderToStaticMarkup(
+      <ToolActivity
+        api={{} as Api}
+        runs={[
+          {
+            ...run,
+            id: "t1",
+            tool_name: "tor_search",
+            provider: "tor",
+            status: "completed",
+            risk_level: "READ",
+            result_metadata: { network: "tor" },
+          },
+          {
+            ...run,
+            id: "w1",
+            tool_name: "web_search",
+            provider: "tinyfish",
+            status: "completed",
+            risk_level: "READ",
+            result_metadata: { network: "direct" },
+          },
+        ]}
+        state="completed"
+      />,
+    );
+    expect(tor).toContain("Network: Tor");
+    expect(tor).toContain("Network: Direct");
   });
   it("shows force-web only in Auto mode", () => {
     const auto = renderToStaticMarkup(

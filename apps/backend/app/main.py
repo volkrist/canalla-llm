@@ -92,7 +92,7 @@ async def lifespan(application):
 
 app = FastAPI(
     title="Alex LLM API",
-    version="0.7.0",
+    version="0.7.1",
     lifespan=lifespan,
     docs_url="/docs" if settings.app_env != "production" else None,
     redoc_url=None,

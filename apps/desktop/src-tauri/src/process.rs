@@ -83,7 +83,11 @@ pub fn run_job(
     cwd: Option<&str>,
     timeout: Duration,
     should_stop: impl Fn() -> bool,
+    elevate: bool,
 ) -> LocalOutcome {
+    if elevate {
+        return run_elevated(exe, args, cwd);
+    }
     let job = match create_kill_on_close_job() {
         Ok(job) => job,
         Err(error) => return err(&error),
@@ -102,7 +106,21 @@ pub fn run_job(
     }
     let mut child = match command.spawn() {
         Ok(child) => child,
-        Err(_) => return err("invalid_arguments"),
+        Err(_) => {
+            command.creation_flags(CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT);
+            match command.spawn() {
+                Ok(child) => child,
+                Err(error) => {
+                    return LocalOutcome {
+                        exit_code: Some(1),
+                        stdout: String::new(),
+                        stderr: error.to_string(),
+                        text: "invalid_arguments".into(),
+                        metadata: json!({"error": "invalid_arguments", "detail": error.to_string()}),
+                    };
+                }
+            }
+        }
     };
     if assign(&job, child.as_raw_handle()).is_err() {
         let _ = child.kill();
@@ -167,5 +185,54 @@ fn err(code: &str) -> LocalOutcome {
         stderr: code.into(),
         text: code.into(),
         metadata: json!({"error": code}),
+    }
+}
+
+fn ps_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+fn run_elevated(exe: &str, args: &[String], cwd: Option<&str>) -> LocalOutcome {
+    // Windows UAC prompt. Alex never stores an admin password or bypasses UAC.
+    let mut command = format!("Start-Process -Verb RunAs -Wait -FilePath {}", ps_quote(exe));
+    if !args.is_empty() {
+        let list = args.iter().map(|item| ps_quote(item)).collect::<Vec<_>>().join(",");
+        command.push_str(&format!(" -ArgumentList {list}"));
+    }
+    if let Some(dir) = cwd {
+        command.push_str(&format!(" -WorkingDirectory {}", ps_quote(dir)));
+    }
+    let powershell = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
+    run_job(
+        "elevate",
+        powershell,
+        &["-NoProfile".into(), "-NonInteractive".into(), "-Command".into(), command],
+        None,
+        Duration::from_secs(120),
+        || false,
+        false,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn sanitized_env_omits_application_secrets() {
+        std::env::set_var("RUNPOD_API_KEY", "secret");
+        std::env::set_var("TINYFISH_API_KEY", "secret");
+        std::env::set_var("LLM_API_KEY", "secret");
+        std::env::set_var("JWT_SECRET", "secret");
+        std::env::set_var("ALEX_DEVICE_CREDENTIAL", "secret");
+        let env = super::sanitized_env();
+        for key in [
+            "RUNPOD_API_KEY",
+            "TINYFISH_API_KEY",
+            "LLM_API_KEY",
+            "JWT_SECRET",
+            "ALEX_DEVICE_CREDENTIAL",
+        ] {
+            assert!(!env.contains_key(key));
+        }
+        assert!(env.contains_key("SystemRoot") || env.contains_key("PATH"));
     }
 }

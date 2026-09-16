@@ -16,6 +16,7 @@ def hash_credential(value: str) -> str:
 
 
 def issue_credential() -> str:
+    # token_urlsafe(32) is 256 bits of cryptographic randomness.
     return secrets.token_urlsafe(32)
 
 
@@ -41,9 +42,12 @@ def public_device(row: PairedDevice):
 
 class PairRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    display_name: str = Field(default="Alex-PC", min_length=1, max_length=80)
+    display_name: str = Field(default="Windows device", min_length=1, max_length=80)
     platform: str = Field(default="windows", max_length=32)
-    capabilities: list[str] = Field(default_factory=lambda: ["fs", "process"], max_length=20)
+    capabilities: list[str] = Field(
+        default_factory=lambda: ["fs", "process", "registry", "credential", "system"],
+        max_length=20,
+    )
 
 
 class HostResult(BaseModel):

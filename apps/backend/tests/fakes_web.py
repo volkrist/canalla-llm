@@ -154,7 +154,7 @@ def fake_registry():
     # A side-effecting Agent proposal exercises generic confirmation without an external action.
     agent = original.get("web_agent_read")[0]
     registry.register(
-        replace(agent, name="test_agent_action", risk_level=RiskLevel.EXTERNAL_SIDE_EFFECT),
+        replace(agent, name="test_agent_action", risk_level=RiskLevel.SENSITIVE),
         FakeWebProvider("agent"),
     )
     return registry

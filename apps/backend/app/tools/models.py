@@ -72,7 +72,7 @@ class PairedDevice(Base):
     __tablename__ = "paired_devices"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    display_name: Mapped[str] = mapped_column(String(80), default="Alex-PC")
+    display_name: Mapped[str] = mapped_column(String(80), default="Windows device")
     platform: Mapped[str] = mapped_column(String(32), default="windows")
     capabilities: Mapped[dict] = mapped_column(JSON, default=dict)
     credential_hash: Mapped[str] = mapped_column(String(64))

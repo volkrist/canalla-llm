@@ -39,7 +39,7 @@ class FakeProvider:
 
 def definition():
     return ToolDefinition(
-        "test_read", "Read reference data", Args, "search", RiskLevel.READ_ONLY, "free", 10, "fake"
+        "test_read", "Read reference data", Args, "search", RiskLevel.READ, "free", 10, "fake"
     )
 
 
@@ -78,7 +78,7 @@ def test_registry_schema_and_unknown():
 
 def test_policy_cannot_be_overridden_by_model():
     policy = ToolPolicy()
-    write = replace(definition(), risk_level=RiskLevel.EXTERNAL_SIDE_EFFECT)
+    write = replace(definition(), risk_level=RiskLevel.NORMAL_CHANGE)
     assert policy.validate(write, WebSettings(), mode="auto") == "confirmation_required"
     assert policy.validate(write, WebSettings(), mode="auto", confirmed=True) == "allowed"
     for risk in RiskLevel:
@@ -146,7 +146,7 @@ def test_execute_snapshot_audit_and_isolation(setup, client, auth):
 def test_exact_one_time_confirmation(setup, client, allow):
     headers, context, events = setup
     provider, registry = FakeProvider(), ToolRegistry()
-    registry.register(replace(definition(), risk_level=RiskLevel.EXTERNAL_SIDE_EFFECT), provider)
+    registry.register(replace(definition(), risk_level=RiskLevel.SENSITIVE), provider)
 
     async def confirm(event, value):
         if value["status"] == "waiting_confirmation":

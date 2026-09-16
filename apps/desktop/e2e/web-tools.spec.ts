@@ -95,9 +95,7 @@ test("Web settings warnings and explicit Browser commands require per-action app
   await expect(
     page.getByRole("alertdialog", { name: "Подтвердить внешнее действие" }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Отменить действие", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Отмена", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Выполнить команду", exact: true }),
   ).toBeEnabled();

@@ -13,7 +13,11 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             host::pair_device,
             host::device_status,
-            host::execute_host_jobs
+            host::execute_host_jobs,
+            host::forget_device,
+            host::store_user_credential,
+            host::list_user_credentials,
+            host::delete_user_credential
         ])
         .run(tauri::generate_context!())
         .expect("Unable to start Alex LLM");

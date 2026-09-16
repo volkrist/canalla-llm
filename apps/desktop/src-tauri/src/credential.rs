@@ -17,18 +17,24 @@ fn fallback_path() -> PathBuf {
 }
 
 pub fn store(value: &str) -> Result<(), String> {
-    if cred_write(value).is_ok() {
+    if cred_write(TARGET, value).is_ok() {
         return Ok(());
     }
     dpapi_write(value)
 }
 
 pub fn load() -> Option<String> {
-    cred_read().ok().or_else(dpapi_read)
+    cred_read(TARGET).ok().or_else(dpapi_read)
+}
+
+pub fn delete() -> Result<(), String> {
+    let _ = cred_delete(TARGET);
+    let _ = fs::remove_file(fallback_path());
+    Ok(())
 }
 
 pub fn storage_kind() -> &'static str {
-    if cred_read().is_ok() {
+    if cred_read(TARGET).is_ok() {
         "windows_credential_manager"
     } else if fallback_path().exists() {
         "dpapi_file_fallback"
@@ -37,19 +43,79 @@ pub fn storage_kind() -> &'static str {
     }
 }
 
-fn cred_write(value: &str) -> Result<(), String> {
+fn valid_reference(name: &str) -> Result<(), String> {
+    if name.is_empty()
+        || name.len() > 80
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
+        return Err("invalid_reference".into());
+    }
+    Ok(())
+}
+
+fn user_target(name: &str) -> Result<String, String> {
+    valid_reference(name)?;
+    Ok(format!("Alex LLM/user/{name}"))
+}
+
+fn names_path() -> PathBuf {
+    data_dir().join("user-credential-names.json")
+}
+
+fn load_names() -> Vec<String> {
+    fs::read_to_string(names_path())
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+fn save_names(names: &[String]) {
+    let _ = fs::write(names_path(), serde_json::to_vec(names).unwrap_or_default());
+}
+
+pub fn store_named(name: &str, value: &str) -> Result<(), String> {
+    let target = user_target(name)?;
+    cred_write(&target, value)?;
+    let mut names = load_names();
+    if !names.iter().any(|item| item == name) {
+        names.push(name.to_string());
+        save_names(&names);
+    }
+    Ok(())
+}
+
+pub fn load_named(name: &str) -> Option<String> {
+    let target = user_target(name).ok()?;
+    cred_read(&target).ok()
+}
+
+pub fn delete_named(name: &str) -> Result<(), String> {
+    let target = user_target(name)?;
+    let _ = cred_delete(&target);
+    let names: Vec<String> = load_names().into_iter().filter(|item| item != name).collect();
+    save_names(&names);
+    Ok(())
+}
+
+pub fn list_named() -> Vec<String> {
+    load_names()
+}
+
+fn cred_write(target: &str, value: &str) -> Result<(), String> {
     use windows::Win32::Security::Credentials::{
         CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
     };
     use windows::core::PWSTR;
 
-    let mut target: Vec<u16> = TARGET.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut target_w: Vec<u16> = target.encode_utf16().chain(std::iter::once(0)).collect();
     let mut blob: Vec<u8> = value.as_bytes().to_vec();
     unsafe {
         let cred = CREDENTIALW {
             Flags: Default::default(),
             Type: CRED_TYPE_GENERIC,
-            TargetName: PWSTR(target.as_mut_ptr()),
+            TargetName: PWSTR(target_w.as_mut_ptr()),
             Comment: PWSTR::null(),
             LastWritten: Default::default(),
             CredentialBlobSize: blob.len() as u32,
@@ -65,14 +131,14 @@ fn cred_write(value: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn cred_read() -> Result<String, String> {
+fn cred_read(target: &str) -> Result<String, String> {
     use windows::Win32::Security::Credentials::{CredFree, CredReadW, CREDENTIALW, CRED_TYPE_GENERIC};
     use windows::core::PCWSTR;
 
-    let target: Vec<u16> = TARGET.encode_utf16().chain(std::iter::once(0)).collect();
+    let target_w: Vec<u16> = target.encode_utf16().chain(std::iter::once(0)).collect();
     unsafe {
         let mut cred: *mut CREDENTIALW = std::ptr::null_mut();
-        CredReadW(PCWSTR(target.as_ptr()), CRED_TYPE_GENERIC, 0, &mut cred).map_err(|e| e.to_string())?;
+        CredReadW(PCWSTR(target_w.as_ptr()), CRED_TYPE_GENERIC, 0, &mut cred).map_err(|e| e.to_string())?;
         if cred.is_null() {
             return Err("missing".into());
         }
@@ -81,6 +147,17 @@ fn cred_read() -> Result<String, String> {
         CredFree(cred as *const _);
         Ok(value)
     }
+}
+
+fn cred_delete(target: &str) -> Result<(), String> {
+    use windows::Win32::Security::Credentials::{CredDeleteW, CRED_TYPE_GENERIC};
+    use windows::core::PCWSTR;
+
+    let target_w: Vec<u16> = target.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        CredDeleteW(PCWSTR(target_w.as_ptr()), CRED_TYPE_GENERIC, 0).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 fn dpapi_write(value: &str) -> Result<(), String> {

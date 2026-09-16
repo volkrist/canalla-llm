@@ -68,7 +68,7 @@ export default function Workspace({
           device_display_name?: string;
           workspace_roots?: string[];
         }>("/tools/preferences");
-        const alias = prefs.device_display_name?.trim() || "Alex-PC";
+        const alias = prefs.device_display_name?.trim() || "Windows device";
         await pairLocalDevice(api.base, token, alias);
         const status = await readDeviceStatus();
         if (live) setDevice(status);
@@ -302,7 +302,7 @@ export default function Workspace({
           setWebMode={chat.setWebMode}
           computerMode={chat.computerMode}
           setComputerMode={chat.setComputerMode}
-          deviceLabel={device.display_name || "Alex-PC"}
+          deviceLabel={device.display_name || "Windows device"}
           deviceOnline={!!device.online}
           phase={chat.phase}
           busy={chat.busy}

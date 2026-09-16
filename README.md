@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.7.0**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.7.1**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -198,3 +198,7 @@ Web Off/Auto/On stay independent of Tor and Local Computer. **Найти в ин
 Tor SOCKS5h is a separate transport: real `.onion` fetch, configured Tor-search providers, curated official mapping only for provenance. Local Computer is a paired Tauri host with a random device credential in Windows Credential Manager (DPAPI file fallback), Job Objects, sanitized child environments, atomic writes and a secret-path denylist.
 
 Run `alembic upgrade head` (0008). Keep `LLM_PROVIDER=mock`. [Web](docs/web.md) · [Tor](docs/tor.md) · [Local Computer](docs/local-computer.md) · [Tools](docs/tools.md).
+
+## Version 0.7.1 — Local Computer risk policy
+
+Trusted Workspace is a confirmation reduction for safe NORMAL_CHANGE inside roots, not a filesystem jail. Risk levels are READ / NORMAL_CHANGE / SENSITIVE / CRITICAL. SENSITIVE/CRITICAL show an explanation and bind Allow-once to an immutable digest. Delete, registry, services and install stay as typed tools. Device pairing stays pseudonymous (`Windows device`). Forget this device revokes the OS credential. Network-sensitive runs show Direct or Tor with no silent fallback.

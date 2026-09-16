@@ -1,6 +1,13 @@
 # Alex LLM — отчёты проверки
 
-Текущий локальный этап: **0.7.0 WebRouter / Tor / Local Computer**. Исторические отчёты ниже относятся к указанным версиям. Платный OrcaRouter / TinyFish Agent / Browser E2E не выполнялся. GPU и RunPod не запускались.
+Текущий локальный этап: **0.7.1 Local Computer risk policy**. Исторические отчёты ниже относятся к указанным версиям. Платный OrcaRouter / TinyFish Agent / Browser E2E не выполнялся. GPU и RunPod не запускались.
+
+## Проверка 0.7.1 — 16 сентября 2026
+
+- Backend pytest: **206 passed, 1 deselected** (opt-in live TinyFish). Path policy: full computer + UNC/`..`/secrets denied. Trusted auto-allows READ everywhere and in-root NORMAL_CHANGE; SENSITIVE/CRITICAL always confirm. Delete/registry/install/shutdown registered and gated. Pairing default `Windows device`, Forget revokes. Digest binds action+payload. Network Direct/Tor, no Tor fallback. LocalCredentialProvider never returns a raw secret.
+- Native cargo test: **7 passed**. Disposable temp delete, HKCU `Software\AlexLLM\Test`, CRITICAL not executed by default, sanitized env omits app secrets, system paths allowed, secrets/UNC denied.
+- Frontend: **20 unit passed**, TypeScript, Prettier — PASS. Confirmation shows explanation; CRITICAL has no Always allow; Network: Direct/Tor.
+- Destructive system actions не выполнялись (нет format/shutdown/BitLocker/boot). Paid TinyFish = 0. RunPod = 0.
 
 ## Проверка 0.7.0 — 16 сентября 2026
 

@@ -244,6 +244,16 @@ def confirm(key: str, body: Confirmation, user: User = Depends(current_user), db
     return {"status": "approved" if body.allow else "stopped"}
 
 
+@router.post("/tools/devices/{key}/forget")
+def forget_device(key: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    row = db.scalar(select(PairedDevice).where(PairedDevice.id == key, PairedDevice.user_id == user.id))
+    if not row or row.revoked_at:
+        raise HTTPException(404, "Устройство не найдено")
+    row.revoked_at = now()
+    db.commit()
+    return {"revoked": True, "device_id": row.id}
+
+
 @router.get("/messages/{key}/web-sources")
 def sources(key: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     message = db.scalar(select(Message).join(Chat).where(Message.id == key, Chat.user_id == user.id))

@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
 import type { Api } from "../lib/api";
+import {
+  deleteUserCredential,
+  forgetLocalDevice,
+  listUserCredentials,
+  readDeviceStatus,
+  storeUserCredential,
+  type DeviceStatus,
+} from "../lib/host";
 import type { ComputerMode, WebMode } from "../lib/tools";
 
 interface Preferences {
@@ -33,13 +41,22 @@ export default function WebToolsSettings({ api }: { api: Api }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [device, setDevice] = useState<DeviceStatus>({
+    paired: false,
+    online: false,
+  });
+  const [credName, setCredName] = useState("");
+  const [credSecret, setCredSecret] = useState("");
+  const [credNames, setCredNames] = useState<string[]>([]);
   useEffect(() => {
     let live = true;
     void Promise.all([
       api.json<Preferences>("/tools/preferences"),
       api.json<Status>("/tools/status"),
+      readDeviceStatus().catch(() => ({ paired: false, online: false })),
+      listUserCredentials().catch(() => [] as string[]),
     ])
-      .then(([prefs, state]) => {
+      .then(([prefs, state, host, names]) => {
         if (live) {
           setValue({
             search_enabled: prefs.search_enabled,
@@ -56,6 +73,8 @@ export default function WebToolsSettings({ api }: { api: Api }) {
             device_display_name: prefs.device_display_name ?? "",
           });
           setStatus(state);
+          setDevice(host);
+          setCredNames(names);
         }
       })
       .catch((e: Error) => {
@@ -82,6 +101,39 @@ export default function WebToolsSettings({ api }: { api: Api }) {
       window.dispatchEvent(new Event("alex-tools-settings"));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось сохранить");
+    }
+  }
+  async function forget() {
+    const token = api.authToken();
+    if (!token) return;
+    try {
+      setDevice(await forgetLocalDevice(api.base, token));
+      setError("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось забыть устройство");
+    }
+  }
+  async function saveCredential() {
+    if (!credName.trim() || !credSecret) return;
+    try {
+      await storeUserCredential(credName.trim(), credSecret);
+      setCredSecret("");
+      setCredNames(await listUserCredentials());
+      setError("");
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Не удалось сохранить credential",
+      );
+    }
+  }
+  async function removeCredential(name: string) {
+    try {
+      await deleteUserCredential(name);
+      setCredNames(await listUserCredentials());
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Не удалось удалить credential",
+      );
     }
   }
   return (
@@ -282,6 +334,7 @@ export default function WebToolsSettings({ api }: { api: Api }) {
                 aria-label="Device display name"
                 value={value.device_display_name}
                 maxLength={80}
+                placeholder="Windows device"
                 onChange={(e) =>
                   change({ device_display_name: e.target.value })
                 }
@@ -305,10 +358,62 @@ export default function WebToolsSettings({ api }: { api: Api }) {
               />
             </label>
             <p>
-              Trusted Workspace автоматически разрешает только файловые операции
-              внутри roots. run_process / PowerShell / Python всегда требуют
-              подтверждение. Device credential хранится в OS storage, не в JS.
+              Alex работает со всем локальным компьютером. Trusted Workspace
+              снижает подтверждения для безопасных NORMAL_CHANGE внутри roots
+              (запись файлов, процессы с cwd в roots). READ доступен везде.
+              SENSITIVE и CRITICAL всегда требуют объяснение и «Разрешить один
+              раз». CRITICAL не имеет Always allow. Device credential хранится в
+              Windows Credential Manager, JS его не читает.
             </p>
+            <p>
+              Устройство: {device.display_name || "Windows device"}
+              {device.storage ? ` · ${device.storage}` : ""}
+              {device.paired ? " · paired" : " · not paired"}
+            </p>
+            <button type="button" onClick={() => void forget()}>
+              Forget this device
+            </button>
+            <fieldset>
+              <legend>Локальные credentials</legend>
+              <p>
+                LLM видит только ссылку, например github-main. Секрет остаётся
+                на этом компьютере.
+              </p>
+              <label>
+                Ссылка
+                <input
+                  aria-label="Credential reference"
+                  value={credName}
+                  maxLength={80}
+                  onChange={(e) => setCredName(e.target.value)}
+                />
+              </label>
+              <label>
+                Секрет
+                <input
+                  aria-label="Credential secret"
+                  type="password"
+                  value={credSecret}
+                  onChange={(e) => setCredSecret(e.target.value)}
+                />
+              </label>
+              <button type="button" onClick={() => void saveCredential()}>
+                Сохранить локально
+              </button>
+              <ul>
+                {credNames.map((name) => (
+                  <li key={name}>
+                    {name}{" "}
+                    <button
+                      type="button"
+                      onClick={() => void removeCredential(name)}
+                    >
+                      Удалить
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </fieldset>
           </fieldset>
           {status && (
             <p>
