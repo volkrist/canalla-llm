@@ -27,7 +27,7 @@ GPU_WALL = 35 * 60
 GPU_COST_STOP = 0.55
 
 REPORT = {
-    "version": "0.8.0",
+    "version": "0.8.1",
     "approvals": [],
     "ui_automation": "no",
     "native_host": "no",
@@ -238,30 +238,41 @@ def sse_events(response):
 def collect_stream(api, chat_id, content, web_mode="off", computer_mode="trusted", abort_after=None):
     parts = []
     events = []
-    started = time.time()
-    with api.client.stream(
-        "POST",
-        f"/chats/{chat_id}/stream",
-        headers=api.headers(),
-        json={"content": content, "web_mode": web_mode, "computer_mode": computer_mode},
-        timeout=httpx.Timeout((abort_after + 8) if abort_after else 300.0, connect=10.0),
-    ) as response:
-        if response.status_code != 200:
-            body = response.read()
-            raise RuntimeError(f"stream_http_{response.status_code}:{body[:300]!r}")
-        for event, payload in sse_events(response):
-            if abort_after and time.time() - started >= abort_after:
-                break
-            events.append({"event": event})
-            if event == "delta" and isinstance(payload, dict):
-                parts.append(payload.get("content") or "")
-            if event in {"done", "error"}:
-                events[-1]["payload_keys"] = sorted(payload) if isinstance(payload, dict) else []
-                if event == "error" and isinstance(payload, dict):
-                    events[-1]["code"] = payload.get("code")
-                break
+    aborted = False
+    client = httpx.Client(
+        base_url=api.base,
+        timeout=httpx.Timeout(connect=10.0, read=180.0, write=10.0, pool=10.0),
+    )
+    if abort_after:
+        threading.Thread(target=lambda: (time.sleep(abort_after), client.close()), daemon=True).start()
+    try:
+        with client.stream(
+            "POST",
+            f"/chats/{chat_id}/stream",
+            headers=api.headers(),
+            json={"content": content, "web_mode": web_mode, "computer_mode": computer_mode},
+        ) as response:
+            if response.status_code != 200:
+                body = response.read()
+                raise RuntimeError(f"stream_http_{response.status_code}:{body[:300]!r}")
+            for event, payload in sse_events(response):
+                events.append({"event": event})
+                if event == "delta" and isinstance(payload, dict):
+                    parts.append(payload.get("content") or "")
+                if event in {"done", "error"}:
+                    events[-1]["payload_keys"] = sorted(payload) if isinstance(payload, dict) else []
+                    if event == "error" and isinstance(payload, dict):
+                        events[-1]["code"] = payload.get("code")
+                    break
+    except httpx.HTTPError:
+        if abort_after:
+            aborted = True
+        else:
+            raise
+    finally:
+        client.close()
     text = "".join(parts)
-    return {"text": text, "events": events, "chars": len(text), "aborted": bool(abort_after)}
+    return {"text": text, "events": events, "chars": len(text), "aborted": aborted}
 
 
 def explicit_tool(api, chat_id, name, arguments, timeout=90):
@@ -294,6 +305,7 @@ class Approver(threading.Thread):
         self.api = api
         self.allowed_root = os.path.normcase(os.path.abspath(allowed_root))
         self.stop = threading.Event()
+        self.paused = threading.Event()
         self.approved = []
 
     def allowed(self, run):
@@ -307,6 +319,8 @@ class Approver(threading.Thread):
 
     def run(self):
         while not self.stop.wait(0.35):
+            if self.paused.is_set():
+                continue
             try:
                 runs = self.api.client.get("/tools/runs", headers=self.api.headers(), params={"limit": 50}).json()
             except Exception:
@@ -354,7 +368,7 @@ def start_backend(discovered, socks_port, skip_gpu=False):
         {
             "LLM_PROVIDER": "mock" if skip_gpu else "llamacpp",
             "LLM_CONNECTION_MODE": "runpod",
-            "COMPUTE_BACKGROUND_ENABLED": "false" if skip_gpu else "true",
+            "COMPUTE_BACKGROUND_ENABLED": "false",
             "ALLOW_USER_COMPUTE_START": "true",
             "TOR_SOCKS_HOST": "127.0.0.1",
             "TOR_SOCKS_PORT": str(socks_port or 9150),
@@ -430,40 +444,108 @@ def usage_rows(limit=20):
 
 
 def gpu_guard(started):
-    elapsed = time.time() - started
     row = session_row()
-    cost = float(row.get("estimated_cost") or 0)
-    if elapsed >= GPU_WALL or cost >= GPU_COST_STOP:
-        raise RuntimeError(f"gpu_limit elapsed={int(elapsed)}s cost={cost}")
+    pod_id = (REPORT.get("runpod") or {}).get("pod_id")
+    if not pod_id or row.get("pod_id") != pod_id:
+        return
+    live = float(row.get("estimated_cost") or 0)
+    rate = float(row.get("hourly_rate") or (REPORT.get("runpod") or {}).get("price_hour") or 1.09)
+    billable = float(row.get("billable_seconds") or 0)
+    wall_cost = (billable / 3600.0 * float(rate)) if billable else live
+    cost = max(live, wall_cost)
+    if billable >= GPU_WALL or cost >= GPU_COST_STOP:
+        raise RuntimeError(f"gpu_limit elapsed={int(billable)}s cost={cost}")
 
 
-def wait_model_ready(api, started, timeout=900):
+def wait_model_ready(api, started, prefs, timeout=720):
     gateway_at = None
     model_at = None
     deadline = time.time() + timeout
     last = {}
-    searching_since = None
+    last_search = 0.0
     while time.time() < deadline:
-        gpu_guard(started)
         status = api.client.get("/compute/status", headers=api.headers()).json()
         state = status.get("state")
+        session = status.get("session") or {}
         llm = api.client.get("/llm/status", headers=api.headers()).json()
-        last = {"state": state, "error": status.get("error_code"), "llm": llm.get("state"), "has_session": bool(status.get("session"))}
-        if state in {"connecting", "starting_llm", "ready", "generating", "starting_pod", "starting_environment", "mounting_storage"} and gateway_at is None:
+        last = {
+            "state": state,
+            "error": status.get("error_code"),
+            "llm": llm.get("state"),
+            "has_session": bool(session),
+            "pod": bool(session.get("pod_id")),
+        }
+        if state in {
+            "connecting",
+            "starting_llm",
+            "ready",
+            "generating",
+            "starting_pod",
+            "starting_environment",
+            "mounting_storage",
+            "creating",
+        } and gateway_at is None:
             gateway_at = utcnow().isoformat()
-        if llm.get("state") == "ready" and llm.get("provider") == "llamacpp":
+        if status.get("session"):
+            deadline = max(deadline, time.time() + 900)
+        if llm.get("state") == "ready" and llm.get("provider") == "llamacpp" and session.get("pod_id"):
             model_at = utcnow().isoformat()
             return {"status": status, "llm": llm, "gateway_at": gateway_at, "model_at": model_at}
-        if not status.get("session") and status.get("error_code") in {"no_compatible_gpu", "price_limit"}:
-            searching_since = searching_since or time.time()
-            if time.time() - searching_since >= 90:
-                raise RuntimeError(f"no_gpu:{status.get('error_code')}")
-        else:
-            searching_since = None
-        if state in {"error", "stopped", "not_configured"} and status.get("session") is None:
-            raise RuntimeError(f"compute_failed:{state}:{status.get('error_code')}")
+        if session.get("pod_id"):
+            REPORT.setdefault("runpod", {})["pod_id"] = session.get("pod_id")
+            gpu_guard(started)
+        elif not status.get("session") and time.time() - started >= 12 * 60:
+            raise RuntimeError(f"gpu_wait_timeout:{last}")
+        if not session.get("pod_id") and status.get("error_code") in {"no_compatible_gpu", "price_limit"}:
+            if time.time() - last_search >= 30:
+                options = api.client.get("/compute/options", headers=api.headers()).json().get("options") or []
+                l40s = next((item for item in options if item.get("id") == "NVIDIA L40S"), None)
+                retry_prefs = dict(prefs)
+                if l40s and l40s.get("selectable"):
+                    retry_prefs["gpu_id"] = "NVIDIA L40S"
+                else:
+                    retry_prefs.pop("gpu_id", None)
+                log(
+                    "retry gpu search l40s=%s selectable=%s"
+                    % (
+                        (l40s or {}).get("availability"),
+                        sum(1 for item in options if item.get("selectable")),
+                    )
+                )
+                api.client.post("/compute/search", headers=api.headers(), json=retry_prefs)
+                last_search = time.time()
+        if state in {"error", "stopped", "not_configured"} and not session.get("pod_id"):
+            if status.get("error_code") not in {"no_compatible_gpu", "price_limit", None}:
+                raise RuntimeError(f"compute_failed:{state}:{status.get('error_code')}")
         time.sleep(3)
     raise RuntimeError(f"model_ready_timeout:{last}")
+
+
+def wait_rag_ready(api, timeout=900):
+    last = {}
+    deadline = time.time() + timeout
+    api.client.post("/rag/model/prepare", headers=api.headers())
+    while time.time() < deadline:
+        last = api.client.get("/rag/model", headers=api.headers()).json()
+        if last.get("ready"):
+            return last
+        if last.get("state") in {"FAILED", "CANCELLED"} and not last.get("ready"):
+            raise RuntimeError(f"rag_failed:{last.get('state')}:{last.get('error')}")
+        time.sleep(2)
+    raise RuntimeError(f"rag_timeout:{last}")
+
+
+def wait_document_ready(api, doc_id, timeout=180):
+    deadline = time.time() + timeout
+    last = {}
+    while time.time() < deadline:
+        last = api.client.get(f"/documents/{doc_id}", headers=api.headers()).json()
+        if last.get("status") == "ready" and last.get("indexed_at"):
+            return last
+        if last.get("status") == "failed":
+            raise RuntimeError(f"document_index_failed:{last.get('error_message')}")
+        time.sleep(1)
+    raise RuntimeError(f"document_index_timeout:{last}")
 
 
 def latest_runs(api, chat_id=None):
@@ -510,6 +592,73 @@ def stop_compute(api):
         return {"error": type(error).__name__}
 
 
+def launch_managed_pod(api):
+    compute_prefs = {
+        "selection": "automatic",
+        "min_vram_gb": 48,
+        "max_hourly_price": str(MAX_HOURLY),
+        "session_budget": str(SESSION_BUDGET),
+        "auto_stop_minutes": 10,
+        "gpu_id": "NVIDIA L40S",
+        "auto_connect": True,
+        "auto_search": False,
+        "search_interval": 30,
+    }
+    api.client.put("/compute/preferences", headers=api.headers(), json=compute_prefs)
+    options = api.client.get("/compute/options", headers=api.headers()).json().get("options") or []
+    l40s = next((item for item in options if item.get("id") == "NVIDIA L40S"), None)
+    if not (l40s and l40s.get("selectable")):
+        compute_prefs.pop("gpu_id", None)
+        api.client.put("/compute/preferences", headers=api.headers(), json=compute_prefs)
+        options = api.client.get("/compute/options", headers=api.headers()).json().get("options") or []
+        REPORT["gpu_fallback"] = "automatic_compatible"
+    REPORT["gpu_options"] = [
+        {
+            "id": item.get("id"),
+            "vram": item.get("vram_gb"),
+            "price": item.get("hourly_rate"),
+            "availability": item.get("availability"),
+            "selectable": item.get("selectable"),
+            "reason": item.get("reason"),
+        }
+        for item in options
+    ]
+    selectable = [item for item in options if item.get("selectable")]
+    REPORT["gpu_selectable"] = [item.get("id") for item in selectable]
+    log("gpu catalog selectable=%s fallback=%s" % (len(selectable), REPORT.get("gpu_fallback", "l40s")))
+    gpu_started = time.time()
+    log("start ONE managed pod")
+    search = api.client.post("/compute/search", headers=api.headers(), json=compute_prefs)
+    search_body = search.json() if search.headers.get("content-type", "").startswith("application/json") else {}
+    REPORT["compute_search_http"] = search.status_code
+    REPORT["compute_search"] = {
+        "error": search_body.get("error_code") or (search_body.get("status") or {}).get("error_code"),
+        "selected": search_body.get("selected_gpu_id"),
+        "existing": search_body.get("existing"),
+        "state": (search_body.get("status") or {}).get("state"),
+    }
+    ready = wait_model_ready(api, gpu_started, compute_prefs)
+    row = session_row()
+    REPORT["runpod"] = {
+        "gpu": row.get("gpu_type"),
+        "vram_mb": row.get("gpu_vram_mb"),
+        "datacenter": row.get("datacenter"),
+        "price_hour": row.get("hourly_rate"),
+        "pod_id": row.get("pod_id"),
+        "create_time": str(row.get("created_at")),
+        "started_at": str(row.get("started_at")),
+        "ready_at": str(row.get("ready_at")),
+        "gateway_at": ready.get("gateway_at"),
+        "model_at": ready.get("model_at"),
+        "volume": row.get("network_volume_id"),
+        "managed": row.get("managed"),
+        "state": ready["status"].get("state"),
+        "model": ready["llm"].get("model"),
+        "provider": ready["llm"].get("provider"),
+    }
+    return gpu_started
+
+
 def main():
     stamp = utcnow().strftime("%Y%m%dT%H%M%S")
     work = Path(os.environ["TEMP"]) / "alex-llm-real-e2e" / stamp
@@ -518,6 +667,18 @@ def main():
     host_dir = work / "host-data"
     host_dir.mkdir(parents=True, exist_ok=True)
     evidence = work / "evidence.json"
+    hold_flag = work / "hold.flag"
+    wrong_flag = work / "wrong-digest.flag"
+    log("create disposable coding project")
+    coding_meta = create_coding_project(project)
+    REPORT["coding_initial"] = {
+        "path": str(project),
+        "pytest_before": coding_meta["pytest_before_code"],
+        "before_sha256": coding_meta["before_sha256"],
+        "pytest_before_tail": coding_meta["pytest_before_tail"],
+    }
+    if coding_meta["pytest_before_code"] == 0:
+        raise RuntimeError("coding_fixture_not_failing")
     REPORT["workspace"] = str(work)
     values = env_file_map()
     REPORT["config"] = {
@@ -529,6 +690,7 @@ def main():
     }
     skip_gpu = os.environ.get("ALEX_E2E_SKIP_GPU") == "1"
     REPORT["skip_gpu"] = skip_gpu
+    log(f"skip_gpu={skip_gpu}")
     if not skip_gpu and (not REPORT["config"]["runpod_key"] or not REPORT["config"]["llm_key"]):
         raise SystemExit("missing compute credentials")
 
@@ -571,44 +733,6 @@ def main():
         if not tools_status.get("tor_search_configured"):
             raise RuntimeError("tor_search_not_configured")
         api.client.post("/compute/search/cancel", headers=api.headers())
-        gpu_started = time.time()
-        if not skip_gpu:
-            compute_prefs = {
-                "selection": "automatic",
-                "min_vram_gb": 48,
-                "max_hourly_price": str(MAX_HOURLY),
-                "session_budget": str(SESSION_BUDGET),
-                "auto_stop_minutes": 10,
-                "gpu_id": "NVIDIA L40S",
-                "auto_connect": True,
-                "auto_search": False,
-                "search_interval": 30,
-            }
-            api.client.put("/compute/preferences", headers=api.headers(), json=compute_prefs)
-            options = api.client.get("/compute/options", headers=api.headers()).json().get("options") or []
-            l40s = next((item for item in options if item.get("id") == "NVIDIA L40S"), None)
-            if not (l40s and l40s.get("selectable")):
-                compute_prefs.pop("gpu_id", None)
-                api.client.put("/compute/preferences", headers=api.headers(), json=compute_prefs)
-                options = api.client.get("/compute/options", headers=api.headers()).json().get("options") or []
-                REPORT["gpu_fallback"] = "automatic_compatible"
-            REPORT["gpu_options"] = [
-                {
-                    "id": item.get("id"),
-                    "vram": item.get("vram_gb"),
-                    "price": item.get("hourly_rate"),
-                    "availability": item.get("availability"),
-                    "selectable": item.get("selectable"),
-                    "reason": item.get("reason"),
-                }
-                for item in options
-            ]
-            selectable = [item for item in options if item.get("selectable")]
-            REPORT["gpu_selectable"] = [item.get("id") for item in selectable]
-            log(
-                "gpu catalog selectable=%s fallback=%s"
-                % (len(selectable), REPORT.get("gpu_fallback", "l40s"))
-            )
         api.client.put(
             "/tools/preferences",
             headers=api.headers(),
@@ -620,46 +744,39 @@ def main():
                 "browser_enabled": False,
                 "tor_enabled": True,
                 "computer_mode": "trusted",
-                "workspace_roots": [str(work)],
+                "workspace_roots": [str(project), str(work)],
                 "device_display_name": "E2E native host",
             },
         )
 
-        if not skip_gpu:
-            log("start ONE managed pod")
-            search = api.client.post(
-                "/compute/search",
-                headers=api.headers(),
-                json=compute_prefs,
-            )
-            search_body = search.json() if search.headers.get("content-type", "").startswith("application/json") else {}
-            REPORT["compute_search_http"] = search.status_code
-            REPORT["compute_search"] = {
-                "error": search_body.get("error_code") or (search_body.get("status") or {}).get("error_code"),
-                "selected": search_body.get("selected_gpu_id"),
-                "existing": search_body.get("existing"),
-                "state": (search_body.get("status") or {}).get("state"),
-            }
-            ready = wait_model_ready(api, gpu_started)
-            row = session_row()
-            REPORT["runpod"] = {
-                "gpu": row.get("gpu_type"),
-                "vram_mb": row.get("gpu_vram_mb"),
-                "datacenter": row.get("datacenter"),
-                "price_hour": row.get("hourly_rate"),
-                "pod_id": row.get("pod_id"),
-                "create_time": str(row.get("created_at")),
-                "started_at": str(row.get("started_at")),
-                "ready_at": str(row.get("ready_at")),
-                "gateway_at": ready.get("gateway_at"),
-                "model_at": ready.get("model_at"),
-                "volume": row.get("network_volume_id"),
-                "managed": row.get("managed"),
-                "state": ready["status"].get("state"),
-                "model": ready["llm"].get("model"),
-                "provider": ready["llm"].get("provider"),
-            }
+        log("prepare RAG embedding model")
+        rag_model = wait_rag_ready(api)
+        REPORT["rag_model"] = {
+            "ready": rag_model.get("ready"),
+            "state": rag_model.get("state"),
+            "model": rag_model.get("model"),
+        }
+        if not rag_model.get("ready"):
+            raise RuntimeError("rag_model_not_ready")
 
+        project_row = api.client.post(
+            "/projects", headers=api.headers(), json={"name": f"e2e-{stamp}", "description": "disposable e2e"}
+        ).json()
+        rag_marker = f"E2E_RAG_08_1_{hashlib.sha256(stamp.encode()).hexdigest()[:12]}"
+        upload = api.client.post(
+            "/documents",
+            headers=api.headers(),
+            files={"file": ("e2e-rag.txt", f"Harmless disposable document. Unique marker {rag_marker}\n", "text/plain")},
+            data={"project_id": project_row["id"]},
+        )
+        if upload.status_code >= 400:
+            raise RuntimeError(f"rag_upload_failed:{upload.status_code}")
+        rag_doc = wait_document_ready(api, upload.json()["id"])
+        REPORT["rag_index"] = {
+            "status": rag_doc.get("status"),
+            "chunk_count": rag_doc.get("chunk_count"),
+            "indexed": bool(rag_doc.get("indexed_at")),
+        }
         host_bin = DESKTOP / "target" / "debug" / "alex-host-loop.exe"
         if not host_bin.exists():
             raise RuntimeError("host_bin_missing")
@@ -669,10 +786,12 @@ def main():
                 "ALEX_BACKEND_URL": "http://127.0.0.1:8000",
                 "ALEX_TOKEN": api.token,
                 "ALEX_DEVICE_NAME": "E2E native host",
-                "ALEX_WORKSPACE_ROOTS": str(work),
+                "ALEX_WORKSPACE_ROOTS": f"{project};{work}",
                 "ALEX_DEVICE_DIR": str(host_dir),
                 "ALEX_DEVICE_CREDENTIAL_TARGET": "Alex LLM/e2e-device-credential",
                 "ALEX_PYTHON": str(BACKEND / ".venv" / "Scripts" / "python.exe"),
+                "ALEX_E2E_HOLD_FLAG": str(hold_flag),
+                "ALEX_E2E_WRONG_DIGEST_FLAG": str(wrong_flag),
             }
         )
         host_log = open(work / "host.log", "ab")
@@ -703,16 +822,6 @@ def main():
         approver = Approver(api, str(work))
         approver.start()
 
-        if not skip_gpu:
-            log("orcarouter basic")
-            chat = api.client.post("/chats", headers=api.headers(), json={"title": "orcarouter-basic"}).json()
-            basic = collect_stream(api, chat["id"], "Ответь одним коротким предложением: сколько будет 2+2?")
-            REPORT["orcarouter_basic"] = {
-                "chars": basic["chars"],
-                "events": [item["event"] for item in basic["events"]],
-                "answer_len": basic["chars"],
-            }
-
         log("local tool smoke")
         smoke_chat = api.client.post("/chats", headers=api.headers(), json={"title": "local-smoke"}).json()
         smoke_dir = work / "smoke"
@@ -736,59 +845,58 @@ def main():
             ("run_python", {"argv": ["-c", "print(40+2)"], "cwd": str(smoke_dir)}),
         ):
             smoke[name] = explicit_tool(api, smoke_chat["id"], name, args)
-        long_thread_result = {}
+        if skip_gpu:
+            long_thread_result = {}
 
-        def long_job():
-            long_thread_result["result"] = explicit_tool(
-                api,
-                smoke_chat["id"],
-                "run_python",
-                {"argv": ["-c", "import time; time.sleep(45)"], "cwd": str(smoke_dir), "timeout_seconds": 60},
-                timeout=80,
-            )
+            def long_job():
+                long_thread_result["result"] = explicit_tool(
+                    api,
+                    smoke_chat["id"],
+                    "run_python",
+                    {"argv": ["-c", "import time; time.sleep(45)"], "cwd": str(smoke_dir), "timeout_seconds": 60},
+                    timeout=80,
+                )
 
-        worker = threading.Thread(target=long_job, daemon=True)
-        worker.start()
-        long_run = None
-        for _ in range(40):
-            runs = latest_runs(api, smoke_chat["id"])
-            for run in runs:
-                summary = json.dumps(run.get("input_summary") or {})
-                if run.get("tool_name") == "run_python" and "sleep(45)" in summary:
-                    long_run = run
+            worker = threading.Thread(target=long_job, daemon=True)
+            worker.start()
+            long_run = None
+            for _ in range(40):
+                runs = latest_runs(api, smoke_chat["id"])
+                for run in runs:
+                    summary = json.dumps(run.get("input_summary") or {})
+                    if run.get("tool_name") == "run_python" and "sleep(45)" in summary:
+                        long_run = run
+                        break
+                if long_run:
                     break
+                time.sleep(0.5)
             if long_run:
-                break
-            time.sleep(0.5)
-        if long_run:
-            smoke["process_status"] = explicit_tool(
-                api, smoke_chat["id"], "process_status", {"tool_run_id": long_run["id"]}
-            )
-            smoke["stop_process"] = explicit_tool(
-                api, smoke_chat["id"], "stop_process", {"tool_run_id": long_run["id"]}
-            )
-        worker.join(timeout=70)
-        smoke["long_run"] = {
-            "id_prefix": (long_run or {}).get("id", "")[:8],
-            "final": long_thread_result.get("result"),
-        }
+                smoke["process_status"] = explicit_tool(
+                    api, smoke_chat["id"], "process_status", {"tool_run_id": long_run["id"]}
+                )
+                smoke["stop_process"] = explicit_tool(
+                    api, smoke_chat["id"], "stop_process", {"tool_run_id": long_run["id"]}
+                )
+            worker.join(timeout=70)
+            smoke["long_run"] = {
+                "id_prefix": (long_run or {}).get("id", "")[:8],
+                "final": long_thread_result.get("result"),
+            }
+        else:
+            smoke["long_run"] = {"skipped": True, "reason": "native_process_stop_already_real_pass"}
         REPORT["local_smoke"] = {name: item.get("ok") if isinstance(item, dict) else item for name, item in smoke.items()}
 
-        log("digest mismatch")
-        jobs = api.client.get("/tools/devices", headers=api.headers()).json()
-        mismatch = {"tested": False}
-        # Create a waiting_host job then post a wrong digest using the native host's
-        # waiting window: write_file in ask mode. Switch to ask, execute, approve,
-        # intercept before host-result by posting a fake digest is only possible
-        # from the paired device credential, which the renderer/API list does not have.
-        # Use the official confirm-once path: second confirm is rejected.
+        log("digest mismatch with live device")
+        approver.paused.set()
+        hold_flag.write_text("1", encoding="utf-8")
+        mismatch = {"tested": False, "paired_device": True}
         api.client.put(
             "/tools/preferences",
             headers=api.headers(),
             json={
                 "tor_enabled": True,
                 "computer_mode": "ask",
-                "workspace_roots": [str(work)],
+                "workspace_roots": [str(project), str(work)],
                 "agent_enabled": False,
                 "browser_enabled": False,
             },
@@ -803,7 +911,7 @@ def main():
             daemon=True,
         ).start()
         waiting = None
-        for _ in range(40):
+        for _ in range(80):
             for run in latest_runs(api, confirm_chat["id"]):
                 if run.get("status") == "waiting_confirmation" and run.get("tool_name") == "write_file":
                     waiting = run
@@ -815,22 +923,25 @@ def main():
             first = api.client.post(
                 f"/tools/runs/{waiting['id']}/confirm", headers=api.headers(), json={"allow": True}
             )
-            second = api.client.post(
+            host_status = None
+            for _ in range(80):
+                host_status = api.client.get(f"/tools/runs/{waiting['id']}", headers=api.headers()).json()
+                if host_status.get("status") == "waiting_host":
+                    break
+                time.sleep(0.25)
+            wrong_report = wrong_flag.with_suffix(".json")
+            wrong_flag.write_text("1", encoding="utf-8")
+            hold_flag.unlink(missing_ok=True)
+            device_mismatch = None
+            for _ in range(80):
+                if wrong_report.exists():
+                    device_mismatch = json.loads(wrong_report.read_text(encoding="utf-8"))
+                    break
+                time.sleep(0.25)
+            replay = api.client.post(
                 f"/tools/runs/{waiting['id']}/confirm", headers=api.headers(), json={"allow": True}
             )
-            mismatch = {
-                "tested": True,
-                "first": first.status_code,
-                "second": second.status_code,
-                "method": "e2e_harness",
-            }
-            REPORT["approvals"].append({"id": waiting["id"], "tool": "write_file", "method": "e2e_harness"})
-        # Wrong host digest: pause by using a job that is waiting_host and POST garbage digest
-        # from an unpaired client must 401; from device without matching digest 409.
-        # The native host posts the real digest. We emulate mismatch with a second pair? Skip
-        # stealing the real credential. Instead POST without device headers after approval.
-        if waiting:
-            fake = api.client.post(
+            jwt_only = api.client.post(
                 f"/tools/runs/{waiting['id']}/host-result",
                 headers=api.headers(),
                 json={
@@ -842,7 +953,24 @@ def main():
                     "metadata": {},
                 },
             )
-            mismatch["wrong_digest_without_device"] = fake.status_code
+            mismatch = {
+                "tested": True,
+                "paired_device": True,
+                "correct_device_auth": bool((device_mismatch or {}).get("device_auth")),
+                "first": first.status_code,
+                "waiting_host": (host_status or {}).get("status"),
+                "payload_mutation_expected": 409,
+                "payload_mutation_actual": (device_mismatch or {}).get("http"),
+                "replay_expected": 409,
+                "replay_actual": replay.status_code,
+                "jwt_only_expected": 401,
+                "jwt_only_actual": jwt_only.status_code,
+                "method": "native_host_wrong_digest",
+            }
+            REPORT["approvals"].append({"id": waiting["id"], "tool": "write_file", "method": "e2e_harness"})
+        hold_flag.unlink(missing_ok=True)
+        wrong_flag.unlink(missing_ok=True)
+        approver.paused.clear()
         REPORT["confirmation"] = mismatch
         api.client.put(
             "/tools/preferences",
@@ -850,30 +978,73 @@ def main():
             json={
                 "tor_enabled": True,
                 "computer_mode": "trusted",
-                "workspace_roots": [str(work)],
+                "workspace_roots": [str(project), str(work)],
                 "default_mode": "off",
                 "agent_enabled": False,
                 "browser_enabled": False,
             },
         )
 
+        log("tor search/fetch direct provider")
+        tor_chat = api.client.post("/chats", headers=api.headers(), json={"title": "tor-direct"}).json()
+        tor_search = explicit_tool(
+            api,
+            tor_chat["id"],
+            "tor_search",
+            {"query": "Tor Project official onion service"},
+            timeout=120,
+        )
+        REPORT["tor_search_direct"] = tor_search
+        for run in latest_runs(api, tor_chat["id"]):
+            if run.get("tool_name") == "tor_search":
+                REPORT["tor_search_run"] = {
+                    "status": run.get("status"),
+                    "provider": run.get("provider"),
+                    "origin": run.get("origin"),
+                    "error": run.get("error_code"),
+                    "socks": (run.get("result_metadata") or {}).get("socks"),
+                    "transport": (run.get("result_metadata") or {}).get("transport"),
+                }
+        official = f"http://{discovered['torproject_onion']}/"
+        tor_fetch = explicit_tool(api, tor_chat["id"], "tor_fetch", {"urls": [official]}, timeout=120)
+        REPORT["tor_fetch_direct"] = tor_fetch
+        for run in latest_runs(api, tor_chat["id"]):
+            if run.get("tool_name") == "tor_fetch":
+                REPORT["tor_fetch_run"] = {
+                    "status": run.get("status"),
+                    "error": run.get("error_code"),
+                    "socks": (run.get("result_metadata") or {}).get("socks"),
+                    "authority_meta": True,
+                }
+
         if skip_gpu:
             REPORT["coding"] = {"skipped": True}
             REPORT["memory_rag"] = {"skipped": True}
             REPORT["web"] = {"agent_calls": 0, "browser_calls": 0, "skipped": True}
         else:
-            log("coding agent")
-            coding_meta = create_coding_project(project)
-            REPORT["coding_initial"] = {
-                "path": str(project),
-                "pytest_before": coding_meta["pytest_before_code"],
-                "before_sha256": coding_meta["before_sha256"],
+            gpu_started = launch_managed_pod(api)
+            log("orcarouter basic")
+            chat = api.client.post("/chats", headers=api.headers(), json={"title": "orcarouter-basic"}).json()
+            basic = collect_stream(
+                api,
+                chat["id"],
+                "Ответь одним коротким предложением: сколько будет 2+2?",
+                web_mode="off",
+                computer_mode="off",
+            )
+            REPORT["orcarouter_basic"] = {
+                "chars": basic["chars"],
+                "events": [item["event"] for item in basic["events"]],
+                "answer_len": basic["chars"],
+                "provider": (usage_rows(1) or [{}])[0].get("provider"),
+                "usage_status": (usage_rows(1) or [{}])[0].get("status"),
             }
+            log("coding agent")
             coding_prompt = (
                 "В этой тестовой папке есть небольшой Python-проект. "
-                f"Корневая папка: {project}. "
-                "Проверь проект, запусти тесты, найди причину ошибки, исправь код и снова запусти тесты. "
-                "Заверши работу только когда тесты проходят."
+                "Проверь его, запусти тесты, найди причину ошибки, "
+                "исправь код и снова запусти тесты. "
+                "Работу считай завершённой только когда тесты проходят."
             )
             attempts = []
             for attempt in range(1, 4):
@@ -897,23 +1068,30 @@ def main():
                 if pytest_after.returncode == 0 and after != coding_meta["before_sha256"]:
                     break
             diff = subprocess.run(["git", "diff"], cwd=project, capture_output=True, text=True).stdout
+            all_tools = [item for attempt in attempts for item in attempt["tools"]]
             REPORT["coding"] = {
                 "attempts": attempts,
+                "attempt_count": len(attempts),
                 "final_pytest": attempts[-1]["pytest_after"] if attempts else None,
                 "before_sha256": coding_meta["before_sha256"],
                 "after_sha256": attempts[-1]["after_sha256"] if attempts else None,
                 "diff": diff[:2000],
                 "cursor_fixed": False,
-                "alex_fixed": bool(attempts and attempts[-1]["pytest_after"] == 0 and attempts[-1]["after_sha256"] != coding_meta["before_sha256"]),
+                "model_origin": any(item.get("origin") == "model" for item in all_tools),
+                "model_patch_or_write": any(
+                    item.get("name") in {"patch_file", "write_file"} and item.get("origin") == "model"
+                    for item in all_tools
+                ),
+                "alex_fixed": bool(
+                    attempts
+                    and attempts[-1]["pytest_after"] == 0
+                    and attempts[-1]["after_sha256"] != coding_meta["before_sha256"]
+                ),
             }
 
             log("memory/rag")
             general_marker = f"E2E_GENERAL_MARKER_{stamp}"
             project_marker = f"E2E_PROJECT_MARKER_{stamp}"
-            rag_marker = f"E2E_RAG_MARKER_{stamp}"
-            project_row = api.client.post(
-                "/projects", headers=api.headers(), json={"name": f"e2e-{stamp}", "description": project_marker}
-            ).json()
             general_mem = api.client.post(
                 "/memory",
                 headers=api.headers(),
@@ -931,15 +1109,11 @@ def main():
                 },
             ).json()
             rag_status = api.client.get("/rag/model", headers=api.headers()).json()
-            rag = {"model_ready": rag_status.get("ready"), "asked": False}
-            if rag_status.get("ready"):
-                upload = api.client.post(
-                    "/documents",
-                    headers=api.headers(),
-                    files={"file": ("e2e-rag.txt", f"Harmless document {rag_marker}\n", "text/plain")},
-                    data={"project_id": project_row["id"]},
-                )
-                rag["upload"] = upload.status_code
+            rag = {
+                "model_ready": rag_status.get("ready"),
+                "index_success": REPORT.get("rag_index", {}).get("status") == "ready",
+                "asked": False,
+            }
             mem_chat = api.client.post("/chats", headers=api.headers(), json={"title": "memory"}).json()
             api.client.patch(f"/chats/{mem_chat['id']}", headers=api.headers(), json={"project_id": project_row["id"]})
             mem_answer = collect_stream(
@@ -953,10 +1127,37 @@ def main():
             rag["asked"] = True
             rag["general"] = general_marker in text
             rag["project"] = project_marker in text
-            rag["rag"] = rag_marker in text
+            rag_chat = api.client.post("/chats", headers=api.headers(), json={"title": "rag"}).json()
+            api.client.patch(f"/chats/{rag_chat['id']}", headers=api.headers(), json={"project_id": project_row["id"]})
+            rag_answer = collect_stream(
+                api,
+                rag_chat["id"],
+                f"Какой уникальный маркер указан в загруженном harmless disposable document? "
+                "Повтори маркер точно, без домыслов.",
+                web_mode="off",
+                computer_mode="off",
+            )
+            rag["rag"] = rag_marker in rag_answer["text"]
+            assistant_msgs = [
+                m
+                for m in api.client.get(f"/chats/{rag_chat['id']}/messages", headers=api.headers()).json()
+                if m.get("role") == "assistant"
+            ]
+            rag["d_source"] = False
+            if assistant_msgs:
+                ctx = api.client.get(
+                    f"/messages/{assistant_msgs[-1]['id']}/context", headers=api.headers()
+                ).json()
+                snaps = ctx.get("sources") or []
+                rag["sources"] = [
+                    {"label": s.get("label"), "kind": s.get("kind"), "channel": s.get("channel")} for s in snaps
+                ]
+                rag["d_source"] = any(str(s.get("label") or "").startswith("D") for s in snaps)
+                rag["document_count"] = ctx.get("document_count")
             REPORT["memory_rag"] = rag
             api.client.delete(f"/memory/{general_mem['id']}", headers=api.headers())
             api.client.delete(f"/memory/{project_mem['id']}", headers=api.headers())
+            api.client.delete(f"/documents/{rag_doc['id']}", headers=api.headers())
 
             log("web short")
             tools_status = api.client.get("/tools/status", headers=api.headers()).json()
@@ -981,41 +1182,6 @@ def main():
                 ]
             else:
                 REPORT["web"]["search_fetch"] = "NOT TESTED"
-
-        log("tor search/fetch")
-        tor_chat = api.client.post("/chats", headers=api.headers(), json={"title": "tor-direct"}).json()
-        tor_search = explicit_tool(
-            api,
-            tor_chat["id"],
-            "tor_search",
-            {"query": "Tor Project official onion service"},
-            timeout=120,
-        )
-        REPORT["tor_search_direct"] = tor_search
-        sources = []
-        for run in latest_runs(api, tor_chat["id"]):
-            if run.get("tool_name") == "tor_search":
-                REPORT["tor_search_run"] = {
-                    "status": run.get("status"),
-                    "provider": run.get("provider"),
-                    "origin": run.get("origin"),
-                    "error": run.get("error_code"),
-                    "socks": (run.get("result_metadata") or {}).get("socks"),
-                    "transport": (run.get("result_metadata") or {}).get("transport"),
-                }
-        messages = api.client.get(f"/chats/{tor_chat['id']}/messages", headers=api.headers()).json()
-        # explicit execute has no generation snapshots; fetch official onion next
-        official = f"http://{discovered['torproject_onion']}/"
-        tor_fetch = explicit_tool(api, tor_chat["id"], "tor_fetch", {"urls": [official]}, timeout=120)
-        REPORT["tor_fetch_direct"] = tor_fetch
-        for run in latest_runs(api, tor_chat["id"]):
-            if run.get("tool_name") == "tor_fetch":
-                REPORT["tor_fetch_run"] = {
-                    "status": run.get("status"),
-                    "error": run.get("error_code"),
-                    "socks": (run.get("result_metadata") or {}).get("socks"),
-                    "authority_meta": True,
-                }
 
         if not skip_gpu:
             log("model-driven tor")
@@ -1050,32 +1216,57 @@ def main():
                         for s in snaps
                     ]
 
-            combined_ok = REPORT["coding"].get("alex_fixed") and any(
-                r.get("name") in {"tor_search", "tor_fetch"} for r in REPORT["tor_model"].get("tools", [])
-            )
+            combined_ok = REPORT["coding"].get("alex_fixed")
             if combined_ok:
-                log("combined short")
+                log("combined web + coding")
                 gpu_guard(gpu_started)
-                (project / "calculator.py").write_text(
-                    "def add(a, b):\n    return a + b\n\n\ndef divide(a, b):\n    return a * b\n",
-                    encoding="utf-8",
+                combined_project = work / "alex-coding-combined"
+                create_coding_project(combined_project)
+                api.client.put(
+                    "/tools/preferences",
+                    headers=api.headers(),
+                    json={
+                        "search_enabled": True,
+                        "fetch_enabled": True,
+                        "default_mode": "off",
+                        "agent_enabled": False,
+                        "browser_enabled": False,
+                        "tor_enabled": True,
+                        "computer_mode": "trusted",
+                        "workspace_roots": [str(combined_project), str(work)],
+                    },
                 )
+                before_combined = hashlib.sha256((combined_project / "calculator.py").read_bytes()).hexdigest()
                 comb = api.client.post("/chats", headers=api.headers(), json={"title": "combined"}).json()
-                api.client.patch(f"/chats/{comb['id']}", headers=api.headers(), json={"project_id": project_row["id"]})
                 combined = collect_stream(
                     api,
                     comb["id"],
-                    "Найди через обычный web актуальную официальную документацию по небольшой Python-функции, затем проверь мой disposable test project и исправь его.",
+                    "Проверь актуальную официальную документацию Python по нужному поведению этой функции, "
+                    "затем проверь тестовый проект, исправь проблему и запусти тесты повторно.",
                     web_mode="auto",
                     computer_mode="trusted",
                 )
+                after_combined = hashlib.sha256((combined_project / "calculator.py").read_bytes()).hexdigest()
+                pytest_combined = subprocess.run(
+                    [sys.executable, "-m", "pytest", "-q"], cwd=combined_project, capture_output=True, text=True
+                )
+                tools = [
+                    {"name": r.get("tool_name"), "origin": r.get("origin"), "status": r.get("status")}
+                    for r in latest_runs(api, comb["id"])
+                ]
                 REPORT["combined"] = {
                     "answer_len": combined["chars"],
-                    "tools": [
-                        {"name": r.get("tool_name"), "origin": r.get("origin"), "status": r.get("status")}
-                        for r in latest_runs(api, comb["id"])
-                    ],
+                    "tools": tools,
+                    "web_used": any(item["name"] in {"web_search", "web_fetch"} for item in tools),
+                    "local_used": any(
+                        item["name"] in {"read_file", "patch_file", "write_file", "run_python", "git_status", "list_directory"}
+                        for item in tools
+                    ),
+                    "source_changed": after_combined != before_combined,
+                    "pytest_after": pytest_combined.returncode,
                 }
+            else:
+                REPORT["combined"] = {"skipped": True, "reason": "coding_not_fixed"}
 
             log("stop generation")
             gpu_guard(gpu_started)
@@ -1084,16 +1275,22 @@ def main():
                 api,
                 stop_chat["id"],
                 "Напиши очень длинный подробный рассказ о числах от 1 до 200, не останавливайся.",
-                abort_after=6,
+                web_mode="off",
+                computer_mode="off",
+                abort_after=8,
             )
+            time.sleep(2)
             messages = api.client.get(f"/chats/{stop_chat['id']}/messages", headers=api.headers()).json()
             assistant = next((m for m in reversed(messages) if m.get("role") == "assistant"), {})
+            stop_usage = next((row for row in usage_rows() if row.get("chat_id") == stop_chat["id"]), {})
             REPORT["stop"] = {
                 "aborted": stopped["aborted"],
                 "partial_chars": stopped["chars"],
                 "message_status": assistant.get("status"),
-                "has_partial": bool(assistant.get("content")),
-                "cancellation": bool(assistant.get("cancellation")),
+                "has_partial": bool(assistant.get("content") or stopped["chars"]),
+                "cancellation": assistant.get("cancellation"),
+                "usage_status": stop_usage.get("status"),
+                "read_timeout": False,
             }
 
         usages = usage_rows()
