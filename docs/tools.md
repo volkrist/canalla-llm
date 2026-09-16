@@ -12,21 +12,25 @@ five minutes, cannot be replayed, and permissions are rechecked before execution
 Direct Browser definitions are never automatically routed. CredentialReference and
 ToolCredentialProvider reserve future vault/BYOK integration without storing passwords.
 
-Defaults: 8 calls, 3 searches, 3 fetch batches, 10 pages, 20000 reference characters,
+Defaults: 8 calls, 3 searches, 3 fetch batches (1–3 URLs each), 20000 reference characters,
 180 seconds. Limits are server configurable. Every model proposal is validated again;
 unknown names, extra JSON fields and malformed arguments do not execute a provider.
 Tool responses are untrusted reference data and never independently invoke tools.
 
 ToolRun records owner/chat/generation, lifecycle timestamps, sanitized input preview,
-payload digest, provider run ID, actual/estimated nullable costs and safe metadata.
+payload digest, `origin` (`model` or `server_policy`), optional `assigned_device_id`,
+provider run ID, actual/estimated nullable costs and safe metadata.
 Paid budget reservations are serialized using the database writer/user-row lock.
 Unknown supplier cost remains unknown; its reservation conservatively counts against
 the daily allowance. A reservation is not a reported charge.
 
 WebSourceSnapshot is separate from RAG storage and persists bounded source excerpts,
-requested/final URLs, provider, timestamps and W labels for the original generation.
+requested/final URLs, provider, timestamps, channel (web/tor), authority, canonical URL
+and D/W/T labels for the original generation.
 Normal audit/source endpoints filter by owner, including administrator requests.
 Cancellation closes the provider task and records stopped/cancelled_at. Provider
 adapters must perform their own supplier cancellation in finally blocks.
 
-Production Agent is fail-closed without an adapter-enforced read-only boundary; model prompts are not an enforcement mechanism. Browser is explicitly invoked from Advanced UI, with per-action confirmation and target revalidation. Settings change through authenticated APIs without restarting the backend. See [TinyFish limitations](tinyfish.md).
+Production Agent is fail-closed without an adapter-enforced read-only boundary; model prompts are not an enforcement mechanism. Agent and Browser definitions exist for explicit Advanced UI only and are omitted from the planner. Browser remains per-action confirmation. Settings change through authenticated APIs without restarting the backend. See [TinyFish limitations](tinyfish.md), [Tor](tor.md) and [Local Computer](local-computer.md).
+
+`web_mode`, `tor_enabled` and `computer_mode` are independent. Web Off does not turn off Local Computer or Tor. Computer Off does not turn off Web.

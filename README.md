@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.6.0**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.7.0**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -158,7 +158,7 @@ account recovery, token revocation, observability, backups and code signing.
 PostgreSQL is supported by design and migrations; live PostgreSQL execution is a separate validation step.
 
 RunPod provisioning is implemented through official REST v2; the runtime has no MCP dependency. Set backend `LLM_PROVIDER=llamacpp` to use real inference; `mock` remains available for development.
-Terminal tools, Coding Agent, LoRA and fine-tuning remain outside this stage.
+Local Computer is a paired host with confirmation and Job Objects, not an unrestricted shell. LoRA and fine-tuning remain outside this stage.
 
 See [architecture and API](docs/architecture.md), [security and deployment](docs/security.md), and [verification report](docs/verification.md).
 
@@ -190,3 +190,11 @@ Provider-independent Tools add Web Off/Auto/On, Search/Fetch, persisted W source
 **Agent limitation:** the adapter and fake/contract tests exist, but real Agent execution is blocked: the current API does not supply an enforceable read-only boundary or per-action approval hook. A prompt alone cannot meet the required confirmation guarantee. Search/Fetch and manually confirmed typed Browser actions remain available. Real OrcaRouter and paid TinyFish E2E are not part of this release validation.
 
 Run `alembic upgrade head` (0007), then one backend worker. [Embedding lifecycle](docs/embedding-model-manager.md) · [Tools](docs/tools.md) · [Web](docs/web.md) · [TinyFish contracts and limitations](docs/tinyfish.md).
+
+## Version 0.7.0 — WebRouter, Tor, Local Computer
+
+Web Off/Auto/On stay independent of Tor and Local Computer. **Найти в интернете** is Auto-only. When Web is On and the planner skips `web_search`, the server injects one Search (then Fetch 1–3 canonical URLs, `ttl=0` when fresh) and audits `origin=server_policy`. TinyFish Agent/Browser stay out of the planner; this stage does not run paid TinyFish or GPU/RunPod.
+
+Tor SOCKS5h is a separate transport: real `.onion` fetch, configured Tor-search providers, curated official mapping only for provenance. Local Computer is a paired Tauri host with a random device credential in Windows Credential Manager (DPAPI file fallback), Job Objects, sanitized child environments, atomic writes and a secret-path denylist.
+
+Run `alembic upgrade head` (0008). Keep `LLM_PROVIDER=mock`. [Web](docs/web.md) · [Tor](docs/tor.md) · [Local Computer](docs/local-computer.md) · [Tools](docs/tools.md).

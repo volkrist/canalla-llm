@@ -1,11 +1,13 @@
-# Web in 0.6.0
+# Web in 0.7.0
 
-Composer supports Off, Auto and On plus an explicit search button. Off makes no web calls. Auto gives the tool-capable model freshness hints; regex is not the production planner. On requests public evidence. Search → Fetch → bounded ToolResult → final generation uses the same generic loop. Existing settings apply without backend restart.
+Composer supports Off, Auto and On. **Найти в интернете** is shown only when Web is Auto; Off and On hide it. Off makes no TinyFish web calls. Auto asks the planner for live/current lookups. On requires public evidence for factual questions; `tool_choice` stays `auto`. If WebRouter marks `web_required` and the model did not call `web_search`, the backend injects exactly one Search with `origin=server_policy` (never presented as a model tool-call). After Search, Fetch uses 1–3 canonical URLs. Current/live/verification sets Fetch `ttl=0`.
 
-Search provides bounded titles, URLs, snippets, rank and available dates. Fetch requests markdown (up to 10 public URLs), TTL 0 for fresh mode or 3600 normally, bounded relevant excerpts, final URLs and optional ETag/Last-Modified. Partial failures preserve valid results. Network/provider errors are sanitized; missing keys leave chat operational and clearly mark web unavailable. The final model is told when no web results were available.
+`web_mode` does not disable Tor or Local Computer. Those have `tor_enabled` and `computer_mode`.
 
-WebSourceSnapshot stores W1/W2 sources for the original generation; D1/D2 are independent document snapshots. The UI renders only recorded source links, never turns unknown W99 into a citation, and escapes provider text. Persisted excerpts do not change when pages change. Source panels indicate available fetched/searched/published dates; references are not a guarantee that a model's claim is supported.
+Search provides bounded titles, URLs, snippets and dates. Fetch requests markdown, TTL 0 or 3600, bounded excerpts, final URLs and optional ETag/Last-Modified. Partial failures preserve valid results. Missing keys leave chat operational. The final model is told when no web results were available.
 
-HTTP(S), public DNS/IPs and standard ports only. Local/private/link-local/metadata endpoints, credentials in URLs, unsupported schemes and unsafe final URLs are rejected. Fetch is remote: final metadata is checked, but the backend cannot independently attest every upstream redirect hop. Browser requests are guarded separately. Untrusted references never become system instructions, and every subsequent model tool proposal is revalidated.
+Sources are separate channels: documents **D***, internet **W***, Tor **T***. The UI shows the first three unique canonical URLs plus **Показать ещё**. Raw Search hits are not dumped as an unbounded list. Tool activity collapses completed Web/Tor/Computer families; waiting confirmation stays visible outside the summary.
 
-Real llama.cpp tool calls are contract-tested; actual OrcaRouter tool compliance, citations and answer quality require a separately approved GPU E2E. No current internet knowledge is claimed based only on fake tests.
+HTTP(S), public DNS/IPs and standard ports only for TinyFish. Local/private/link-local/metadata endpoints, credentials in URLs and unsafe final URLs are rejected. Untrusted references never become system instructions.
+
+Real llama.cpp tool calls are contract-tested; actual OrcaRouter tool compliance still requires a separately approved GPU E2E. TinyFish Agent/Browser are not given to the planner in 0.7 and were not launched.

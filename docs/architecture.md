@@ -139,3 +139,12 @@ EmbeddingModelManager owns pinned artifacts, filesystem locking, staging, integr
 ToolRegistry → ToolOrchestrator → model proposal → ToolExecutor → ToolPolicy → adapter → ToolResult → next model proposal/final ContextBuilder. Adapters depend on generic contracts; core has no TinyFish API dependency. Planner receives current request and public tool results, not private memories/documents/history, reducing external disclosure. ContextBuilder places bounded untrusted web references after documents and before history/current request. Migration 0007 adds preferences, audit runs and web source snapshots.
 
 User Stop cancels planner/provider tasks. Failed/denied tool executions emit terminal audit events, removing stale confirmation cards. Browser is explicit only; action payload and target fingerprint are checked again after one-time approval. Browser sessions are backend-only, owner scoped, guarded before navigation, timed and supplier-terminated where supported. CDP URLs never reach UI, SQL or model context. Real Agent is fail-closed until enforceable read-only controls exist.
+
+## 0.7.0 WebRouter, Tor and Local Computer
+
+WebRouter classifies Off/Auto/On independently of `tor_enabled` and `computer_mode`. Planner `tool_choice` remains auto. Missing required Search is injected as `origin=server_policy`, then Fetch 1–3 canonical URLs (`ttl=0` when fresh). Agent/Browser stay `auto_route=false` and are omitted from planner schemas.
+
+Tor uses a custom SOCKS5h client (ATYP 0x03, loopback proxy). Tor Search is configured providers, not the official onion catalog. Authority is official vs reachable, never collapsed.
+
+Local tools are host jobs. `paired_devices` stores a credential hash only. Tauri keeps the secret in Credential Manager / DPAPI. Host results bind device, digest, owner, pending status, one-time consume and expiry. Trusted Workspace auto-allows seven filesystem tools inside canonical roots; process tools still confirm. Child processes use a sanitized environment and a Job Object with `KILL_ON_JOB_CLOSE`. Migration 0008 adds origin, assigned device, source channel/authority/canonical/kind and `paired_devices`.
+

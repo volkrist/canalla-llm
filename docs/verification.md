@@ -1,6 +1,18 @@
 # Alex LLM — отчёты проверки
 
-Текущий локальный этап: **0.6.0 Embeddings / Web & Tools**. Исторические отчёты ниже относятся к указанным версиям. Платный OrcaRouter / TinyFish Agent / Browser E2E не выполнялся.
+Текущий локальный этап: **0.7.0 WebRouter / Tor / Local Computer**. Исторические отчёты ниже относятся к указанным версиям. Платный OrcaRouter / TinyFish Agent / Browser E2E не выполнялся. GPU и RunPod не запускались.
+
+## Проверка 0.7.0 — 16 сентября 2026
+
+- Backend pytest: **202 passed, 1 skipped** (opt-in live TinyFish). Включены WebRouter, `origin=server_policy`, Tor SOCKS5h ATYP=0x03 без local DNS, device pairing, JWT-only host-result 401, Trusted vs process confirmation, forbidden tools, sanitized env, native Job Object parent+child Stop.
+- Frontend: **19 unit passed**, TypeScript, Prettier и Vite — PASS.
+- Playwright: **15 passed**. Force-web только в Auto; Tor Search provider not configured; Computer default Ask; planner не вызывает Agent; Browser Advanced по-прежнему с per-action confirmation (fakes, 0 paid calls).
+- Ruff lint/format, Alembic 0008 check (temp DB), cargo check, npm audit (0), pip-audit (0) — PASS.
+- Tauri optimized release + NSIS x64 — PASS. ProductVersion 0.7.0. Рядом лежат `Alex LLM_0.7.0.exe` и `Alex LLM_0.7.0_x64-setup.exe`; прежний `outputs/Alex LLM.exe` был занят запущенным процессом и не перезаписывался.
+- Локальные smoke: LLM_PROVIDER=mock; TinyFish key absent (Search/Fetch live не запускался); Tor SOCKS closed (tor_fetch live не запускался); disposable workspace read/write; outside-root denied; secret `.env` denied; `python-ok`; `powershell-ok`; Job Object native test PASS. Destructive system actions не выполнялись.
+- Paid TinyFish calls = 0. RunPod paid actions = 0. `COMPUTE_BACKGROUND_ENABLED=false` в тестах; рабочий `.env` остаётся mock.
+
+Ограничения: production Agent по-прежнему fail-closed. Real OrcaRouter/GPU E2E не выполнялся. Локальный Tor не был настроен, поэтому live onion fetch не запускался. Device credential в Credential Manager / DPAPI, не в Git и не в renderer.
 
 ## Проверка 0.6.0 — 16 сентября 2026
 
