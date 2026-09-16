@@ -15,6 +15,7 @@ mod process;
 
 use serde_json::json;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::time::Duration;
 
 #[tokio::main]
@@ -52,6 +53,12 @@ async fn main() {
         }
     }
     loop {
+        if hold_jobs() {
+            let _ = heartbeat(&backend, &token).await;
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            continue;
+        }
+        maybe_post_wrong_digest(&backend, &token).await;
         match host::execute_host_jobs(backend.clone(), token.clone(), roots.clone()).await {
             Ok(value) => {
                 let started = value.get("started").and_then(|item| item.as_u64()).unwrap_or(0);
@@ -67,4 +74,80 @@ async fn main() {
         }
         tokio::time::sleep(Duration::from_millis(400)).await;
     }
+}
+
+fn hold_jobs() -> bool {
+    std::env::var("ALEX_E2E_HOLD_FLAG")
+        .ok()
+        .map(PathBuf::from)
+        .is_some_and(|path| path.exists())
+}
+
+fn wrong_digest_flag() -> Option<PathBuf> {
+    std::env::var("ALEX_E2E_WRONG_DIGEST_FLAG")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+async fn heartbeat(backend: &str, token: &str) -> Result<(), String> {
+    let headers = host::device_headers(token)?;
+    let _ = reqwest::Client::new()
+        .post(format!("{backend}/tools/devices/heartbeat"))
+        .headers(headers)
+        .send()
+        .await;
+    Ok(())
+}
+
+async fn maybe_post_wrong_digest(backend: &str, token: &str) {
+    let Some(flag) = wrong_digest_flag() else {
+        return;
+    };
+    if !flag.exists() {
+        return;
+    }
+    let Ok(headers) = host::device_headers(token) else {
+        return;
+    };
+    let client = reqwest::Client::new();
+    let Ok(response) = client
+        .get(format!("{backend}/tools/devices/jobs"))
+        .headers(headers.clone())
+        .send()
+        .await
+    else {
+        return;
+    };
+    let Ok(jobs) = response.json::<Vec<serde_json::Value>>().await else {
+        return;
+    };
+    let Some(job) = jobs.first() else {
+        return;
+    };
+    let Some(id) = job.get("id").and_then(|value| value.as_str()) else {
+        return;
+    };
+    let posted = client
+        .post(format!("{backend}/tools/runs/{id}/host-result"))
+        .headers(headers)
+        .json(&json!({
+            "digest": "0".repeat(64),
+            "status": "completed",
+            "text": "mismatch",
+            "stdout": "",
+            "stderr": "",
+            "metadata": {}
+        }))
+        .send()
+        .await;
+    let status = posted.map(|response| response.status().as_u16()).unwrap_or(0);
+    let report = flag.with_extension("json");
+    let _ = std::fs::write(
+        report,
+        json!({ "http": status, "device_auth": true, "method": "native_host_wrong_digest" }).to_string(),
+    );
+    let _ = std::fs::remove_file(&flag);
+    println!("{}", json!({ "event": "wrong_digest", "http": status }));
+    let _ = io::stdout().flush();
 }

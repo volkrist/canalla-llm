@@ -33,7 +33,7 @@ fn save_record(record: &DeviceRecord) {
     let _ = fs::write(record_path(), serde_json::to_vec(record).unwrap_or_default());
 }
 
-fn device_headers(token: &str) -> Result<reqwest::header::HeaderMap, String> {
+pub fn device_headers(token: &str) -> Result<reqwest::header::HeaderMap, String> {
     let record = load_record().ok_or("device_not_paired")?;
     let credential = crate::credential::load().ok_or("device_not_paired")?;
     let mut headers = reqwest::header::HeaderMap::new();

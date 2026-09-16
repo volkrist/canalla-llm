@@ -104,12 +104,23 @@ def test_hard_call_ceiling_cannot_exceed_32():
 
 def test_workspace_and_coding_intent():
     assert looks_like_coding("Проверь проект и исправь failing tests.")
+    assert looks_like_coding("проверь тестовый проект, исправь проблему и запусти тесты повторно")
     workspace = workspace_from_settings(SimpleNamespace(workspace_roots=[r"C:\AlexWorkspace"]))
     assert workspace.root == r"C:\AlexWorkspace"
     assert "expected_before_sha256" in workspace.as_prompt()
     assert "sha256=" in workspace.as_prompt()
     assert "pytest" in workspace.as_prompt()
     assert "git_push" in workspace.as_prompt()
+
+
+def test_workspace_prefers_git_project(tmp_path):
+    parent = tmp_path / "work"
+    nested = parent / "alex-coding-e2e"
+    nested.mkdir(parents=True)
+    (nested / ".git").mkdir()
+    workspace = workspace_from_settings(SimpleNamespace(workspace_roots=[str(parent), str(nested)]))
+    assert workspace.root == str(nested)
+    assert workspace.git_root == str(nested)
 
 
 def test_credential_broker_never_reveals_secret():

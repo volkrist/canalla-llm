@@ -1,8 +1,9 @@
 [package]
 name = "alex-llm"
-version = "0.8.0"
+version = "0.8.1"
 description = "Alex LLM desktop client"
 edition = "2021"
+default-run = "alex-llm"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -25,6 +26,10 @@ windows = { version = "0.58", features = [
   "Win32_System_JobObjects",
   "Win32_System_Threading",
 ] }
+
+[[bin]]
+name = "alex-llm"
+path = "src/main.rs"
 
 [[bin]]
 name = "alex-host-loop"

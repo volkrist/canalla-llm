@@ -1,12 +1,18 @@
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 CODING = re.compile(
     r"(?i)("
-    r"pytest|unittest|исправ(ь|ьте)\s+тест|failing tests|почини тесты|"
+    r"pytest|unittest|"
+    r"исправ(ь|ьте)(\s+\w+){0,4}\s+(тест|код|проект|проблем)|"
+    r"failing tests|почини(\s+\w+){0,3}\s*тест|"
     r"git status|git diff|отрефактор|refactor|formatter|линтер|linter|"
-    r"обнови (тестовый )?проект|почини|patch|напиши (код|тест)|"
-    r"inspect (the )?project|проверь проект"
+    r"обнови(\s+\w+){0,3}\s+проект|"
+    r"почини|patch|напиши (код|тест)|"
+    r"inspect (the )?project|"
+    r"проверь(\s+\w+){0,4}\s+проект|"
+    r"запусти(те)?(\s+\w+){0,3}\s+тест"
     r")"
 )
 
@@ -40,7 +46,31 @@ def looks_like_coding(prompt: str) -> bool:
     return bool(CODING.search(prompt or ""))
 
 
+def _is_git_root(path: Path) -> bool:
+    return (path / ".git").exists()
+
+
+def _first_git_workspace(roots: list[str]) -> tuple[str, str | None]:
+    parsed = [Path(item) for item in roots if item]
+    if not parsed:
+        return "", None
+    for root in parsed:
+        if _is_git_root(root):
+            return str(root), str(root)
+        try:
+            children = sorted(
+                (child for child in root.iterdir() if child.is_dir()), key=lambda item: item.name
+            )
+        except OSError:
+            children = []
+        for child in children:
+            if _is_git_root(child):
+                return str(child), str(child)
+    chosen = str(parsed[0])
+    return chosen, chosen
+
+
 def workspace_from_settings(settings) -> CodingWorkspace:
     roots = list(getattr(settings, "workspace_roots", None) or [])
-    root = roots[0] if roots else ""
-    return CodingWorkspace(root=root, git_root=root or None)
+    root, git_root = _first_git_workspace(roots)
+    return CodingWorkspace(root=root, git_root=git_root)
