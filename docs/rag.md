@@ -1,4 +1,4 @@
-# Local RAG — 0.5.0
+# Local RAG — 0.6.0
 
 Documents are a separate subsystem from chat history and personal memory. No RunPod or paid embedding API is used.
 
@@ -14,7 +14,7 @@ Prepare explicitly from `apps/backend`:
 .venv\Scripts\python.exe -m app.documents.embedding
 ```
 
-Runtime never downloads the model. `EMBEDDING_MODEL_DIR` selects the local directory; `EMBEDDING_MODEL_NAME` validates the supported architecture. Other architectures require a provider implementation and reindex. `EMBEDDING_THREADS=2` limits CPU threads. Missing/corrupt model fails indexing with a sanitized error; existing chats remain usable without retrieved documents. Allow roughly 0.5–1 GB RAM for inference plus bounded indexing data. Cache and document binaries live in gitignored `.data/`.
+Normal inference never downloads the model. Prepare explicitly in Files/Settings or the CLI; EmbeddingModelManager owns download/verification/activation in the application data root. `EMBEDDING_MODEL_DIR` is only a legacy import source; `EMBEDDING_MODEL_NAME` validates the supported architecture. Other architectures require a provider implementation and reindex. `EMBEDDING_THREADS=2` limits CPU threads. Missing/corrupt model fails indexing with a sanitized error; existing chats remain usable without retrieved documents. Allow roughly 0.5–1 GB RAM for inference plus bounded indexing data. Document binaries remain in gitignored `.data/`; model installations use the shared application data directory. See [model lifecycle](embedding-model-manager.md).
 
 ## Chunking and retrieval
 
@@ -26,11 +26,11 @@ General chat searches only general documents. Project chat searches its project 
 
 Per-user RAG preferences are persisted: enabled, include_general, max_chunks (1–12), max_chars (default 12,000, server maximum `RAG_MAX_CHARS` up to 20,000), similarity threshold. The document content budget is independent of memory/history budgets. Source wrappers add bounded metadata outside excerpt character counts.
 
-Context order: system → profile/instructions → pinned memory → project → project memory → general memory → document excerpts → recent history → current prompt. Excerpts are explicitly **untrusted reference material**, in a user-context section, never a system message. This preserves instruction hierarchy; it is not a guarantee that every language model resists every prompt injection.
+Context order: system → profile/instructions → pinned memory → project → project memory → general memory → document excerpts → web/tool references → recent history → current prompt. Excerpts are explicitly **untrusted reference material**, in a user-context section, never a system message. This preserves instruction hierarchy; it is not a guarantee that every language model resists every prompt injection.
 
 ## Sources and history
 
-The backend labels actual selected chunks S1, S2, etc. It stores a generation snapshot in `message_contexts.snapshot`: document/chunk IDs, original display title, page/heading, project, upload time, rank, similarity, label and the bounded excerpt delivered to the provider. Old answers do not rerun retrieval. The panel lists **sources passed to the model**, not a claim that every source supports the answer. Inline citation rendering is deferred; model text is never rewritten to fabricate citations.
+The backend labels actual selected chunks D1, D2, etc. (historical S labels remain valid). Web sources use separate W labels. It stores a generation snapshot in `message_contexts.snapshot`: document/chunk IDs, original display title, page/heading, project, upload time, rank, similarity, label and the bounded excerpt delivered to the provider. Old answers do not rerun retrieval. The panel lists **sources passed to the model**, not a claim that every source supports the answer. Inline citation rendering is deferred; model text is never rewritten to fabricate citations.
 
 Deleting a document removes its binary/chunks/vectors and redacts excerpts from existing snapshots; title/page metadata remains with “Источник был удалён”. New generations cannot retrieve it. Reindex builds a replacement before transactionally swapping chunks; failed reindex preserves the previous index and reports failed status. A stale job after backend restart becomes retryable failed.
 

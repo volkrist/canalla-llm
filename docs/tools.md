@@ -28,3 +28,5 @@ requested/final URLs, provider, timestamps and W labels for the original generat
 Normal audit/source endpoints filter by owner, including administrator requests.
 Cancellation closes the provider task and records stopped/cancelled_at. Provider
 adapters must perform their own supplier cancellation in finally blocks.
+
+Production Agent is fail-closed without an adapter-enforced read-only boundary; model prompts are not an enforcement mechanism. Browser is explicitly invoked from Advanced UI, with per-action confirmation and target revalidation. Settings change through authenticated APIs without restarting the backend. See [TinyFish limitations](tinyfish.md).

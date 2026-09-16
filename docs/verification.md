@@ -1,6 +1,20 @@
 # Alex LLM — отчёты проверки
 
-Текущий локальный этап: **0.5.0 Files / RAG**. Исторические отчёты ниже относятся к указанным версиям. Реальный платный RAG E2E в этом этапе не выполняется.
+Текущий локальный этап: **0.6.0 Embeddings / Web & Tools**. Исторические отчёты ниже относятся к указанным версиям. Платный OrcaRouter / TinyFish Agent / Browser E2E не выполнялся.
+
+## Проверка 0.6.0 — 16 сентября 2026
+
+- Backend: **181 passed, 1 skipped** (opt-in live test); отдельный read-only live TinyFish Search + Fetch: **1 passed**. Финальные изменения Browser также проверены 16 provider contract tests.
+- Tauri optimized release + NSIS x64 — PASS. EXE и installer обновлены в `outputs`, ProductVersion 0.6.0. About UI берёт версию из package.json. Ярлык сохраняет прежний путь.
+- Frontend: **17 unit passed**, TypeScript, Prettier и Vite — PASS.
+- Playwright: **15 passed**: embedding prepare/cancel/retry, обычный чат, Files с реальными CPU embeddings, Web+RAG D/W sources, owner isolation, fake Agent confirmation/Stop, Browser typed confirmation/denial/retry, missing key/Off.
+- Ruff lint/format, pip check, npm audit, pip-audit pinned dependency closure, cargo check — PASS. Known vulnerability count: 0.
+- Alembic: clean install, 0001 → head с сохранением history, foreign keys и check — PASS. Рабочая SQLite: backup API → 0006 → 0007, все прежние row counts сохранены, foreign_key_check пуст.
+- Pinned E5 artifacts: 135392183 bytes, SHA256 LFS / Git blob SHA1, query + passage CPU smoke, dimension 384. Использован проверенный legacy import без нового скачивания.
+- RunPod официальный MCP read-only: ry246k5siqujgu EXITED, RUNNING GPU 0. Active managed sessions в рабочей БД 0. Volume uwgeaie5b0: 50 GB STANDARD, US-TX-3, без изменений.
+- Секреты не обнаружены в Git; моделей/БД/.env среди tracked files нет. TINYFISH_API_KEY получен только backend credential provider; живой smoke вывел только PASS.
+
+Ограничения: production Agent заблокирован из-за отсутствия enforceable read-only/per-action approval в supplier API. Его fake/SSE/cancel contracts проходят, но это не реальная Agent E2E. Browser typed/CDP lifecycle покрыт fake/contract tests; платный supplier запуск не выполнялся. LlamaCpp tools покрыты HTTP contracts, реальный OrcaRouter tool calling ещё не проверен. PostgreSQL live, интерактивная установка/удаление NSIS и подпись приложения не проверялись. Warnings: Starlette/httpx deprecation, Vite chunk >500 kB, Windows WebSocket teardown 10054; все проверки завершились успешно.
 
 ## Сохранённый отчёт 0.2.0 — этап 2
 

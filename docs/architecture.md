@@ -131,3 +131,11 @@ Presence sessions/tickets and personal projects/memories are separate from chats
 ContextBuilder adds a distinct untrusted document section after memory and before history/current prompt. MessageContext.snapshot stores actual generation metadata and source references/excerpts. Deletion redacts old excerpts; it does not rerun historical retrieval. All settings and budgets are validated on the backend. Tables use standard SQLAlchemy types compatible with PostgreSQL; pgvector is a future VectorStore implementation, not included now.
 
 Migrations 0005 add context/TTFT fields; 0006 adds documents, document_chunks and rag_preferences. Existing compute/session/auth/presence behavior is retained. See [rag.md](rag.md) and [files.md](files.md).
+
+## 0.6.0 lifecycle and tools
+
+EmbeddingModelManager owns pinned artifacts, filesystem locking, staging, integrity checks and real CPU smoke. EmbeddingProvider consumes only a READY installation. Model state is shared; documents and vectors remain owner scoped.
+
+ToolRegistry → ToolOrchestrator → model proposal → ToolExecutor → ToolPolicy → adapter → ToolResult → next model proposal/final ContextBuilder. Adapters depend on generic contracts; core has no TinyFish API dependency. Planner receives current request and public tool results, not private memories/documents/history, reducing external disclosure. ContextBuilder places bounded untrusted web references after documents and before history/current request. Migration 0007 adds preferences, audit runs and web source snapshots.
+
+User Stop cancels planner/provider tasks. Failed/denied tool executions emit terminal audit events, removing stale confirmation cards. Browser is explicit only; action payload and target fingerprint are checked again after one-time approval. Browser sessions are backend-only, owner scoped, guarded before navigation, timed and supplier-terminated where supported. CDP URLs never reach UI, SQL or model context. Real Agent is fail-closed until enforceable read-only controls exist.

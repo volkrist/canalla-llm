@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.5.0**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.6.0**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -158,7 +158,7 @@ account recovery, token revocation, observability, backups and code signing.
 PostgreSQL is supported by design and migrations; live PostgreSQL execution is a separate validation step.
 
 RunPod provisioning is implemented through official REST v2; the runtime has no MCP dependency. Set backend `LLM_PROVIDER=llamacpp` to use real inference; `mock` remains available for development.
-Memory, RAG, web search, browser agents, terminal tools, coding agent, LoRA and fine-tuning are outside this stage.
+Terminal tools, Coding Agent, LoRA and fine-tuning remain outside this stage.
 
 See [architecture and API](docs/architecture.md), [security and deployment](docs/security.md), and [verification report](docs/verification.md).
 
@@ -177,6 +177,16 @@ Run `alembic upgrade head` before starting this version. Use a single backend wo
 
 Upload PDF/DOCX/TXT/MD, index with real multilingual CPU embeddings, retrieve owner/project-scoped chunks and inspect saved sources under answers. No GPU is required for indexing. [Files](docs/files.md) · [RAG setup and limits](docs/rag.md).
 
-After installing backend dependencies, run `python -m alembic upgrade head` and explicitly prepare the embedding model with `python -m app.documents.embedding`. Runtime does not download models. `.data/` stores local documents/model cache and is gitignored. Missing embeddings do not prevent ordinary chats.
+After installing backend dependencies, run `python -m alembic upgrade head` and explicitly prepare the embedding model with `python -m app.documents.embedding`. Runtime does not download models. `.data/` stores local documents and is gitignored; 0.6 moves embedding installation to the application data directory. Missing embeddings do not prevent ordinary chats.
 
 Generation metadata now retains its actual context snapshot and nullable TTFT/cancellation telemetry. Compute preferences remain persisted and editable through the UI; the existing session's snapshot is shown separately. This release was tested locally with MockLLMProvider, not a paid OrcaRouter RAG session.
+
+## Version 0.6.0 — managed embeddings and Web & Tools
+
+Files and Settings now prepare the pinned CPU embedding model with real byte progress, cancellation, resumable downloads and verified atomic activation. Chat remains usable without embeddings. Windows model data lives in `%LOCALAPPDATA%/Alex LLM/models/embeddings`; `ALEX_LLM_DATA_DIR` overrides the common data root. No model is bundled in Git or the installer.
+
+Provider-independent Tools add Web Off/Auto/On, Search/Fetch, persisted W sources, separate D document sources, bounded model tool loops, ownership checks and per-action approval. Set `TINYFISH_API_KEY` only in backend configuration. Production uses REST/httpx; no TinyFish CLI subprocess. Paid Browser is Advanced/off by default and has typed Playwright control, timeout and explicit Stop.
+
+**Agent limitation:** the adapter and fake/contract tests exist, but real Agent execution is blocked: the current API does not supply an enforceable read-only boundary or per-action approval hook. A prompt alone cannot meet the required confirmation guarantee. Search/Fetch and manually confirmed typed Browser actions remain available. Real OrcaRouter and paid TinyFish E2E are not part of this release validation.
+
+Run `alembic upgrade head` (0007), then one backend worker. [Embedding lifecycle](docs/embedding-model-manager.md) · [Tools](docs/tools.md) · [Web](docs/web.md) · [TinyFish contracts and limitations](docs/tinyfish.md).
