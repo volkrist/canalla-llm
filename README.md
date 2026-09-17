@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.8.1**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.8.2**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -216,5 +216,18 @@ Run `alembic upgrade head` (0009). Keep `LLM_PROVIDER=mock`. Do not start GPU/Ru
 Closes local 0.8.x gaps that did not need a second GPU pod: CodingWorkspace prefers a git project among workspace roots, native host digest mismatch returns 409 with live device headers, RAG `multilingual-e5-small` reaches `model_ready=true` and indexes, and the 0.8 harness waits for catalog stock without treating an old session cost as the current budget.
 
 **Not fully verified:** model-driven Coding Agent, model-driven Tor, Stop generation, RAG-with-OrcaRouter, and Combined Web+Coding were not retested on GPU in this patch. ONE managed Pod was consumed (`qx9xehgintpwyf`, ~60s, ~$0.018) after US-TX-3 L40S stock sat at NONE, then the harness aborted during `starting_pod`. A second pod was not started.
+
+Keep `LLM_PROVIDER=mock` unless you intentionally start compute. TinyFish Agent/Browser stay unused.
+
+## Version 0.8.2 — 0.8 line, not fully verified
+
+Closes four of the five remaining REAL E2E items on ONE L40S pod (`plbskald4189bw`, US-TX-3, $1.09/h, ~1967s, ~$0.596, volume `uwgeaie5b0` preserved):
+
+- Coding Agent: Alex fixed a disposable pytest-failing project on native Windows (`divide` `*` → `/`). Cursor did not touch the source.
+- RAG → OrcaRouter: D1 excerpt, answer `silver-lantern-otter`.
+- Stop generation: client abort 3s after first delta, `status=stopped`, partial persisted, no ReadTimeout.
+- Combined Web + Coding: one task, TinyFish Search/Fetch only, W sources, local pytest FAIL→PASS.
+
+**Limitation:** model-driven Tor Search/Fetch did **not** REAL PASS. Direct tor_search/fetch remain REAL PASS from 0.8.1. This run's Tor planner burned `max_tokens=1200` on Qwen3 thinking and emitted no `tool_calls`; the follow-up stream stored 0 visible tokens. `enable_thinking=false` is now sent to llama.cpp. GPU retest of model-driven Tor is still required. Do not call 0.8.2 fully verified.
 
 Keep `LLM_PROVIDER=mock` unless you intentionally start compute. TinyFish Agent/Browser stay unused.

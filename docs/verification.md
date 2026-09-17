@@ -1,6 +1,27 @@
 # Alex LLM — отчёты проверки
 
-Текущий локальный этап: **0.8.1 verification patch**. 0.8.1 **не** fully verified: model-driven Coding Agent GPU retest не состоялся (ONE Pod уже израсходован).
+Текущий локальный этап: **0.8.2**. 0.8.2 **не** fully verified: model-driven Tor Search/Fetch не получил REAL PASS на GPU. Direct tor_search/fetch остаются REAL PASS из 0.8.1. `enable_thinking=false` для llama.cpp покрыт локальными контрактами, GPU retest не выполнялся (второй Pod запрещён).
+
+## Проверка 0.8.2 — 17 сентября 2026
+
+- Цель: закрыть пять оставшихся REAL E2E пунктов 0.8 на ONE managed Pod. Новых больших features нет.
+- HEAD before: `82c7c6034a327f2a1b458d2dc49acbb27a99e8ec` (0.8.1). `origin/main` совпадал; working tree был clean.
+- Backend pytest: **232 passed, 1 skipped** (opt-in live TinyFish). Ruff check/format, Alembic upgrade head + check — PASS.
+- Native cargo test: **12 passed** (lib + bin). `read_file` SHA256 prefix, patch conflict, git force/hard not armed.
+- Frontend: **20 unit passed**, TypeScript, Prettier, Vite production — PASS.
+- Playwright: **15 passed**.
+- npm audit (production): **0**. pip-audit: **0** known vulnerabilities.
+- Tauri release + NSIS x64 — PASS. ProductVersion **0.8.2**.
+  - EXE `apps/desktop/src-tauri/target/release/alex-llm.exe` SHA256 `8D537F26D0C543E929845192CE65623398636B23B3ACFB42334C011451D4C6C8`
+  - Installer `apps/desktop/src-tauri/target/release/bundle/nsis/Alex LLM_0.8.2_x64-setup.exe` SHA256 `3CC816B171AB83263BBF218DADE7A2E5E15E0AA1E002CD46F2B2780C04E55DC5`
+- RunPod this run: catalog wait until US-TX-3 L40S LOW, then ONE Pod `plbskald4189bw`, NVIDIA L40S 48 GB, $1.09/h, billable **1967s**, estimated **$0.595564**, `stop_reason=session_budget`. **RUNNING GPU FINAL = 0**. Volume `orcarouter-storage` / `uwgeaie5b0` preserved. **ONE Pod; second pod not started.** Gateway and exact alias `orcarouter-qwen38-27b-q5km` became ready; sanity stream `provider=llamacpp`, Mock=false, usage complete.
+- Coding Agent: disposable `%TEMP%\alex-llm-real-e2e\20260917T111342\coding-agent`, initial pytest FAIL (`divide(10,2)` → 20). Attempt **1/3**. Model called `list_directory`, `read_file`, `run_python`, `write_file`, `patch_file`, `git_status` with `origin=model`. SHA `27b4086d…` → `f8fe1a17…`. git diff `return a * b` → `return a / b`. Final pytest **2 passed**. Cursor did not fix the bug. **REAL PASS.**
+- Model-driven Tor: planner burned `max_tokens=1200` on Qwen3 thinking, `tool_calls=[]`, answer length 0, T sources none. Direct tor_search/fetch remain REAL PASS from 0.8.1. SOCKS 127.0.0.1:9050 was Connected; no second Tor. Local fix: llama.cpp `chat_template_kwargs.enable_thinking=false`. **FAIL** on GPU; **FIXED LOCALLY / REAL RETEST REQUIRED.**
+- RAG → OrcaRouter: embedding `model_ready=true`, disposable document indexed (`E2E_RAG_CODE_aa96f48bb1a9`, chunk_count=1), D1, answer `silver-lantern-otter`. **REAL PASS.**
+- Stop generation: abort 3.001s after first delta, `status=stopped`, 301 partial characters persisted, `provider_stream_closed=true`, ReadTimeout=false. **REAL PASS.**
+- Combined Web + Coding: one task, TinyFish Search=1 Fetch=1, `web_search` model + `web_fetch` server_policy completed, W1–W3, local pytest FAIL→PASS (`subtract` `+` → `-`), source changed, Alex fixed, Cursor did not. Final stream was cut by session budget (`answer_len=0`, usage status=error) after tools and pytest already passed. **REAL PASS** for the listed tool/source/pytest criteria.
+- TinyFish Agent calls = **0**. TinyFish Browser calls = **0**.
+- Local contract coverage for this patch: coding planner subset, Tor tools only on Tor intent, session owner sees `pod_id` (not volume id), llama.cpp thinking disabled.
 
 ## Проверка 0.8.1 — 16 сентября 2026
 
