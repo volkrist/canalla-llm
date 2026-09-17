@@ -12,6 +12,13 @@ told to inspect `git_status`/`git_diff`, read, `patch_file` with
 `expected_before_sha256`, rerun tests, and never `git_push` or `git_reset --hard`
 without an explicit user request plus confirmation.
 
+When the user prompt looks like a coding task, the planner only exposes the
+coding subset (`list_directory`, `read_file`, `write_file`, `patch_file`,
+`search_code`, `run_python`, git inspect, process status). Copy/delete/service
+and other full-computer tools stay registered and gated, but they are not
+offered in that planning loop. Tor tools are offered only when the prompt
+looks like a Tor/.onion request, even if Tor is enabled.
+
 ## LocalTaskController
 
 Server-side task states: PLANNING, INSPECTING, EXECUTING, WAITING_CONFIRMATION,

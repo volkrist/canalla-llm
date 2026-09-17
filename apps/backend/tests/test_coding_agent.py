@@ -111,6 +111,30 @@ def test_workspace_and_coding_intent():
     assert "sha256=" in workspace.as_prompt()
     assert "pytest" in workspace.as_prompt()
     assert "git_push" in workspace.as_prompt()
+    assert "in place" in workspace.as_prompt()
+    assert "scratch" in workspace.as_prompt()
+
+
+def test_coding_planner_hides_non_coding_local_tools():
+    context = SimpleNamespace(
+        mode="off",
+        tor_enabled=True,
+        computer_mode="trusted",
+        assigned_device_id="device",
+        host_online=True,
+        coding_task=True,
+        user_prompt="Проверь проект, запусти тесты и исправь ошибку.",
+    )
+    names = {item.name for item in ToolOrchestrator(make_registry(), None).planner_definitions(context)}
+    assert "patch_file" in names
+    assert "write_file" in names
+    assert "run_python" in names
+    assert "git_status" in names
+    assert "tor_search" not in names
+    assert "copy_file" not in names
+    assert "delete_file" not in names
+    assert "run_process" not in names
+    assert "git_push" not in names
 
 
 def test_workspace_prefers_git_project(tmp_path):
@@ -286,6 +310,7 @@ def test_web_plus_local_fastapi_mock(setup, client):
         },
     )
     prompt = "Посмотри актуальную документацию FastAPI и обнови тестовый проект."
+    context.user_prompt = prompt
     intent = classify_web(prompt, "on")
     assert intent.required
     names = {item.name for item in ToolOrchestrator(make_registry(), None).planner_definitions(context)}
@@ -293,6 +318,8 @@ def test_web_plus_local_fastapi_mock(setup, client):
     assert "read_file" in names
     assert "patch_file" in names
     assert "run_python" in names
+    assert "copy_file" not in names
+    assert "run_powershell" not in names
     assert "web_agent_read" not in names
 
 

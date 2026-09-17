@@ -23,6 +23,16 @@ FRESH = re.compile(
     r"version|weather|актуальн|свеж|\blive\b|verify|провер|прямо сейчас|документац"
 )
 URL = re.compile(r"https?://[^\s<>]+")
+TOR_INTENT = re.compile(
+    r"(?i)("
+    r"\.onion|\btor\b|\bтор(а|ом|у)?\b|"
+    r"луков|ahmia|onion[- ]?(сайт|адрес|ресурс|service)"
+    r")"
+)
+
+
+def looks_like_tor(prompt: str) -> bool:
+    return bool(TOR_INTENT.search(prompt or ""))
 
 
 @dataclass(frozen=True)

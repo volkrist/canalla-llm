@@ -331,7 +331,7 @@ def test_planner_hides_paid_tools_and_keeps_channels_independent():
     assert "web_search" not in names
     assert "web_agent_read" not in names
     assert "browser_start" not in names
-    assert "tor_search" in names
+    assert "tor_search" not in names
     assert "read_file" in names
     assert "run_python" in names
     assert "delete_file" in names
@@ -339,6 +339,10 @@ def test_planner_hides_paid_tools_and_keeps_channels_independent():
     assert "patch_file" in names
     assert "git_status" in names
     assert "git_push" in names
+    local_on.user_prompt = "Через Tor найди официальный onion-ресурс Tor Project."
+    names = {item.name for item in orch.planner_definitions(local_on)}
+    assert "tor_search" in names
+    assert "tor_fetch" in names
     web_only = SimpleNamespace(
         mode="on",
         tor_enabled=False,

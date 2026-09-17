@@ -43,6 +43,22 @@ LOCAL_CAPABILITIES = {
     "local_credential",
     "local_git",
 }
+CODING_PLANNER_TOOLS = frozenset(
+    {
+        "list_directory",
+        "read_file",
+        "write_file",
+        "patch_file",
+        "search_code",
+        "search_files",
+        "run_python",
+        "git_status",
+        "git_diff",
+        "git_log",
+        "process_status",
+        "stop_process",
+    }
+)
 NETWORK_DIRECT = WEB_CAPABILITIES
 NETWORK_TOR = TOR_CAPABILITIES
 PROTECTED_BRANCHES = {"main", "master", "develop", "production"}

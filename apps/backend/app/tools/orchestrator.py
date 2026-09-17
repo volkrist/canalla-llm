@@ -2,9 +2,10 @@ import json
 
 from ..context_builder import ContextBuilder
 from .contracts import ToolError
-from .policy import LOCAL_CAPABILITIES, TOR_CAPABILITIES
+from .local.workspace import looks_like_coding
+from .policy import CODING_PLANNER_TOOLS, LOCAL_CAPABILITIES, TOR_CAPABILITIES
 from .security import sanitized
-from .web_router import classify_web, pick_fetch_urls
+from .web_router import classify_web, looks_like_tor, pick_fetch_urls
 
 
 class ToolOrchestrator:
@@ -16,13 +17,18 @@ class ToolOrchestrator:
         host_online = bool(
             getattr(context, "assigned_device_id", None) or getattr(context, "host_online", False)
         )
+        prompt = getattr(context, "user_prompt", "") or ""
+        coding = bool(getattr(context, "coding_task", False) or looks_like_coding(prompt))
+        want_tor = bool(getattr(context, "tor_enabled", False) and looks_like_tor(prompt))
         for definition in self.registry.definitions():
             capability = definition.capability
             if capability in {"search", "fetch"} and context.mode != "off":
                 selected.append(definition)
-            elif capability in TOR_CAPABILITIES and context.tor_enabled:
+            elif capability in TOR_CAPABILITIES and want_tor:
                 selected.append(definition)
             elif capability in LOCAL_CAPABILITIES and context.computer_mode != "off" and host_online:
+                if coding and definition.name not in CODING_PLANNER_TOOLS:
+                    continue
                 selected.append(definition)
         return selected
 
@@ -31,6 +37,9 @@ class ToolOrchestrator:
         from .local.devices import active_device
         from .local.task import LocalTaskController
         from .policy import preferences
+
+        if history:
+            context.user_prompt = history[-1].get("content") or getattr(context, "user_prompt", "")
 
         with SessionLocal() as db:
             if context.settings is None:
@@ -59,8 +68,7 @@ class ToolOrchestrator:
                 )
             return history
         tools = [d.llm_schema() for d in definitions]
-        prompt = history[-1]["content"]
-        context.user_prompt = prompt
+        prompt = getattr(context, "user_prompt", "") or (history[-1]["content"] if history else "")
         intent = classify_web(prompt, context.mode)
         workspace = getattr(context, "workspace", None)
         coding = (

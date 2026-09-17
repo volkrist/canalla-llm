@@ -32,13 +32,17 @@ class CodingWorkspace:
         git = self.git_root or "unknown"
         return (
             f"CodingWorkspace root={root}; git_root={git}; branch={self.branch or 'unknown'}. "
-            "Inspect git_status/git_diff before edits. Read the failing source, then patch_file "
-            "using expected_before_sha256 from that read_file (sha256=<hex>), or write_file the "
-            "corrected file. Do not create unrelated scratch copies. After code changes run tests "
-            'with run_python argv ["-m", "pytest", "-q"] and cwd at the project root. '
-            "If the hash mismatches, stop with CONFLICT and re-read. "
-            "Do not git_push, git_reset --hard, or force-push unless the user explicitly asks; "
-            "those still require confirmation. Never put Git credentials in tool arguments."
+            "The project to inspect and fix is exactly that root. Start with list_directory on "
+            "that root, then read_file of the existing source and tests already there. "
+            "Inspect git_status/git_diff before edits. Edit the failing source in place with "
+            "patch_file or write_file; copy sha256 from read_file (sha256=<hex>) into "
+            "patch_file.expected_before_sha256. Do not write scratch notes or copy the project "
+            "to a parallel path. After code changes run tests with run_python argv "
+            '["-m", "pytest", "-q"] and cwd at that same project root. When pytest reports all '
+            "tests passed, stop calling tools and answer. If the hash mismatches, stop with "
+            "CONFLICT and re-read. Do not git_push, git_reset --hard, or force-push unless the "
+            "user explicitly asks; those still require confirmation. Never put Git credentials "
+            "in tool arguments."
         )
 
 

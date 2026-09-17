@@ -1,4 +1,4 @@
-from app.tools.web_router import canonical_url, classify_web, pick_fetch_urls
+from app.tools.web_router import canonical_url, classify_web, looks_like_tor, pick_fetch_urls
 
 
 def test_explicit_auto_phrases_require_search():
@@ -30,6 +30,14 @@ def test_on_factual_requires_search_chitchat_does_not():
 
 def test_off_never_requires_web():
     assert classify_web("latest news", "off").required is False
+
+
+def test_tor_intent_only_when_user_asks():
+    assert looks_like_tor("Через Tor найди официальный onion-ресурс Tor Project.")
+    assert looks_like_tor("Open the official .onion site")
+    assert not looks_like_tor("В этой тестовой папке есть небольшой Python-проект.")
+    assert not looks_like_tor("Напиши очень длинный подробный рассказ о числах от 1 до 200.")
+    assert not looks_like_tor("Какое verification animal указано в тестовом документе?")
 
 
 def test_fresh_intent_and_canonical_dedup():
