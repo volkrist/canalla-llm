@@ -122,19 +122,27 @@ class LlamaCppProvider(LLMProvider):
 
     supports_tools = True
 
+    def _chat_payload(self, messages, **extra):
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        payload.update(extra)
+        return payload
+
     async def plan_tools(self, messages, tools, usage):
         try:
             async with self.client(httpx.Timeout(90, connect=10)) as client:
                 response = await client.post(
                     self.endpoint() + "/chat/completions",
-                    json={
-                        "model": self.model,
-                        "messages": messages,
-                        "stream": False,
-                        "tools": tools,
-                        "tool_choice": "auto",
-                        "max_tokens": 1200,
-                    },
+                    json=self._chat_payload(
+                        messages,
+                        stream=False,
+                        tools=tools,
+                        tool_choice="auto",
+                        max_tokens=1200,
+                    ),
                 )
                 if not response.is_success:
                     raise LLMError("tools_unsupported" if response.status_code == 400 else "llm_unavailable")
@@ -233,12 +241,11 @@ class LlamaCppProvider(LLMProvider):
             async with client.stream(
                 "POST",
                 endpoint + "/chat/completions",
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "stream": True,
-                    "stream_options": {"include_usage": True},
-                },
+                json=self._chat_payload(
+                    messages,
+                    stream=True,
+                    stream_options={"include_usage": True},
+                ),
             ) as response:
                 if response.status_code == 503:
                     raise LLMError("loading_model")

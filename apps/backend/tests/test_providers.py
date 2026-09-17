@@ -17,7 +17,9 @@ def test_llamacpp_transport_without_network(monkeypatch):
         if request.url.path == "/v1/models":
             return httpx.Response(200, json={"data": [{"id": "configured-model"}]})
         assert request.url.path == "/v1/chat/completions"
-        assert json.loads(request.content)["model"] == "configured-model"
+        body = json.loads(request.content)
+        assert body["model"] == "configured-model"
+        assert body["chat_template_kwargs"] == {"enable_thinking": False}
         return httpx.Response(
             200, text=': heartbeat\n\ndata: {"choices":[{"delta":{"content":"Привет"}}]}\n\ndata: [DONE]\n\n'
         )

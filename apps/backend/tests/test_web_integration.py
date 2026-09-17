@@ -55,6 +55,7 @@ def test_llamacpp_tools_contract_and_usage():
     )
     assert provider.supports_tools and result["tool_calls"][0]["function"]["name"] == "web_search"
     assert captured[0]["stream"] is False and captured[0]["tool_choice"] == "auto"
+    assert captured[0]["chat_template_kwargs"] == {"enable_thinking": False}
     assert captured[0]["model"] == "orcarouter-qwen38-27b-q5km"
     assert usage["total_tokens"] == 40
 
