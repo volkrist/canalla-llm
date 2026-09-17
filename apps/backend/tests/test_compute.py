@@ -233,6 +233,32 @@ def test_idle_stop_preserves_volume(compute):
     assert supplier.actions == [{"action": "terminate"}]
 
 
+def test_session_owner_sees_pod_id_not_volume(compute):
+    controller, supplier, admin = compute
+
+    async def scenario():
+        await start(controller, admin)
+        await controller.tick()
+
+    asyncio.run(scenario())
+    with SessionLocal() as db:
+        row = db.scalar(select(ComputeSession))
+        owner = User(
+            id=row.started_by_user_id, email="owner@example.com", password_hash="unused", role="user"
+        )
+        stranger = User(id=uuid4(), email="stranger@example.com", password_hash="unused", role="user")
+        owner_payload = controller.session_out(row, user=owner)
+        stranger_payload = controller.session_out(row, user=stranger)
+        admin_payload = controller.session_out(row, admin=True)
+    assert owner_payload["pod_id"] == "pod-test"
+    assert "network_volume_id" not in owner_payload
+    assert "pod_id" not in stranger_payload
+    assert "network_volume_id" not in stranger_payload
+    assert admin_payload["pod_id"] == "pod-test"
+    assert admin_payload["network_volume_id"] == "uwgeaie5b0"
+    assert supplier.creates
+
+
 def test_missing_key_and_admin_permissions(client, auth):
     headers = auth()
     assert client.get("/compute/status", headers=headers).json()["state"] == "not_configured"

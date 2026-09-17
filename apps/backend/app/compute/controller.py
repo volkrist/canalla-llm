@@ -203,8 +203,10 @@ class RunPodController:
             select(func.count()).select_from(GenerationUsage).where(GenerationUsage.completed_at.is_(None))
         )
 
-    def session_out(self, session, admin=False):
+    def session_out(self, session, admin=False, user=None):
         seconds, cost = estimate(session, self.clock())
+        owner = bool(user and getattr(user, "id", None) == session.started_by_user_id)
+        admin = bool(admin or (user and getattr(user, "role", None) == "admin"))
         data = {
             "id": session.id,
             "gpu_type": session.gpu_type,
@@ -227,9 +229,10 @@ class RunPodController:
             "managed": session.managed,
             "datacenter": session.datacenter,
         }
+        if admin or owner:
+            data["pod_id"] = session.pod_id
         if admin:
             data.update(
-                pod_id=session.pod_id,
                 network_volume_id=session.network_volume_id,
                 started_by_user_id=session.started_by_user_id,
             )
@@ -250,7 +253,7 @@ class RunPodController:
             return {
                 "configured": self.api.configured,
                 "state": state,
-                "session": self.session_out(session, user.role == "admin") if session else None,
+                "session": self.session_out(session, user=user) if session else None,
                 "can_control": user.role == "admin" or self.settings.allow_user_compute_start,
                 "active_generations": active,
                 "active_users": [
