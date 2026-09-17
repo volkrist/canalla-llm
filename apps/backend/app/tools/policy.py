@@ -2,7 +2,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .contracts import RiskLevel, ToolError
 from .local.paths import inside_trusted
@@ -19,10 +19,26 @@ class WebSettings(BaseModel):
     agent_daily_budget: float = Field(default=1, gt=0, le=50)
     agent_max_runtime: int = Field(default=120, ge=10, le=600)
     browser_enabled: bool = False
-    tor_enabled: bool = False
+    tor_mode: Literal["off", "auto", "on"] = "auto"
+    tor_enabled: bool = True
     computer_mode: Literal["off", "ask", "trusted"] = "ask"
     workspace_roots: list[str] = Field(default_factory=list, max_length=8)
     device_display_name: str = Field(default="", max_length=80)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_tor_mode(cls, data):
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        mode = data.get("tor_mode")
+        if mode not in {"off", "auto", "on"}:
+            if "tor_enabled" in data:
+                data["tor_mode"] = "auto" if data.get("tor_enabled") else "off"
+            else:
+                data["tor_mode"] = "auto"
+        data["tor_enabled"] = data["tor_mode"] != "off"
+        return data
 
 
 def preferences(db, user_id):
@@ -77,12 +93,29 @@ class ToolLimits:
     max_file_bytes: int = 2_000_000
     max_process_seconds: int = 120
     hard_max_calls: int = 32
+    max_tor_search: int = 3
+    max_tor_fetch: int = 8
+    max_tor_pages: int = 8
+    max_tor_calls: int = 12
+    max_tor_follow: int = 8
+    max_tor_depth: int = 3
+    max_tor_candidates: int = 50
+    max_tor_seconds: float = 180
+    hard_tor_search: int = 3
+    hard_tor_fetch: int = 8
+    hard_tor_calls: int = 12
+    hard_tor_seconds: float = 300
     calls: int = 0
     searches: int = 0
     fetches: int = 0
     pages: int = 0
     chars: int = 0
     local_calls: int = 0
+    tor_searches: int = 0
+    tor_fetches: int = 0
+    tor_pages: int = 0
+    tor_calls: int = 0
+    tor_follows: int = 0
     started: float = field(default_factory=time.monotonic)
 
     @property
@@ -94,13 +127,28 @@ class ToolLimits:
         if self.remaining <= 0 or self.calls >= ceiling:
             raise ToolError("tool_limit")
         pages = len(getattr(args, "urls", []))
-        searching = definition.capability in {"search", "tor_search"}
-        fetching = definition.capability in {"fetch", "tor_fetch"}
+        searching = definition.capability == "search"
+        fetching = definition.capability == "fetch"
+        tor_searching = definition.capability == "tor_search"
+        tor_fetching = definition.capability == "tor_fetch"
         local = definition.capability in LOCAL_CAPABILITIES
         if searching and self.searches >= self.max_search:
             raise ToolError("search_limit")
         if fetching and (self.fetches >= self.max_fetch or self.pages + pages > self.max_pages):
             raise ToolError("page_limit")
+        if tor_searching and self.tor_searches >= min(self.max_tor_search, self.hard_tor_search):
+            raise ToolError("search_limit")
+        if tor_fetching and (
+            self.tor_fetches >= min(self.max_tor_fetch, self.hard_tor_fetch)
+            or self.tor_pages + pages > self.max_tor_pages
+        ):
+            raise ToolError("page_limit")
+        if (tor_searching or tor_fetching) and self.tor_calls >= min(self.max_tor_calls, self.hard_tor_calls):
+            raise ToolError("tool_limit")
+        if (tor_searching or tor_fetching) and (time.monotonic() - self.started) >= min(
+            self.max_tor_seconds, self.hard_tor_seconds
+        ):
+            raise ToolError("timeout")
         if local and self.local_calls >= self.max_local_calls:
             raise ToolError("tool_limit")
         content = getattr(args, "content", None) or getattr(args, "new_text", None) or ""
@@ -114,6 +162,10 @@ class ToolLimits:
         self.fetches += fetching
         self.pages += pages
         self.local_calls += local
+        self.tor_searches += tor_searching
+        self.tor_fetches += tor_fetching
+        self.tor_pages += pages if tor_fetching else 0
+        self.tor_calls += tor_searching or tor_fetching
 
 
 def network_channel(definition) -> str | None:
@@ -180,6 +232,7 @@ class ToolPolicy:
         mode,
         computer_mode="off",
         tor_enabled=False,
+        tor_mode="off",
         explicit=False,
         confirmed=False,
         args=None,
@@ -187,7 +240,8 @@ class ToolPolicy:
         capability = definition.capability
         if capability in WEB_CAPABILITIES and mode == "off":
             raise ToolError("web_disabled")
-        if capability in TOR_CAPABILITIES and not (tor_enabled or settings.tor_enabled):
+        mode_tor = tor_mode if tor_mode in {"off", "auto", "on"} else ("auto" if tor_enabled else "off")
+        if capability in TOR_CAPABILITIES and mode_tor == "off":
             raise ToolError("tor_disabled")
         if capability in LOCAL_CAPABILITIES and computer_mode == "off":
             raise ToolError("computer_disabled")

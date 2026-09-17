@@ -72,7 +72,7 @@ def digest(args, action=None):
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-def input_summary(definition, args, secrets=()):
+def input_summary(definition, args, secrets=(), follow=False):
     # Full payload is held only by the running executor. Audit stores bounded safe preview.
     from .contracts import RiskLevel
     from .explain import explanation
@@ -125,6 +125,11 @@ def input_summary(definition, args, secrets=()):
     ):
         if key in values and values[key] not in (None, "", [], {}, False):
             result[key] = sanitized(json.dumps(values[key], ensure_ascii=False), secrets, 500)
+    if definition.name == "tor_search" and result.get("query"):
+        result["action_detail"] = "Search: " + str(result["query"])[:200]
+    if definition.name == "tor_fetch" and result.get("urls"):
+        prefix = "Followed link: " if follow else "Opened: "
+        result["action_detail"] = prefix + str(result["urls"])[:200]
     if risk in {RiskLevel.SENSITIVE, RiskLevel.CRITICAL} or definition.capability in LOCAL_CAPABILITIES:
         result.update(explanation(definition, args, risk=risk))
     return result

@@ -108,6 +108,10 @@ function RunDetails({
         {run.origin === "server_policy" ? " · политика сервера" : ""}
         {networkLabel(run) ? ` · ${networkLabel(run)}` : ""}
       </p>
+      {run.status !== "waiting_confirmation" &&
+        run.input_summary.action_detail && (
+          <p>{run.input_summary.action_detail}</p>
+        )}
       {run.error_code && run.error_code !== error && (
         <p>{toolErrors[run.error_code] || "Операция не выполнена"}</p>
       )}

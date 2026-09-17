@@ -95,6 +95,7 @@ def public_source(row):
             "authority",
             "canonical_url",
             "kind",
+            "details",
         )
         if hasattr(row, key)
     }
@@ -126,6 +127,7 @@ class ExecutionContext:
     mode: str = "auto"
     computer_mode: str = "off"
     tor_enabled: bool = False
+    tor_mode: str = "off"
     explicit: bool = False
     secrets: tuple = ()
     resolver: object = None
@@ -142,7 +144,13 @@ class ExecutionContext:
     host_online: bool = False
     web_search_done: bool = False
     web_fetch_done: bool = False
+    tor_search_done: bool = False
+    tor_fetch_done: bool = False
     seen_canonical: set = field(default_factory=set)
+    tor_visited: set = field(default_factory=set)
+    tor_visited_hosts: set = field(default_factory=set)
+    tor_candidates: list = field(default_factory=list)
+    tor_queries: list = field(default_factory=list)
     user_prompt: str = ""
     workspace: object = None
     task_id: str | None = None
@@ -207,6 +215,7 @@ class ToolExecutor:
                 mode=context.mode,
                 computer_mode=context.computer_mode,
                 tor_enabled=context.tor_enabled,
+                tor_mode=getattr(context, "tor_mode", "off"),
                 explicit=context.explicit,
                 args=args,
             )
@@ -238,7 +247,15 @@ class ToolExecutor:
                 risk_level=effective_risk(definition, args).value,
                 origin=getattr(context, "origin", "model") or "model",
                 assigned_device_id=context.assigned_device_id,
-                input_summary={**input_summary(definition, args, context.secrets), **context.preview},
+                input_summary={
+                    **input_summary(
+                        definition,
+                        args,
+                        context.secrets,
+                        follow=definition.capability == "tor_fetch" and bool(context.tor_fetch_done),
+                    ),
+                    **context.preview,
+                },
                 input_digest=digest(args.model_dump(mode="json"), definition.name),
                 status="waiting_confirmation" if decision == "confirmation_required" else "planning",
                 result_metadata=self._run_metadata(definition, args, context, reservation),
@@ -317,6 +334,7 @@ class ToolExecutor:
                             mode=context.mode,
                             computer_mode=context.computer_mode,
                             tor_enabled=context.tor_enabled,
+                            tor_mode=getattr(context, "tor_mode", "off"),
                             explicit=context.explicit,
                             confirmed=row.confirmed_at is not None,
                             args=args,
@@ -362,16 +380,28 @@ class ToolExecutor:
                             "host_result": (hosted.result_metadata or {}).get("host_result", {}),
                         }
                 started_provider = True
+                if definition.capability == "tor_fetch":
+                    self._guard_tor_fetch(args, context)
                 result = await provider.execute(args, context)
                 result.text = sanitized(
                     result.text, context.secrets, max(0, context.limits.max_chars - context.limits.chars)
                 )
                 context.limits.chars += len(result.text)
+                self._remember_tor(result, context, definition, args)
                 await self.save_sources(result, context, definition)
                 if definition.capability == "search":
                     context.web_search_done = True
                 if definition.capability == "fetch":
                     context.web_fetch_done = True
+                if definition.capability == "tor_search":
+                    context.tor_search_done = True
+                    query = getattr(args, "query", "")
+                    if query:
+                        context.tor_queries.append(query)
+                if definition.capability == "tor_fetch":
+                    context.tor_fetch_done = True
+                    if context.limits.tor_fetches > 1:
+                        context.limits.tor_follows += 1
                 with SessionLocal() as db:
                     row = db.get(ToolRun, run_id)
                     row.status, row.finished_at = "completed", now()
@@ -473,7 +503,7 @@ class ToolExecutor:
         if not context.generation_id:
             result.sources = []
             return
-        saved = []
+        saved, returned = [], []
         channel = "tor" if definition.capability.startswith("tor") else "web"
         kind = "search" if definition.capability in {"search", "tor_search"} else "fetch"
         budget = 3 if kind == "search" else 10
@@ -505,7 +535,9 @@ class ToolExecutor:
                 continue
             if key in context.seen_canonical:
                 if kind == "fetch":
-                    self._upgrade_search_source(context, key, excerpt, source, definition)
+                    upgraded = self._upgrade_search_source(context, key, excerpt, source, definition)
+                    if upgraded:
+                        returned.append(upgraded)
                 continue
             context.seen_canonical.add(key)
             context.limits.chars += len(excerpt)
@@ -543,12 +575,15 @@ class ToolExecutor:
                 authority=source.get("authority"),
                 canonical_url=key[:2048],
                 kind=kind,
+                details=self._source_details(source, channel, kind),
             )
             with SessionLocal() as db:
                 db.add(row)
                 db.commit()
-                saved.append(public_source(row))
-        result.sources = saved
+                public = public_source(row)
+                saved.append(public)
+                returned.append(public)
+        result.sources = returned
         context.sources.extend(saved)
 
     def _upgrade_search_source(self, context, key, excerpt, source, definition):
@@ -560,8 +595,8 @@ class ToolExecutor:
                     WebSourceSnapshot.user_id == context.user_id,
                 )
             )
-            if not row or row.kind == "fetch":
-                return
+            if not row:
+                return None
             context.limits.chars += max(0, len(excerpt) - len(row.excerpt or ""))
             row.excerpt = excerpt
             row.kind = "fetch"
@@ -570,9 +605,100 @@ class ToolExecutor:
             row.provider = definition.provider
             if source.get("title"):
                 row.title = sanitized(source.get("title", ""), context.secrets, 400)
+            channel = "tor" if definition.capability.startswith("tor") else "web"
+            row.details = {**(row.details or {}), **self._source_details(source, channel, "fetch")}
             db.commit()
             public = public_source(row)
         for item in context.sources:
             if item.get("canonical_url") == key or item.get("id") == public["id"]:
                 item.update(public)
                 break
+        return public
+
+    def _source_details(self, source, channel, kind):
+        links = source.get("links") or []
+        return {
+            "transport": "tor" if channel == "tor" else "direct",
+            "reachable": bool(source.get("reachable", True)),
+            "parent_source": source.get("parent_source"),
+            "depth": int(source.get("depth") or (0 if kind == "search" else 1)),
+            "search_query": source.get("search_query"),
+            "links": links[:20],
+        }
+
+    def _guard_tor_fetch(self, args, context):
+        from .tor.router import blocked_link, normalize_http_url
+
+        kept = []
+        for url in list(args.urls):
+            key = normalize_http_url(url)
+            if blocked_link(url) or not key:
+                continue
+            if key in context.tor_visited:
+                continue
+            kept.append(url)
+        if not kept:
+            raise ToolError("tool_limit")
+        args.urls = kept[:3]
+
+    def _remember_tor(self, result, context, definition, args):
+        if not definition.capability.startswith("tor"):
+            return
+        from urllib.parse import urlsplit
+
+        from .tor.router import normalize_http_url
+        from .tor.urls import is_onion
+
+        query = getattr(args, "query", None)
+        parent_depth = 0
+        for url in getattr(args, "urls", []) or []:
+            key = normalize_http_url(url)
+            for item in context.tor_candidates:
+                if normalize_http_url(item.get("url") or "") == key:
+                    parent_depth = max(parent_depth, int(item.get("depth") or 0))
+                    break
+        for source in result.sources or []:
+            url = source.get("final_url") or source.get("url") or ""
+            key = normalize_http_url(url)
+            host = (urlsplit(url).hostname or "").rstrip(".").lower()
+            if key and definition.capability == "tor_fetch":
+                context.tor_visited.add(key)
+            if host:
+                context.tor_visited_hosts.add(host)
+            depth = 0 if definition.capability == "tor_search" else max(parent_depth, 1)
+            source["depth"] = source.get("depth", depth)
+            source["search_query"] = source.get("search_query") or query
+            source["reachable"] = "not reachable" not in (source.get("excerpt") or "").lower()
+            if definition.capability == "tor_fetch":
+                for item in context.tor_candidates:
+                    if normalize_http_url(item.get("url") or "") == key:
+                        source["parent_source"] = item.get("parent_source") or source.get("parent_source")
+                        break
+            for link in source.get("links") or []:
+                if len(context.tor_candidates) >= context.limits.max_tor_candidates:
+                    break
+                link_key = normalize_http_url(link.get("url") or "")
+                if not link_key or link_key in context.tor_visited:
+                    continue
+                context.tor_candidates.append(
+                    {
+                        **link,
+                        "depth": depth + 1,
+                        "parent_source": source.get("title") or url,
+                        "authority": source.get("authority"),
+                    }
+                )
+            if definition.capability == "tor_search" and is_onion(host):
+                context.tor_candidates.append(
+                    {
+                        "url": key or url,
+                        "text": source.get("title") or "",
+                        "source_page": url,
+                        "is_onion": True,
+                        "is_clearnet": False,
+                        "same_host": True,
+                        "depth": 1,
+                        "parent_source": source.get("title") or url,
+                        "authority": source.get("authority"),
+                    }
+                )

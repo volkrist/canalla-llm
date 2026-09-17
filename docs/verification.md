@@ -1,6 +1,25 @@
 # Alex LLM — отчёты проверки
 
-Текущий локальный этап: **0.8.2**. 0.8.2 **не** fully verified: model-driven Tor Search/Fetch не получил REAL PASS на GPU. Direct tor_search/fetch остаются REAL PASS из 0.8.1. `enable_thinking=false` для llama.cpp покрыт локальными контрактами, GPU retest не выполнялся (второй Pod запрещён).
+Текущий локальный этап: **0.8.3**. Automatic Tor research = **REAL PASS** (OrcaRouter, Mock=false). Direct tor_search/fetch remain REAL PASS from 0.8.1. Tor Browser GUI fallback is implemented as a fail-closed stub and was **not** REAL-tested.
+
+## Проверка 0.8.3 — 17 сентября 2026
+
+- Цель: model-driven automatic Tor research. Новых больших features нет.
+- HEAD before: `842cd6e6bde6419c9b09c3532444f9557ebd0d8c` (0.8.2).
+- Backend pytest: **245 passed, 1 skipped**. Ruff check/format — PASS.
+- Native cargo test: **12 passed**.
+- Frontend: **20 unit passed**, TypeScript, Prettier — PASS.
+- Playwright: **15 passed**.
+- RunPod: ONE L40S `o2ossjuc01e6jx`, US-TX-3, $1.09/h, billable **203s**, estimated **$0.061464**, `stop_reason=manual`. An earlier aborted create (`gm0h2x8a2pj9bj`, 52s, $0.015744) was stopped after a 409 while the model was still loading. **RUNNING GPU FINAL = 0**. Volume `uwgeaie5b0` preserved.
+- TEST 1 sanity: `provider=llamacpp`, Mock=false, 18 chars, no Tor tools on math. **PASS**
+- TEST 2 natural «Через Tor найди официальный onion-сервис Tor Project…»: OrcaRouter called `tor_search` (`origin=model`), 4 model `tor_fetch` + 1 `server_policy` fetch, T1–T8, real `.onion` fetched (`T1`), official clearnet over Tor classified `OFFICIAL_AND_REACHABLE`, onion hits `REACHABLE_UNVERIFIED`, answer 3046 chars without claiming unsupported official onion status. **REAL PASS**
+- TEST 3 «Продолжи поиск по найденным onion-ссылкам…»: continued from previous T sources, new onion pages `/blog`, `/archived`, `/pending`, `/about`. **PASS**
+- Server-policy fallback: GPU used model origin; silent-planner injection covered by local tests (`origin=server_policy`). **PASS**
+- TinyFish Agent=0 Browser=0 Search=0 Fetch=0. SOCKS 127.0.0.1:9050. No local onion DNS. No Direct fallback.
+- Tor Browser automation: **not tested**, do not claim PASS.
+- Tauri release + NSIS x64 — PASS. ProductVersion **0.8.3**.
+  - EXE `apps/desktop/src-tauri/target/release/alex-llm.exe` SHA256 `BD933FD1F3BF011E7D89206F3F005F77C46F4FC35ABE7127CBBA600F760D89CD`
+  - Installer `apps/desktop/src-tauri/target/release/bundle/nsis/Alex LLM_0.8.3_x64-setup.exe` SHA256 `F4C067F6C13B0DA125805263ABB74B4475AAC6F7BFE089AD4E5ED6A137E663B4`
 
 ## Проверка 0.8.2 — 17 сентября 2026
 

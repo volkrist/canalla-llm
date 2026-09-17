@@ -35,6 +35,8 @@ def test_off_never_requires_web():
 def test_tor_intent_only_when_user_asks():
     assert looks_like_tor("Через Tor найди официальный onion-ресурс Tor Project.")
     assert looks_like_tor("Open the official .onion site")
+    assert looks_like_tor("search via Tor")
+    assert looks_like_tor("Поищи это в Tor.")
     assert not looks_like_tor("В этой тестовой папке есть небольшой Python-проект.")
     assert not looks_like_tor("Напиши очень длинный подробный рассказ о числах от 1 до 200.")
     assert not looks_like_tor("Какое verification animal указано в тестовом документе?")

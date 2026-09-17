@@ -174,6 +174,7 @@ describe("tool presentation", () => {
     );
     expect(tor).toContain("Network: Tor");
     expect(tor).toContain("Network: Direct");
+    expect(tor).toContain("Tor · 1 действий · 1 Search · 0 Fetch · Завершено");
   });
   it("shows force-web only in Auto mode", () => {
     const auto = renderToStaticMarkup(
@@ -188,6 +189,7 @@ describe("tool presentation", () => {
         webMode="auto"
       />,
     );
+    expect(auto).toContain('aria-label="Tor mode"');
     expect(auto).toContain('value="off"');
     expect(auto).toContain('value="auto" selected');
     expect(auto).toContain('value="on"');

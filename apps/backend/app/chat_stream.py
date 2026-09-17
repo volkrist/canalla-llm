@@ -41,7 +41,16 @@ def sse(event, data):
 
 
 async def stream_response(
-    chat, content, request, user, db, action="send", target_id=None, web_mode=None, computer_mode=None
+    chat,
+    content,
+    request,
+    user,
+    db,
+    action="send",
+    target_id=None,
+    web_mode=None,
+    computer_mode=None,
+    tor_mode=None,
 ):
     if chat.id in request.app.state.generating:
         raise HTTPException(409, "В этом диалоге уже идёт генерация")
@@ -68,6 +77,7 @@ async def stream_response(
     prefs = preferences(db, user.id)
     effective_web_mode = web_mode or prefs.default_mode
     effective_computer_mode = computer_mode or prefs.computer_mode
+    effective_tor_mode = tor_mode or prefs.tor_mode
     usage_id = await compute.begin_generation(user.id, chat.id, request.app.state.provider_name)
     request.app.state.generating.add(chat.id)
     mutation_lock.acquire()
@@ -142,11 +152,13 @@ async def stream_response(
             yield sse("meta", meta)
             settings = get_settings()
             coding = effective_computer_mode != "off"
-            max_calls = (
-                min(settings.tools_max_coding_calls, settings.tools_hard_max_calls)
-                if coding
-                else min(settings.tools_max_calls, settings.tools_hard_max_calls)
-            )
+            torish = effective_tor_mode != "off"
+            max_calls = settings.tools_max_calls
+            if coding:
+                max_calls = max(max_calls, settings.tools_max_coding_calls)
+            if torish:
+                max_calls = max(max_calls, settings.tools_max_tor_calls)
+            max_calls = min(max_calls, settings.tools_hard_max_calls)
             queue = asyncio.Queue(maxsize=64)
 
             async def emit(event, value):
@@ -170,11 +182,20 @@ async def stream_response(
                     max_file_bytes=settings.tools_max_file_bytes,
                     max_process_seconds=settings.tools_max_process_seconds,
                     hard_max_calls=settings.tools_hard_max_calls,
+                    max_tor_search=settings.tools_max_tor_search,
+                    max_tor_fetch=settings.tools_max_tor_fetch,
+                    max_tor_pages=settings.tools_max_tor_pages,
+                    max_tor_calls=settings.tools_max_tor_calls,
+                    max_tor_follow=settings.tools_max_tor_follow,
+                    max_tor_depth=settings.tools_max_tor_depth,
+                    max_tor_candidates=settings.tools_max_tor_candidates,
+                    max_tor_seconds=settings.tools_max_tor_seconds,
                 ),
                 emit,
                 mode=effective_web_mode,
                 computer_mode=effective_computer_mode,
-                tor_enabled=prefs.tor_enabled,
+                tor_enabled=effective_tor_mode != "off",
+                tor_mode=effective_tor_mode,
                 settings=prefs,
                 secrets=(
                     settings.tinyfish_api_key.get_secret_value(),
@@ -209,6 +230,7 @@ async def stream_response(
                         **snapshot.snapshot,
                         "web_mode": effective_web_mode,
                         "computer_mode": effective_computer_mode,
+                        "tor_mode": effective_tor_mode,
                         "web_source_count": len(tool_context.sources),
                         "web_chars": sum(len(source["excerpt"]) for source in tool_context.sources),
                         "planner_usage": planner_usage,

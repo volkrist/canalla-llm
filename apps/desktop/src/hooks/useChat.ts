@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Api, ApiError } from "../lib/api";
 import type { Chat, Message } from "../types";
-import type { ToolRun, WebMode, ComputerMode } from "../lib/tools";
+import type { ToolRun, WebMode, ComputerMode, TorMode } from "../lib/tools";
 
 export function useChat(api: Api, onExpired: () => void) {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -12,6 +12,7 @@ export function useChat(api: Api, onExpired: () => void) {
   const [phase, setPhase] = useState("idle");
   const [error, setError] = useState("");
   const [webMode, setWebMode] = useState<WebMode>("auto");
+  const [torMode, setTorMode] = useState<TorMode>("auto");
   const [computerMode, setComputerMode] = useState<ComputerMode>("ask");
   const [webState, setWebState] = useState("");
   const [webError, setWebError] = useState("");
@@ -20,13 +21,16 @@ export function useChat(api: Api, onExpired: () => void) {
     let live = true;
     const refresh = () =>
       void api
-        .json<{ default_mode: WebMode; computer_mode: ComputerMode }>(
-          "/tools/preferences",
-        )
+        .json<{
+          default_mode: WebMode;
+          computer_mode: ComputerMode;
+          tor_mode: TorMode;
+        }>("/tools/preferences")
         .then((value) => {
           if (live) {
             setWebMode(value.default_mode);
             if (value.computer_mode) setComputerMode(value.computer_mode);
+            if (value.tor_mode) setTorMode(value.tor_mode);
           }
         })
         .catch(() => {});
@@ -204,6 +208,7 @@ export function useChat(api: Api, onExpired: () => void) {
         action,
         mode ?? webMode,
         computerMode,
+        torMode,
       );
       setPhase("completed");
       setWebState("completed");
@@ -249,6 +254,8 @@ export function useChat(api: Api, onExpired: () => void) {
     phase,
     webMode,
     setWebMode,
+    torMode,
+    setTorMode,
     computerMode,
     setComputerMode,
     webState,

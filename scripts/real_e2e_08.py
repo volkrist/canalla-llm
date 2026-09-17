@@ -237,7 +237,16 @@ def sse_events(response):
             data.append(line[5:].lstrip())
 
 
-def collect_stream(api, chat_id, content, web_mode="off", computer_mode="trusted", abort_after=None, read_timeout=180):
+def collect_stream(
+    api,
+    chat_id,
+    content,
+    web_mode="off",
+    computer_mode="trusted",
+    tor_mode="auto",
+    abort_after=None,
+    read_timeout=180,
+):
     parts = []
     events = []
     aborted = False
@@ -265,7 +274,12 @@ def collect_stream(api, chat_id, content, web_mode="off", computer_mode="trusted
             "POST",
             f"/chats/{chat_id}/stream",
             headers=api.headers(),
-            json={"content": content, "web_mode": web_mode, "computer_mode": computer_mode},
+            json={
+                "content": content,
+                "web_mode": web_mode,
+                "computer_mode": computer_mode,
+                "tor_mode": tor_mode,
+            },
         ) as response:
             if response.status_code != 200:
                 body = response.read()
@@ -378,7 +392,7 @@ class Approver(threading.Thread):
                 )
 
 
-def start_backend(discovered, socks_port, skip_gpu=False):
+def start_backend(discovered, socks_port, skip_gpu=False, session_budget="0.60"):
     python = BACKEND / ".venv" / "Scripts" / "python.exe"
     upgrade = subprocess.run(
         [str(python), "-m", "alembic", "upgrade", "head"],
@@ -408,7 +422,7 @@ def start_backend(discovered, socks_port, skip_gpu=False):
             "TOR_SEARCH_PROVIDERS_FILE": str(providers_file),
             "TOR_OFFICIAL_MAPPING_FILE": str(mapping_file),
             "RUNPOD_MAX_HOURLY_PRICE": "1.10",
-            "RUNPOD_MAX_SESSION_BUDGET": "0.60",
+            "RUNPOD_MAX_SESSION_BUDGET": str(session_budget),
         }
     )
     log_path = Path(os.environ["TEMP"]) / "alex-llm-real-e2e" / "backend.log"
@@ -448,17 +462,21 @@ def sqlite_db():
     return candidate
 
 
-def session_row():
+def session_row(active_only=False):
     db = sqlite_db()
     if not db or not db.exists():
         return {}
     with sqlite3.connect(db) as connection:
         connection.row_factory = sqlite3.Row
-        row = connection.execute(
+        query = (
             "SELECT id, pod_id, gpu_type, gpu_vram_mb, hourly_rate, datacenter, status, started_at, ready_at, "
-            "created_at, billable_seconds, estimated_cost, managed, network_volume_id, stop_reason "
-            "FROM compute_sessions ORDER BY created_at DESC LIMIT 1"
-        ).fetchone()
+            "created_at, stopped_at, billable_seconds, estimated_cost, managed, network_volume_id, stop_reason "
+            "FROM compute_sessions "
+        )
+        if active_only:
+            query += "WHERE stopped_at IS NULL "
+        query += "ORDER BY created_at DESC LIMIT 1"
+        row = connection.execute(query).fetchone()
         return dict(row) if row else {}
 
 
@@ -531,8 +549,19 @@ def wait_for_selectable_gpu(api, prefs):
     deadline = time.time() + CATALOG_WAIT
     last = []
     while time.time() < deadline:
-        options = api.client.get("/compute/options", headers=api.headers()).json().get("options") or []
-        last = options
+        try:
+            response = api.client.get("/compute/options", headers=api.headers())
+        except httpx.HTTPError as error:
+            log("gpu catalog transport=%s" % type(error).__name__)
+            time.sleep(20)
+            continue
+        if response.status_code != 200:
+            log("gpu catalog http=%s" % response.status_code)
+            time.sleep(20)
+            continue
+        options = response.json().get("options") or []
+        if options:
+            last = options
         l40s = next((item for item in options if item.get("id") == "NVIDIA L40S"), None)
         compatible = compatible_gpus(options)
         REPORT["gpu_options"] = [
@@ -558,7 +587,7 @@ def wait_for_selectable_gpu(api, prefs):
             prefs.pop("gpu_id", None)
             api.client.put("/compute/preferences", headers=api.headers(), json=prefs)
             return prefs, options, "automatic_compatible"
-        time.sleep(15)
+        time.sleep(20)
     raise RuntimeError(
         "no_compatible_gpu_after_wait:%s"
         % [{"id": item.get("id"), "availability": item.get("availability")} for item in last]
@@ -566,7 +595,9 @@ def wait_for_selectable_gpu(api, prefs):
 
 
 def gpu_guard(started):
-    row = session_row()
+    row = session_row(active_only=True)
+    if not row or row.get("stopped_at") or row.get("status") == "stopped":
+        return
     pod_id = (REPORT.get("runpod") or {}).get("pod_id") or row.get("pod_id")
     if not pod_id or row.get("pod_id") != pod_id:
         return
@@ -607,7 +638,7 @@ def wait_model_ready(api, started, prefs, timeout=720):
             continue
         state = status.get("state")
         session = status.get("session") or {}
-        row = session_row()
+        row = session_row(active_only=True)
         pod_id = session.get("pod_id") or row.get("pod_id")
         last = {
             "state": state,
@@ -632,7 +663,12 @@ def wait_model_ready(api, started, prefs, timeout=720):
             gateway_at = utcnow().isoformat()
         if status.get("session") or pod_id:
             deadline = max(deadline, time.time() + 900)
-        if llm.get("state") == "ready" and llm.get("provider") == "llamacpp" and pod_id:
+        if (
+            state in {"ready", "generating"}
+            and llm.get("state") == "ready"
+            and llm.get("provider") == "llamacpp"
+            and pod_id
+        ):
             model_at = utcnow().isoformat()
             return {"status": status, "llm": llm, "gateway_at": gateway_at, "model_at": model_at}
         if pod_id:
@@ -640,26 +676,26 @@ def wait_model_ready(api, started, prefs, timeout=720):
             gpu_guard(started)
         elif not status.get("session") and not pod_id and time.time() - started >= 12 * 60:
             raise RuntimeError(f"gpu_wait_timeout:{last}")
-        if not pod_id and status.get("error_code") in {"no_compatible_gpu", "price_limit"}:
-            if time.time() - last_search >= 30:
-                options = api.client.get("/compute/options", headers=api.headers()).json().get("options") or []
-                compatible = compatible_gpus(options)
-                l40s = next((item for item in options if item.get("id") == "NVIDIA L40S"), None)
-                log(
-                    "retry gpu catalog l40s=%s compatible=%s"
-                    % (
-                        (l40s or {}).get("availability"),
-                        [item.get("id") for item in compatible],
-                    )
+        if not pod_id and time.time() - last_search >= 30:
+            options = api.client.get("/compute/options", headers=api.headers()).json().get("options") or []
+            compatible = compatible_gpus(options)
+            l40s = next((item for item in options if item.get("id") == "NVIDIA L40S"), None)
+            log(
+                "retry gpu catalog l40s=%s compatible=%s"
+                % (
+                    (l40s or {}).get("availability"),
+                    [item.get("id") for item in compatible],
                 )
-                last_search = time.time()
-                if compatible:
-                    retry_prefs = dict(prefs)
-                    if l40s and l40s in compatible:
-                        retry_prefs["gpu_id"] = "NVIDIA L40S"
-                    else:
-                        retry_prefs.pop("gpu_id", None)
-                    api.client.post("/compute/search", headers=api.headers(), json=retry_prefs)
+            )
+            last_search = time.time()
+            if compatible:
+                retry_prefs = dict(prefs)
+                if l40s and l40s in compatible:
+                    retry_prefs["gpu_id"] = "NVIDIA L40S"
+                else:
+                    retry_prefs.pop("gpu_id", None)
+                retry = api.client.post("/compute/search", headers=api.headers(), json=retry_prefs)
+                log("retry compute search http=%s" % retry.status_code)
         if state in {"error", "stopped", "not_configured"} and not pod_id:
             if status.get("error_code") not in {"no_compatible_gpu", "price_limit", None}:
                 raise RuntimeError(f"compute_failed:{state}:{status.get('error_code')}")
@@ -773,11 +809,15 @@ def launch_managed_pod(api):
     search_body = search.json() if search.headers.get("content-type", "").startswith("application/json") else {}
     REPORT["compute_search_http"] = search.status_code
     REPORT["compute_search"] = {
-        "error": search_body.get("error_code") or (search_body.get("status") or {}).get("error_code"),
+        "error": search_body.get("error_code")
+        or search_body.get("code")
+        or (search_body.get("status") or {}).get("error_code"),
+        "detail": str(search_body.get("detail") or "")[:240],
         "selected": search_body.get("selected_gpu_id"),
         "existing": search_body.get("existing"),
         "state": (search_body.get("status") or {}).get("state"),
     }
+    log("compute search http=%s error=%s" % (search.status_code, REPORT["compute_search"]["error"]))
     ready = wait_model_ready(api, gpu_started, compute_prefs)
     row = session_row()
     REPORT["runpod"] = {

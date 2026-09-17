@@ -150,6 +150,7 @@ export class Api {
     action?: { kind: "resend" | "regenerate"; messageId: string },
     webMode?: "off" | "auto" | "on",
     computerMode?: "off" | "ask" | "trusted",
+    torMode?: "off" | "auto" | "on",
   ) {
     const path = action
       ? `/chats/${id}/messages/${action.messageId}/${action.kind}`
@@ -163,6 +164,7 @@ export class Api {
               content,
               web_mode: webMode,
               computer_mode: computerMode,
+              tor_mode: torMode,
             }),
       signal,
     });

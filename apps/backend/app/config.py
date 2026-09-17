@@ -65,6 +65,14 @@ class Settings(BaseSettings):
     tools_max_pages: int = Field(default=10, ge=1, le=20)
     tools_max_chars: int = Field(default=20000, ge=1000, le=40000)
     tools_max_seconds: int = Field(default=180, ge=10, le=600)
+    tools_max_tor_search: int = Field(default=3, ge=1, le=3)
+    tools_max_tor_fetch: int = Field(default=8, ge=1, le=8)
+    tools_max_tor_pages: int = Field(default=8, ge=1, le=8)
+    tools_max_tor_calls: int = Field(default=12, ge=1, le=12)
+    tools_max_tor_follow: int = Field(default=8, ge=1, le=8)
+    tools_max_tor_depth: int = Field(default=3, ge=1, le=3)
+    tools_max_tor_candidates: int = Field(default=50, ge=1, le=50)
+    tools_max_tor_seconds: int = Field(default=180, ge=10, le=300)
     tor_socks_host: str = "127.0.0.1"
     tor_socks_port: int = Field(default=9050, ge=1, le=65535)
     tor_search_providers: list[dict] = []

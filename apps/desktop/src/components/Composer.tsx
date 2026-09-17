@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ArrowUp, Square } from "lucide-react";
-import type { ComputerMode, WebMode } from "../lib/tools";
+import type { ComputerMode, TorMode, WebMode } from "../lib/tools";
 
 export default function Composer({
   busy,
@@ -14,6 +14,8 @@ export default function Composer({
   enterSends = true,
   webMode = "auto",
   setWebMode,
+  torMode = "auto",
+  setTorMode,
   computerMode = "ask",
   setComputerMode,
   deviceLabel = "Not paired",
@@ -30,6 +32,8 @@ export default function Composer({
   enterSends?: boolean;
   webMode?: WebMode;
   setWebMode?: (mode: WebMode) => void;
+  torMode?: TorMode;
+  setTorMode?: (mode: TorMode) => void;
   computerMode?: ComputerMode;
   setComputerMode?: (mode: ComputerMode) => void;
   deviceLabel?: string;
@@ -112,6 +116,19 @@ export default function Composer({
               Найти в интернете
             </button>
           )}
+          <label>
+            Tor{" "}
+            <select
+              aria-label="Tor mode"
+              disabled={busy}
+              value={torMode}
+              onChange={(e) => setTorMode?.(e.target.value as TorMode)}
+            >
+              <option value="off">Off</option>
+              <option value="auto">Auto</option>
+              <option value="on">On</option>
+            </select>
+          </label>
           <label>
             Computer{" "}
             <select

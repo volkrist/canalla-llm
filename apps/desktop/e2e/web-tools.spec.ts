@@ -29,6 +29,9 @@ async function login(page: Page, request: APIRequestContext) {
   await expect(page.getByLabel("Web mode", { exact: true })).toHaveValue(
     "auto",
   );
+  await expect(page.getByLabel("Tor mode", { exact: true })).toHaveValue(
+    "auto",
+  );
   await expect(page.getByLabel("Computer mode", { exact: true })).toHaveValue(
     "ask",
   );
@@ -61,6 +64,9 @@ test("Web settings warnings and explicit Browser commands require per-action app
   await expect(
     page.getByLabel("Computer mode default", { exact: true }),
   ).toHaveValue("ask");
+  await expect(
+    page.getByLabel("Tor mode default", { exact: true }),
+  ).toHaveValue("auto");
   await expect(
     page.getByRole("button", { name: "Forget this device", exact: true }),
   ).toBeVisible();

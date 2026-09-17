@@ -35,4 +35,4 @@ adapters must perform their own supplier cancellation in finally blocks.
 
 Production Agent is fail-closed without an adapter-enforced read-only boundary; model prompts are not an enforcement mechanism. Agent and Browser definitions exist for explicit Advanced UI only and are omitted from the planner. Browser remains per-action confirmation. Settings change through authenticated APIs without restarting the backend. See [TinyFish limitations](tinyfish.md), [Tor](tor.md) and [Local Computer](local-computer.md).
 
-`web_mode`, `tor_enabled` and `computer_mode` are independent. Web Off does not turn off Local Computer or Tor. Computer Off does not turn off Web.
+`web_mode`, `tor_mode` (Off/Auto/On) and `computer_mode` are independent. Web Off does not turn off Local Computer or Tor. Computer Off does not turn off Web.

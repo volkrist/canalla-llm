@@ -114,8 +114,10 @@ export default function WebSources({
       )}
       {tor.length > 0 && (
         <section aria-label="Tor sources" className="web-sources">
-          <strong>Tor T</strong>
-          <SourceItems sources={tor} onError={setError} />
+          <details>
+            <summary>Tor sources · {tor.length}</summary>
+            <SourceItems sources={tor} onError={setError} />
+          </details>
         </section>
       )}
       {error && <p role="alert">{error}</p>}

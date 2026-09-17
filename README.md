@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.8.2**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.8.3**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -231,3 +231,13 @@ Closes four of the five remaining REAL E2E items on ONE L40S pod (`plbskald4189b
 **Limitation:** model-driven Tor Search/Fetch did **not** REAL PASS. Direct tor_search/fetch remain REAL PASS from 0.8.1. This run's Tor planner burned `max_tokens=1200` on Qwen3 thinking and emitted no `tool_calls`; the follow-up stream stored 0 visible tokens. `enable_thinking=false` is now sent to llama.cpp. GPU retest of model-driven Tor is still required. Do not call 0.8.2 fully verified.
 
 Keep `LLM_PROVIDER=mock` unless you intentionally start compute. TinyFish Agent/Browser stay unused.
+
+## Version 0.8.3 — Automatic Tor research REAL VERIFIED
+
+A normal user prompt such as «Через Tor найди …» now runs automatic Tor research on the existing tool stack: Tor Off/Auto/On, intent router, model-first `tor_search`/`tor_fetch`, honest `origin=server_policy` fallback, link extraction, follow with loop protection, T sources, and no Tor→Direct fallback.
+
+GPU retest on ONE L40S (`o2ossjuc01e6jx`, US-TX-3, $1.09/h, 203s, ~$0.061, volume `uwgeaie5b0` preserved): OrcaRouter itself called `tor_search` (`origin=model`), completed `tor_fetch` including a real `.onion`, followed further onion pages on continue, wrote T sources, and returned a visible sourced answer without treating reachable as official. TinyFish Agent/Browser stayed 0.
+
+Run `alembic upgrade head` (0010). Keep `LLM_PROVIDER=mock` unless you intentionally start compute.
+
+[Tor](docs/tor.md) · [Verification](docs/verification.md)

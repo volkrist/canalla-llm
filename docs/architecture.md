@@ -142,7 +142,7 @@ User Stop cancels planner/provider tasks. Failed/denied tool executions emit ter
 
 ## 0.7.0 WebRouter, Tor and Local Computer
 
-WebRouter classifies Off/Auto/On independently of `tor_enabled` and `computer_mode`. Planner `tool_choice` remains auto. Missing required Search is injected as `origin=server_policy`, then Fetch 1–3 canonical URLs (`ttl=0` when fresh). Agent/Browser stay `auto_route=false` and are omitted from planner schemas.
+WebRouter classifies Off/Auto/On independently of `tor_mode` and `computer_mode`. Planner `tool_choice` remains auto. Missing required Search is injected as `origin=server_policy`, then Fetch 1–3 canonical URLs (`ttl=0` when fresh). Agent/Browser stay `auto_route=false` and are omitted from planner schemas.
 
 Tor uses a custom SOCKS5h client (ATYP 0x03, loopback proxy). Tor Search is configured providers, not the official onion catalog. Authority is official vs reachable, never collapsed.
 
@@ -155,4 +155,8 @@ Trusted Workspace is no longer a path jail: Alex may use the whole local compute
 ## 0.8.0 Coding Agent foundation
 
 Coding uses the same registry/policy/orchestrator/host stack. `LocalTask` checkpoints (migration 0009) store hashes and command digests, not file bodies. `patch_file` requires `expected_before_sha256`. Git tools are argv-only with credential helper disabled. Force-push and hard reset stay CRITICAL and host-disarmed. Rotate device credential overwrites Windows Credential Manager. Confirmation copy is split by risk. Hard ceiling: 32 tool calls.
+
+## 0.8.3 Automatic Tor research
+
+Tor Off/Auto/On is independent of Web. A Tor intent router can inject `tor_search` with `origin=server_policy` when the user asked for Tor and the planner returned no Tor tool. `tor_fetch` extracts structured links; follow stays model-selected under visited-URL and budget ceilings. llama.cpp planner/stream payloads send `chat_template_kwargs.enable_thinking=false`. Migration 0010 adds `web_source_snapshots.details`. Tor Browser remains a fail-closed unused fallback.
 

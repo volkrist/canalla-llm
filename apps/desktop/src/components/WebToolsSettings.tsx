@@ -9,7 +9,7 @@ import {
   storeUserCredential,
   type DeviceStatus,
 } from "../lib/host";
-import type { ComputerMode, WebMode } from "../lib/tools";
+import type { ComputerMode, TorMode, WebMode } from "../lib/tools";
 
 interface Preferences {
   search_enabled: boolean;
@@ -20,6 +20,7 @@ interface Preferences {
   agent_daily_budget: number;
   agent_max_runtime: number;
   browser_enabled: boolean;
+  tor_mode: TorMode;
   tor_enabled: boolean;
   computer_mode: ComputerMode;
   workspace_roots: string[];
@@ -68,7 +69,10 @@ export default function WebToolsSettings({ api }: { api: Api }) {
             agent_daily_budget: prefs.agent_daily_budget,
             agent_max_runtime: prefs.agent_max_runtime,
             browser_enabled: prefs.browser_enabled,
-            tor_enabled: prefs.tor_enabled ?? false,
+            tor_mode: prefs.tor_mode ?? (prefs.tor_enabled ? "auto" : "off"),
+            tor_enabled:
+              (prefs.tor_mode ?? (prefs.tor_enabled ? "auto" : "off")) !==
+              "off",
             computer_mode: prefs.computer_mode ?? "ask",
             workspace_roots: prefs.workspace_roots ?? [],
             device_display_name: prefs.device_display_name ?? "",
@@ -317,13 +321,26 @@ export default function WebToolsSettings({ api }: { api: Api }) {
                 : ""}
             </p>
             <label>
-              <input
-                type="checkbox"
-                checked={value.tor_enabled}
-                onChange={(e) => change({ tor_enabled: e.target.checked })}
-              />
-              Разрешить Tor Search/Fetch (не TinyFish)
+              Tor{" "}
+              <select
+                aria-label="Tor mode default"
+                value={value.tor_mode}
+                onChange={(e) => {
+                  const tor_mode = e.target.value as TorMode;
+                  change({ tor_mode, tor_enabled: tor_mode !== "off" });
+                }}
+              >
+                <option value="off">Off</option>
+                <option value="auto">Auto</option>
+                <option value="on">On</option>
+              </select>
             </label>
+            <p>
+              Off — без Tor. Auto — только при явном запросе Tor/onion. On — для
+              research, но не для приветствий, правки текста, математики и
+              локальных задач. Direct fallback нет. GUI Tor Browser не
+              используется автоматически.
+            </p>
           </fieldset>
           <fieldset>
             <legend>Local Computer</legend>

@@ -86,7 +86,9 @@ class ContextBuilder:
             "Only cite supplied W or T labels. Never claim to have searched if results are unavailable. "
             "Reachability of a .onion address is not official provenance.\n"
             + "\n\n".join(
-                f"[{s['label']}] {s['title']}\n{s['final_url']}\n{s.get('authority') or ''}\n{s['excerpt']}"
+                f"[{s['label']}] {s['title']}\n{s['final_url']}\n{s.get('authority') or ''}\n"
+                f"transport={((s.get('details') or {}).get('transport') or s.get('channel') or '')} "
+                f"depth={((s.get('details') or {}).get('depth'))}\n{s['excerpt']}"
                 for s in primary
             )
             + "\n"

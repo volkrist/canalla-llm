@@ -300,6 +300,8 @@ export default function Workspace({
         <Composer
           webMode={chat.webMode}
           setWebMode={chat.setWebMode}
+          torMode={chat.torMode}
+          setTorMode={chat.setTorMode}
           computerMode={chat.computerMode}
           setComputerMode={chat.setComputerMode}
           deviceLabel={device.display_name || "Windows device"}

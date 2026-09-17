@@ -17,6 +17,7 @@ from .executor import ExecutionContext, ToolExecutor, public_job, public_run, pu
 from .local.devices import HostResult, PairRequest, public_device, require_device
 from .models import PairedDevice, ToolPreferences, ToolRun, WebSourceSnapshot
 from .policy import ToolLimits, WebSettings, preferences
+from .tor.browser import browser_status
 
 router = APIRouter(tags=["tools"])
 
@@ -79,6 +80,7 @@ async def execute_tool(
             mode="on",
             computer_mode=prefs.computer_mode,
             tor_enabled=prefs.tor_enabled,
+            tor_mode=prefs.tor_mode,
             explicit=True,
             settings=prefs,
             secrets=(
@@ -193,7 +195,13 @@ def provider_status(user: User = Depends(current_user)):
             "files_changed": settings.tools_max_files_changed,
             "file_bytes": settings.tools_max_file_bytes,
             "process_seconds": settings.tools_max_process_seconds,
+            "tor_search": settings.tools_max_tor_search,
+            "tor_fetch": settings.tools_max_tor_fetch,
+            "tor_calls": settings.tools_max_tor_calls,
+            "tor_follow": settings.tools_max_tor_follow,
+            "tor_depth": settings.tools_max_tor_depth,
         },
+        "tor_browser": browser_status(),
     }
 
 

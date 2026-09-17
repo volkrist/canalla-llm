@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 import httpx
 
 from .config import Settings
+from .tools.tor.router import classify_tor
 from .tools.web_router import classify_web
 
 
@@ -41,30 +42,99 @@ class MockLLMProvider(LLMProvider):
         # Deterministic mock-only planner. Production decisions come from llama.cpp.
         prompt = next((m.get("content", "") for m in reversed(messages) if m["role"] == "user"), "")
         previous = [m for m in messages if m["role"] == "tool"]
+        names = {item.get("function", {}).get("name") for item in tools if isinstance(item, dict)}
+        policy = str(messages[0].get("content", "")) if messages else ""
         if previous:
             last = json.loads(previous[-1]["content"])
             if len(previous) == 1 and last.get("sources") and not last.get("error"):
+                url = last["sources"][0].get("final_url")
+                fetch_name = "tor_fetch" if "tor_fetch" in names else "web_fetch"
+                if last.get("origin") == "server_policy" and "tor_fetch" in names:
+                    fetch_name = "tor_fetch"
+                if (url or "").endswith(".onion") or ".onion/" in (url or ""):
+                    fetch_name = "tor_fetch" if "tor_fetch" in names else fetch_name
                 return {
                     "tool_calls": [
                         {
                             "id": "mock-fetch",
                             "type": "function",
                             "function": {
-                                "name": "web_fetch",
-                                "arguments": json.dumps(
-                                    {"urls": [last["sources"][0]["final_url"]], "fresh": True}
-                                ),
+                                "name": fetch_name,
+                                "arguments": json.dumps({"urls": [url], "fresh": True}),
+                            },
+                        }
+                    ]
+                }
+            if (
+                len(previous) == 2
+                and "tor_fetch" in names
+                and last.get("links")
+                and any(item.get("is_onion") for item in last.get("links") or [])
+            ):
+                onion = next(item["url"] for item in last["links"] if item.get("is_onion"))
+                return {
+                    "tool_calls": [
+                        {
+                            "id": "mock-tor-follow",
+                            "type": "function",
+                            "function": {
+                                "name": "tor_fetch",
+                                "arguments": json.dumps({"urls": [onion], "fresh": True}),
                             },
                         }
                     ]
                 }
             return {"tool_calls": []}
-        policy = str(messages[0].get("content", ""))
         mode = "auto"
         if "Web mode=on" in policy:
             mode = "on"
         elif "Web mode=off" in policy:
             mode = "off"
+        tor_mode = "off"
+        if "tor_mode=on" in policy:
+            tor_mode = "on"
+        elif "tor_mode=auto" in policy:
+            tor_mode = "auto"
+        if "tor_mode=off" in policy:
+            tor_mode = "off"
+        elif "tor_enabled=True" in policy:
+            tor_mode = "auto"
+        tor_intent = classify_tor(prompt, tor_mode)
+        if "Previously seen Tor URLs" in policy and "tor_fetch" in names:
+            seen = [
+                item.rstrip(".;")
+                for item in re.findall(
+                    r"https?://[^\s;]+",
+                    policy.split("Previously seen Tor URLs:", 1)[-1],
+                )
+                if ".onion" in item
+            ]
+            if seen:
+                return {
+                    "tool_calls": [
+                        {
+                            "id": "mock-tor-continue",
+                            "type": "function",
+                            "function": {
+                                "name": "tor_fetch",
+                                "arguments": json.dumps({"urls": seen[:1], "fresh": True}),
+                            },
+                        }
+                    ]
+                }
+        if tor_intent.required and "tor_search" in names:
+            return {
+                "tool_calls": [
+                    {
+                        "id": "mock-tor",
+                        "type": "function",
+                        "function": {
+                            "name": "tor_search",
+                            "arguments": json.dumps({"query": tor_intent.query}, ensure_ascii=False),
+                        },
+                    }
+                ]
+            }
         intent = classify_web(prompt, mode)
         if not intent.required:
             return {"tool_calls": []}

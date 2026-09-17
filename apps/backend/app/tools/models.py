@@ -66,6 +66,7 @@ class WebSourceSnapshot(Base):
     authority: Mapped[str | None] = mapped_column(String(40))
     canonical_url: Mapped[str | None] = mapped_column(Text)
     kind: Mapped[str | None] = mapped_column(String(20))
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class PairedDevice(Base):

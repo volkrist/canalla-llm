@@ -1,17 +1,57 @@
-# Tor in 0.8.0
+# Tor in 0.8.3
 
 Tor is a separate capability from TinyFish Web. `web_mode` does not enable or
-disable it. The user toggle is `tor_enabled` in Web & Tools settings.
+disable it. Composer and Web & Tools expose **Tor Off / Auto / On**, independent
+of Web mode.
+
+## Modes
+
+- **Off** — no Tor tools for that request.
+- **Auto** — Tor only when the user explicitly asks (через Tor, `.onion`, hidden
+  service, continue onion research, and English equivalents).
+- **On** — Tor is allowed for factual/research prompts, but not for greetings,
+  simple rewrites, math, or local-only tasks.
+- «не используй Tor» / «don't use Tor» disables Tor for that request.
+
+The model is expected to call `tor_search` then `tor_fetch` itself. If the user
+has explicit Tor intent and the planner returns no Tor tool, the server injects
+a safe `tor_search` (and may fetch/follow within limits) with
+`origin=server_policy`. Audit never pretends a server-injected call was
+model-selected.
+
+## Research loop
+
+Automatic research stays on the existing ToolOrchestrator. Default ceilings:
+
+- 3 `tor_search`
+- 8 `tor_fetch`
+- 8 followed links
+- depth 3
+- 12 Tor tool calls
+- 50 candidate links
+- wall-clock `tools_max_tor_seconds` (hard 300s)
+
+`tor_fetch` extracts structured links (URL, text, source page, onion/clearnet,
+same-host). Relative links are resolved. Fragments and tracking parameters are
+stripped. `mailto:`, `javascript:`, `data:`, `file:`, `magnet:`, and download
+suffixes are not followed. The model picks relevant next onion URLs; the server
+enforces visited-URL loop protection.
+
+Sources keep channel **T** with transport=tor, depth, parent, and authority.
+Reachable does not mean official.
 
 ## Providers
 
 - `TorTransportProvider` — SOCKS5h to loopback Tor (`127.0.0.1:9050` by default).
   Destination hostnames are sent as SOCKS ATYP `0x03`. `.onion` is never passed to
-  the local DNS resolver.
+  the local DNS resolver. There is no Tor → Direct fallback.
 - `TorSearchProvider` — GET against configured `TOR_SEARCH_PROVIDERS` URL
   templates (`{query}` or `__QUERY__`), also through that transport.
 - `TorFetchProvider` — reads http(s) URLs, including `.onion`, through the same
   transport.
+- `TorBrowserProvider` — unused SOCKS fallback abstraction. Automatic research
+  does not launch Tor Browser. Enabling it requires `ALEX_TOR_BROWSER_FALLBACK=1`
+  and still fail-closes until a real isolated-profile controller exists.
 
 A curated `TOR_OFFICIAL_MAPPING` is provenance only. It is not a search index
 and is never returned as if it were Tor Search hits.
@@ -32,7 +72,11 @@ form through SOCKS5h and appends the hidden fields before searching.
 Application defaults stay empty so an expired address is not shipped as if it
 were still valid. Prefer `TOR_SEARCH_PROVIDERS_FILE` or
 `TOR_OFFICIAL_MAPPING_FILE` for JSON lists; environment JSON also works.
-`TOR_OFFICIAL_MAPPING` remains provenance only and is never used as a search index.
+
+Automatic research may search, fetch pages, follow normal links, and read
+content. It does not submit forms, log in, create accounts, download
+executables/archives, upload files, enter credentials, make purchases, or send
+messages.
 
 ## Authority
 
@@ -46,4 +90,5 @@ clearnet/onion pair). Reachability never implies official:
 ## Limits
 
 SOCKS is loopback-only. TinyFish is not used. Paid Agent/Browser are not Tor
-transports.
+transports. Migration 0010 adds `web_source_snapshots.details` for Tor research
+metadata.

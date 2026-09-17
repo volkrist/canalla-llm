@@ -238,6 +238,7 @@ async def stream_chat(
         db,
         web_mode=body.web_mode,
         computer_mode=body.computer_mode,
+        tor_mode=body.tor_mode,
     )
 
 
@@ -260,6 +261,7 @@ async def resend(
         target_id=message_id,
         web_mode=body.web_mode,
         computer_mode=body.computer_mode,
+        tor_mode=body.tor_mode,
     )
 
 

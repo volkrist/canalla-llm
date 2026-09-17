@@ -1,4 +1,5 @@
 export type WebMode = "off" | "auto" | "on";
+export type TorMode = "off" | "auto" | "on";
 export type ComputerMode = "off" | "ask" | "trusted";
 export interface ToolRun {
   id: string;
@@ -198,7 +199,7 @@ export function summarizeFamily(
       (run) => run.tool_name === "tor_search",
     ).length;
     const fetches = runs.filter((run) => run.tool_name === "tor_fetch").length;
-    return `Tor · ${runs.length} запросов · ${searches} Search · ${fetches} Fetch · ${status}`;
+    return `Tor · ${runs.length} действий · ${searches} Search · ${fetches} Fetch · ${status}`;
   }
   const changed = runs.filter(
     (run) => FILE_CHANGE_TOOLS.has(run.tool_name) && run.status === "completed",

@@ -8,6 +8,7 @@ from ...config import get_settings
 from ..contracts import ToolError, ToolProvider, ToolResult
 from ..tinyfish.web import bounded_excerpt
 from .classify import classify_authority
+from .router import blocked_link, extract_page_links
 from .socks import TorTransportProvider
 from .urls import validate_tor_url
 
@@ -188,6 +189,9 @@ class TorFetchProvider(ToolProvider):
         transport = self._transport(settings)
         sources, errors, handshake = [], [], {}
         for url in args.urls[:3]:
+            if blocked_link(url):
+                errors.append("unsafe_url")
+                continue
             await validate_tor_url(url)
             try:
                 page = await transport.fetch(url)
@@ -204,6 +208,7 @@ class TorFetchProvider(ToolProvider):
                 )
                 continue
             reachable = bool(page.get("text"))
+            links = extract_page_links(page.get("url") or url, page.get("text") or "")
             sources.append(
                 {
                     "url": url,
@@ -213,6 +218,9 @@ class TorFetchProvider(ToolProvider):
                         re.sub(r"(?is)<script.*?</script>", " ", page.get("text", "")), args.purpose
                     ),
                     "authority": classify_authority(url, reachable, settings),
+                    "links": links,
+                    "reachable": reachable,
+                    "transport": "tor",
                 }
             )
             handshake = page.get("socks") or handshake
