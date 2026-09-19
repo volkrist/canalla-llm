@@ -1369,6 +1369,42 @@ p {
   gap: 5px;
   font-size: 12px;
 }
+.task-panel {
+  width: min(900px, calc(100% - 40px));
+  margin: 0 auto 8px;
+  padding: 10px 12px;
+  border: 1px solid #404844;
+  border-radius: 10px;
+  font-size: 12px;
+}
+.task-panel header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.task-plan {
+  margin: 8px 0;
+  padding-left: 0;
+  list-style: none;
+}
+.task-plan li[data-status="RUNNING"],
+.task-plan li[data-status="WAITING"] {
+  color: #afd5b9;
+}
+.task-actions button {
+  margin-right: 8px;
+}
+.task-history {
+  width: min(900px, calc(100% - 40px));
+  margin: 0 auto 8px;
+  font-size: 12px;
+}
+.task-history button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 0;
+}
 .tool-activity {
   width: min(900px, calc(100% - 40px));
   margin: 0 auto 8px;

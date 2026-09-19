@@ -11,6 +11,8 @@ import {
 } from "../lib/tools";
 
 const EXPLAIN_KEYS = [
+  "task",
+  "step",
   "reason",
   "action_detail",
   "target",
@@ -20,6 +22,8 @@ const EXPLAIN_KEYS = [
 ] as const;
 
 const EXPLAIN_LABELS: Record<(typeof EXPLAIN_KEYS)[number], string> = {
+  task: "Задача",
+  step: "Шаг",
   reason: "Причина",
   action_detail: "Действие",
   target: "Объект",

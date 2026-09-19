@@ -21,6 +21,8 @@ import UsageDialog from "./UsageDialog";
 import PersonalPanel from "./PersonalPanel";
 import FilesPanel from "./FilesPanel";
 import ToolActivity from "./ToolActivity";
+import TaskPanel from "./TaskPanel";
+import TaskHistory from "./TaskHistory";
 import BrowserPanel from "./BrowserPanel";
 import {
   pairLocalDevice,
@@ -315,6 +317,19 @@ export default function Workspace({
           draft={draft}
           setDraft={setDraft}
           enterSends={settings.enterSends}
+        />
+        <TaskPanel
+          task={chat.task}
+          busy={chat.busy}
+          onPause={() => void chat.pauseTask()}
+          onResume={() => void chat.resumeTask()}
+          onStop={() => void chat.stopTask()}
+        />
+        <TaskHistory
+          tasks={chat.tasks}
+          onOpen={(_id, chatId) => {
+            if (chatId) void chat.select(chatId);
+          }}
         />
         <ToolActivity
           api={api}

@@ -1,6 +1,43 @@
 export type WebMode = "off" | "auto" | "on";
 export type TorMode = "off" | "auto" | "on";
 export type ComputerMode = "off" | "ask" | "trusted";
+export interface TaskStep {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  tool_category: string;
+  verification_required: boolean;
+  attempts: number;
+  result_summary: string;
+  key: string;
+}
+export interface AutonomousTask {
+  id: string;
+  title: string;
+  status: string;
+  chat_id: string | null;
+  workspace: string;
+  current_step: string;
+  current_phase: string;
+  plan_revision: number;
+  tool_calls_used: number;
+  tool_budget: number;
+  files_changed: number;
+  file_change_budget: number;
+  elapsed_runtime: number;
+  runtime_budget: number;
+  last_error: string | null;
+  completion_summary: string | null;
+  message: string;
+  steps: TaskStep[];
+  events?: {
+    id: string;
+    kind: string;
+    payload: Record<string, string>;
+    created_at: string;
+  }[];
+}
 export interface ToolRun {
   id: string;
   chat_id: string;
@@ -146,6 +183,12 @@ export const toolErrors: Record<string, string> = {
   conflict: "Файл изменился после чтения. Нужно прочитать снова.",
   git_not_installed: "Git не установлен на этом компьютере.",
   task_file_limit: "Достигнут лимит изменённых файлов в задаче.",
+  task_budget: "Исчерпан бюджет вызовов инструментов.",
+  task_runtime_limit: "Исчерпан лимит времени задачи.",
+  task_paused: "Задача приостановлена.",
+  task_stopped: "Задача остановлена.",
+  workspace_busy: "Workspace занят другой задачей.",
+  invalid_task_transition: "Недопустимый переход состояния задачи.",
   file_size_limit: "Файл слишком большой для этой операции.",
   process_timeout_limit: "Превышен лимит времени процесса.",
 };

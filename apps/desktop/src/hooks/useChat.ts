@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Api, ApiError } from "../lib/api";
 import type { Chat, Message } from "../types";
-import type { ToolRun, WebMode, ComputerMode, TorMode } from "../lib/tools";
+import type {
+  ToolRun,
+  WebMode,
+  ComputerMode,
+  TorMode,
+  AutonomousTask,
+} from "../lib/tools";
 
 export function useChat(api: Api, onExpired: () => void) {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -17,6 +23,8 @@ export function useChat(api: Api, onExpired: () => void) {
   const [webState, setWebState] = useState("");
   const [webError, setWebError] = useState("");
   const [toolRuns, setToolRuns] = useState<ToolRun[]>([]);
+  const [task, setTask] = useState<AutonomousTask | null>(null);
+  const [tasks, setTasks] = useState<AutonomousTask[]>([]);
   useEffect(() => {
     let live = true;
     const refresh = () =>
@@ -93,6 +101,20 @@ export function useChat(api: Api, onExpired: () => void) {
               )
             : [],
         );
+        setTask(null);
+        if (id) {
+          const listed = await api.json<AutonomousTask[]>(
+            "/tasks?chat_id=" + encodeURIComponent(id),
+          );
+          const current =
+            listed.find(
+              (item) =>
+                !["COMPLETED", "FAILED", "STOPPED"].includes(item.status),
+            ) || listed[0];
+          if (current) setTask(current);
+        }
+        const history = await api.json<AutonomousTask[]>("/tasks");
+        if (active.current) setTasks(history);
       }
     } catch (e) {
       handleError(e);
@@ -126,6 +148,7 @@ export function useChat(api: Api, onExpired: () => void) {
     content: string,
     action?: { kind: "resend" | "regenerate"; messageId: string },
     mode?: WebMode,
+    resumeTaskId?: string,
   ): Promise<boolean> {
     if (locked.current) return false;
     locked.current = true;
@@ -161,6 +184,22 @@ export function useChat(api: Api, onExpired: () => void) {
           if (event.event === "web_status") {
             setWebState(String(event.data.state));
             if (event.data.code) setWebError(String(event.data.code));
+          }
+          if (event.event === "task" || event.event === "task_status") {
+            const payload = event.data as unknown as AutonomousTask;
+            if (payload.id) setTask(payload);
+            else
+              setTask((current) =>
+                current
+                  ? {
+                      ...current,
+                      status: String(event.data.state || current.status),
+                      message: String(
+                        event.data.code || current.message || current.status,
+                      ),
+                    }
+                  : current,
+              );
           }
           if (event.event === "tool") {
             const run = event.data as unknown as ToolRun;
@@ -209,6 +248,7 @@ export function useChat(api: Api, onExpired: () => void) {
         mode ?? webMode,
         computerMode,
         torMode,
+        resumeTaskId,
       );
       setPhase("completed");
       setWebState("completed");
@@ -261,6 +301,8 @@ export function useChat(api: Api, onExpired: () => void) {
     webState,
     webError,
     toolRuns,
+    task,
+    tasks,
     error,
     select,
     remove,
@@ -288,6 +330,33 @@ export function useChat(api: Api, onExpired: () => void) {
       }
     },
     stop: () => controller.current?.abort(),
+    pauseTask: async () => {
+      if (!task) return;
+      try {
+        const next = await api.json<AutonomousTask>(`/tasks/${task.id}/pause`, {
+          method: "POST",
+        });
+        setTask(next);
+      } catch (e) {
+        handleError(e);
+      }
+    },
+    stopTask: async () => {
+      if (!task) return;
+      try {
+        const next = await api.json<AutonomousTask>(`/tasks/${task.id}/stop`, {
+          method: "POST",
+        });
+        setTask(next);
+        controller.current?.abort();
+      } catch (e) {
+        handleError(e);
+      }
+    },
+    resumeTask: async () => {
+      if (!task || !selected) return;
+      await send("", undefined, webMode, task.id);
+    },
     clearError: () => setError(""),
   };
 }

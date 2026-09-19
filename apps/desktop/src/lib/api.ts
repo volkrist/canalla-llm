@@ -151,14 +151,17 @@ export class Api {
     webMode?: "off" | "auto" | "on",
     computerMode?: "off" | "ask" | "trusted",
     torMode?: "off" | "auto" | "on",
+    resumeTaskId?: string,
   ) {
-    const path = action
-      ? `/chats/${id}/messages/${action.messageId}/${action.kind}`
-      : `/chats/${id}/stream`;
+    const path = resumeTaskId
+      ? `/tasks/${resumeTaskId}/resume`
+      : action
+        ? `/chats/${id}/messages/${action.messageId}/${action.kind}`
+        : `/chats/${id}/stream`;
     const response = await this.response(path, {
       method: "POST",
       body:
-        action?.kind === "regenerate"
+        action?.kind === "regenerate" || resumeTaskId
           ? undefined
           : JSON.stringify({
               content,
