@@ -197,11 +197,12 @@ allow it.
 - mock web+coding: official-docs search, first fix, remaining failure, plan
   revision, second fix, tests pass
 
-## Known limitations (0.9.1)
+## Known limitations (0.9.2)
 
 - TinyFish Agent has no provider pre-action approval. Side-effect goals are blocked before the run. Agent cannot safely submit forms, purchase, or log in.
 - TinyFish Agent has no pause API. Pause waits or Stop cancels the run.
-- Provider `max_steps` is beta; local budget is still enforced.
+- Provider `max_steps` is beta; Alex still cancels the stream at the local step cap.
+- Explicit TinyFish Browser on the 0.9.1 GPU pod used Search/Fetch; the controller now injects Browser before the planner. Direct Browser remains REAL PASS.
 - Live plan-step labels can lag the tools until final review closes leftover
   PENDING steps as SKIPPED. Completion is gated by tests/git/sources, not by
   every step row turning green mid-flight.

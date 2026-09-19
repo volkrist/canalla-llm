@@ -19,9 +19,15 @@ def upgrade():
         batch.add_column(sa.Column("original_user_request", sa.Text(), nullable=False, server_default=""))
         batch.add_column(sa.Column("plan_revision", sa.Integer(), nullable=False, server_default="1"))
         batch.add_column(sa.Column("current_step", sa.String(length=80), nullable=False, server_default=""))
-        batch.add_column(sa.Column("current_phase", sa.String(length=40), nullable=False, server_default="CREATED"))
-        batch.add_column(sa.Column("pause_requested", sa.Boolean(), nullable=False, server_default=sa.text("0")))
-        batch.add_column(sa.Column("stop_requested", sa.Boolean(), nullable=False, server_default=sa.text("0")))
+        batch.add_column(
+            sa.Column("current_phase", sa.String(length=40), nullable=False, server_default="CREATED")
+        )
+        batch.add_column(
+            sa.Column("pause_requested", sa.Boolean(), nullable=False, server_default=sa.text("0"))
+        )
+        batch.add_column(
+            sa.Column("stop_requested", sa.Boolean(), nullable=False, server_default=sa.text("0"))
+        )
         batch.add_column(sa.Column("tool_calls_used", sa.Integer(), nullable=False, server_default="0"))
         batch.add_column(sa.Column("tool_budget", sa.Integer(), nullable=False, server_default="40"))
         batch.add_column(sa.Column("elapsed_runtime", sa.Integer(), nullable=False, server_default="0"))
@@ -32,10 +38,19 @@ def upgrade():
         batch.add_column(sa.Column("retry_budget", sa.Integer(), nullable=False, server_default="3"))
         batch.add_column(sa.Column("last_error", sa.String(length=200), nullable=True))
         batch.add_column(sa.Column("completion_summary", sa.Text(), nullable=True))
-        batch.add_column(sa.Column("success_criteria", sa.JSON(), nullable=False, server_default=sa.text("'{}'")))
+        batch.add_column(
+            sa.Column("success_criteria", sa.JSON(), nullable=False, server_default=sa.text("'{}'"))
+        )
         batch.add_column(sa.Column("facts", sa.JSON(), nullable=False, server_default=sa.text("'{}'")))
         batch.add_column(sa.Column("verification", sa.JSON(), nullable=False, server_default=sa.text("'{}'")))
-        batch.add_column(sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("(CURRENT_TIMESTAMP)")))
+        batch.add_column(
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.text("(CURRENT_TIMESTAMP)"),
+            )
+        )
     with op.batch_alter_table("tool_runs") as batch:
         batch.add_column(sa.Column("task_id", sa.String(length=36), nullable=True))
         batch.create_index("ix_tool_runs_task_id", ["task_id"], unique=False)

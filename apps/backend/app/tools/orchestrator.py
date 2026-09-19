@@ -180,6 +180,7 @@ class ToolOrchestrator:
             "Use web_browser only for a JS page or when asked to open a public page in a browser. "
             "Use web_agent only for complex read-only research across several public pages. "
             "Never use web_agent for forms, login, purchase, Tor or local files. "
+            "Do not pick TinyFish paid tools for greetings, math, local files or Tor. "
             "If the user asks for Tor or a .onion address, call tor_search first, then tor_fetch "
             "on relevant onion URLs, then follow at most a few relevant internal onion links. "
             "If the user prompt already contains an http(s) .onion URL, fetch that URL with "
@@ -194,7 +195,7 @@ class ToolOrchestrator:
             "If previously seen Tor URLs are listed, fetch those unvisited onion pages before a new search. "
             "Never send .onion URLs to TinyFish and never fetch onion sites directly. "
             "For local test forms use inspect_form, fill_form_field, then submit_form after confirmation. "
-            "Do not use TinyFish Agent or Browser. Do not pass raw JavaScript. "
+            "Do not pass raw JavaScript or raw CDP. "
             "checkout_purchase is a local fake shop only and always needs CRITICAL confirmation. "
             "Do not send real email or real messages; those providers are not configured. "
             "git_commit only after verification and only if the user asked or auto_commit is on. "
@@ -205,7 +206,7 @@ class ToolOrchestrator:
             "patch_file.expected_before_sha256. Do not create unrelated scratch files. "
             "Never invent tool results or citations. "
             "Never request external writes or login through a read tool. "
-            "Prefer search then fetch. Paid TinyFish tools only when the controller already selected them. "
+            "Prefer search then fetch unless the controller already opened a browser or agent result. "
             "After enough evidence, return no tool calls. "
             f"Web mode={context.mode}; fresh-information hint={intent.fresh}; "
             f"computer_mode={context.computer_mode}; tor_mode={tor_mode}. "
@@ -228,6 +229,8 @@ class ToolOrchestrator:
         await context.emit("web_status", {"state": "planning"})
         empty_rounds = 0
         try:
+            await self._maybe_tinyfish_paid(context, notes, prompt, tor_intent, planning)
+            await self._close_tinyfish_browser(context, notes)
             while context.limits.calls < context.limits.max_calls and context.limits.remaining > 0:
                 halt = LocalTaskController().blocked(context)
                 if halt == "task_paused":
@@ -457,7 +460,7 @@ class ToolOrchestrator:
                         notes,
                         origin="server_policy",
                     )
-            await self._maybe_tinyfish_paid(context, notes, prompt, tor_intent)
+            await self._maybe_tinyfish_paid(context, notes, prompt, tor_intent, planning)
         finally:
             await self._close_tor_browser()
             await self._close_tinyfish_browser(context, notes)
@@ -565,7 +568,22 @@ class ToolOrchestrator:
         )
         return first_source_url(getattr(context, "sources", None))
 
-    async def _maybe_tinyfish_paid(self, context, notes, prompt, tor_intent):
+    def _append_planning(self, planning, context, output, label):
+        if planning is None or output is None:
+            return
+        planning.append(
+            {
+                "role": "tool",
+                "tool_call_id": label,
+                "content": sanitized(
+                    json.dumps(output, default=str, ensure_ascii=False),
+                    getattr(context, "secrets", ()),
+                    getattr(getattr(context, "limits", None), "max_chars", 4000) or 4000,
+                ),
+            }
+        )
+
+    async def _maybe_tinyfish_paid(self, context, notes, prompt, tor_intent, planning=None):
         if tor_intent.required or getattr(context, "mode", "off") == "off":
             return
         from .tinyfish.classify import looks_like_browser_task
@@ -578,25 +596,27 @@ class ToolOrchestrator:
                 context, notes, prompt, decision.url or first_source_url(context.sources)
             )
             if url and not getattr(context, "tinyfish_browser_done", False):
-                await self._run(
+                output = await self._run(
                     "web_browser",
                     json.dumps({"operation": "open", "url": url}, ensure_ascii=False),
                     context,
                     notes,
                     origin="server_policy",
                 )
+                self._append_planning(planning, context, output, "server_web_browser")
                 if looks_like_browser_task(prompt) and not getattr(
                     context, "tinyfish_browser_navigated", False
                 ):
                     link_id = self._browser_link_id(context.sources, prompt)
                     if link_id:
-                        await self._run(
+                        output = await self._run(
                             "web_browser",
                             json.dumps({"operation": "click", "link_id": link_id}, ensure_ascii=False),
                             context,
                             notes,
                             origin="server_policy",
                         )
+                        self._append_planning(planning, context, output, "server_web_browser_click")
             return
         if (
             decision.paid == "agent"
@@ -607,13 +627,14 @@ class ToolOrchestrator:
                 context, notes, prompt, decision.url or first_source_url(context.sources)
             )
             if url:
-                await self._run(
+                output = await self._run(
                     "web_agent",
                     json.dumps({"url": url, "goal": prompt[:2000], "task": "find"}, ensure_ascii=False),
                     context,
                     notes,
                     origin="server_policy",
                 )
+                self._append_planning(planning, context, output, "server_web_agent")
 
     async def _close_tinyfish_browser(self, context=None, notes=None):
         try:

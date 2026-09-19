@@ -1,4 +1,4 @@
-# TinyFish adapters — 0.9.1
+# TinyFish adapters — 0.9.2
 
 Production uses direct REST with httpx, never CLI subprocesses. CLI/MCP is developer tooling only. `BackendCredentialProvider` resolves the shared `SecretStr` `TINYFISH_API_KEY` from the backend environment. The UI receives a configured boolean only; keys, CDP URLs, cookies and website passwords are not stored in audit, context, schema or the frontend.
 
@@ -26,7 +26,7 @@ Search/Fetch use `TINYFISH_SEARCH_FETCH_FREE`. Setting it `false` blocks those c
 
 ## Routing (thick controller)
 
-A weaker production model (OrcaRouter Qwen3.8-27B Q5_K_M) does not own budgets or provider choice.
+The weaker production model does not own budgets or provider choice.
 
 1. Simple lookup → Search then Fetch.
 2. JS shell (`needs_browser`) or explicit “open in a browser” → TinyFish Browser.
@@ -35,7 +35,7 @@ A weaker production model (OrcaRouter Qwen3.8-27B Q5_K_M) does not own budgets o
 5. Local files/computer → Local Computer tools.
 6. External side effect → confirmation-controlled Browser or loopback form tools. **Agent is not started.**
 
-Auto mode hides paid tools from the planner; the server injects them when `select_tinyfish_route` says so (`origin=server_policy`). On makes them visible only for the matching route. Off removes them.
+Auto mode hides paid tools from the planner. The server injects Agent/Browser **before** the planner loop when `select_tinyfish_route` selects them (`origin=server_policy`), then closes the Browser session so cloud minutes are not billed during model generation. A second pass after Search/Fetch still covers a JS shell (`needs_browser`). On makes the matching paid tool visible to the planner. Off removes them.
 
 Planner-facing names: `web_search`, `web_fetch`, `web_browser`, `web_agent`. Legacy `web_agent_read` / `browser_*` stay explicit (`auto_route=false`).
 
@@ -67,7 +67,7 @@ Per Autonomous Task defaults (clamped to hard ceilings):
 - Agent max 2 runs / 20 steps (hard 50)
 - Browser max 2 sessions / 10 minutes (hard 30)
 
-Preflight refuses a new Agent run or Browser session that would exceed remaining USD, steps, runs, sessions or minutes. This is app-side accounting. `max_steps` is forwarded only when the account actually supports it.
+Preflight refuses a new Agent run or Browser session that would exceed remaining USD, steps, runs, sessions or minutes. This is app-side accounting. `max_steps` is forwarded only when the account actually supports it; Alex still cancels the stream when the local step cap is reached.
 
 ## Domain safety
 

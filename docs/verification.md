@@ -1,10 +1,28 @@
 # Alex LLM — отчёты проверки
 
-Текущий этап: **0.9.1**. Local Computer filesystem/install = **REAL PASS**. Task queue/Pause sanitization = **PASS**. Final chat turn after local tools = **PARTIAL** (prompt fix after GPU). Email provider = **NOT CONFIGURED**. Real purchase = **NO**. TorRoutedBrowserProvider = **NOT IMPLEMENTED**.
+Текущий этап: **0.9.2**. TinyFish Search/Fetch/Browser/Agent direct = **REAL PASS**. GPU TinyFish Agent routing = **REAL PASS**. GPU TinyFish Browser routing on the 0.9.1 pod = **FAIL**; inject-first controller is local-proven in 0.9.2 (no second TinyFish GPU pod). Local Computer 0.9.1 filesystem/install = **REAL PASS**. Email provider = **NOT CONFIGURED**. Real purchase = **NO**. TorRoutedBrowserProvider = **NOT IMPLEMENTED**.
+
+## Проверка 0.9.2 — 19 сентября 2026
+
+- Цель: TinyFish Agent & Browser Integration поверх существующего 0.9.1 (не rewrite). Search/Fetch остаются free. Agent = paid READ_ONLY. Browser = Alex-controlled Playwright/CDP.
+- HEAD before: `e59da13792cab20a60d8eb7678364b8cda5d3ade` (0.9.1 Local Computer). TinyFish adapters already landed in that 0.9.1 tree.
+- Official API reviewed 2026-09-19: Agent `POST /v1/automation/run-sse`, no pre-action intercept, no pause; Browser `POST` + `DELETE` 204, no session listing; Wallet `GET /v1/wallet`. CASE B: side-effect Agent goals blocked before the HTTP create. Prompt is not a security boundary.
+- TinyFish key: User+Process env, length 44, Machine ABSENT, never printed. Auto-reload `state=unconfigured` (OFF).
+- Direct Search **REAL PASS**. Direct Fetch **REAL PASS** (`Welcome to Python.org`). Direct Browser **REAL PASS** (python.org → docs link, W source, ~26s, ~$0.0009, DELETE, local sessions 0). Direct Agent **REAL READ_ONLY PASS** (3 steps, estimated $0.048).
+- GPU: ONE L40S after Local Computer GPU=0. Pod `31bv7sbvpfnkwi`, US-TX-3, $1.09/h, billable **553s**, estimated **$0.167436**, `stop_reason=manual`. Mock=false, `orcarouter-qwen38-27b-q5km`, `enable_thinking=false`. **RUNNING GPU FINAL = 0**. Volume `orcarouter-storage` / `uwgeaie5b0` preserved. No second concurrent Pod.
+- GPU Agent: `web_agent` `origin=server_policy` **REAL PASS**, 10 completed steps, estimated $0.16. GPU explicit Browser: Search/Fetch only, `web_browser`=0 (**FAIL** on that pod). 0.9.2 injects Agent/Browser **before** the planner and closes Browser so minutes are not billed during generation (local tests; not GPU-retested).
+- Routing: `2+2` paid=0; simple lookup Search/Fetch; Tor existing stack only; local folder TinyFish paid=0; form-submit did not start Agent.
+- Wallet official GET: before GPU `$12.93368`; after `$12.77368`; current `$12.77368`. User-reported start ~$12.984. Do not treat the approximate start as an exact delta.
+- Controller follow-up: local `agent_max_steps` cancels the SSE stream even when provider `max_steps` is unsupported. Live TinyFish CDP skips Playwright `page.route` (proxy tunnel).
+- Local suite: backend pytest **312 passed / 1 deselected** live_web; ruff check/format PASS; alembic 0012; frontend 23; TypeScript/Prettier/Vite PASS; Playwright 15; cargo check+test 14; npm audit production 0; pip-audit 0 (skip local package).
+- Tauri release + NSIS x64 — PASS. ProductVersion **0.9.2**.
+  - EXE `apps/desktop/src-tauri/target/release/alex-llm.exe` SHA256 `B6039DE04049C8881EE5E618EC201948FAF9CD8C5E44A455496CD6B479ABC7DE`
+  - Installer `apps/desktop/src-tauri/target/release/bundle/nsis/Alex LLM_0.9.2_x64-setup.exe` SHA256 `25E87185CCD6B24370FD018F280A9B1F5ADFBD96A0FB4E7E077FE33DE11C579E`
+  - Launch smoke: ProductVersion **0.9.2**, process started and stopped.
 
 ## Проверка 0.9.1 — 19 сентября 2026
 
-- Цель: очередь WRITE, продолжение task после restart, Pause без сырого tool fragment, optional git commit/push, external-action framework, REAL Windows Local Computer через OrcaRouter.
+- Цель: очередь WRITE, продолжение task после restart, Pause без сырого tool fragment, optional git commit/push, external-action framework, REAL Windows Local Computer, и TinyFish Agent/Browser REAL integration.
 - HEAD before: `87d54333bd629525a89f73fbbfb9039b7b7d42ae` (0.9.0).
 - Local/mock: `WAITING_WORKSPACE` FIFO + promote + stale lock; restart does not rerun completed tool digests; Pause public text; git_add rejects `-A`; install SENSITIVE; trusted `run_powershell` without cwd auto in trusted mode; loopback form/purchase/email contract. Alembic **0012** `workspace_waiters`.
 - Native host: Windows Known Folder API for Desktop/Documents/Downloads; `get_system_info` without MachineGuid/MAC/serial; winget `--scope user` unless elevate.
@@ -27,7 +45,8 @@
 - Email: contract/policy PASS, provider NOT CONFIGURED, real email NOT TESTED.
 - Real purchase: **NO**. Local fake shop GPU not reached.
 - Confirmations: READ auto; NORMAL_CHANGE auto in trusted Desktop roots; INSTALL SENSITIVE occurred; CRITICAL fake purchase not GPU-executed.
-- Cursor did not perform the user Desktop file task. Model tool actions: **100**. TinyFish Search/Fetch/Agent/Browser: **0**.
+- Cursor did not perform the user Desktop file task. Model tool actions: **100**. TinyFish Search/Fetch/Agent/Browser: **0** on the Local Computer pods.
+- TinyFish (same 0.9.1, later sequential Pod after Local Computer GPU = 0): existing User API key, never printed. Direct Search/Fetch **REAL PASS**. Direct Browser **REAL PASS** (python.org, DELETE, ~26s, ~$0.0009). Direct Agent **REAL READ_ONLY PASS** (3 steps, $0.048). GPU Pod `31bv7sbvpfnkwi` L40S US-TX-3 553s ~$0.167, `stop_reason=manual`, **RUNNING GPU FINAL = 0**, volume `uwgeaie5b0` preserved. OrcaRouter `web_agent` `origin=server_policy` **REAL PASS** (10 steps, $0.16). Explicit Browser on that pod used Search/Fetch only (**FAIL**); controller now injects paid tools before the planner (local tests). 2+2 / lookup / Tor / form-submit / local-folder: TinyFish paid Agent/Browser = 0. Wallet ~$12.984 → $12.77368. Auto-reload `state=unconfigured`.
 - Local suite before GPU: pytest **308 passed / 1 skipped** then policy test updated; ruff check/format PASS; alembic 0012; cargo test 14; frontend 23; Playwright 15 (1 flake retried); npm audit 0; pip-audit 0.
 - After GPU local prompt fix (no second concurrent Pod): local tool notes are `[Local computer tool results]` instead of web-untrusted wrapping. Not GPU-retested.
 - Tauri release + NSIS x64 — PASS. ProductVersion **0.9.1**.

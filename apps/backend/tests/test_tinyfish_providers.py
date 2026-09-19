@@ -427,6 +427,37 @@ def test_agent_timeout_cancels_stream():
     assert cancelled and cancelled[-1].endswith("/cancel")
 
 
+def test_agent_stops_when_local_max_steps_reached():
+    cancelled = []
+
+    class Stream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"type":"STARTED","run_id":"run_steps","num_of_steps":0}\n\n'
+            yield b'data: {"type":"PROGRESS","run_id":"run_steps","num_of_steps":3}\n\n'
+            yield b'data: {"type":"PROGRESS","run_id":"run_steps","num_of_steps":4}\n\n'
+            await asyncio.sleep(10)
+
+        async def aclose(self):
+            return None
+
+    def handler(request):
+        if request.url.path.endswith("run-sse"):
+            return httpx.Response(200, stream=Stream())
+        cancelled.append(request.url.path)
+        return httpx.Response(200, json={"status": "CANCELLED"})
+
+    context = Context()
+    context.settings.agent_max_steps = 3
+    context.settings.agent_run_budget = 1.0
+    with pytest.raises(ToolError, match="run_budget"):
+        asyncio.run(
+            TinyFishAgentProvider(client(handler)).execute(
+                AgentArgs(url="https://example.com", goal="Read title"), context
+            )
+        )
+    assert cancelled and cancelled[-1].endswith("/cancel")
+
+
 def test_potential_side_effect_goal_never_reaches_provider():
     provider = TinyFishAgentProvider(client(lambda request: pytest.fail("No supplier call allowed")))
     with pytest.raises(ToolError, match="agent_side_effect_not_supported"):

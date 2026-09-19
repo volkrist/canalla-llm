@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.9.1**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.9.2**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -243,6 +243,18 @@ Run `alembic upgrade head` (0010). Keep `LLM_PROVIDER=mock` unless you intention
 
 [Tor](docs/tor.md) · [Verification](docs/verification.md)
 
+## Version 0.9.2 — TinyFish Agent & Browser Integration
+
+Existing TinyFish Search/Fetch stay free. TinyFish Browser is Alex-controlled cloud Chromium (Playwright over CDP, typed actions, no model JS/raw CDP). TinyFish Agent is a paid read-only multi-page workflow owned by TinyFish. The current Agent API has no pre-action approval, so side-effect goals are blocked before the run. Prompt text is not a security boundary. Agent and Browser are Off/Auto/On (default Auto). Auto hides paid tools; the server injects them before the planner when the deterministic router selects them.
+
+Paid budgets are app-side: default $1.00/task (hard $2.00), Agent 2 runs / 20 steps, Browser 2 sessions / 10 minutes. Rates are configurable (`$0.016`/step, `$0.002`/minute) because provider pricing can change. Vault/profiles are off. `.onion` never goes to TinyFish.
+
+Direct live proof: Search/Fetch REAL PASS; Browser REAL PASS (python.org, session closed); Agent REAL READ_ONLY PASS (3 steps). GPU on ONE later L40S after Local Computer GPU=0 (`31bv7sbvpfnkwi`, US-TX-3, $1.09/h, 553s, ~$0.167, volume `uwgeaie5b0` preserved): OrcaRouter selected `web_agent` `origin=server_policy` **REAL PASS**. Explicit Browser on that pod used Search/Fetch only (**FAIL**); 0.9.2 injects Browser before the planner (local tests, not a second GPU pod). **RUNNING GPU FINAL = 0**. Auto-reload left OFF.
+
+Keep `LLM_PROVIDER=mock` unless you intentionally start compute.
+
+[TinyFish](docs/tinyfish.md) · [Web](docs/web.md) · [Tools](docs/tools.md) · [Autonomous tasks](docs/autonomous-tasks.md) · [Verification](docs/verification.md)
+
 ## Version 0.9.1 — Local Computer & Task Reliability
 
 Workspace WRITE tasks queue as `WAITING_WORKSPACE` (FIFO, persisted, stale-lock cleanup) instead of failing `workspace_busy`. Desktop/backend restart continues the same `task_id` from checkpoint (task continuation, not token-stream continuation). Pause drops a partial planner buffer and shows `Paused while preparing next action.` Git commit/push stay off unless the user asks or enables the matching setting; push is SENSITIVE and never `--force`. Loopback form submit is SENSITIVE; fake checkout is CRITICAL; email/message contracts exist without a configured provider.
@@ -251,7 +263,7 @@ GPU proof used ONE L40S after a stopped first attempt (`a7ea8t33um7wh8`, US-TX-3
 
 Limitation: the final chat turn still often claimed “no filesystem access” even after successful tools. Local notes are now labeled as host observations; that prompt fix was not GPU-retested. Git/form/fake-purchase GPU cases stayed queued behind an unfinished WRITE task in the harness. Email provider is not configured. No real purchase or real email.
 
-Run `alembic upgrade head` (0012). Keep `LLM_PROVIDER=mock` unless you intentionally start compute. TinyFish Agent/Browser stay unused.
+Run `alembic upgrade head` (0012). Keep `LLM_PROVIDER=mock` unless you intentionally start compute. TinyFish adapters were already in this tree; paid Agent/Browser verification is 0.9.2.
 
 [Autonomous tasks](docs/autonomous-tasks.md) · [Verification](docs/verification.md) · [Device security](docs/device-security.md)
 

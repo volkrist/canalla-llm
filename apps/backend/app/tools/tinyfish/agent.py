@@ -93,7 +93,10 @@ class TinyFishAgentProvider(ToolProvider):
                         if settings.tinyfish_agent_max_steps_supported
                         else "local_soft",
                     )
-                    if steps is not None and steps * step_price >= context.settings.agent_run_budget:
+                    if steps is not None and (
+                        steps >= max_steps
+                        or (step_price and steps * step_price >= context.settings.agent_run_budget)
+                    ):
                         raise ToolError("run_budget")
                     if event.get("type") == "COMPLETE":
                         status = event.get("status")

@@ -209,3 +209,57 @@ def test_local_computer_and_math_never_select_paid():
         ),
     )
     assert local.paid is None and local.reason == "local_computer_only"
+
+
+def test_server_injects_browser_and_agent_before_model():
+    import asyncio
+    import json
+
+    browser_prompt = (
+        "Открой официальный сайт Python, посмотри страницу в браузере, "
+        "перейди в документацию и кратко скажи, что находится на второй странице."
+    )
+    agent_prompt = (
+        "Исследуй официальный сайт Python: найди три раздела документации, "
+        "сравни их назначение и верни ссылки."
+    )
+    recorded = []
+
+    async def fake_run(name, arguments, context, notes, origin):
+        recorded.append((name, origin, json.loads(arguments)))
+        if name == "web_browser":
+            context.tinyfish_browser_done = True
+            context.sources = [
+                {
+                    "url": "https://www.python.org/",
+                    "final_url": "https://www.python.org/",
+                    "details": {"links": [{"id": "L2", "url": "https://docs.python.org/3/", "text": "Docs"}]},
+                }
+            ]
+        if name == "web_agent":
+            context.tinyfish_agent_done = True
+        return {"ok": True}
+
+    async def run():
+        orch = ToolOrchestrator(make_registry(), None)
+        orch._run = fake_run
+        context = _context(browser_prompt, mode="on")
+        await orch._maybe_tinyfish_paid(
+            context, [], browser_prompt, SimpleNamespace(required=False), planning=[]
+        )
+        assert recorded[0][0] == "web_browser"
+        assert recorded[0][1] == "server_policy"
+        recorded.clear()
+        context = _context(agent_prompt, mode="on")
+        await orch._maybe_tinyfish_paid(
+            context, [], agent_prompt, SimpleNamespace(required=False), planning=[]
+        )
+        assert recorded[0][0] == "web_agent"
+        math = _context("Сколько будет 2+2?", mode="on")
+        recorded.clear()
+        await orch._maybe_tinyfish_paid(
+            math, [], "Сколько будет 2+2?", SimpleNamespace(required=False), planning=[]
+        )
+        assert recorded == []
+
+    asyncio.run(run())
