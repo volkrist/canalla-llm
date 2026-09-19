@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 import httpx
 
 from .config import Settings
+from .tools.tor.browser import browser_target_from_prompt, looks_like_tor_browser
 from .tools.tor.router import classify_tor
 from .tools.web_router import classify_web
 
@@ -44,9 +45,77 @@ class MockLLMProvider(LLMProvider):
         previous = [m for m in messages if m["role"] == "tool"]
         names = {item.get("function", {}).get("name") for item in tools if isinstance(item, dict)}
         policy = str(messages[0].get("content", "")) if messages else ""
+        if "tor_browser" in names and looks_like_tor_browser(prompt) and not previous:
+            url = browser_target_from_prompt(prompt) or "https://check.torproject.org/"
+            return {
+                "tool_calls": [
+                    {
+                        "id": "mock-tor-browser-open",
+                        "type": "function",
+                        "function": {
+                            "name": "tor_browser",
+                            "arguments": json.dumps(
+                                {"operation": "open", "url": url, "wait_ms": 500},
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ]
+            }
         if previous:
             last = json.loads(previous[-1]["content"])
-            if len(previous) == 1 and last.get("sources") and not last.get("error"):
+            if "tor_browser" in names and (
+                last.get("needs_browser")
+                or last.get("retrieval") == "browser"
+                or any(item.get("needs_browser") for item in last.get("sources") or [])
+                or looks_like_tor_browser(prompt)
+            ):
+                links = last.get("links") or []
+                token = next(
+                    (
+                        str(item.get("id") or "")
+                        for item in links
+                        if str(item.get("id") or "").upper().startswith("L")
+                    ),
+                    "",
+                )
+                if token and last.get("retrieval") == "browser" and len(previous) == 1:
+                    return {
+                        "tool_calls": [
+                            {
+                                "id": "mock-tor-browser-click",
+                                "type": "function",
+                                "function": {
+                                    "name": "tor_browser",
+                                    "arguments": json.dumps({"operation": "click", "link_id": token}),
+                                },
+                            }
+                        ]
+                    }
+                url = (last.get("sources") or [{}])[0].get("final_url") or (last.get("sources") or [{}])[
+                    0
+                ].get("url")
+                if url and last.get("retrieval") != "browser":
+                    return {
+                        "tool_calls": [
+                            {
+                                "id": "mock-tor-browser",
+                                "type": "function",
+                                "function": {
+                                    "name": "tor_browser",
+                                    "arguments": json.dumps(
+                                        {"operation": "open", "url": url, "wait_ms": 500}
+                                    ),
+                                },
+                            }
+                        ]
+                    }
+            if (
+                len(previous) == 1
+                and last.get("sources")
+                and not last.get("error")
+                and last.get("retrieval") != "browser"
+            ):
                 url = last["sources"][0].get("final_url")
                 fetch_name = "tor_fetch" if "tor_fetch" in names else "web_fetch"
                 if last.get("origin") == "server_policy" and "tor_fetch" in names:
@@ -84,28 +153,6 @@ class MockLLMProvider(LLMProvider):
                         }
                     ]
                 }
-            if "tor_browser" in names and (
-                last.get("needs_browser")
-                or any(item.get("needs_browser") for item in last.get("sources") or [])
-            ):
-                url = (last.get("sources") or [{}])[0].get("final_url") or (last.get("sources") or [{}])[
-                    0
-                ].get("url")
-                if url:
-                    return {
-                        "tool_calls": [
-                            {
-                                "id": "mock-tor-browser",
-                                "type": "function",
-                                "function": {
-                                    "name": "tor_browser",
-                                    "arguments": json.dumps(
-                                        {"operation": "open", "url": url, "wait_ms": 500}
-                                    ),
-                                },
-                            }
-                        ]
-                    }
             return {"tool_calls": []}
         mode = "auto"
         if "Web mode=on" in policy:

@@ -112,7 +112,12 @@ class ToolOrchestrator:
             "Use web_search for current clearnet URLs and web_fetch to read them. "
             "If the user asks for Tor or a .onion address, call tor_search first, then tor_fetch "
             "on relevant onion URLs, then follow at most a few relevant internal onion links. "
-            "Call tor_browser only when fetch is a JS shell (needs_browser) or the user asks for Tor Browser. "
+            "If the user asks to open Tor Browser, call tor_browser first with operation=open and "
+            "the page URL (official Tor check is https://check.torproject.org/), wait_ms=2500, "
+            "then tor_browser operation=click with one link_id such as L1. Do not search first "
+            "for an explicit Tor Browser open. "
+            "Call tor_browser only when fetch is a JS shell (needs_browser=true) or the user asks "
+            "for Tor Browser. HTTP tor_fetch remains the default. "
             "Click only via link_id values L1, L2, never raw JavaScript or form submit. "
             "If previously seen Tor URLs are listed, fetch those unvisited onion pages before a new search. "
             "Never send .onion URLs to TinyFish and never fetch onion sites directly. "
@@ -301,9 +306,13 @@ class ToolOrchestrator:
         return ContextBuilder.with_web(history, insert_at, context.sources, notes)
 
     def _tor_browser_allowed(self, context, prompt):
-        from .tor.browser import automation_ready, looks_like_tor_browser
+        from .tor.browser import automation_ready, looks_like_no_tor_browser, looks_like_tor_browser
 
         if not automation_ready(prefs=getattr(context, "settings", None)):
+            return False
+        if getattr(getattr(context, "settings", None), "tor_browser_mode", "auto") == "off":
+            return False
+        if looks_like_no_tor_browser(prompt):
             return False
         if looks_like_tor_browser(prompt):
             return True
@@ -314,12 +323,39 @@ class ToolOrchestrator:
             return True
         return getattr(getattr(context, "settings", None), "tor_browser_mode", "auto") == "on"
 
+    def _browser_source_url(self, items):
+        for item in items or []:
+            url = item.get("final_url") or item.get("url") or ""
+            if url:
+                return url
+        return ""
+
+    def _browser_link_id(self, items):
+        for item in reversed(items or []):
+            links = (item.get("details") or {}).get("links") or item.get("links") or []
+            for link in links:
+                token = str(link.get("id") or "").upper()
+                url = link.get("url") or ""
+                if token.startswith("L") and url:
+                    from .tor.router import blocked_link
+
+                    if not blocked_link(url):
+                        return token
+        return ""
+
     async def _maybe_tor_browser(self, context, notes, tor_intent, prompt):
-        from .tor.browser import automation_ready, looks_like_tor_browser
+        from .tor.browser import (
+            automation_ready,
+            browser_target_from_prompt,
+            looks_like_no_tor_browser,
+            looks_like_tor_browser,
+        )
 
         if not tor_intent.allowed or not automation_ready(prefs=getattr(context, "settings", None)):
             return
-        if getattr(context, "tor_browser_done", False):
+        if getattr(getattr(context, "settings", None), "tor_browser_mode", "auto") == "off":
+            return
+        if looks_like_no_tor_browser(prompt):
             return
         needs = [
             item
@@ -327,22 +363,34 @@ class ToolOrchestrator:
             if (item.get("details") or {}).get("needs_browser") or item.get("needs_browser")
         ]
         explicit = looks_like_tor_browser(prompt)
-        if not needs and not explicit:
-            return
-        url = ""
-        for item in needs or context.sources:
-            url = item.get("final_url") or item.get("url") or ""
-            if url:
-                break
-        if not url:
-            return
-        await self._run(
-            "tor_browser",
-            json.dumps({"operation": "open", "url": url, "wait_ms": 1500}, ensure_ascii=False),
-            context,
-            notes,
-            origin="server_policy",
-        )
+        opened = getattr(context, "tor_browser_done", False)
+        navigated = getattr(context, "tor_browser_navigated", False)
+        if not opened:
+            if not needs and not explicit:
+                return
+            url = self._browser_source_url(needs or context.sources) or browser_target_from_prompt(prompt)
+            if not url:
+                return
+            await self._run(
+                "tor_browser",
+                json.dumps({"operation": "open", "url": url, "wait_ms": 2500}, ensure_ascii=False),
+                context,
+                notes,
+                origin="server_policy",
+            )
+            opened = getattr(context, "tor_browser_done", False)
+        if opened and explicit and not navigated:
+            link_id = self._browser_link_id(context.sources)
+            if link_id:
+                await self._run(
+                    "tor_browser",
+                    json.dumps(
+                        {"operation": "click", "link_id": link_id, "wait_ms": 1500}, ensure_ascii=False
+                    ),
+                    context,
+                    notes,
+                    origin="server_policy",
+                )
 
     async def _close_tor_browser(self):
         try:
@@ -391,6 +439,18 @@ class ToolOrchestrator:
                 "errors": result.errors,
                 "authority": "UNTRUSTED_REFERENCE_DATA",
                 "origin": origin,
+                "needs_browser": any(
+                    (source.get("details") or {}).get("needs_browser") or source.get("needs_browser")
+                    for source in result.sources or []
+                ),
+                "retrieval": next(
+                    (
+                        (source.get("details") or {}).get("retrieval") or source.get("retrieval")
+                        for source in result.sources or []
+                        if (source.get("details") or {}).get("retrieval") or source.get("retrieval")
+                    ),
+                    None,
+                ),
                 "links": [
                     link
                     for source in result.sources or []

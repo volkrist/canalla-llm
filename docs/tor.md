@@ -1,4 +1,4 @@
-# Tor in 0.8.4
+# Tor in 0.8.5
 
 Tor is a separate capability from TinyFish Web. `web_mode` does not enable or
 disable it. Composer and Web & Tools expose **Tor Off / Auto / On**, independent

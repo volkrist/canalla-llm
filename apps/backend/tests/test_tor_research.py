@@ -45,6 +45,55 @@ class FakeTor:
                     }
                 ]
             )
+        if self.capability == "tor_browser":
+            operation = getattr(args, "operation", "open")
+            url = getattr(args, "url", None) or "https://check.torproject.org/"
+            title = "Congratulations. This browser is configured to use Tor."
+            excerpt = "Congratulations. This browser is configured to use Tor."
+            links = [
+                {
+                    "id": "L1",
+                    "url": "https://www.torproject.org/",
+                    "text": "Tor Project",
+                    "source_page": url,
+                    "is_onion": False,
+                    "is_clearnet": True,
+                    "same_host": False,
+                }
+            ]
+            if operation == "click":
+                url = "https://www.torproject.org/"
+                title = "Tor Project | Anonymity Online"
+                excerpt = "Protect yourself against tracking and surveillance."
+                links = [
+                    {
+                        "id": "L1",
+                        "url": "https://www.torproject.org/download/",
+                        "text": "Download",
+                        "source_page": url,
+                        "is_onion": False,
+                        "is_clearnet": True,
+                        "same_host": True,
+                    }
+                ]
+            return ToolResult(
+                text=excerpt,
+                sources=[
+                    {
+                        "url": url,
+                        "final_url": url,
+                        "title": title,
+                        "excerpt": excerpt,
+                        "authority": "REACHABLE_UNVERIFIED",
+                        "links": links,
+                        "reachable": True,
+                        "transport": "tor",
+                        "retrieval": "browser",
+                        "rendered": True,
+                    }
+                ],
+                metadata={"started_by_alex": True, "retrieval": "browser", "rendered": True},
+            )
         url = args.urls[0]
         nxt = next_link(url)
         return ToolResult(
@@ -298,3 +347,141 @@ def test_tor_browser_fallback_is_disabled_by_default():
             TorBrowserProvider().execute(TorBrowserArgs(operation="open", url="https://example.org"), None)
         )
     assert error.value.args[0] == "tor_browser_disabled"
+
+
+def _enable_browser(monkeypatch):
+    monkeypatch.setattr("app.tools.tor.browser.automation_ready", lambda settings=None, prefs=None: True)
+
+
+def test_explicit_tor_browser_is_model_driven(client, auth, tor_tools, monkeypatch):
+    _enable_browser(monkeypatch)
+    headers = auth()
+    chat = client.post("/chats", headers=headers, json={}).json()["id"]
+    response = client.post(
+        f"/chats/{chat}/stream",
+        headers=headers,
+        json={
+            "content": "Через Tor Browser открой официальный сайт проверки Tor и перейди по одной ссылке.",
+            "tor_mode": "auto",
+            "web_mode": "off",
+        },
+    )
+    assert "event: done" in response.text
+    runs = client.get("/tools/runs", headers=headers).json()
+    names = [row["tool_name"] for row in runs]
+    assert "tor_browser" in names
+    assert any(row["tool_name"] == "tor_browser" and row.get("origin") == "model" for row in runs)
+    model_names = [row["tool_name"] for row in runs if row.get("origin") == "model"]
+    assert model_names and model_names[0] == "tor_browser"
+    messages = client.get(f"/chats/{chat}/messages", headers=headers).json()
+    sources = client.get(f"/messages/{messages[-1]['id']}/web-sources", headers=headers).json()
+    assert any(row["label"].startswith("T") for row in sources)
+    assert any((row.get("details") or {}).get("retrieval") == "browser" for row in sources)
+    assert all(row["channel"] == "tor" for row in sources)
+
+
+def test_fetch_remains_primary_when_browser_ready(client, auth, tor_tools, monkeypatch):
+    _enable_browser(monkeypatch)
+    headers = auth()
+    chat = client.post("/chats", headers=headers, json={}).json()["id"]
+    response = client.post(
+        f"/chats/{chat}/stream",
+        headers=headers,
+        json={
+            "content": "Через Tor найди официальный onion-сервис Tor Project. Проверь его по официальному источнику.",
+            "tor_mode": "auto",
+            "web_mode": "off",
+        },
+    )
+    assert "event: done" in response.text
+    runs = client.get("/tools/runs", headers=headers).json()
+    names = [row["tool_name"] for row in runs]
+    assert "tor_search" in names
+    assert "tor_fetch" in names
+    assert "tor_browser" not in names
+
+
+def test_js_shell_fetch_triggers_browser_fallback(client, auth, monkeypatch):
+    from dataclasses import replace
+
+    from app.tools.contracts import ToolRegistry
+
+    class JsShellTor(FakeTor):
+        async def execute(self, args, context):
+            if self.capability != "tor_fetch":
+                return await super().execute(args, context)
+            url = args.urls[0]
+            return ToolResult(
+                sources=[
+                    {
+                        "url": url,
+                        "final_url": url,
+                        "title": "App shell",
+                        "excerpt": "Loading...",
+                        "authority": "REACHABLE_UNVERIFIED",
+                        "links": [],
+                        "reachable": True,
+                        "transport": "tor",
+                        "needs_browser": True,
+                        "retrieval": "http",
+                        "rendered": False,
+                    }
+                ]
+            )
+
+    original, registry = make_registry(), ToolRegistry()
+    for definition in original.definitions(auto_only=False):
+        if definition.provider == "local_device":
+            continue
+        if definition.provider == "tor":
+            registry.register(replace(definition), JsShellTor(definition.capability))
+        elif definition.capability in {"search", "fetch"}:
+            from fakes_web import FakeWebProvider
+
+            registry.register(replace(definition), FakeWebProvider(definition.capability))
+    monkeypatch.setattr(client.app.state, "tools", registry)
+    _enable_browser(monkeypatch)
+
+    class Silent:
+        supports_tools = True
+
+        async def plan_tools(self, messages, tools, usage):
+            return {"tool_calls": []}
+
+        async def stream_with_usage(self, messages, usage):
+            yield "Fallback browser answer"
+
+    monkeypatch.setattr(client.app.state, "provider", Silent())
+    headers = auth()
+    chat = client.post("/chats", headers=headers, json={}).json()["id"]
+    response = client.post(
+        f"/chats/{chat}/stream",
+        headers=headers,
+        json={"content": "Через Tor найди onion-сервис Tor Project.", "tor_mode": "auto", "web_mode": "off"},
+    )
+    assert "event: done" in response.text
+    runs = client.get("/tools/runs", headers=headers).json()
+    origins = {(row["tool_name"], row.get("origin")) for row in runs}
+    assert ("tor_fetch", "server_policy") in origins
+    assert ("tor_browser", "server_policy") in origins
+    messages = client.get(f"/chats/{chat}/messages", headers=headers).json()
+    sources = client.get(f"/messages/{messages[-1]['id']}/web-sources", headers=headers).json()
+    assert any((row.get("details") or {}).get("retrieval") == "browser" for row in sources)
+
+
+def test_no_use_tor_browser_disables_browser_tools(client, auth, tor_tools, monkeypatch):
+    _enable_browser(monkeypatch)
+    headers = auth()
+    chat = client.post("/chats", headers=headers, json={}).json()["id"]
+    response = client.post(
+        f"/chats/{chat}/stream",
+        headers=headers,
+        json={
+            "content": "Через Tor найди onion, но не используй Tor Browser.",
+            "tor_mode": "auto",
+            "web_mode": "off",
+        },
+    )
+    assert "event: done" in response.text
+    names = [row["tool_name"] for row in client.get("/tools/runs", headers=headers).json()]
+    assert "tor_browser" not in names

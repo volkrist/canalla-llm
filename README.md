@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.8.4**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.8.5**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -241,6 +241,10 @@ GPU retest on ONE L40S (`o2ossjuc01e6jx`, US-TX-3, $1.09/h, 203s, ~$0.061, volum
 Run `alembic upgrade head` (0010). Keep `LLM_PROVIDER=mock` unless you intentionally start compute.
 
 [Tor](docs/tor.md) · [Verification](docs/verification.md)
+
+## Version 0.8.5 — model-driven Tor Browser REAL PASS
+
+Real OrcaRouter (`llamacpp`, alias `orcarouter-qwen38-27b-q5km`) called `tor_browser` itself (`origin=model`): isolated Tor Browser opened `check.torproject.org`, rendered the Congratulations page, followed `L1` to torproject.org, wrote T sources with `transport=tor` / `retrieval=browser` / `rendered=true`, and returned a visible answer. `tor_fetch` stays primary. Automatic HTTP-fetch → browser fallback on a public JS-shell was **not** claimed: official Tor Project pages already had enough HTTP text. Follow-up reused prior T sources and fetched another safe page. TinyFish Agent/Browser stayed 0.
 
 ## Version 0.8.4 — Tor Browser automation REAL LOCAL PASS
 

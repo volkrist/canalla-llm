@@ -148,6 +148,7 @@ class ExecutionContext:
     tor_search_done: bool = False
     tor_fetch_done: bool = False
     tor_browser_done: bool = False
+    tor_browser_navigated: bool = False
     seen_canonical: set = field(default_factory=set)
     tor_visited: set = field(default_factory=set)
     tor_visited_hosts: set = field(default_factory=set)
@@ -407,6 +408,8 @@ class ToolExecutor:
                 if definition.capability == "tor_browser":
                     context.tor_fetch_done = True
                     context.tor_browser_done = True
+                    if getattr(args, "operation", "open") in {"click", "navigate"}:
+                        context.tor_browser_navigated = True
                 with SessionLocal() as db:
                     row = db.get(ToolRun, run_id)
                     row.status, row.finished_at = "completed", now()

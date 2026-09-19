@@ -218,4 +218,64 @@ def test_job_process_closes_only_own_tree(tmp_path):
 def test_assign_link_ids_stable():
     labeled = assign_link_ids([{"url": "https://example.org/a"}, {"url": "https://example.org/b"}])
     assert [item["id"] for item in labeled] == ["L1", "L2"]
+
+
+def test_browser_target_from_prompt_and_opt_out():
+    from app.tools.tor.browser import (
+        browser_target_from_prompt,
+        looks_like_no_tor_browser,
+        looks_like_tor_browser,
+    )
+
+    assert looks_like_tor_browser("Через Tor Browser открой сайт проверки Tor")
+    assert looks_like_no_tor_browser("не используй Tor Browser")
+    assert not looks_like_tor_browser("Через Tor найди onion, но не используй Tor Browser")
+    assert browser_target_from_prompt("открой https://check.torproject.org/ через Tor Browser") == (
+        "https://check.torproject.org/"
+    )
+    assert browser_target_from_prompt("Через Tor Browser открой официальный сайт проверки Tor") == (
+        "https://check.torproject.org/"
+    )
+    assert not browser_target_from_prompt("file:///etc/passwd")
+
+
+def test_planner_tor_browser_modes(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.tools.orchestrator import ToolOrchestrator
+    from app.tools.registry import make_registry
+
+    monkeypatch.setattr("app.tools.tor.browser.automation_ready", lambda settings=None, prefs=None: True)
+    orch = ToolOrchestrator(make_registry(), None)
+
+    def context(prompt, browser_mode="auto", tor_mode="auto"):
+        return SimpleNamespace(
+            mode="off",
+            computer_mode="off",
+            user_prompt=prompt,
+            assigned_device_id=None,
+            host_online=False,
+            coding_task=False,
+            settings=SimpleNamespace(tor_browser_mode=browser_mode, tor_mode=tor_mode),
+            tor_mode=tor_mode,
+            tor_enabled=tor_mode != "off",
+            sources=[],
+        )
+
+    explicit = "Через Tor Browser открой https://check.torproject.org/"
+    names = {item.name for item in orch.planner_definitions(context(explicit, "auto"))}
+    assert "tor_browser" in names
+    assert "tor_search" in names
+    names = {item.name for item in orch.planner_definitions(context(explicit, "off"))}
+    assert "tor_browser" not in names
+    names = {item.name for item in orch.planner_definitions(context("Сколько будет 2+2?", "on", "on"))}
+    assert "tor_browser" not in names
+    research = "Через Tor найди официальный onion-сервис Tor Project."
+    names = {item.name for item in orch.planner_definitions(context(research, "auto"))}
+    assert "tor_search" in names
+    assert "tor_browser" not in names
+    names = {item.name for item in orch.planner_definitions(context(research, "on"))}
+    assert "tor_browser" in names
+    names = {item.name for item in orch.planner_definitions(context("не используй Tor Browser", "on", "on"))}
+    assert "tor_browser" not in names
     assert visible_text("<script>secret()</script><p>Hello world</p>") == "Hello world"

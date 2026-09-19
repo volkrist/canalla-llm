@@ -1,6 +1,25 @@
 # Alex LLM — отчёты проверки
 
-Текущий локальный этап: **0.8.4**. Automatic Tor research = **REAL PASS**. TorBrowserProvider = **REAL LOCAL PASS** (Marionette, isolated profile). Model-driven GPU browser fallback не тестировался. TorRoutedBrowserProvider = **NOT IMPLEMENTED**.
+Текущий локальный этап: **0.8.5**. Automatic Tor research = **REAL PASS**. TorBrowserProvider local = **REAL LOCAL PASS**. Model-driven Tor Browser GPU E2E = **REAL PASS**. Automatic `tor_fetch` → browser fallback on a public JS-shell = **NOT TESTED**. TorRoutedBrowserProvider = **NOT IMPLEMENTED**.
+
+## Проверка 0.8.5 — 19 сентября 2026
+
+- Цель: production chain USER → OrcaRouter → TorBrowserProvider → rendered DOM → navigation → T-source → answer. Новых больших features нет.
+- HEAD before: `9a8c3ffbc660b8be35ba9b21f59dc0d51309e2e5` (0.8.4).
+- RunPod: ONE L40S `6jtt3n1p1zgo68`, US-TX-3, $1.09/h, billable **275s**, estimated **$0.083264**, `stop_reason=manual`. Catalog wait until L40S LOW; no second Pod. **RUNNING GPU FINAL = 0**. Volume `orcarouter-storage` / `uwgeaie5b0` preserved.
+- Sanity: `provider=llamacpp`, Mock=false, «2+2 будет равно 4.», usage complete.
+- TEST A explicit «Через Tor Browser открой официальный сайт проверки Tor…»: OrcaRouter called `tor_browser` twice (`origin=model`): open `https://check.torproject.org/`, click `L1`. T1 Congratulations / `retrieval=browser` / `rendered=true` / `REACHABLE_UNVERIFIED`. T2 torproject.org / `OFFICIAL_AND_REACHABLE`. Visible answer. User `tor.exe` pid 4360 survived. Isolated session, Job Object close. **REAL PASS**
+- TEST B automatic fetch→browser: official Tor Project pages (forum, gitlab, metrics, community, donate, blog) already had enough HTTP text (`needs_browser=false`). No legal public JS-shell used. **NOT TESTED** (not faked).
+- TEST C «Продолжи исследование…»: reused prior T sources, new `tor_fetch` + browser, new T pages (community relay, support, about/history), visible answer. **REAL PASS**
+- TinyFish Search=0 Fetch=0 Agent=0 Browser=0. SOCKS 127.0.0.1:9050. No local onion DNS. No Direct fallback. Exit IP not recorded here.
+- Backend pytest: **261 passed, 1 skipped**. Ruff check/format — PASS. Alembic — PASS.
+- Native cargo check + cargo test: **12 passed**.
+- Frontend: **20 unit passed**, TypeScript, Prettier, Vite — PASS.
+- Playwright: **15 passed**.
+- npm audit (production): **0**. pip-audit: **0** known vulnerabilities.
+- Tauri release + NSIS x64 — PASS. ProductVersion **0.8.5**.
+  - EXE `apps/desktop/src-tauri/target/release/alex-llm.exe` SHA256 `8033F74B983060A460019A353BF0756DBB6C57A5C3AD48FB5C7BF78D2C3631FD`
+  - Installer `apps/desktop/src-tauri/target/release/bundle/nsis/Alex LLM_0.8.5_x64-setup.exe` SHA256 `79C13CF92EAF005551C9EDCA22BB8AB3B245646275F316ABA1D7937C671583EA`
 
 ## Проверка 0.8.4 — 19 сентября 2026
 

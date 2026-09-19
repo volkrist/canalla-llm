@@ -164,3 +164,7 @@ Tor Off/Auto/On is independent of Web. A Tor intent router can inject `tor_searc
 
 `TorBrowserProvider` drives the installed Tor Browser executable through Marionette with a temporary profile and a Windows Job Object. `tor_fetch` stays primary; browser is a read-only fallback for JS shells or an explicit Tor Browser request. Click uses L-ids. Downloads, forms, credentials and arbitrary model JS are blocked. `TorRoutedBrowserProvider` remains unimplemented.
 
+## 0.8.5 model-driven Tor Browser
+
+Planner policy prefers `tor_browser` for an explicit Tor Browser request (official check URL `https://check.torproject.org/`). Server-policy still opens/clicks if the model already produced a snapshot with L-ids. GPU E2E: OrcaRouter called `tor_browser` `origin=model`, rendered DOM, followed L1, T sources `retrieval=browser`. Automatic fetch→browser fallback on a public JS-shell was not claimed.
+

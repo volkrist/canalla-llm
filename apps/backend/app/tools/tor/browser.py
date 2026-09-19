@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import socket
 import tempfile
@@ -29,6 +30,13 @@ TOR_BROWSER_REQUEST = (
     r"(?i)(tor browser|открой в tor browser|open( it)? in tor browser|"
     r"через tor browser|use tor browser)"
 )
+NO_TOR_BROWSER = re.compile(
+    r"(?i)(не используй.{0,24}tor browser|don't use tor browser|do not use tor browser|"
+    r"без tor browser|without tor browser)"
+)
+PROMPT_URL = re.compile(r"https?://[^\s<>\"')\]]+")
+CHECK_TOR_URL = "https://check.torproject.org/"
+TOR_PROJECT_URL = "https://www.torproject.org/"
 
 
 class TorBrowserArgs(BaseModel):
@@ -173,9 +181,26 @@ async def prove_socks5(host="127.0.0.1", port=9050, timeout=2.0):
 
 
 def looks_like_tor_browser(prompt: str) -> bool:
-    import re
+    return bool(re.search(TOR_BROWSER_REQUEST, prompt or "")) and not looks_like_no_tor_browser(prompt)
 
-    return bool(re.search(TOR_BROWSER_REQUEST, prompt or ""))
+
+def looks_like_no_tor_browser(prompt: str) -> bool:
+    return bool(NO_TOR_BROWSER.search(prompt or ""))
+
+
+def browser_target_from_prompt(prompt: str) -> str:
+    text = prompt or ""
+    for raw in PROMPT_URL.findall(text):
+        url = raw.rstrip(").,];")
+        try:
+            return validate_browser_url(url)
+        except ToolError:
+            continue
+    if re.search(r"(?i)(проверк\w*.{0,24}tor|tor check|check\.torproject)", text):
+        return CHECK_TOR_URL
+    if re.search(r"(?i)(сайт tor project|torproject\.org|tor project home)", text):
+        return TOR_PROJECT_URL
+    return ""
 
 
 def automation_enabled(settings=None, prefs=None) -> bool:
