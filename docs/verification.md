@@ -1,6 +1,28 @@
 # Alex LLM — отчёты проверки
 
-Текущий локальный этап: **0.8.5**. Automatic Tor research = **REAL PASS**. TorBrowserProvider local = **REAL LOCAL PASS**. Model-driven Tor Browser GPU E2E = **REAL PASS**. Automatic `tor_fetch` → browser fallback on a public JS-shell = **NOT TESTED**. TorRoutedBrowserProvider = **NOT IMPLEMENTED**.
+Текущий локальный этап: **0.8.6**. Automatic Tor research = **REAL PASS**. TorBrowserProvider local = **REAL LOCAL PASS**. Model-driven Tor Browser GPU E2E = **REAL PASS**. Automatic `tor_fetch` → actual Tor Browser fallback = **REAL VERIFIED**. Controlled JS onion = **REAL PASS**. External official onion browser = **REAL PASS**. JS-specific onion rendering = **REAL PASS**. TorRoutedBrowserProvider = **NOT IMPLEMENTED**.
+
+## Проверка 0.8.6 — 19 сентября 2026
+
+- Цель: закрыть last Tor gap двумя независимыми proofs (controlled JS v3 onion + official external onion) и model-driven automatic `tor_fetch` → `TorBrowserProvider`.
+- HEAD before: `a6bebba0a769263a81acbd010bec1834d3afd35d` (0.8.5).
+- Controlled onion: temporary Tor v3 hidden service (bundled `tor.exe`, SocksPort 0, Job Object) published loopback `127.0.0.1:8088`. User SOCKS stayed `127.0.0.1:9050` (pid 4360). Raw `tor_fetch` visible text `Loading...`, marker absent, `needs_browser=true`, ATYP 0x03, local DNS=false. Isolated Tor Browser rendered `ALEX_ONION_JS_RENDERED_OK`, L1 → `/second.html` `ALEX_ONION_SECOND_PAGE_OK`. Authority `REACHABLE_UNVERIFIED`. **REAL PASS**
+- Local integration (mock planner, real fetch/detector/Tor Browser): `tor_fetch` then `tor_browser` `origin=server_policy`, both markers, T1/T2 browser. **REAL LOCAL INTEGRATION PASS**
+- External onion: runtime discovery from official Tor Project support/home (`2gzyxa5…`). Actual Tor Browser, rendered DOM, title «Tor Project | Anonymity Online», `OFFICIAL_AND_REACHABLE`, one internal link followed. **REAL PASS**
+- RunPod: ONE L40S `srbgz09aq5rdez`, US-TX-3, $1.09/h, billable **199s**, estimated **$0.060253**, `stop_reason=manual`. Catalog wait until L40S LOW; no second Pod. **RUNNING GPU FINAL = 0**. Volume `orcarouter-storage` / `uwgeaie5b0` preserved.
+- Sanity: `provider=llamacpp`, Mock=false, answer `4`.
+- Automatic fallback GPU: natural prompt (no “use Tor Browser”). Model `tor_fetch` (SOCKS5h 9050), raw insufficient, `tor_browser` `origin=server_policy` only, Cursor did not inject browser. Rendered marker in T1 + answer, second page T2 `ALEX_ONION_SECOND_PAGE_OK`. **REAL PASS**
+- Optional GPU official onion: Tor Project onion loaded, answer describes the official home page. Cost after that **$0.060253**.
+- TinyFish Search=0 Fetch=0 Agent=0 Browser=0. No local onion DNS. No Direct fallback. User `tor.exe` 4360 survived. Temporary HS keys removed; generated onion no longer served.
+- Hidden-service private keys were never committed.
+- Backend pytest: **265 passed, 1 skipped**. Ruff check/format — PASS. Alembic 0010 — PASS.
+- Native cargo check + cargo test: **12 passed**.
+- Frontend: **20 unit passed**, TypeScript, Prettier, Vite — PASS.
+- Playwright: **15 passed**.
+- npm audit (production): **0**. pip-audit: **0** known vulnerabilities.
+- Tauri release + NSIS x64 — PASS. ProductVersion **0.8.6**.
+  - EXE `apps/desktop/src-tauri/target/release/alex-llm.exe` SHA256 `13495CAC5357E96CCCC68BC71483A112A0561BF49C9CC081C23B341D4CF786BD`
+  - Installer `apps/desktop/src-tauri/target/release/bundle/nsis/Alex LLM_0.8.6_x64-setup.exe` SHA256 `5C663CFB2020FEFF7AD6043C0768EB2B7A2354B8210095CF76538EBF2B9F9ABA`
 
 ## Проверка 0.8.5 — 19 сентября 2026
 

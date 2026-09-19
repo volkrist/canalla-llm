@@ -4,6 +4,7 @@ from app.tools.tor.router import (
     classify_tor,
     extract_page_links,
     looks_like_tor,
+    onion_urls_from_prompt,
     pick_follow_urls,
     pick_tor_fetch_urls,
 )
@@ -81,3 +82,12 @@ def test_empty_preferences_default_to_tor_auto():
     assert WebSettings.model_validate({}).tor_mode == "auto"
     assert WebSettings.model_validate({"tor_enabled": False}).tor_mode == "off"
     assert WebSettings.model_validate({"tor_enabled": True}).tor_mode == "auto"
+
+
+def test_onion_urls_from_prompt_are_v3_only_and_safe():
+    host = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion"
+    urls = onion_urls_from_prompt(f"Через Tor проверь http://{host}/docs и https://example.org/")
+    assert urls == [f"http://{host}/docs"]
+    assert onion_urls_from_prompt("file:///secret") == []
+    assert onion_urls_from_prompt("javascript:alert(1)") == []
+    assert onion_urls_from_prompt("http://short.onion/") == []

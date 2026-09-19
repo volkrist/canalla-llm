@@ -38,6 +38,10 @@ RESEARCH = re.compile(
     r")"
 )
 MATH = re.compile(r"(?i)^(сколько будет|what('?s| is) \d|[\d\s+\-*/().=?,!]+)$")
+ONION_IN_PROMPT = re.compile(
+    r"https?://(?:[a-z2-7]{56}|[a-z2-7]{16})\.onion(?:/[^\s<>\"')\]]*)?",
+    re.I,
+)
 LOCAL_ONLY = re.compile(r"(?i)(pytest|локальн\w* проект|тестов\w* папк|workspace|calculator\.py)")
 BLOCKED_SCHEMES = {"mailto", "javascript", "data", "file", "magnet", "blob", "about", "chrome"}
 DOWNLOAD_SUFFIXES = (
@@ -112,6 +116,21 @@ def blocked_link(url: str) -> bool:
 
 def normalize_http_url(value: str) -> str:
     return canonical_url(value or "")
+
+
+def onion_urls_from_prompt(prompt: str) -> list[str]:
+    found, seen = [], set()
+    for match in ONION_IN_PROMPT.finditer(prompt or ""):
+        url = match.group(0).rstrip(").,];")
+        host = (urlsplit(url).hostname or "").rstrip(".").lower()
+        if blocked_link(url) or not is_onion(host):
+            continue
+        key = normalize_http_url(url) or url.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append(url)
+    return found
 
 
 def extract_page_links(base_url: str, html_text: str, limit=50):

@@ -22,7 +22,7 @@ from .marionette import MarionetteClient
 from .router import blocked_link, normalize_http_url
 from .snapshot import fetch_needs_browser, resolve_link_id, snapshot_from_html
 from .socks import Socks5hConnector
-from .urls import validate_tor_url
+from .urls import is_onion, validate_tor_url
 
 BROWSER_OPS = ("open", "content", "links", "click", "navigate", "back", "wait", "close")
 UNSAFE_SCHEMES = {"file", "javascript", "data", "blob", "chrome", "about", "view-source"}
@@ -436,8 +436,11 @@ class TorBrowserController:
             raise ToolError("tool_limit")
         parent = session.snapshot.url if session.snapshot else None
         await session.marionette.navigate(target)
-        if wait_ms:
-            await asyncio.sleep(min(wait_ms, 30000) / 1000)
+        delay = wait_ms or 0
+        if is_onion((urlsplit(target).hostname or "").rstrip(".").lower()):
+            delay = max(delay, 5000)
+        if delay:
+            await asyncio.sleep(min(delay, 30000) / 1000)
         snapshot = await self._capture(parent_source=parent if follow else None, follow=follow)
         session.visited.add(normalize_http_url(snapshot.url) or snapshot.url)
         if snapshot.downloads_blocked if hasattr(snapshot, "downloads_blocked") else False:

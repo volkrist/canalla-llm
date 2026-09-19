@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.8.5**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.8.6**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -241,6 +241,10 @@ GPU retest on ONE L40S (`o2ossjuc01e6jx`, US-TX-3, $1.09/h, 203s, ~$0.061, volum
 Run `alembic upgrade head` (0010). Keep `LLM_PROVIDER=mock` unless you intentionally start compute.
 
 [Tor](docs/tor.md) · [Verification](docs/verification.md)
+
+## Version 0.8.6 — automatic Tor Browser fallback REAL VERIFIED
+
+A natural Tor request with a `.onion` URL now fetches that URL first. If HTTP `tor_fetch` only sees a JS shell, production heuristic `needs_browser` selects `TorBrowserProvider` automatically (`origin=server_policy`) without the user saying “use Tor Browser”. GPU proof: real OrcaRouter fetched a temporary Tor v3 JS onion (raw `Loading...`), launched isolated Tor Browser, rendered `ALEX_ONION_JS_RENDERED_OK`, followed L1 to the second onion page, and answered with the rendered markers. A live official Tor Project onion was opened independently. TinyFish Agent/Browser stayed 0.
 
 ## Version 0.8.5 — model-driven Tor Browser REAL PASS
 

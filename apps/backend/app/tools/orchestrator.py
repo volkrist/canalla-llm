@@ -9,6 +9,7 @@ from .tor.router import (
     classify_tor,
     effective_tor_mode,
     normalize_http_url,
+    onion_urls_from_prompt,
     pick_follow_urls,
     pick_tor_fetch_urls,
 )
@@ -112,6 +113,8 @@ class ToolOrchestrator:
             "Use web_search for current clearnet URLs and web_fetch to read them. "
             "If the user asks for Tor or a .onion address, call tor_search first, then tor_fetch "
             "on relevant onion URLs, then follow at most a few relevant internal onion links. "
+            "If the user prompt already contains an http(s) .onion URL, fetch that URL with "
+            "tor_fetch first and do not start a new search. "
             "If the user asks to open Tor Browser, call tor_browser first with operation=open and "
             "the page URL (official Tor check is https://check.torproject.org/), wait_ms=2500, "
             "then tor_browser operation=click with one link_id such as L1. Do not search first "
@@ -200,6 +203,7 @@ class ToolOrchestrator:
                 tor_intent.required
                 and not has_resume
                 and not context.tor_search_done
+                and not onion_urls_from_prompt(prompt)
                 and any(item.name == "tor_search" for item in definitions)
             ):
                 output = await self._run(
@@ -220,7 +224,20 @@ class ToolOrchestrator:
                         ),
                     }
                 )
-            if tor_intent.required and context.tor_search_done and not context.tor_fetch_done:
+            prompt_onions = [
+                url
+                for url in onion_urls_from_prompt(prompt)
+                if (normalize_http_url(url) or url) not in context.tor_visited
+            ]
+            if tor_intent.required and prompt_onions:
+                await self._run(
+                    "tor_fetch",
+                    json.dumps({"urls": prompt_onions[:3], "fresh": True}, ensure_ascii=False),
+                    context,
+                    notes,
+                    origin="server_policy",
+                )
+            elif tor_intent.required and context.tor_search_done and not context.tor_fetch_done:
                 urls = pick_tor_fetch_urls(context.sources, visited=context.tor_visited)
                 if urls:
                     await self._run(
@@ -373,19 +390,19 @@ class ToolOrchestrator:
                 return
             await self._run(
                 "tor_browser",
-                json.dumps({"operation": "open", "url": url, "wait_ms": 2500}, ensure_ascii=False),
+                json.dumps({"operation": "open", "url": url, "wait_ms": 5000}, ensure_ascii=False),
                 context,
                 notes,
                 origin="server_policy",
             )
             opened = getattr(context, "tor_browser_done", False)
-        if opened and explicit and not navigated:
+        if opened and not navigated and (explicit or needs):
             link_id = self._browser_link_id(context.sources)
             if link_id:
                 await self._run(
                     "tor_browser",
                     json.dumps(
-                        {"operation": "click", "link_id": link_id, "wait_ms": 1500}, ensure_ascii=False
+                        {"operation": "click", "link_id": link_id, "wait_ms": 2500}, ensure_ascii=False
                     ),
                     context,
                     notes,

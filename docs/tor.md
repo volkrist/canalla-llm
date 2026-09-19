@@ -1,4 +1,4 @@
-# Tor in 0.8.5
+# Tor in 0.8.6
 
 Tor is a separate capability from TinyFish Web. `web_mode` does not enable or
 disable it. Composer and Web & Tools expose **Tor Off / Auto / On**, independent
@@ -14,10 +14,17 @@ of Web mode.
 - «не используй Tor» / «don't use Tor» disables Tor for that request.
 
 The model is expected to call `tor_search` then `tor_fetch` itself. If the user
-has explicit Tor intent and the planner returns no Tor tool, the server injects
+prompt already contains an http(s) `.onion` URL, the server fetches that URL
+first and does not inject a new search. If the user has explicit Tor intent, no
+onion URL in the prompt, and the planner returns no Tor tool, the server injects
 a safe `tor_search` (and may fetch/follow within limits) with
 `origin=server_policy`. Audit never pretends a server-injected call was
 model-selected.
+
+If `tor_fetch` returns a JS app shell (`needs_browser`), Auto Tor Browser mode
+opens the same URL through `TorBrowserProvider` and may click the first safe
+L-id. That fallback is `origin=server_policy`, not a Cursor-injected tool. The
+heuristic does not hard-code test hostnames or render markers.
 
 ## Research loop
 

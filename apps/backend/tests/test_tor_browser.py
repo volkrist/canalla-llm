@@ -62,6 +62,20 @@ def test_fetch_needs_browser_js_shell_not_mere_script():
     shell = '<html><body><div id="root"></div><script src="app.js"></script>Loading...</body></html>'
     assert fetch_needs_browser(shell) is True
     assert fetch_needs_browser("<p>hello</p>", explicit_browser=True) is True
+    fixture = """
+    <html><body>
+    <div id="root">Loading...</div>
+    <script>setTimeout(function(){ document.getElementById("root").innerHTML = "<p>done</p>"; }, 1200);</script>
+    </body></html>
+    """
+    assert fetch_needs_browser(fixture) is True
+    assert "done" not in visible_text(fixture)
+    rendered = (
+        '<html><body><div id="root"><p>Visible article text after render. '
+        + ("word " * 40)
+        + "</p><a href='/second.html'>Second</a></div></body></html>"
+    )
+    assert fetch_needs_browser(rendered) is False
 
 
 def test_link_ids_and_blocked_schemes():
@@ -279,3 +293,49 @@ def test_planner_tor_browser_modes(monkeypatch):
     names = {item.name for item in orch.planner_definitions(context("не используй Tor Browser", "on", "on"))}
     assert "tor_browser" not in names
     assert visible_text("<script>secret()</script><p>Hello world</p>") == "Hello world"
+
+
+def test_fetch_needs_browser_ignores_js_marker_strings():
+    import inspect
+
+    from app.tools.tor import snapshot as snapshot_mod
+
+    source = inspect.getsource(fetch_needs_browser) + inspect.getsource(snapshot_mod)
+    assert "ALEX_ONION_JS_RENDERED_OK" not in source
+    assert "ALEX_ONION_SECOND_PAGE_OK" not in source
+    html = """
+    <html><body>
+    <div id="root">Loading...</div>
+    <script>setTimeout(function(){ document.body.innerHTML = "ALEX_ONION_JS_RENDERED_OK"; }, 1200);</script>
+    </body></html>
+    """
+    assert fetch_needs_browser(html) is True
+    assert "ALEX_ONION_JS_RENDERED_OK" not in visible_text(html)
+    static = "<html><body><p>Plain onion article without a script tag.</p></body></html>"
+    assert fetch_needs_browser(static) is False
+
+
+def test_browser_fallback_cap_and_visited_follow():
+    from app.tools.policy import ToolLimits
+    from app.tools.registry import make_registry
+
+    definition = make_registry().get("tor_browser")[0]
+    limits = ToolLimits(
+        max_calls=20,
+        hard_max_calls=20,
+        max_tor_calls=20,
+        max_tor_browser=2,
+        hard_tor_browser=2,
+    )
+    args = TorBrowserArgs(operation="open", url="https://check.torproject.org/")
+    limits.consume(definition, args)
+    limits.consume(definition, args)
+    with pytest.raises(ToolError, match="tool_limit"):
+        limits.consume(definition, args)
+    import inspect
+
+    from app.tools.tor.browser import TorBrowserController
+
+    source = inspect.getsource(TorBrowserController.navigate)
+    assert "if key in session.visited and follow" in source
+    assert 'raise ToolError("tool_limit")' in source

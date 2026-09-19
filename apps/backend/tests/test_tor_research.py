@@ -469,6 +469,75 @@ def test_js_shell_fetch_triggers_browser_fallback(client, auth, monkeypatch):
     assert any((row.get("details") or {}).get("retrieval") == "browser" for row in sources)
 
 
+def test_prompt_onion_url_is_fetched_without_search(client, auth, monkeypatch):
+    from dataclasses import replace
+
+    from app.tools.contracts import ToolRegistry
+
+    class JsShellTor(FakeTor):
+        async def execute(self, args, context):
+            if self.capability != "tor_fetch":
+                return await super().execute(args, context)
+            url = args.urls[0]
+            return ToolResult(
+                sources=[
+                    {
+                        "url": url,
+                        "final_url": url,
+                        "title": "App shell",
+                        "excerpt": "Loading...",
+                        "authority": "REACHABLE_UNVERIFIED",
+                        "links": [],
+                        "reachable": True,
+                        "transport": "tor",
+                        "needs_browser": True,
+                        "retrieval": "http",
+                        "rendered": False,
+                    }
+                ]
+            )
+
+    original, registry = make_registry(), ToolRegistry()
+    for definition in original.definitions(auto_only=False):
+        if definition.provider == "local_device":
+            continue
+        if definition.provider == "tor":
+            registry.register(replace(definition), JsShellTor(definition.capability))
+        elif definition.capability in {"search", "fetch"}:
+            from fakes_web import FakeWebProvider
+
+            registry.register(replace(definition), FakeWebProvider(definition.capability))
+    monkeypatch.setattr(client.app.state, "tools", registry)
+    _enable_browser(monkeypatch)
+
+    class Silent:
+        supports_tools = True
+
+        async def plan_tools(self, messages, tools, usage):
+            return {"tool_calls": []}
+
+        async def stream_with_usage(self, messages, usage):
+            yield "Prompt onion fallback"
+
+    monkeypatch.setattr(client.app.state, "provider", Silent())
+    headers = auth()
+    chat = client.post("/chats", headers=headers, json={}).json()["id"]
+    response = client.post(
+        f"/chats/{chat}/stream",
+        headers=headers,
+        json={"content": f"Через Tor проверь {ROOT}", "tor_mode": "auto", "web_mode": "off"},
+    )
+    assert "event: done" in response.text
+    runs = client.get("/tools/runs", headers=headers).json()
+    names = [row["tool_name"] for row in runs]
+    assert "tor_search" not in names
+    assert "tor_fetch" in names
+    assert "tor_browser" in names
+    payloads = " ".join(str(row.get("input_summary")) for row in runs if row["tool_name"] == "tor_fetch")
+    assert ONION in payloads
+    assert any(row["tool_name"] == "tor_browser" and row.get("origin") == "server_policy" for row in runs)
+
+
 def test_no_use_tor_browser_disables_browser_tools(client, auth, tor_tools, monkeypatch):
     _enable_browser(monkeypatch)
     headers = auth()
