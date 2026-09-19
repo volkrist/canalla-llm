@@ -403,6 +403,9 @@ def start_backend(discovered, socks_port, skip_gpu=False, session_budget="0.60")
     if upgrade.returncode != 0:
         raise RuntimeError(f"alembic_failed:{upgrade.stderr[-400:]}")
     env = os.environ.copy()
+    file_env = env_file_map()
+    if file_env.get("DATABASE_URL"):
+        env["DATABASE_URL"] = file_env["DATABASE_URL"]
     env.pop("TOR_SEARCH_PROVIDERS", None)
     env.pop("TOR_OFFICIAL_MAPPING", None)
     tor_dir = Path(os.environ["TEMP"]) / "alex-llm-real-e2e"
@@ -452,7 +455,7 @@ def kill_port_8000():
 
 def sqlite_db():
     values = env_file_map()
-    url = values.get("DATABASE_URL", "sqlite:///./alex.db")
+    url = os.environ.get("DATABASE_URL") or values.get("DATABASE_URL", "sqlite:///./alex.db")
     if not url.startswith("sqlite"):
         return None
     path = url.split("sqlite:///")[-1]

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import ToolActivity from "../components/ToolActivity";
+import TaskPanel from "../components/TaskPanel";
 import Composer from "../components/Composer";
 import type { Api } from "./api";
 import { summarizeFamily, type ToolRun } from "./tools";
@@ -222,5 +223,65 @@ describe("tool presentation", () => {
     );
     expect(on).not.toContain("Найти в интернете");
     expect(off).not.toContain("Найти в интернете");
+  });
+});
+
+describe("task panel", () => {
+  it("shows plan progress and pause stop", () => {
+    const html = renderToStaticMarkup(
+      <TaskPanel
+        task={{
+          id: "t1",
+          title: "Fix authentication tests",
+          status: "EXECUTING",
+          chat_id: "c1",
+          workspace: "C:\\work",
+          current_step: "fix",
+          current_phase: "EXECUTING",
+          plan_revision: 1,
+          tool_calls_used: 12,
+          tool_budget: 40,
+          files_changed: 2,
+          file_change_budget: 20,
+          elapsed_runtime: 272,
+          runtime_budget: 1800,
+          last_error: null,
+          completion_summary: null,
+          message: "Working",
+          steps: [
+            {
+              id: "s1",
+              title: "Inspect project",
+              description: "",
+              status: "COMPLETED",
+              tool_category: "local_fs",
+              verification_required: false,
+              attempts: 1,
+              result_summary: "",
+              key: "inspect",
+            },
+            {
+              id: "s2",
+              title: "Fix refresh token handling",
+              description: "",
+              status: "RUNNING",
+              tool_category: "local_fs",
+              verification_required: false,
+              attempts: 1,
+              result_summary: "",
+              key: "fix",
+            },
+          ],
+        }}
+        onPause={() => {}}
+        onResume={() => {}}
+        onStop={() => {}}
+      />,
+    );
+    expect(html).toContain("Fix authentication tests");
+    expect(html).toContain("Inspect project");
+    expect(html).toContain("Pause");
+    expect(html).toContain("Stop");
+    expect(html).toContain("12 / 40");
   });
 });
