@@ -9,6 +9,7 @@ from ..contracts import ToolError, ToolProvider, ToolResult
 from ..tinyfish.web import bounded_excerpt
 from .classify import classify_authority
 from .router import blocked_link, extract_page_links
+from .snapshot import fetch_needs_browser
 from .socks import TorTransportProvider
 from .urls import validate_tor_url
 
@@ -208,19 +209,23 @@ class TorFetchProvider(ToolProvider):
                 )
                 continue
             reachable = bool(page.get("text"))
-            links = extract_page_links(page.get("url") or url, page.get("text") or "")
+            raw_html = page.get("text") or ""
+            links = extract_page_links(page.get("url") or url, raw_html)
             sources.append(
                 {
                     "url": url,
                     "final_url": page.get("url") or url,
-                    "title": _title(page.get("text", "")) or urlsplit(url).hostname or url,
+                    "title": _title(raw_html) or urlsplit(url).hostname or url,
                     "excerpt": bounded_excerpt(
-                        re.sub(r"(?is)<script.*?</script>", " ", page.get("text", "")), args.purpose
+                        re.sub(r"(?is)<script.*?</script>", " ", raw_html), args.purpose
                     ),
                     "authority": classify_authority(url, reachable, settings),
                     "links": links,
                     "reachable": reachable,
                     "transport": "tor",
+                    "needs_browser": fetch_needs_browser(raw_html),
+                    "retrieval": "http",
+                    "rendered": False,
                 }
             )
             handshake = page.get("socks") or handshake
@@ -259,4 +264,21 @@ def register_tor_tools(registry):
             "tor",
         ),
         TorFetchProvider(),
+    )
+    from .browser import TorBrowserArgs, TorBrowserProvider
+
+    browser = TorBrowserProvider()
+    registry.register(
+        ToolDefinition(
+            "tor_browser",
+            "Read-only Tor Browser fallback: open/render/click L-ids through isolated Tor Browser. "
+            "Use only when HTTP fetch is a JS shell or the user asks for Tor Browser. Never submit forms.",
+            TorBrowserArgs,
+            "tor_browser",
+            RiskLevel.READ,
+            "free",
+            90,
+            "tor",
+        ),
+        browser,
     )

@@ -17,7 +17,7 @@ export interface ToolRun {
   origin?: string;
 }
 export const WEB_TOOLS = new Set(["web_search", "web_fetch"]);
-export const TOR_TOOLS = new Set(["tor_search", "tor_fetch"]);
+export const TOR_TOOLS = new Set(["tor_search", "tor_fetch", "tor_browser"]);
 export const COMPUTER_TOOLS = new Set([
   "list_directory",
   "read_file",
@@ -127,8 +127,13 @@ export const toolErrors: Record<string, string> = {
   model_tools_unsupported: "Эта модель не поддерживает вызовы инструментов.",
   timeout: "Достигнут лимит времени инструмента.",
   tor_not_configured: "Tor не настроен.",
+  tor_unavailable: "Tor недоступен.",
   tor_search_not_configured: "Tor Search provider not configured",
   tor_search_failed: "Tor Search did not return results",
+  tor_browser_disabled: "Автоматизация Tor Browser выключена.",
+  tor_browser_not_installed: "Tor Browser не найден.",
+  tor_browser_not_ready: "Tor Browser automation недоступна.",
+  download_blocked: "Загрузка файлов через Tor Browser заблокирована.",
   computer_disabled: "Режим компьютера выключен.",
   host_offline: "Локальный компьютер недоступен.",
   path_denied: "Путь недоступен или запрещён.",
@@ -199,7 +204,10 @@ export function summarizeFamily(
       (run) => run.tool_name === "tor_search",
     ).length;
     const fetches = runs.filter((run) => run.tool_name === "tor_fetch").length;
-    return `Tor · ${runs.length} действий · ${searches} Search · ${fetches} Fetch · ${status}`;
+    const browsers = runs.filter(
+      (run) => run.tool_name === "tor_browser",
+    ).length;
+    return `Tor · ${runs.length} действий · ${searches} Search · ${fetches} Fetch · ${browsers} Browser · ${status}`;
   }
   const changed = runs.filter(
     (run) => FILE_CHANGE_TOOLS.has(run.tool_name) && run.status === "completed",

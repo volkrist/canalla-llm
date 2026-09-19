@@ -158,5 +158,9 @@ Coding uses the same registry/policy/orchestrator/host stack. `LocalTask` checkp
 
 ## 0.8.3 Automatic Tor research
 
-Tor Off/Auto/On is independent of Web. A Tor intent router can inject `tor_search` with `origin=server_policy` when the user asked for Tor and the planner returned no Tor tool. `tor_fetch` extracts structured links; follow stays model-selected under visited-URL and budget ceilings. llama.cpp planner/stream payloads send `chat_template_kwargs.enable_thinking=false`. Migration 0010 adds `web_source_snapshots.details`. Tor Browser remains a fail-closed unused fallback.
+Tor Off/Auto/On is independent of Web. A Tor intent router can inject `tor_search` with `origin=server_policy` when the user asked for Tor and the planner returned no Tor tool. `tor_fetch` extracts structured links; follow stays model-selected under visited-URL and budget ceilings. llama.cpp planner/stream payloads send `chat_template_kwargs.enable_thinking=false`. Migration 0010 adds `web_source_snapshots.details`.
+
+## 0.8.4 Tor Browser automation
+
+`TorBrowserProvider` drives the installed Tor Browser executable through Marionette with a temporary profile and a Windows Job Object. `tor_fetch` stays primary; browser is a read-only fallback for JS shells or an explicit Tor Browser request. Click uses L-ids. Downloads, forms, credentials and arbitrary model JS are blocked. `TorRoutedBrowserProvider` remains unimplemented.
 

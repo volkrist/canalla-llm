@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import pytest
@@ -287,10 +288,13 @@ def test_loop_protection_skips_visited_fetch(client, auth, tor_tools, monkeypatc
 
 
 def test_tor_browser_fallback_is_disabled_by_default():
+
+    from app.tools.tor.browser import TorBrowserArgs
+
     status = browser_status()
     assert status["automatic"] is False
     with pytest.raises(Exception) as error:
-        import asyncio
-
-        asyncio.run(TorBrowserProvider().execute(None, None))
-    assert error.value.args[0] == "tor_browser_fallback_disabled"
+        asyncio.run(
+            TorBrowserProvider().execute(TorBrowserArgs(operation="open", url="https://example.org"), None)
+        )
+    assert error.value.args[0] == "tor_browser_disabled"

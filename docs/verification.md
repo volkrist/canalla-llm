@@ -1,6 +1,27 @@
 # Alex LLM — отчёты проверки
 
-Текущий локальный этап: **0.8.3**. Automatic Tor research = **REAL PASS** (OrcaRouter, Mock=false). Direct tor_search/fetch remain REAL PASS from 0.8.1. Tor Browser GUI fallback is implemented as a fail-closed stub and was **not** REAL-tested.
+Текущий локальный этап: **0.8.4**. Automatic Tor research = **REAL PASS**. TorBrowserProvider = **REAL LOCAL PASS** (Marionette, isolated profile). Model-driven GPU browser fallback не тестировался. TorRoutedBrowserProvider = **NOT IMPLEMENTED**.
+
+## Проверка 0.8.4 — 19 сентября 2026
+
+- Цель: настоящий TorBrowserProvider для JS/browser-only страниц. GPU/RunPod не запускались.
+- HEAD before: `93bc7dce5e4bab2115a8be8eb784ceee6da247a9` (0.8.3).
+- Tor Browser: 15.0.22, engine Firefox 140.15.0, executable `firefox.exe` (Tor Project). Mechanism: Marionette.
+- Isolated temp profile: YES. User cookies/logins: not imported. Job Object: YES.
+- Local JS page: raw HTML without `TOR_BROWSER_JS_OK`, rendered DOM with marker, one link followed. **PASS** (automation, not Tor REAL PASS).
+- Tor routing: `check.torproject.org` title «Congratulations. This browser is configured to use Tor.» Followed L1 to torproject.org. **PASS**
+- Fail-closed invalid SOCKS 19999: `tor_unavailable`. Direct hits: none. **PASS**
+- User tor.exe PID survived close. **PASS**
+- JS-specific onion rendering: **NO** (not required; Tor-routed clearnet + local JS proven).
+- Backend pytest: **255 passed, 1 skipped**. Ruff check/format — PASS.
+- Native cargo check + cargo test: **12 passed**.
+- Frontend: **20 unit passed**, TypeScript, Prettier — PASS.
+- Playwright: **15 passed**.
+- npm audit (production): **0**. pip-audit: **0** known vulnerabilities.
+- Tauri release + NSIS x64 — PASS. ProductVersion **0.8.4**.
+  - EXE `apps/desktop/src-tauri/target/release/alex-llm.exe` SHA256 `DF6074751C667D3C30EAC97B35F36B2FACF7CA442116D0D2F6364877EC1EBFB9`
+  - Installer `apps/desktop/src-tauri/target/release/bundle/nsis/Alex LLM_0.8.4_x64-setup.exe` SHA256 `B83ACF9244843B6EAB1F9F35C6C276109A56EE82FC9854EC1D4DCB21CAAF966B`
+- TinyFish Agent/Browser: 0. RunPod: $0. GPU: 0.
 
 ## Проверка 0.8.3 — 17 сентября 2026
 

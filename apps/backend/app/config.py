@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     tools_max_tor_seconds: int = Field(default=180, ge=10, le=300)
     tor_socks_host: str = "127.0.0.1"
     tor_socks_port: int = Field(default=9050, ge=1, le=65535)
+    tor_browser_automation_enabled: bool = True
     tor_search_providers: list[dict] = []
     tor_official_mapping: list[dict] = []
     tor_search_providers_file: str = ""

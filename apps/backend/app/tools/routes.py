@@ -181,7 +181,7 @@ def provider_status(user: User = Depends(current_user)):
         "browser_delete_supported": settings.tinyfish_browser_delete_supported,
         "pricing_checked_at": "2026-09-15",
         "tor_search_configured": bool(settings.tor_search_providers),
-        "tor_status": "Connected" if _tor_connected(settings) else "Not configured",
+        "tor_status": "Connected" if _tor_connected(settings) else "Unavailable",
         "limits": {
             "calls": settings.tools_max_calls,
             "searches": settings.tools_max_search,

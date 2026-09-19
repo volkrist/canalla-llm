@@ -22,6 +22,7 @@ interface Preferences {
   browser_enabled: boolean;
   tor_mode: TorMode;
   tor_enabled: boolean;
+  tor_browser_mode: TorMode;
   computer_mode: ComputerMode;
   workspace_roots: string[];
   device_display_name: string;
@@ -36,6 +37,12 @@ interface Status {
   browser_delete_supported: boolean;
   tor_status: string;
   tor_search_configured: boolean;
+  tor_browser?: {
+    installed?: boolean;
+    detected?: boolean;
+    automation?: string;
+    version?: string | null;
+  };
   limits: Record<string, number>;
 }
 export default function WebToolsSettings({ api }: { api: Api }) {
@@ -73,6 +80,7 @@ export default function WebToolsSettings({ api }: { api: Api }) {
             tor_enabled:
               (prefs.tor_mode ?? (prefs.tor_enabled ? "auto" : "off")) !==
               "off",
+            tor_browser_mode: prefs.tor_browser_mode ?? "auto",
             computer_mode: prefs.computer_mode ?? "ask",
             workspace_roots: prefs.workspace_roots ?? [],
             device_display_name: prefs.device_display_name ?? "",
@@ -315,10 +323,24 @@ export default function WebToolsSettings({ api }: { api: Api }) {
           <fieldset>
             <legend>Tor</legend>
             <p>
-              Tor SOCKS: {status?.tor_status || "Проверка…"}
+              Tor Network: {status?.tor_status || "Проверка…"}
               {status && !status.tor_search_configured
                 ? " · Tor Search provider not configured"
                 : ""}
+            </p>
+            <p>
+              Tor Browser:{" "}
+              {status?.tor_browser?.detected ? "Detected" : "Not detected"}
+            </p>
+            <p>
+              Browser Automation:{" "}
+              {status?.tor_browser?.automation === "available"
+                ? "Available"
+                : status?.tor_browser?.automation === "disabled"
+                  ? "Disabled"
+                  : status?.tor_browser?.automation === "error"
+                    ? "Error"
+                    : "Unsupported"}
             </p>
             <label>
               Tor{" "}
@@ -338,9 +360,25 @@ export default function WebToolsSettings({ api }: { api: Api }) {
             <p>
               Off — без Tor. Auto — только при явном запросе Tor/onion. On — для
               research, но не для приветствий, правки текста, математики и
-              локальных задач. Direct fallback нет. GUI Tor Browser не
-              используется автоматически.
+              локальных задач. Direct fallback нет. Tor Browser automation —
+              только read-only fallback, если HTTP-fetch недостаточен.
             </p>
+            <label>
+              Tor Browser fallback{" "}
+              <select
+                aria-label="Tor Browser automation mode"
+                value={value.tor_browser_mode}
+                onChange={(e) =>
+                  change({
+                    tor_browser_mode: e.target.value as TorMode,
+                  })
+                }
+              >
+                <option value="off">Off</option>
+                <option value="auto">Auto</option>
+                <option value="on">On</option>
+              </select>
+            </label>
           </fieldset>
           <fieldset>
             <legend>Local Computer</legend>

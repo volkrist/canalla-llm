@@ -1,4 +1,4 @@
-# Tor in 0.8.3
+# Tor in 0.8.4
 
 Tor is a separate capability from TinyFish Web. `web_mode` does not enable or
 disable it. Composer and Web & Tools expose **Tor Off / Auto / On**, independent
@@ -49,9 +49,15 @@ Reachable does not mean official.
   templates (`{query}` or `__QUERY__`), also through that transport.
 - `TorFetchProvider` — reads http(s) URLs, including `.onion`, through the same
   transport.
-- `TorBrowserProvider` — unused SOCKS fallback abstraction. Automatic research
-  does not launch Tor Browser. Enabling it requires `ALEX_TOR_BROWSER_FALLBACK=1`
-  and still fail-closes until a real isolated-profile controller exists.
+- `TorBrowserProvider` — isolated-profile automation of the **installed Tor
+  Browser executable** via Marionette (not stock Firefox/Chrome through SOCKS).
+  HTTP `tor_fetch` stays primary. Browser fallback is read-only: open, wait,
+  render, extract L-ids, click navigation links, back, close. Forms, downloads,
+  login and arbitrary JS are blocked. Temporary profile, Windows Job Object,
+  `TOR_SKIP_LAUNCH=1`, SOCKS5h `127.0.0.1:9050`. No Tor→Direct fallback.
+  `TorRoutedBrowserProvider` is a separate name and is **not implemented**.
+  Settings: Tor Browser fallback Off/Auto/On. Pytest disables live launches
+  unless `ALEX_TOR_BROWSER_LIVE=1`.
 
 A curated `TOR_OFFICIAL_MAPPING` is provenance only. It is not a search index
 and is never returned as if it were Tor Search hits.

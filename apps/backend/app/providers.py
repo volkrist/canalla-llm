@@ -84,6 +84,28 @@ class MockLLMProvider(LLMProvider):
                         }
                     ]
                 }
+            if "tor_browser" in names and (
+                last.get("needs_browser")
+                or any(item.get("needs_browser") for item in last.get("sources") or [])
+            ):
+                url = (last.get("sources") or [{}])[0].get("final_url") or (last.get("sources") or [{}])[
+                    0
+                ].get("url")
+                if url:
+                    return {
+                        "tool_calls": [
+                            {
+                                "id": "mock-tor-browser",
+                                "type": "function",
+                                "function": {
+                                    "name": "tor_browser",
+                                    "arguments": json.dumps(
+                                        {"operation": "open", "url": url, "wait_ms": 500}
+                                    ),
+                                },
+                            }
+                        ]
+                    }
             return {"tool_calls": []}
         mode = "auto"
         if "Web mode=on" in policy:

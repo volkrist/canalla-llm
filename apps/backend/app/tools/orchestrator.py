@@ -34,6 +34,8 @@ class ToolOrchestrator:
             if capability in {"search", "fetch"} and context.mode != "off":
                 selected.append(definition)
             elif capability in TOR_CAPABILITIES and want_tor:
+                if capability == "tor_browser" and not self._tor_browser_allowed(context, prompt):
+                    continue
                 selected.append(definition)
             elif capability in LOCAL_CAPABILITIES and context.computer_mode != "off" and host_online:
                 if coding and definition.name not in CODING_PLANNER_TOOLS:
@@ -110,6 +112,8 @@ class ToolOrchestrator:
             "Use web_search for current clearnet URLs and web_fetch to read them. "
             "If the user asks for Tor or a .onion address, call tor_search first, then tor_fetch "
             "on relevant onion URLs, then follow at most a few relevant internal onion links. "
+            "Call tor_browser only when fetch is a JS shell (needs_browser) or the user asks for Tor Browser. "
+            "Click only via link_id values L1, L2, never raw JavaScript or form submit. "
             "If previously seen Tor URLs are listed, fetch those unvisited onion pages before a new search. "
             "Never send .onion URLs to TinyFish and never fetch onion sites directly. "
             "Do not submit forms, log in, download files, or follow mailto/javascript links. "
@@ -131,47 +135,79 @@ class ToolOrchestrator:
         planning = [{"role": "system", "content": policy}, history[-1]]
         notes = []
         await context.emit("web_status", {"state": "planning"})
-        while context.limits.calls < context.limits.max_calls and context.limits.remaining > 0:
-            try:
-                import asyncio
+        try:
+            while context.limits.calls < context.limits.max_calls and context.limits.remaining > 0:
+                try:
+                    import asyncio
 
-                async with asyncio.timeout(context.limits.remaining):
-                    decision = await provider.plan_tools(planning, tools, usage)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                notes.append("No web results available for this step: planning failed.")
-                await context.emit("web_status", {"state": "failed", "code": "planning_failed"})
-                break
-            calls = decision.get("tool_calls", [])
-            if not calls:
-                break
-            if not isinstance(calls, list) or len(calls) > context.limits.max_calls:
-                notes.append("Tool call limit reached.")
-                break
-            assistant_calls = []
-            for i, call in enumerate(calls):
-                if not isinstance(call, dict) or not isinstance(call.get("function"), dict):
-                    continue
-                assistant_calls.append(
-                    {
-                        "id": str(call.get("id") or f"call_{context.limits.calls}_{i}")[:80],
-                        "type": "function",
-                        "function": call["function"],
-                    }
-                )
-            if not assistant_calls:
-                break
-            planning.append({"role": "assistant", "content": None, "tool_calls": assistant_calls})
-            for call in assistant_calls:
-                function = call["function"]
+                    async with asyncio.timeout(context.limits.remaining):
+                        decision = await provider.plan_tools(planning, tools, usage)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    notes.append("No web results available for this step: planning failed.")
+                    await context.emit("web_status", {"state": "failed", "code": "planning_failed"})
+                    break
+                calls = decision.get("tool_calls", [])
+                if not calls:
+                    break
+                if not isinstance(calls, list) or len(calls) > context.limits.max_calls:
+                    notes.append("Tool call limit reached.")
+                    break
+                assistant_calls = []
+                for i, call in enumerate(calls):
+                    if not isinstance(call, dict) or not isinstance(call.get("function"), dict):
+                        continue
+                    assistant_calls.append(
+                        {
+                            "id": str(call.get("id") or f"call_{context.limits.calls}_{i}")[:80],
+                            "type": "function",
+                            "function": call["function"],
+                        }
+                    )
+                if not assistant_calls:
+                    break
+                planning.append({"role": "assistant", "content": None, "tool_calls": assistant_calls})
+                for call in assistant_calls:
+                    function = call["function"]
+                    output = await self._run(
+                        function.get("name", ""),
+                        function.get("arguments", "{}"),
+                        context,
+                        notes,
+                        origin="model",
+                    )
+                    planning.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call["id"],
+                            "content": sanitized(
+                                json.dumps(output, default=str, ensure_ascii=False),
+                                context.secrets,
+                                context.limits.max_chars,
+                            ),
+                        }
+                    )
+                if sum(len(str(m.get("content", ""))) for m in planning[2:]) > context.limits.max_chars * 2:
+                    notes.append("Tool context limit reached.")
+                    break
+            if (
+                tor_intent.required
+                and not has_resume
+                and not context.tor_search_done
+                and any(item.name == "tor_search" for item in definitions)
+            ):
                 output = await self._run(
-                    function.get("name", ""), function.get("arguments", "{}"), context, notes, origin="model"
+                    "tor_search",
+                    json.dumps({"query": tor_intent.query}, ensure_ascii=False),
+                    context,
+                    notes,
+                    origin="server_policy",
                 )
                 planning.append(
                     {
                         "role": "tool",
-                        "tool_call_id": call["id"],
+                        "tool_call_id": "server_tor_search",
                         "content": sanitized(
                             json.dumps(output, default=str, ensure_ascii=False),
                             context.secrets,
@@ -179,62 +215,38 @@ class ToolOrchestrator:
                         ),
                     }
                 )
-            if sum(len(str(m.get("content", ""))) for m in planning[2:]) > context.limits.max_chars * 2:
-                notes.append("Tool context limit reached.")
-                break
-        if (
-            tor_intent.required
-            and not has_resume
-            and not context.tor_search_done
-            and any(item.name == "tor_search" for item in definitions)
-        ):
-            output = await self._run(
-                "tor_search",
-                json.dumps({"query": tor_intent.query}, ensure_ascii=False),
-                context,
-                notes,
-                origin="server_policy",
-            )
-            planning.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": "server_tor_search",
-                    "content": sanitized(
-                        json.dumps(output, default=str, ensure_ascii=False),
-                        context.secrets,
-                        context.limits.max_chars,
-                    ),
-                }
-            )
-        if tor_intent.required and context.tor_search_done and not context.tor_fetch_done:
-            urls = pick_tor_fetch_urls(context.sources, visited=context.tor_visited)
-            if urls:
-                await self._run(
-                    "tor_fetch",
-                    json.dumps({"urls": urls[:3], "fresh": True}, ensure_ascii=False),
-                    context,
-                    notes,
-                    origin="server_policy",
+            if tor_intent.required and context.tor_search_done and not context.tor_fetch_done:
+                urls = pick_tor_fetch_urls(context.sources, visited=context.tor_visited)
+                if urls:
+                    await self._run(
+                        "tor_fetch",
+                        json.dumps({"urls": urls[:3], "fresh": True}, ensure_ascii=False),
+                        context,
+                        notes,
+                        origin="server_policy",
+                    )
+            if (
+                tor_intent.required
+                and context.limits.tor_follows < context.limits.max_tor_follow
+                and (context.tor_fetch_done or has_resume or context.tor_candidates)
+            ):
+                follow = pick_follow_urls(
+                    context.tor_candidates,
+                    context.tor_visited,
+                    max_depth=context.limits.max_tor_depth,
+                    limit=1,
                 )
-        if (
-            tor_intent.required
-            and context.limits.tor_follows < context.limits.max_tor_follow
-            and (context.tor_fetch_done or has_resume or context.tor_candidates)
-        ):
-            follow = pick_follow_urls(
-                context.tor_candidates,
-                context.tor_visited,
-                max_depth=context.limits.max_tor_depth,
-                limit=1,
-            )
-            if follow:
-                await self._run(
-                    "tor_fetch",
-                    json.dumps({"urls": follow, "fresh": True}, ensure_ascii=False),
-                    context,
-                    notes,
-                    origin="server_policy",
-                )
+                if follow:
+                    await self._run(
+                        "tor_fetch",
+                        json.dumps({"urls": follow, "fresh": True}, ensure_ascii=False),
+                        context,
+                        notes,
+                        origin="server_policy",
+                    )
+            await self._maybe_tor_browser(context, notes, tor_intent, prompt)
+        finally:
+            await self._close_tor_browser()
         if (
             intent.required
             and not tor_intent.required
@@ -287,6 +299,58 @@ class ToolOrchestrator:
         await context.emit("web_status", {"state": "finishing", "sources": len(context.sources)})
         close_task()
         return ContextBuilder.with_web(history, insert_at, context.sources, notes)
+
+    def _tor_browser_allowed(self, context, prompt):
+        from .tor.browser import automation_ready, looks_like_tor_browser
+
+        if not automation_ready(prefs=getattr(context, "settings", None)):
+            return False
+        if looks_like_tor_browser(prompt):
+            return True
+        if any(
+            (item.get("details") or {}).get("needs_browser") or item.get("needs_browser")
+            for item in context.sources
+        ):
+            return True
+        return getattr(getattr(context, "settings", None), "tor_browser_mode", "auto") == "on"
+
+    async def _maybe_tor_browser(self, context, notes, tor_intent, prompt):
+        from .tor.browser import automation_ready, looks_like_tor_browser
+
+        if not tor_intent.allowed or not automation_ready(prefs=getattr(context, "settings", None)):
+            return
+        if getattr(context, "tor_browser_done", False):
+            return
+        needs = [
+            item
+            for item in context.sources
+            if (item.get("details") or {}).get("needs_browser") or item.get("needs_browser")
+        ]
+        explicit = looks_like_tor_browser(prompt)
+        if not needs and not explicit:
+            return
+        url = ""
+        for item in needs or context.sources:
+            url = item.get("final_url") or item.get("url") or ""
+            if url:
+                break
+        if not url:
+            return
+        await self._run(
+            "tor_browser",
+            json.dumps({"operation": "open", "url": url, "wait_ms": 1500}, ensure_ascii=False),
+            context,
+            notes,
+            origin="server_policy",
+        )
+
+    async def _close_tor_browser(self):
+        try:
+            _definition, provider = self.registry.get("tor_browser")
+        except Exception:
+            return
+        if hasattr(provider, "close_all"):
+            await provider.close_all()
 
     def _load_previous_tor(self, context):
         from sqlalchemy import select

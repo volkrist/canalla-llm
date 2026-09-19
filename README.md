@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.8.3**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.8.4**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -241,3 +241,9 @@ GPU retest on ONE L40S (`o2ossjuc01e6jx`, US-TX-3, $1.09/h, 203s, ~$0.061, volum
 Run `alembic upgrade head` (0010). Keep `LLM_PROVIDER=mock` unless you intentionally start compute.
 
 [Tor](docs/tor.md) · [Verification](docs/verification.md)
+
+## Version 0.8.4 — Tor Browser automation REAL LOCAL PASS
+
+HTTP `tor_search`/`tor_fetch` remains the fast path. When a page is a JS shell or the user asks for Tor Browser, Alex can start an isolated Tor Browser session (Marionette, Job Object, no personal profile), render the DOM, follow L-ids, and store T sources with `retrieval=browser`. Live Windows proof: Tor Browser 15.0.22 / Firefox 140.15.0, `check.torproject.org` Congratulations via SOCKS 9050, local JS marker `TOR_BROWSER_JS_OK`, fail-closed on a dead SOCKS port, user `tor.exe` survived close. `TorRoutedBrowserProvider` is not implemented and is not this feature. Model-driven GPU fallback is not retested in this patch.
+
+Keep `LLM_PROVIDER=mock` unless you intentionally start compute. TinyFish Agent/Browser stay unused.

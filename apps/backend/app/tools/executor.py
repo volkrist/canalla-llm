@@ -21,6 +21,7 @@ STATES = {
     "fetch": "reading",
     "tor_search": "searching",
     "tor_fetch": "reading",
+    "tor_browser": "browser_working",
     "agent": "running_agent",
     "browser": "browser_working",
     "local_fs": "running",
@@ -146,6 +147,7 @@ class ExecutionContext:
     web_fetch_done: bool = False
     tor_search_done: bool = False
     tor_fetch_done: bool = False
+    tor_browser_done: bool = False
     seen_canonical: set = field(default_factory=set)
     tor_visited: set = field(default_factory=set)
     tor_visited_hosts: set = field(default_factory=set)
@@ -402,6 +404,9 @@ class ToolExecutor:
                     context.tor_fetch_done = True
                     if context.limits.tor_fetches > 1:
                         context.limits.tor_follows += 1
+                if definition.capability == "tor_browser":
+                    context.tor_fetch_done = True
+                    context.tor_browser_done = True
                 with SessionLocal() as db:
                     row = db.get(ToolRun, run_id)
                     row.status, row.finished_at = "completed", now()
@@ -624,6 +629,10 @@ class ToolExecutor:
             "depth": int(source.get("depth") or (0 if kind == "search" else 1)),
             "search_query": source.get("search_query"),
             "links": links[:20],
+            "needs_browser": bool(source.get("needs_browser")),
+            "retrieval": source.get("retrieval") or ("http" if channel == "tor" else "direct"),
+            "rendered": bool(source.get("rendered")),
+            "browser_session_id": source.get("browser_session_id"),
         }
 
     def _guard_tor_fetch(self, args, context):
@@ -661,7 +670,7 @@ class ToolExecutor:
             url = source.get("final_url") or source.get("url") or ""
             key = normalize_http_url(url)
             host = (urlsplit(url).hostname or "").rstrip(".").lower()
-            if key and definition.capability == "tor_fetch":
+            if key and definition.capability in {"tor_fetch", "tor_browser"}:
                 context.tor_visited.add(key)
             if host:
                 context.tor_visited_hosts.add(host)
@@ -669,7 +678,7 @@ class ToolExecutor:
             source["depth"] = source.get("depth", depth)
             source["search_query"] = source.get("search_query") or query
             source["reachable"] = "not reachable" not in (source.get("excerpt") or "").lower()
-            if definition.capability == "tor_fetch":
+            if definition.capability in {"tor_fetch", "tor_browser"}:
                 for item in context.tor_candidates:
                     if normalize_http_url(item.get("url") or "") == key:
                         source["parent_source"] = item.get("parent_source") or source.get("parent_source")

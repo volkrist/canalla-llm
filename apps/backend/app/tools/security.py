@@ -115,6 +115,8 @@ def input_summary(definition, args, secrets=(), follow=False):
         "branch",
         "force",
         "mode",
+        "operation",
+        "link_id",
         "ref",
         "message",
         "old_text",
@@ -130,6 +132,16 @@ def input_summary(definition, args, secrets=(), follow=False):
     if definition.name == "tor_fetch" and result.get("urls"):
         prefix = "Followed link: " if follow else "Opened: "
         result["action_detail"] = prefix + str(result["urls"])[:200]
+    if definition.name == "tor_browser":
+        operation = str(values.get("operation") or "open")
+        if operation == "open":
+            result["action_detail"] = "Tor Browser · Открыто " + str(values.get("url") or "")[:180]
+        elif operation == "click":
+            result["action_detail"] = "Tor Browser · Перешёл по ссылке " + str(values.get("link_id") or "")
+        elif operation == "close":
+            result["action_detail"] = "Tor Browser · Завершено"
+        else:
+            result["action_detail"] = "Tor Browser · Rendering"
     if risk in {RiskLevel.SENSITIVE, RiskLevel.CRITICAL} or definition.capability in LOCAL_CAPABILITIES:
         result.update(explanation(definition, args, risk=risk))
     return result

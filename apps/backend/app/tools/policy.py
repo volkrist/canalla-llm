@@ -21,6 +21,7 @@ class WebSettings(BaseModel):
     browser_enabled: bool = False
     tor_mode: Literal["off", "auto", "on"] = "auto"
     tor_enabled: bool = True
+    tor_browser_mode: Literal["off", "auto", "on"] = "auto"
     computer_mode: Literal["off", "ask", "trusted"] = "ask"
     workspace_roots: list[str] = Field(default_factory=list, max_length=8)
     device_display_name: str = Field(default="", max_length=80)
@@ -38,6 +39,8 @@ class WebSettings(BaseModel):
             else:
                 data["tor_mode"] = "auto"
         data["tor_enabled"] = data["tor_mode"] != "off"
+        if data.get("tor_browser_mode") not in {"off", "auto", "on"}:
+            data["tor_browser_mode"] = "auto"
         return data
 
 
@@ -47,7 +50,7 @@ def preferences(db, user_id):
 
 
 WEB_CAPABILITIES = {"search", "fetch", "agent", "browser"}
-TOR_CAPABILITIES = {"tor_search", "tor_fetch"}
+TOR_CAPABILITIES = {"tor_search", "tor_fetch", "tor_browser"}
 LOCAL_CAPABILITIES = {
     "local_fs",
     "local_process",
@@ -101,10 +104,12 @@ class ToolLimits:
     max_tor_depth: int = 3
     max_tor_candidates: int = 50
     max_tor_seconds: float = 180
+    max_tor_browser: int = 8
     hard_tor_search: int = 3
     hard_tor_fetch: int = 8
     hard_tor_calls: int = 12
     hard_tor_seconds: float = 300
+    hard_tor_browser: int = 8
     calls: int = 0
     searches: int = 0
     fetches: int = 0
@@ -116,6 +121,7 @@ class ToolLimits:
     tor_pages: int = 0
     tor_calls: int = 0
     tor_follows: int = 0
+    tor_browser: int = 0
     started: float = field(default_factory=time.monotonic)
 
     @property
@@ -131,6 +137,7 @@ class ToolLimits:
         fetching = definition.capability == "fetch"
         tor_searching = definition.capability == "tor_search"
         tor_fetching = definition.capability == "tor_fetch"
+        tor_browsing = definition.capability == "tor_browser"
         local = definition.capability in LOCAL_CAPABILITIES
         if searching and self.searches >= self.max_search:
             raise ToolError("search_limit")
@@ -143,9 +150,13 @@ class ToolLimits:
             or self.tor_pages + pages > self.max_tor_pages
         ):
             raise ToolError("page_limit")
-        if (tor_searching or tor_fetching) and self.tor_calls >= min(self.max_tor_calls, self.hard_tor_calls):
+        if tor_browsing and self.tor_browser >= min(self.max_tor_browser, self.hard_tor_browser):
             raise ToolError("tool_limit")
-        if (tor_searching or tor_fetching) and (time.monotonic() - self.started) >= min(
+        if (tor_searching or tor_fetching or tor_browsing) and self.tor_calls >= min(
+            self.max_tor_calls, self.hard_tor_calls
+        ):
+            raise ToolError("tool_limit")
+        if (tor_searching or tor_fetching or tor_browsing) and (time.monotonic() - self.started) >= min(
             self.max_tor_seconds, self.hard_tor_seconds
         ):
             raise ToolError("timeout")
@@ -165,7 +176,8 @@ class ToolLimits:
         self.tor_searches += tor_searching
         self.tor_fetches += tor_fetching
         self.tor_pages += pages if tor_fetching else 0
-        self.tor_calls += tor_searching or tor_fetching
+        self.tor_calls += tor_searching or tor_fetching or tor_browsing
+        self.tor_browser += tor_browsing
 
 
 def network_channel(definition) -> str | None:
@@ -243,6 +255,8 @@ class ToolPolicy:
         mode_tor = tor_mode if tor_mode in {"off", "auto", "on"} else ("auto" if tor_enabled else "off")
         if capability in TOR_CAPABILITIES and mode_tor == "off":
             raise ToolError("tor_disabled")
+        if capability == "tor_browser" and getattr(settings, "tor_browser_mode", "auto") == "off":
+            raise ToolError("tor_browser_disabled")
         if capability in LOCAL_CAPABILITIES and computer_mode == "off":
             raise ToolError("computer_disabled")
         if not definition.auto_route and not explicit:

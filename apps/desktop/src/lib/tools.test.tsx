@@ -174,7 +174,9 @@ describe("tool presentation", () => {
     );
     expect(tor).toContain("Network: Tor");
     expect(tor).toContain("Network: Direct");
-    expect(tor).toContain("Tor · 1 действий · 1 Search · 0 Fetch · Завершено");
+    expect(tor).toContain(
+      "Tor · 1 действий · 1 Search · 0 Fetch · 0 Browser · Завершено",
+    );
   });
   it("shows force-web only in Auto mode", () => {
     const auto = renderToStaticMarkup(
