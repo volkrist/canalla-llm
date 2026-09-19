@@ -161,8 +161,12 @@ def test_computer_planner_exposes_desktop_tools():
     assert "copy_file" in names
     assert "move_file" in names
     assert "search_code" in names
-    assert "install_software" in names
+    assert "hash_file" in names
+    assert "install_software" not in names
     assert "git_push" not in names
+    jq = SimpleNamespace(**{**context.__dict__, "user_prompt": "Установи jq через winget"})
+    jq_names = {item.name for item in ToolOrchestrator(make_registry(), None).planner_definitions(jq)}
+    assert "install_software" in jq_names
 
 
 def test_git_commit_when_explicitly_requested(setup):

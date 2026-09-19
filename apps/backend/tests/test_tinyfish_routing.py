@@ -263,3 +263,14 @@ def test_server_injects_browser_and_agent_before_model():
         assert recorded == []
 
     asyncio.run(run())
+
+
+def test_relative_browser_hrefs_become_http_urls():
+    from app.tools.tinyfish.browser import absolute_http_url
+
+    assert absolute_http_url("https://www.python.org/", "/doc/") == "https://www.python.org/doc/"
+    assert absolute_http_url("https://www.python.org/", "https://docs.python.org/3/") == (
+        "https://docs.python.org/3/"
+    )
+    assert absolute_http_url("https://www.python.org/", "javascript:void(0)") == ""
+    assert absolute_http_url("https://www.python.org/", "#top") == ""
