@@ -143,6 +143,7 @@ pub fn run_git(name: &str, args: &Value, roots: &[String], tool_run_id: &str) ->
         Duration::from_secs(60),
         || false,
         false,
+        true,
     );
     outcome.stdout = redact_text(&outcome.stdout);
     outcome.stderr = redact_text(&outcome.stderr);

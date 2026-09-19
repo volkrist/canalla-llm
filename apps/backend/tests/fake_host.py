@@ -19,6 +19,7 @@ class FakeHost:
         self.stop = threading.Event()
         self.handled = []
         self.thread = None
+        self.jobs = {}
 
     def start(self):
         self.thread = threading.Thread(target=self._loop, daemon=True)
@@ -27,6 +28,9 @@ class FakeHost:
 
     def close(self):
         self.stop.set()
+        for proc in list(self.jobs.values()):
+            if proc and proc.poll() is None:
+                proc.kill()
         if self.thread:
             self.thread.join(timeout=2)
 
@@ -42,7 +46,7 @@ class FakeHost:
         digest = job["input_digest"]
         self.handled.append(name)
         try:
-            payload = self._execute(name, args)
+            payload = self._execute(name, args, job["id"])
         except Exception as error:
             payload = {
                 "status": "failed",
@@ -65,11 +69,20 @@ class FakeHost:
             },
         )
 
-    def _execute(self, name, args):
+    def _execute(self, name, args, run_id=""):
         if name == "list_directory":
             path = Path(args["path"])
             names = "\n".join(sorted(item.name for item in path.iterdir()))
             return {"text": names, "stdout": names, "exit_code": 0, "metadata": {}}
+        if name == "hash_file":
+            path = Path(args["path"])
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            return {
+                "text": digest,
+                "stdout": digest,
+                "exit_code": 0,
+                "metadata": {"digest": digest, "sha256": digest, "path": str(path)},
+            }
         if name == "read_file":
             path = Path(args["path"])
             data = path.read_bytes()
@@ -79,7 +92,7 @@ class FakeHost:
                 "text": f"sha256={digest}\n{text}",
                 "stdout": text,
                 "exit_code": 0,
-                "metadata": {"before_sha256": digest, "sha256": digest},
+                "metadata": {"before_sha256": digest, "sha256": digest, "path": str(path)},
             }
         if name == "write_file":
             path = Path(args["path"])
@@ -173,15 +186,26 @@ class FakeHost:
             root = Path(args["root"])
             query = args.get("query") or ""
             hits = []
+            searched = 0
             for item in root.rglob("*"):
                 if item.is_file():
+                    searched += 1
                     try:
                         body = item.read_text(encoding="utf-8")
-                    except OSError:
+                    except (OSError, UnicodeDecodeError):
                         continue
                     if query in body:
-                        hits.append(item.name)
-            text = "\n".join(hits)
+                        for index, line in enumerate(body.splitlines(), 1):
+                            if query in line:
+                                hits.append(f"{item}:{index}:{line.strip()}")
+                                break
+            if not hits:
+                text = (
+                    f"tool=search_code status=no_match scope={root} query={query} "
+                    f"searched_files={searched} recommended_next_action=inspect_files_or_reconsider_query"
+                )
+            else:
+                text = "\n".join(hits)
             return {"text": text, "stdout": text, "exit_code": 0, "metadata": {}}
         if name == "get_known_folders":
             desktop = Path.home() / "Desktop"
@@ -203,11 +227,35 @@ class FakeHost:
                 "platform=windows\nos_version=10.0\ncpu_logical_processors=8\n"
                 "ram_total_mb=16000\nram_avail_mb=8000\nsystem_disk_free_gb=100"
             )
-            return {"text": text, "stdout": text, "exit_code": 0, "metadata": {"os_version": "10.0"}}
+            return {
+                "text": text,
+                "stdout": text,
+                "exit_code": 0,
+                "metadata": {
+                    "os_version": "10.0",
+                    "cpu_logical_processors": "8",
+                    "ram_total_mb": "16000",
+                    "system_disk_free_gb": "100",
+                },
+            }
         if name == "run_python":
             cwd = args.get("cwd") or str(self.root)
+            argv = [sys.executable, *list(args.get("argv") or [])]
+            if args.get("wait") is False:
+                proc = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.jobs[run_id] = proc
+                return {
+                    "text": f"started pid={proc.pid}",
+                    "exit_code": None,
+                    "metadata": {
+                        "pid": proc.pid,
+                        "status": "running",
+                        "started_by_alex": True,
+                        "tool_run_id": run_id,
+                    },
+                }
             result = subprocess.run(
-                [sys.executable, *list(args.get("argv") or [])],
+                argv,
                 cwd=cwd,
                 capture_output=True,
                 text=True,
@@ -221,6 +269,32 @@ class FakeHost:
                 "stderr": result.stderr or "",
                 "exit_code": result.returncode,
                 "metadata": {"exit_code": result.returncode, "cwd": cwd},
+            }
+        if name == "process_status":
+            key = args.get("tool_run_id")
+            proc = self.jobs.get(key)
+            running = bool(proc and proc.poll() is None)
+            text = "running" if running else "unknown"
+            return {
+                "text": text,
+                "exit_code": 0,
+                "metadata": {"status": text, "pid": getattr(proc, "pid", None)},
+            }
+        if name == "stop_process":
+            key = args.get("tool_run_id")
+            proc = self.jobs.pop(key, None)
+            pid = getattr(proc, "pid", None)
+            if proc and proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+            dead = proc is None or proc.poll() is not None
+            return {
+                "text": "stopped",
+                "exit_code": 0,
+                "metadata": {"pid": pid, "verified_dead": bool(dead)},
             }
         if name in {"git_status", "git_diff", "git_log", "git_add", "git_commit", "git_push"}:
             cwd = args.get("cwd") or str(self.root)

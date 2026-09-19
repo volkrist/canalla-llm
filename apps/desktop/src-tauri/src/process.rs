@@ -5,7 +5,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::os::windows::process::CommandExt;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -13,9 +13,16 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const CREATE_UNICODE_ENVIRONMENT: u32 = 0x0000_0400;
 const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
 
-static JOBS: OnceLock<Mutex<HashMap<String, OwnedHandle>>> = OnceLock::new();
+struct JobEntry {
+    #[allow(dead_code)]
+    job: OwnedHandle,
+    child: Option<Child>,
+    pid: u32,
+}
 
-fn jobs() -> &'static Mutex<HashMap<String, OwnedHandle>> {
+static JOBS: OnceLock<Mutex<HashMap<String, JobEntry>>> = OnceLock::new();
+
+fn jobs() -> &'static Mutex<HashMap<String, JobEntry>> {
     JOBS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -104,6 +111,7 @@ pub fn run_job(
     timeout: Duration,
     should_stop: impl Fn() -> bool,
     elevate: bool,
+    wait: bool,
 ) -> LocalOutcome {
     if elevate {
         return run_elevated(exe, args, cwd);
@@ -118,8 +126,8 @@ pub fn run_job(
         .env_clear()
         .envs(sanitized_env())
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(if wait { Stdio::piped() } else { Stdio::null() })
+        .stderr(if wait { Stdio::piped() } else { Stdio::null() })
         .creation_flags(CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | CREATE_BREAKAWAY_FROM_JOB);
     if let Some(dir) = cwd {
         command.current_dir(dir);
@@ -146,10 +154,32 @@ pub fn run_job(
         let _ = child.kill();
         return err("job_assign_failed");
     }
-    jobs()
-        .lock()
-        .expect("job map")
-        .insert(tool_run_id.to_string(), job);
+    let pid = child.id();
+    if !wait {
+        jobs().lock().expect("job map").insert(
+            tool_run_id.to_string(),
+            JobEntry {
+                job,
+                child: Some(child),
+                pid,
+            },
+        );
+        return LocalOutcome {
+            exit_code: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            text: format!("started pid={pid}"),
+            metadata: json!({"pid": pid, "status": "running", "started_by_alex": true}),
+        };
+    }
+    jobs().lock().expect("job map").insert(
+        tool_run_id.to_string(),
+        JobEntry {
+            job,
+            child: None,
+            pid,
+        },
+    );
     let started = Instant::now();
     loop {
         if should_stop() || started.elapsed() > timeout {
@@ -164,17 +194,21 @@ pub fn run_job(
                     .unwrap_or_default(),
                 stderr: "stopped".into(),
                 text: "stopped".into(),
-                metadata: json!({"status": "stopped"}),
+                metadata: json!({"status": "stopped", "pid": pid}),
             };
         }
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => std::thread::sleep(Duration::from_millis(80)),
-            Err(_) => break,
+        use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
+        use windows::Win32::System::Threading::WaitForSingleObject;
+        let finished = unsafe { WaitForSingleObject(HANDLE(child.as_raw_handle()), 80) == WAIT_OBJECT_0 };
+        if finished {
+            break;
         }
     }
+    jobs()
+        .lock()
+        .expect("job map")
+        .remove(tool_run_id);
     let output = child.wait_with_output().ok();
-    stop_job(tool_run_id);
     let stdout: String = output
         .as_ref()
         .map(|o| String::from_utf8_lossy(&o.stdout).chars().take(20000).collect())
@@ -195,21 +229,35 @@ pub fn run_job(
         text: combined.chars().take(20000).collect(),
         stdout,
         stderr,
-        metadata: json!({}),
+        metadata: json!({"pid": pid}),
     }
 }
 
-pub fn stop_job(tool_run_id: &str) {
-    if let Ok(mut map) = jobs().lock() {
-        map.remove(tool_run_id);
+pub fn stop_job(tool_run_id: &str) -> Option<u32> {
+    let mut entry = jobs().lock().ok()?.remove(tool_run_id)?;
+    let pid = entry.pid;
+    if let Some(mut child) = entry.child.take() {
+        let _ = child.kill();
+        let _ = child.wait();
     }
+    Some(pid)
 }
 
 pub fn job_status(tool_run_id: &str) -> &'static str {
-    match jobs().lock() {
-        Ok(map) if map.contains_key(tool_run_id) => "running",
-        _ => "unknown",
+    let Ok(mut map) = jobs().lock() else {
+        return "unknown";
+    };
+    let Some(entry) = map.get_mut(tool_run_id) else {
+        return "unknown";
+    };
+    if let Some(child) = entry.child.as_mut() {
+        return match child.try_wait() {
+            Ok(None) => "running",
+            Ok(Some(_)) => "exited",
+            Err(_) => "unknown",
+        };
     }
+    "running"
 }
 
 fn err(code: &str) -> LocalOutcome {
@@ -245,6 +293,7 @@ fn run_elevated(exe: &str, args: &[String], cwd: Option<&str>) -> LocalOutcome {
         Duration::from_secs(120),
         || false,
         false,
+        true,
     )
 }
 

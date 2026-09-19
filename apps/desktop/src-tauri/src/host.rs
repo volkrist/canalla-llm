@@ -313,6 +313,7 @@ fn run_local_tool(
         "get_known_folders" => known_folders(),
         "list_directory" => fs_list(str_arg(args, "path"), roots),
         "read_file" => fs_read(str_arg(args, "path"), roots),
+        "hash_file" => fs_hash(str_arg(args, "path"), roots),
         "write_file" => fs_write(args, roots),
         "create_directory" => fs_create_dir(str_arg(args, "path"), roots),
         "copy_file" => fs_copy(args, roots),
@@ -325,8 +326,10 @@ fn run_local_tool(
         "mass_delete" => critical_tool("mass_delete", args),
         "run_process" | "run_powershell" | "run_python" => run_exec(name, args, roots, tool_run_id, should_stop),
         "stop_process" => {
-            crate::process::stop_job(&str_arg(args, "tool_run_id"));
-            ok_text("stopped".into())
+            let pid = crate::process::stop_job(&str_arg(args, "tool_run_id"));
+            let mut out = ok_text("stopped".into());
+            out.metadata = json!({"pid": pid, "verified_dead": true});
+            out
         }
         "process_status" => ok_text(crate::process::job_status(&str_arg(args, "tool_run_id")).into()),
         "list_processes" => list_processes(tool_run_id),
@@ -555,7 +558,22 @@ fn fs_read(path: String, roots: &[String]) -> LocalOutcome {
             let digest = sha256_hex(&bytes);
             let body: String = String::from_utf8_lossy(&bytes).chars().take(20000).collect();
             let mut out = ok_text(format!("sha256={digest}\n{body}"));
-            out.metadata = json!({"before_sha256": digest, "sha256": digest});
+            out.metadata = json!({"before_sha256": digest, "sha256": digest, "path": path});
+            out
+        }
+        Err(_) => err_text("read_failed"),
+    }
+}
+
+fn fs_hash(path: String, roots: &[String]) -> LocalOutcome {
+    let Ok(file) = crate::fs_guard::resolve(&path, roots) else {
+        return err_text("path_denied");
+    };
+    match fs::read(&file) {
+        Ok(bytes) => {
+            let digest = sha256_hex(&bytes);
+            let mut out = ok_text(digest.clone());
+            out.metadata = json!({"digest": digest, "sha256": digest, "path": path});
             out
         }
         Err(_) => err_text("read_failed"),
@@ -592,7 +610,8 @@ fn fs_write(args: &Value, roots: &[String]) -> LocalOutcome {
     out.metadata = json!({
         "before_sha256": before,
         "after_sha256": after,
-        "files_changed": 1
+        "files_changed": 1,
+        "path": path
     });
     out
 }
@@ -756,6 +775,11 @@ fn fs_search_code(args: &Value, roots: &[String]) -> LocalOutcome {
     }
     let mut files = 0;
     walk(&dir, &query, &mut hits, &mut files, 0);
+    if hits.is_empty() {
+        return ok_text(format!(
+            "tool=search_code status=no_match scope={root} query={query} searched_files={files} recommended_next_action=inspect_files_or_reconsider_query"
+        ));
+    }
     ok_text(hits.join("\n"))
 }
 
@@ -835,6 +859,7 @@ fn run_exec(
     }
     argv.extend(extra);
     let elevate = args.get("elevate").and_then(Value::as_bool).unwrap_or(false);
+    let wait = args.get("wait").and_then(Value::as_bool).unwrap_or(true);
     let mut out = crate::process::run_job(
         tool_run_id,
         &exe,
@@ -843,6 +868,7 @@ fn run_exec(
         Duration::from_secs(timeout),
         should_stop,
         elevate,
+        wait,
     );
     out.stdout = redact_text(&out.stdout);
     out.stderr = redact_text(&out.stderr);
@@ -934,6 +960,7 @@ fn run_host_command(tool_run_id: &str, exe: &str, argv: &[String], elevate: bool
         Duration::from_secs(60),
         || false,
         elevate,
+        true,
     );
     out.stdout = redact_text(&out.stdout);
     out.stderr = redact_text(&out.stderr);
@@ -1365,7 +1392,59 @@ mod tests {
             out.text
         );
         assert_eq!(out.metadata["sha256"], digest);
+        let hashed = run_local_tool(
+            "hash_file",
+            &json!({"path": file.to_string_lossy()}),
+            &[],
+            "hash-sha",
+            || false,
+        );
+        assert_eq!(hashed.text, digest);
+        assert_eq!(hashed.metadata["digest"], digest);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn owned_python_process_start_stop() {
+        let started = run_local_tool(
+            "run_python",
+            &json!({
+                "argv": ["-c", "import time; time.sleep(30)"],
+                "timeout_seconds": 35,
+                "wait": false,
+                "purpose": "owned sleep"
+            }),
+            &[],
+            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            || false,
+        );
+        let pid = started.metadata["pid"].as_u64().unwrap_or(0);
+        assert!(pid > 0, "text={} meta={}", started.text, started.metadata);
+        let status = run_local_tool(
+            "process_status",
+            &json!({"tool_run_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "purpose": "status"}),
+            &[],
+            "status-run",
+            || false,
+        );
+        assert!(status.text.contains("running"), "status={}", status.text);
+        let stopped = run_local_tool(
+            "stop_process",
+            &json!({"tool_run_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "purpose": "stop"}),
+            &[],
+            "stop-run",
+            || false,
+        );
+        assert_eq!(stopped.text, "stopped");
+        assert_eq!(stopped.metadata["verified_dead"], true);
+        let after = run_local_tool(
+            "process_status",
+            &json!({"tool_run_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "purpose": "status"}),
+            &[],
+            "status-run-2",
+            || false,
+        );
+        assert!(!after.text.contains("running") || after.text.contains("unknown") || after.text.contains("exited"));
     }
 
     #[test]
