@@ -11,8 +11,6 @@ ELEVATED_TOOLS = {
     "windows_service_control",
     "scheduled_task",
     "firewall_rule",
-    "install_software",
-    "uninstall_software",
     "format_volume",
     "manage_partition",
     "boot_config",
@@ -45,6 +43,10 @@ def target_of(args) -> str:
         "rev",
         "remote",
         "branch",
+        "url",
+        "item",
+        "seller",
+        "field",
     ):
         value = getattr(args, key, None)
         if value:

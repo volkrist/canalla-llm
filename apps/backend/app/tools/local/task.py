@@ -8,8 +8,17 @@ from ..contracts import ToolError
 from ..models import LocalTask, TaskCheckpoint, TaskStep, ToolRun
 from . import machine
 from .journal import append_event
-from .locks import acquire_write, release
-from .plan import default_plan, looks_like_autonomous, needs_research, revision_steps
+from .locks import acquire_write, enqueue_write, owns_write, reconcile_locks, release, waiter_position
+from .plan import (
+    default_plan,
+    looks_like_autonomous,
+    looks_like_commit_request,
+    looks_like_computer,
+    looks_like_push_request,
+    looks_like_write,
+    needs_research,
+    revision_steps,
+)
 from .workspace import looks_like_coding, workspace_from_settings
 
 STEP_DONE = {"COMPLETED", "SKIPPED", "CANCELLED"}
@@ -36,17 +45,25 @@ class LocalTaskController:
         context.task_commands = getattr(context, "task_commands", [])
         prompt = getattr(context, "user_prompt", "") or ""
         context.coding_task = looks_like_coding(prompt)
+        git_task = looks_like_commit_request(prompt) or looks_like_push_request(prompt)
         context.autonomous = bool(
-            getattr(context, "autonomous", False) or looks_like_autonomous(prompt) or context.coding_task
+            getattr(context, "autonomous", False)
+            or looks_like_autonomous(prompt)
+            or looks_like_computer(prompt)
+            or context.coding_task
+            or git_task
         )
         return workspace
 
     def open(self, db, context):
         prompt = getattr(context, "user_prompt", "") or ""
+        git_task = looks_like_commit_request(prompt) or looks_like_push_request(prompt)
         autonomous = bool(
             getattr(context, "autonomous", False)
             or looks_like_autonomous(prompt)
+            or looks_like_computer(prompt)
             or getattr(context, "coding_task", False)
+            or git_task
         )
         computer = getattr(context, "computer_mode", "off") != "off"
         if not autonomous:
@@ -71,12 +88,20 @@ class LocalTaskController:
         secrets = getattr(context, "secrets", ())
         cfg = get_settings()
         chat = db.get(Chat, context.chat_id) if context.chat_id else None
-        write = computer and bool(workspace.root)
+        write = computer and looks_like_write(prompt)
+        computer_only = looks_like_computer(prompt) and not bool(context.coding_task) and not git_task
+        if git_task and workspace.git_root:
+            lock_key = workspace.git_root
+        elif computer_only:
+            lock_key = f"user:{context.user_id}:computer"
+        else:
+            lock_key = workspace.root or f"user:{context.user_id}:computer"
+        queued = False
         if write:
             from .locks import busy_writer
 
-            if busy_writer(db, workspace.root):
-                raise ToolError("workspace_busy")
+            if busy_writer(db, lock_key):
+                queued = True
         row = LocalTask(
             user_id=context.user_id,
             chat_id=context.chat_id,
@@ -84,7 +109,7 @@ class LocalTaskController:
             project_id=getattr(chat, "project_id", None),
             device_id=getattr(context, "assigned_device_id", None),
             status=machine.CREATED,
-            workspace=(workspace.root or "")[:500],
+            workspace=lock_key[:500],
             title=(prompt[:80] or "Task"),
             original_user_request=prompt[:16000],
             current_phase=machine.PLANNING,
@@ -134,13 +159,16 @@ class LocalTaskController:
         )
         db.add(row)
         db.flush()
-        if write:
+        if write and not queued:
             try:
-                acquire_write(db, context.user_id, workspace.root, row.id)
+                acquire_write(db, context.user_id, lock_key, row.id)
             except ToolError:
-                db.delete(row)
-                db.commit()
-                raise
+                queued = True
+        if write and queued:
+            enqueue_write(db, context.user_id, lock_key, row.id)
+            facts = dict(row.facts or {})
+            facts["waiting_workspace"] = True
+            row.facts = facts
         extra = _git_snapshot(workspace.git_root)
         if extra:
             row.checkpoint = {**(row.checkpoint or {}), **extra}
@@ -153,7 +181,10 @@ class LocalTaskController:
             tor=getattr(context, "tor_mode", "off") != "off" and ("tor" in lowered or ".onion" in lowered),
         )
         self._store_plan(db, row, steps)
-        machine.transition(row, machine.READY)
+        if queued:
+            machine.transition(row, machine.WAITING_WORKSPACE)
+        else:
+            machine.transition(row, machine.READY)
         row.updated_at = now()
         append_event(db, row.id, "TASK_CREATED", {"title": row.title}, secrets)
         append_event(
@@ -163,6 +194,9 @@ class LocalTaskController:
         context.task_id = row.id
         context.autonomous = autonomous
         context.task_title = row.title
+        if queued:
+            context.skip_final_stream = True
+            context.task_halt = "waiting_workspace"
         return row
 
     def _resume_row(self, db, context, row):
@@ -171,7 +205,22 @@ class LocalTaskController:
         row.stop_requested = False
         row.generation_id = context.generation_id
         row.device_id = getattr(context, "assigned_device_id", None) or row.device_id
-        if row.status in {
+        facts = dict(row.facts or {})
+        facts.pop("promoted_from_queue", None)
+        if row.status == machine.WAITING_WORKSPACE:
+            if owns_write(db, row.workspace, row.id):
+                machine.transition(row, machine.RECOVERING)
+                machine.transition(row, machine.READY)
+            else:
+                context.skip_final_stream = True
+                context.task_halt = "waiting_workspace"
+                row.facts = facts
+                db.commit()
+                context.task_id = row.id
+                context.autonomous = True
+                context.task_title = row.title
+                return row
+        elif row.status in {
             machine.INTERRUPTED,
             machine.PAUSED,
             machine.WAITING_LLM,
@@ -179,9 +228,11 @@ class LocalTaskController:
             machine.STOPPED,
             machine.FAILED,
         }:
+            facts["task_continuation"] = True
             if row.status != machine.PAUSED:
                 machine.transition(row, machine.RECOVERING)
             machine.transition(row, machine.READY)
+        row.facts = facts
         row.updated_at = now()
         append_event(db, row.id, "RESUMED", {"from": row.current_phase}, secrets)
         db.commit()
@@ -190,6 +241,7 @@ class LocalTaskController:
         context.task_title = row.title
         context.files_changed = row.files_changed
         context.task_commands = list((row.checkpoint or {}).get("commands") or [])
+        context.completed_digests = list((row.checkpoint or {}).get("digests_completed") or [])
         return row
 
     def _store_plan(self, db, row, steps, revision=1):
@@ -367,6 +419,8 @@ class LocalTaskController:
                 return "task_stopped"
             if row.pause_requested or row.status == machine.PAUSED:
                 return "task_paused"
+            if row.status == machine.WAITING_WORKSPACE:
+                return "waiting_workspace"
             if row.status == machine.WAITING_LLM:
                 return "llm_unavailable"
             if row.status == machine.WAITING_DEVICE:
@@ -393,6 +447,12 @@ class LocalTaskController:
                 return "task_runtime_limit"
             if row.files_changed >= min(row.file_change_budget, cfg.tools_task_hard_files):
                 return "task_file_limit"
+            from ..policy import WebSettings
+            from ..tinyfish.budget import exhausted
+
+            prefs = getattr(context, "settings", None) or WebSettings()
+            if exhausted(row.checkpoint, cfg, prefs):
+                return "task_budget"
         return None
 
     def preflight(self, db, context, name, digest_value):
@@ -419,6 +479,22 @@ class LocalTaskController:
         ]
         if len(same) >= get_settings().tools_task_max_same_payload + 1:
             raise ToolError("task_budget")
+        prompt = row.original_user_request or getattr(context, "user_prompt", "") or ""
+        settings = getattr(context, "settings", None)
+        if name == "git_commit":
+            if not (looks_like_commit_request(prompt) or getattr(settings, "auto_commit", False)):
+                raise ToolError("git_commit_not_requested")
+            if getattr(context, "coding_task", False):
+                verification = row.verification or {}
+                if verification.get("tests") != "passed" or not verification.get("git_reviewed"):
+                    raise ToolError("git_commit_unverified")
+        if name == "git_push":
+            if not (looks_like_push_request(prompt) or getattr(settings, "allow_push", False)):
+                raise ToolError("git_push_not_requested")
+            if getattr(context, "coding_task", False):
+                verification = row.verification or {}
+                if verification.get("tests") != "passed" or not verification.get("git_reviewed"):
+                    raise ToolError("git_push_unverified")
 
     def observe_tool(self, db, context, name, output, error=None):
         row = self._row(db, context)
@@ -470,6 +546,7 @@ class LocalTaskController:
                 machine.WAITING_CONFIRMATION,
                 machine.WAITING_DEVICE,
                 machine.WAITING_LLM,
+                machine.WAITING_WORKSPACE,
             }:
                 machine.transition(row, phase)
         row.updated_at = now()
@@ -570,6 +647,7 @@ class LocalTaskController:
                 machine.WAITING_DEVICE,
                 machine.WAITING_LLM,
                 machine.WAITING_CONFIRMATION,
+                machine.WAITING_WORKSPACE,
                 machine.CONFLICT,
             }:
                 return None
@@ -653,6 +731,11 @@ class LocalTaskController:
         if user_id and row.user_id != user_id:
             raise ToolError("not_found")
         row.pause_requested = True
+        if row.status == machine.WAITING_WORKSPACE:
+            append_event(db, row.id, "PAUSED", {"queued": True})
+            row.updated_at = now()
+            db.commit()
+            return row
         if row.status not in machine.TERMINAL:
             machine.transition(row, machine.PAUSED)
         append_event(db, row.id, "PAUSED", {})
@@ -665,7 +748,11 @@ class LocalTaskController:
             raise ToolError("not_found")
         task.pause_requested = False
         task.stop_requested = False
-        if task.status in {
+        if task.status == machine.WAITING_WORKSPACE:
+            if owns_write(db, task.workspace, task.id):
+                machine.transition(task, machine.RECOVERING)
+                machine.transition(task, machine.READY)
+        elif task.status in {
             machine.PAUSED,
             machine.INTERRUPTED,
             machine.STOPPED,
@@ -705,6 +792,60 @@ class LocalTaskController:
         db.commit()
         return row
 
+    def consume_tinyfish(self, db, context, definition, result):
+        row = self._row(db, context)
+        if not row:
+            return
+        from ..tinyfish.budget import load_budget, store_budget
+
+        budget = load_budget(row.checkpoint)
+        secrets = getattr(context, "secrets", ())
+        cost = float(result.cost_estimate or 0)
+        if definition.capability == "agent":
+            steps = int((result.metadata or {}).get("steps") or 0)
+            budget.agent_runs += 1
+            budget.agent_steps += steps
+            budget.paid_spent += cost
+            budget.active_agent_run_id = ""
+            append_event(
+                db,
+                row.id,
+                "TINYFISH_AGENT_COMPLETED",
+                {"steps": steps, "estimated_provider_cost": cost},
+                secrets,
+            )
+        elif definition.name in {"web_browser", "browser_start"}:
+            session_id = (result.metadata or {}).get("session_id") or ""
+            if definition.name == "browser_start" or (result.metadata or {}).get("started_by_alex"):
+                if not budget.active_browser_session_id:
+                    budget.browser_sessions += 1
+                budget.active_browser_session_id = session_id
+                append_event(db, row.id, "TINYFISH_BROWSER_STARTED", {"session": session_id[:12]}, secrets)
+                append_event(db, row.id, "TINYFISH_BROWSER_CONNECTED", {"session": session_id[:12]}, secrets)
+            if (result.metadata or {}).get("local_controller_stopped") or (result.metadata or {}).get(
+                "supplier_stop_confirmed"
+            ):
+                seconds = float((result.metadata or {}).get("duration_seconds") or 0)
+                budget.browser_seconds += seconds
+                budget.paid_spent += cost
+                budget.active_browser_session_id = ""
+                append_event(
+                    db,
+                    row.id,
+                    "TINYFISH_BROWSER_CLOSED",
+                    {"estimated_provider_cost": cost},
+                    secrets,
+                )
+        row.checkpoint = store_budget(row.checkpoint, budget)
+        append_event(
+            db,
+            row.id,
+            "BUDGET_UPDATED",
+            {"paid_spent": round(budget.paid_spent, 4), "agent_steps": budget.agent_steps},
+            secrets,
+        )
+        db.commit()
+
     def waiting_device(self, db, context):
         row = self._row(db, context)
         if not row or row.status in machine.TERMINAL:
@@ -739,6 +880,7 @@ class LocalTaskController:
             machine.WAITING_CONFIRMATION,
             machine.WAITING_DEVICE,
             machine.WAITING_LLM,
+            machine.WAITING_WORKSPACE,
             machine.PAUSED,
             machine.INTERRUPTED,
             machine.CONFLICT,
@@ -849,6 +991,9 @@ class LocalTaskController:
             "success_criteria": row.success_criteria,
             "verification": row.verification,
             "message": status_message(row),
+            "queue_position": waiter_position(db, row.id),
+            "promoted_from_queue": bool((row.facts or {}).get("promoted_from_queue")),
+            "tinyfish": (row.checkpoint or {}).get("tinyfish") or {},
             "steps": [
                 {
                     "id": step.id,
@@ -878,17 +1023,35 @@ class LocalTaskController:
         steps = self.steps(db, row.id)
         plan = "; ".join(f"{step.status}:{step.title}" for step in steps[:12])
         facts = row.facts or {}
+        checkpoint = row.checkpoint or {}
+        completed = [step.title for step in steps if step.status == "COMPLETED"]
+        continuation = (
+            " This is TASK CONTINUATION after restart or pause, not token-stream continuation. "
+            "Do not repeat completed tool digests or rewrite already changed files. "
+            if facts.get("task_continuation") or getattr(context, "resuming", False)
+            else ""
+        )
         return (
             f" Autonomous task id={row.id} status={row.status} step={row.current_step or 'none'}. "
+            f"Original goal: {(row.original_user_request or '')[:500]}. "
             f"Plan revision {row.plan_revision}: {plan}. "
+            f"Completed steps: {'; '.join(completed[:12]) or 'none'}. "
+            f"Changed files: {str(checkpoint.get('changed_files') or [])[:500]}. "
             f"Budgets tool_calls={row.tool_calls_used}/{row.tool_budget} "
             f"files={row.files_changed}/{row.file_change_budget} "
             f"runtime_s={row.elapsed_runtime}/{row.runtime_budget}. "
+            f"TinyFish paid remaining is enforced by the server; do not calculate cost. "
             f"Important facts: tests={facts.get('tests_passed')} "
             f"exit_code={facts.get('last_exit_code')} failures={facts.get('last_failures')}. "
             "Do not repeat completed tool digests. Re-read before every write. "
             "Complete only after verification of success criteria. "
-            "Never disable confirmations for SENSITIVE or CRITICAL actions."
+            "Never disable confirmations for SENSITIVE or CRITICAL actions. "
+            "git_commit only if the user asked or auto_commit is enabled after verification. "
+            "git_push only if the user asked or allow_push is enabled, after confirmation. "
+            "Use get_known_folders to resolve Desktop/Documents/Downloads. "
+            "Use inspect_form/fill_form_field/submit_form for local forms; submit requires confirmation. "
+            "checkout_purchase is a local fake shop only and is always CRITICAL. "
+            "Do not send real email." + continuation
         )
 
 
@@ -897,6 +1060,7 @@ def status_message(row) -> str:
         machine.WAITING_DEVICE: "Device offline",
         machine.WAITING_CONFIRMATION: "Waiting for confirmation",
         machine.WAITING_LLM: "LLM unavailable",
+        machine.WAITING_WORKSPACE: "Workspace занят. Задача в очереди.",
         machine.PAUSED: "Paused",
         machine.STOPPED: "Stopped",
         machine.INTERRUPTED: "Interrupted",
@@ -974,6 +1138,7 @@ def recover_interrupted():
                             machine.WAITING_CONFIRMATION,
                             machine.WAITING_DEVICE,
                             machine.WAITING_LLM,
+                            machine.WAITING_WORKSPACE,
                             machine.CONFLICT,
                         }
                     ]
@@ -982,3 +1147,51 @@ def recover_interrupted():
             .values(status=machine.INTERRUPTED, current_phase=machine.INTERRUPTED)
         )
         db.commit()
+        reconcile_locks(db)
+        leftovers = []
+        leftover_agents = []
+        from sqlalchemy import select
+
+        for row in db.scalars(select(LocalTask).where(LocalTask.finished_at.is_(None))).all():
+            raw = ((row.checkpoint or {}).get("tinyfish") or {}) if isinstance(row.checkpoint, dict) else {}
+            session_id = str(raw.get("active_browser_session_id") or "")
+            run_id = str(raw.get("active_agent_run_id") or "")
+            if session_id:
+                leftovers.append(session_id)
+            if run_id:
+                leftover_agents.append(run_id)
+            if session_id or run_id:
+                updated = dict(row.checkpoint or {})
+                tiny = dict(raw)
+                tiny["active_browser_session_id"] = ""
+                tiny["active_agent_run_id"] = ""
+                updated["tinyfish"] = tiny
+                row.checkpoint = updated
+        if leftovers or leftover_agents:
+            db.commit()
+    _terminate_tinyfish_leftovers(leftovers, leftover_agents)
+
+
+def _terminate_tinyfish_leftovers(sessions, agents):
+    import re
+    from contextlib import suppress
+
+    import httpx
+
+    from ...config import get_settings
+    from ..tinyfish.client import AGENT, BROWSER
+
+    key = get_settings().tinyfish_api_key.get_secret_value()
+    if not key:
+        return
+    with httpx.Client(headers={"X-API-Key": key}, timeout=10, follow_redirects=False) as http:
+        for session_id in sessions:
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", session_id):
+                continue
+            with suppress(Exception):
+                http.delete(BROWSER + "/" + session_id)
+        for run_id in agents:
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", run_id):
+                continue
+            with suppress(Exception):
+                http.post(AGENT + "/runs/" + run_id + "/cancel")

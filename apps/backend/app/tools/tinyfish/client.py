@@ -14,6 +14,7 @@ SEARCH = "https://api.search.tinyfish.ai"
 FETCH = "https://api.fetch.tinyfish.ai"
 AGENT = "https://agent.tinyfish.ai/v1"
 BROWSER = "https://api.browser.tinyfish.ai"
+WALLET = AGENT + "/wallet"
 
 
 class BackendCredentialProvider(ToolCredentialProvider):
@@ -71,7 +72,7 @@ class TinyFishClient:
             raise ToolError("pricing_not_confirmed")
         # Endpoints are adapter constants, never supplied by model/browser content.
         if not (
-            url in {SEARCH, FETCH, BROWSER}
+            url in {SEARCH, FETCH, BROWSER, WALLET}
             or url.startswith(AGENT + "/runs/")
             or url.startswith(BROWSER + "/")
         ):

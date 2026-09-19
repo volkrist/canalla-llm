@@ -74,10 +74,13 @@ test("Web settings warnings and explicit Browser commands require per-action app
     page.getByRole("button", { name: "Rotate device credential", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByLabel("Разрешить платный Agent", { exact: true }),
-  ).toBeDisabled();
+    page.getByLabel("TinyFish Agent mode", { exact: true }),
+  ).toHaveValue("auto");
+  await expect(
+    page.getByLabel("TinyFish Browser mode", { exact: true }),
+  ).toHaveValue("auto");
+  await expect(page.getByText(/Search:/)).toContainText("Not configured");
   await expect(page.getByText(/Бюджет soft\/local/)).toBeVisible();
-  await page.getByLabel("Разрешить Browser Advanced", { exact: true }).check();
   await page.getByLabel("Бюджет tool run", { exact: true }).fill("0.30");
   await page
     .getByRole("button", { name: "Сохранить Web & Tools", exact: true })
@@ -219,9 +222,13 @@ test("Planner does not auto-route TinyFish Agent", async ({
   ).json();
   expect(
     runs.filter((row: { tool_name: string }) =>
-      ["web_agent_read", "test_agent_action", "browser_start"].includes(
-        row.tool_name,
-      ),
+      [
+        "web_agent_read",
+        "web_agent",
+        "test_agent_action",
+        "browser_start",
+        "web_browser",
+      ].includes(row.tool_name),
     ),
   ).toEqual([]);
 });

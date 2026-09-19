@@ -30,15 +30,36 @@ KINDS = {
     "INTERRUPTED",
     "WAITING_DEVICE",
     "WAITING_LLM",
+    "WAITING_WORKSPACE",
     "CONFLICT",
     "BUDGET_EXHAUSTED",
+    "BUDGET_UPDATED",
+    "TINYFISH_AGENT_STARTED",
+    "TINYFISH_AGENT_STEP",
+    "TINYFISH_AGENT_COMPLETED",
+    "TINYFISH_AGENT_CANCELLED",
+    "TINYFISH_BROWSER_STARTED",
+    "TINYFISH_BROWSER_CONNECTED",
+    "TINYFISH_BROWSER_CLOSED",
 }
 
 
 def append_event(db, task_id, kind, payload=None, secrets=(), tool_run_id=None):
     data = {}
     for key, value in (payload or {}).items():
-        if key in {"secret", "password", "token", "credential", "api_key"}:
+        if key in {
+            "secret",
+            "password",
+            "token",
+            "credential",
+            "api_key",
+            "cdp_url",
+            "cdp",
+            "cookie",
+            "cookies",
+            "vault",
+            "authorization",
+        }:
             continue
         text = sanitized(str(value), secrets, 500 if key != "summary" else 1200)
         data[key] = text

@@ -15,26 +15,42 @@ interface Preferences {
   search_enabled: boolean;
   fetch_enabled: boolean;
   default_mode: WebMode;
+  agent_mode: WebMode;
   agent_enabled: boolean;
   agent_run_budget: number;
   agent_daily_budget: number;
   agent_max_runtime: number;
+  agent_max_runs: number;
+  agent_max_steps: number;
+  browser_mode: WebMode;
   browser_enabled: boolean;
+  tinyfish_paid_task_budget_usd: number;
+  browser_max_sessions: number;
+  browser_max_minutes: number;
   tor_mode: TorMode;
   tor_enabled: boolean;
   tor_browser_mode: TorMode;
   computer_mode: ComputerMode;
   workspace_roots: string[];
   device_display_name: string;
+  auto_commit: boolean;
+  allow_push: boolean;
 }
 interface Status {
   agent_read_only_enforced: boolean;
+  agent_preaction_approval?: boolean;
+  agent_side_effect_blocked_before_run?: boolean;
   configured: boolean;
   search_fetch_free: boolean;
   agent_step_price: number;
   browser_minute_price: number;
   agent_max_steps_supported: boolean;
   browser_delete_supported: boolean;
+  task_limits?: {
+    paid_budget: number;
+    agent_steps: number;
+    browser_minutes: number;
+  };
   tor_status: string;
   tor_search_configured: boolean;
   tor_browser?: {
@@ -71,11 +87,19 @@ export default function WebToolsSettings({ api }: { api: Api }) {
             search_enabled: prefs.search_enabled,
             fetch_enabled: prefs.fetch_enabled,
             default_mode: prefs.default_mode,
-            agent_enabled: prefs.agent_enabled,
+            agent_mode: prefs.agent_mode ?? "auto",
+            agent_enabled: (prefs.agent_mode ?? "auto") !== "off",
             agent_run_budget: prefs.agent_run_budget,
             agent_daily_budget: prefs.agent_daily_budget,
             agent_max_runtime: prefs.agent_max_runtime,
-            browser_enabled: prefs.browser_enabled,
+            agent_max_runs: prefs.agent_max_runs ?? 2,
+            agent_max_steps: prefs.agent_max_steps ?? 20,
+            browser_mode: prefs.browser_mode ?? "auto",
+            browser_enabled: (prefs.browser_mode ?? "auto") !== "off",
+            tinyfish_paid_task_budget_usd:
+              prefs.tinyfish_paid_task_budget_usd ?? 1,
+            browser_max_sessions: prefs.browser_max_sessions ?? 2,
+            browser_max_minutes: prefs.browser_max_minutes ?? 10,
             tor_mode: prefs.tor_mode ?? (prefs.tor_enabled ? "auto" : "off"),
             tor_enabled:
               (prefs.tor_mode ?? (prefs.tor_enabled ? "auto" : "off")) !==
@@ -84,6 +108,8 @@ export default function WebToolsSettings({ api }: { api: Api }) {
             computer_mode: prefs.computer_mode ?? "ask",
             workspace_roots: prefs.workspace_roots ?? [],
             device_display_name: prefs.device_display_name ?? "",
+            auto_commit: prefs.auto_commit ?? false,
+            allow_push: prefs.allow_push ?? false,
           });
           setStatus(state);
           setDevice(host);
@@ -213,33 +239,46 @@ export default function WebToolsSettings({ api }: { api: Api }) {
               </select>
             </label>
             <p>
-              {status?.search_fetch_free
-                ? "Free under current TinyFish pricing"
-                : "Тариф Search/Fetch требует проверки администратором"}
+              Search: {status?.configured ? "Available" : "Not configured"}
+              {status?.search_fetch_free ? " / Free" : ""}
+            </p>
+            <p>
+              Fetch: {status?.configured ? "Available" : "Not configured"}
+              {status?.search_fetch_free ? " / Free" : ""}
             </p>
           </fieldset>
           <fieldset>
-            <legend>Web Agent · Paid</legend>
-            {status && !status.agent_read_only_enforced && (
-              <p role="status">
-                Запуск Agent заблокирован: текущий API не гарантирует read-only
-                и не даёт подтверждать каждый side effect. Адаптер подготовлен;
-                доступны Search/Fetch и Browser Advanced.
-              </p>
-            )}
+            <legend>TinyFish Agent · Paid</legend>
+            <p>
+              Agent: {status?.configured ? "Configured" : "Not configured"} /
+              Paid. Off — planner не видит tool. Auto — только если router
+              считает задачу сложным read-only web workflow. On —
+              предпочтительно для таких задач, не для приветствий, математики,
+              local-only и Tor.
+            </p>
+            <p>
+              Текущий TinyFish Agent API не даёт enforceable pre-action
+              approval. Side-effect цели блокируются до запуска. Prompt не
+              является security boundary.
+            </p>
             <label>
-              <input
-                aria-label="Разрешить платный Agent"
-                disabled={!status?.agent_read_only_enforced}
-                type="checkbox"
-                checked={value.agent_enabled}
-                onChange={(e) => change({ agent_enabled: e.target.checked })}
-              />
-              Разрешить платный Agent только для чтения
+              Agent{" "}
+              <select
+                aria-label="TinyFish Agent mode"
+                value={value.agent_mode}
+                onChange={(e) => {
+                  const agent_mode = e.target.value as WebMode;
+                  change({ agent_mode, agent_enabled: agent_mode !== "off" });
+                }}
+              >
+                <option value="off">Off</option>
+                <option value="auto">Auto</option>
+                <option value="on">On</option>
+              </select>
             </label>
             <p>
-              Оценка: {"$" + (status?.agent_step_price ?? "?")} за шаг. Записи,
-              покупки и вход с паролем через Agent не поддерживаются.
+              Оценка: {"$" + (status?.agent_step_price ?? "?")} за шаг. Vault и
+              Browser Context Profiles по умолчанию выключены.
             </p>
             <label>
               Бюджет запуска, $
@@ -282,18 +321,71 @@ export default function WebToolsSettings({ api }: { api: Api }) {
                 }
               />
             </label>
+            <label>
+              Максимум Agent runs / task
+              <input
+                aria-label="Максимум Agent runs"
+                type="number"
+                min="1"
+                max="8"
+                value={value.agent_max_runs}
+                onChange={(e) =>
+                  change({ agent_max_runs: Number(e.target.value) })
+                }
+              />
+            </label>
+            <label>
+              Максимум Agent steps / task
+              <input
+                aria-label="Максимум Agent steps"
+                type="number"
+                min="1"
+                max="50"
+                value={value.agent_max_steps}
+                onChange={(e) =>
+                  change({ agent_max_steps: Number(e.target.value) })
+                }
+              />
+            </label>
             <p>
               {status?.agent_max_steps_supported
                 ? "Provider max_steps включён для аккаунта."
                 : "Бюджет soft/local: max_steps у провайдера не подтверждён. Возможен перерасход до подтверждения отмены."}
             </p>
+            <p>
+              Лимит задачи: {status?.task_limits?.agent_steps ?? "?"} steps · $
+              {status?.task_limits?.paid_budget ?? "?"} paid.
+            </p>
           </fieldset>
           <fieldset>
-            <legend>Direct Browser · Advanced · Paid</legend>
+            <legend>TinyFish Browser · Paid</legend>
             <p>
-              Отдельная платная сессия:{" "}
-              {"$" + (status?.browser_minute_price ?? "?")}/мин. Автоматически
-              для чата не запускается.
+              Browser: {status?.configured ? "Configured" : "Not configured"} /
+              Paid. Alex создаёт cloud Chromium, подключает Playwright/CDP и
+              выполняет typed actions. LLM не получает raw JS/CDP.
+            </p>
+            <label>
+              Browser{" "}
+              <select
+                aria-label="TinyFish Browser mode"
+                value={value.browser_mode}
+                onChange={(e) => {
+                  const browser_mode = e.target.value as WebMode;
+                  change({
+                    browser_mode,
+                    browser_enabled: browser_mode !== "off",
+                  });
+                }}
+              >
+                <option value="off">Off</option>
+                <option value="auto">Auto</option>
+                <option value="on">On</option>
+              </select>
+            </label>
+            <p>
+              Оценка: {"$" + (status?.browser_minute_price ?? "?")}/мин. Stop
+              закрывает remote session. External side effects требуют
+              confirmation policy.
             </p>
             <p>
               {status?.browser_delete_supported
@@ -301,14 +393,51 @@ export default function WebToolsSettings({ api }: { api: Api }) {
                 : "Провайдер не подтверждает явное удаление: Stop прекращает локальные команды; supplier может тарифицировать до часа простоя."}
             </p>
             <label>
+              Бюджет задачи TinyFish, $
               <input
-                aria-label="Разрешить Browser Advanced"
-                type="checkbox"
-                checked={value.browser_enabled}
-                onChange={(e) => change({ browser_enabled: e.target.checked })}
+                aria-label="Paid TinyFish task budget"
+                type="number"
+                min="0.01"
+                max="2"
+                step="0.01"
+                value={value.tinyfish_paid_task_budget_usd}
+                onChange={(e) =>
+                  change({
+                    tinyfish_paid_task_budget_usd: Number(e.target.value),
+                  })
+                }
               />
-              Понимаю платный lifecycle, включить Browser Advanced
             </label>
+            <label>
+              Максимум Browser sessions / task
+              <input
+                aria-label="Максимум Browser sessions"
+                type="number"
+                min="1"
+                max="8"
+                value={value.browser_max_sessions}
+                onChange={(e) =>
+                  change({ browser_max_sessions: Number(e.target.value) })
+                }
+              />
+            </label>
+            <label>
+              Максимум Browser minutes / task
+              <input
+                aria-label="Максимум Browser minutes"
+                type="number"
+                min="1"
+                max="30"
+                value={value.browser_max_minutes}
+                onChange={(e) =>
+                  change({ browser_max_minutes: Number(e.target.value) })
+                }
+              />
+            </label>
+            <p>
+              Лимит задачи: {status?.task_limits?.browser_minutes ?? "?"} min ·
+              ${status?.task_limits?.paid_budget ?? "?"}.
+            </p>
             {value.browser_enabled && (
               <button
                 type="button"
@@ -433,6 +562,24 @@ export default function WebToolsSettings({ api }: { api: Api }) {
               раз». CRITICAL не имеет Always allow. Device credential хранится в
               Windows Credential Manager, JS его не читает.
             </p>
+            <label>
+              <input
+                type="checkbox"
+                aria-label="Auto commit after verification"
+                checked={value.auto_commit}
+                onChange={(e) => change({ auto_commit: e.target.checked })}
+              />{" "}
+              Auto commit after successful verification (default off)
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                aria-label="Allow push for this computer"
+                checked={value.allow_push}
+                onChange={(e) => change({ allow_push: e.target.checked })}
+              />{" "}
+              Allow git push after confirmation (default off)
+            </label>
             <p>
               Устройство: {device.display_name || "Windows device"}
               {device.storage ? ` · ${device.storage}` : ""}

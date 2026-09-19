@@ -8,6 +8,7 @@ import type {
   TorMode,
   AutonomousTask,
 } from "../lib/tools";
+import { publicAssistantText } from "../lib/tools";
 
 export function useChat(api: Api, onExpired: () => void) {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -237,7 +238,9 @@ export function useChat(api: Api, onExpired: () => void) {
                 i === prev.length - 1
                   ? {
                       ...message,
-                      content: message.content + String(event.data.content),
+                      content: publicAssistantText(
+                        message.content + String(event.data.content),
+                      ),
                     }
                   : message,
               ),
@@ -284,6 +287,30 @@ export function useChat(api: Api, onExpired: () => void) {
     }
     return accepted;
   }
+
+  useEffect(() => {
+    if (!task || task.status !== "WAITING_WORKSPACE" || !selected) return;
+    const timer = window.setInterval(() => {
+      void api
+        .json<AutonomousTask[]>(
+          "/tasks?chat_id=" + encodeURIComponent(selected),
+        )
+        .then((listed) => {
+          const current = listed.find((item) => item.id === task.id);
+          if (!current || !active.current) return;
+          setTask(current);
+          if (
+            (current.status === "READY" || current.status === "RECOVERING") &&
+            current.promoted_from_queue &&
+            !locked.current
+          ) {
+            void send("", undefined, webMode, current.id);
+          }
+        })
+        .catch(() => {});
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [api, selected, task, webMode]);
 
   return {
     chats,

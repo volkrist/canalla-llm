@@ -6,12 +6,59 @@ RESEARCH_HINT = (
     r"(?i)(документац|official|актуальн|latest docs|fastapi|интернет|"
     r"web search|посмотри.*docs|найди.*источник)"
 )
+COMPUTER_HINT = (
+    r"(?i)("
+    r"рабоч(ий|ем)\s+стол|desktop|"
+    r"alex-llm-e2e|hello\.txt|"
+    r"создай.*(папк|файл|директор)|"
+    r"установи.*(jq|winget|програм)|"
+    r"посчитай.*(sha256|хеш|hash)|"
+    r"перечитай|скопируй файл|перемест|"
+    r"найди.*файл|информаци.*(компьютер|windows)|"
+    r"удалить.*delete-me|открой тестовую форму|"
+    r"оформи тестовый|тестов(ую|ый)\s+(форм|товар)|"
+    r"start-sleep|запусти.*(процесс|powershell)|останови.*(процесс|его)"
+    r")"
+)
+WRITE_HINT = (
+    r"(?i)("
+    r"создай|запиши|измени|добавь|скопируй|перемест|удал|"
+    r"исправ|commit|закоммить|install|установи|patch|write|"
+    r"checkout|отправ|submit|оформи"
+    r")"
+)
+COMMIT_HINT = r"(?i)(\bgit\s+commit\b|\bcommit\b|закоммить|сделай commit)"
+PUSH_HINT = r"(?i)(\bgit\s+push\b|\bpush\b|запуш|отправь.*(remote|репозитор))"
 
 
 def needs_research(prompt: str) -> bool:
     import re
 
     return bool(re.search(RESEARCH_HINT, prompt or ""))
+
+
+def looks_like_computer(prompt: str) -> bool:
+    import re
+
+    return bool(re.search(COMPUTER_HINT, prompt or ""))
+
+
+def looks_like_write(prompt: str) -> bool:
+    import re
+
+    return bool(re.search(WRITE_HINT, prompt or ""))
+
+
+def looks_like_commit_request(prompt: str) -> bool:
+    import re
+
+    return bool(re.search(COMMIT_HINT, prompt or ""))
+
+
+def looks_like_push_request(prompt: str) -> bool:
+    import re
+
+    return bool(re.search(PUSH_HINT, prompt or ""))
 
 
 def looks_like_autonomous(prompt: str) -> bool:

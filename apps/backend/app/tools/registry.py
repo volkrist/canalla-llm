@@ -8,6 +8,7 @@ from .tinyfish.browser import (
     BrowserStartArgs,
     BrowserWriteArgs,
     TinyFishBrowserProvider,
+    WebBrowserArgs,
 )
 from .tinyfish.web import FetchArgs, SearchArgs, TinyFishFetchProvider, TinyFishSearchProvider
 
@@ -17,7 +18,7 @@ def make_registry():
     registry.register(
         ToolDefinition(
             "web_search",
-            "Find public sources for a query, with dates, domains and language filters.",
+            "Find public HTTP URLs. WHEN TO USE: simple lookup. WHEN NOT: .onion, Tor, local files, math.",
             SearchArgs,
             "search",
             RiskLevel.READ,
@@ -30,7 +31,7 @@ def make_registry():
     registry.register(
         ToolDefinition(
             "web_fetch",
-            "Read public URLs as reference text. Use fresh=true for current information.",
+            "Read 1-3 public URLs as text. WHEN TO USE: after search. WHEN NOT: JS-only pages, Tor, .onion.",
             FetchArgs,
             "fetch",
             RiskLevel.READ,
@@ -39,6 +40,21 @@ def make_registry():
             "tinyfish",
         ),
         TinyFishFetchProvider(),
+    )
+    agent = TinyFishAgentProvider()
+    registry.register(
+        ToolDefinition(
+            "web_agent",
+            "Paid read-only multi-page web research. WHEN TO USE: several public pages to compare. "
+            "WHEN NOT: forms, login, buy, Tor, local files, simple lookup.",
+            AgentArgs,
+            "agent",
+            RiskLevel.READ,
+            "paid",
+            180,
+            "tinyfish",
+        ),
+        agent,
     )
     registry.register(
         ToolDefinition(
@@ -52,9 +68,23 @@ def make_registry():
             "tinyfish",
             auto_route=False,
         ),
-        TinyFishAgentProvider(),
+        agent,
     )
     browser = TinyFishBrowserProvider()
+    registry.register(
+        ToolDefinition(
+            "web_browser",
+            "Alex-controlled cloud browser. Operations: open, read, links, click L-ids, back, wait, close. "
+            "WHEN TO USE: JS page or explicit browser open. WHEN NOT: Tor, .onion, purchases, arbitrary JS.",
+            WebBrowserArgs,
+            "browser",
+            RiskLevel.READ,
+            "paid",
+            180,
+            "tinyfish",
+        ),
+        browser,
+    )
     for name, schema, risk, adapter, cost in (
         ("browser_start", BrowserStartArgs, RiskLevel.READ, browser, "paid"),
         ("browser_read", BrowserReadArgs, RiskLevel.READ, BrowserActionProvider(browser), "free"),
@@ -80,11 +110,13 @@ def make_registry():
             ),
             adapter,
         )
+    from .external import register_external_tools
     from .local.provider import register_local_tools
     from .tor.provider import register_tor_tools
 
     register_tor_tools(registry)
     register_local_tools(registry)
+    register_external_tools(registry)
     return registry
 
 

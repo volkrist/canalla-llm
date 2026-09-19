@@ -155,6 +155,12 @@ def get_preferences(user: User = Depends(current_user), db: Session = Depends(ge
 def put_preferences(body: WebSettings, user: User = Depends(current_user), db: Session = Depends(get_db)):
     if body.agent_run_budget > body.agent_daily_budget:
         raise HTTPException(422, "Бюджет одного запуска превышает дневной")
+    settings = get_settings()
+    body.tinyfish_paid_task_budget_usd = min(
+        body.tinyfish_paid_task_budget_usd, settings.tinyfish_paid_hard_usd
+    )
+    body.agent_max_steps = min(body.agent_max_steps, settings.tinyfish_agent_hard_steps)
+    body.browser_max_minutes = min(body.browser_max_minutes, settings.tinyfish_browser_hard_minutes)
     row = db.get(ToolPreferences, user.id)
     if not row:
         row = ToolPreferences(user_id=user.id)
@@ -165,21 +171,65 @@ def put_preferences(body: WebSettings, user: User = Depends(current_user), db: S
 
 
 @router.get("/tools/status")
-def provider_status(user: User = Depends(current_user)):
+def provider_status(user: User = Depends(current_user), db: Session = Depends(get_db)):
     settings = get_settings()
+    prefs = preferences(db, user.id)
+    configured = bool(settings.tinyfish_api_key.get_secret_value())
     return {
         "provider": "TinyFish",
-        "configured": bool(settings.tinyfish_api_key.get_secret_value()),
+        "configured": configured,
         "search_fetch_free": settings.tinyfish_search_fetch_free,
         "agent_step_price": settings.tinyfish_agent_step_price,
         "browser_minute_price": settings.tinyfish_browser_minute_price,
         "agent_max_steps_supported": settings.tinyfish_agent_max_steps_supported,
         "agent_read_only_enforced": False,
+        "agent_preaction_approval": bool(settings.tinyfish_agent_preaction_approval),
+        "agent_side_effect_blocked_before_run": True,
         "agent_budget_enforcement": "provider_steps_and_local"
         if settings.tinyfish_agent_max_steps_supported
         else "local_soft",
         "browser_delete_supported": settings.tinyfish_browser_delete_supported,
-        "pricing_checked_at": "2026-09-15",
+        "pricing_checked_at": "2026-09-19",
+        "vault_enabled": False,
+        "profile_enabled": False,
+        "capabilities": {
+            "tinyfish_search": {
+                "configured": configured,
+                "enabled": prefs.search_enabled,
+                "available": configured and prefs.search_enabled,
+                "paid": False,
+                "risk": "READ",
+            },
+            "tinyfish_fetch": {
+                "configured": configured,
+                "enabled": prefs.fetch_enabled,
+                "available": configured and prefs.fetch_enabled,
+                "paid": False,
+                "risk": "READ",
+            },
+            "tinyfish_agent": {
+                "configured": configured,
+                "enabled": prefs.agent_mode != "off",
+                "available": configured and prefs.agent_mode != "off",
+                "paid": True,
+                "risk": "READ",
+                "mode": "READ_ONLY",
+            },
+            "tinyfish_browser": {
+                "configured": configured,
+                "enabled": prefs.browser_mode != "off",
+                "available": configured and prefs.browser_mode != "off",
+                "paid": True,
+                "risk": "READ",
+            },
+        },
+        "task_limits": {
+            "paid_budget": prefs.tinyfish_paid_task_budget_usd,
+            "agent_steps": prefs.agent_max_steps,
+            "browser_minutes": prefs.browser_max_minutes,
+            "agent_mode": prefs.agent_mode,
+            "browser_mode": prefs.browser_mode,
+        },
         "tor_search_configured": bool(settings.tor_search_providers),
         "tor_status": "Connected" if _tor_connected(settings) else "Unavailable",
         "limits": {

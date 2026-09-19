@@ -12,6 +12,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { openExternal } from "../lib/files";
+import { publicAssistantText } from "../lib/tools";
 import type { Message, Settings } from "../types";
 import type { Api } from "../lib/api";
 import SourcePanel from "./SourcePanel";
@@ -160,7 +161,9 @@ export default function MessageList({
                   ),
                 }}
               >
-                {message.content}
+                {message.role === "assistant"
+                  ? publicAssistantText(message.content)
+                  : message.content}
               </ReactMarkdown>
               {!message.content && streaming && (
                 <span className="typing" aria-label="Генерация ответа">

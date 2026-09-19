@@ -30,6 +30,8 @@ export interface AutonomousTask {
   last_error: string | null;
   completion_summary: string | null;
   message: string;
+  queue_position?: number | null;
+  promoted_from_queue?: boolean;
   steps: TaskStep[];
   events?: {
     id: string;
@@ -53,7 +55,16 @@ export interface ToolRun {
   error_code: string | null;
   origin?: string;
 }
-export const WEB_TOOLS = new Set(["web_search", "web_fetch"]);
+export const WEB_TOOLS = new Set([
+  "web_search",
+  "web_fetch",
+  "web_agent",
+  "web_agent_read",
+  "web_browser",
+  "browser_start",
+  "browser_read",
+  "browser_write",
+]);
 export const TOR_TOOLS = new Set(["tor_search", "tor_fetch", "tor_browser"]);
 export const COMPUTER_TOOLS = new Set([
   "list_directory",
@@ -74,6 +85,7 @@ export const COMPUTER_TOOLS = new Set([
   "process_status",
   "stop_process",
   "get_system_info",
+  "get_known_folders",
   "list_processes",
   "inspect_process",
   "list_volumes",
@@ -113,6 +125,13 @@ export const COMPUTER_TOOLS = new Set([
   "git_restore",
   "git_push",
   "git_reset",
+  "inspect_form",
+  "fill_form_field",
+  "submit_form",
+  "inspect_product",
+  "checkout_purchase",
+  "email_send",
+  "message_send",
 ]);
 export const FILE_CHANGE_TOOLS = new Set([
   "write_file",
@@ -159,6 +178,8 @@ export const toolErrors: Record<string, string> = {
   sensitive_arguments: "Передача секретов в инструменты запрещена.",
   agent_side_effect_not_supported:
     "Agent поддерживает только чтение. Для действий используйте Browser с отдельным подтверждением.",
+  paid_tool_not_selected:
+    "Платный TinyFish-инструмент не выбран политикой сервера.",
   credentials_not_supported:
     "Ввод паролей и платёжных данных не поддерживается.",
   model_tools_unsupported: "Эта модель не поддерживает вызовы инструментов.",
@@ -188,6 +209,15 @@ export const toolErrors: Record<string, string> = {
   task_paused: "Задача приостановлена.",
   task_stopped: "Задача остановлена.",
   workspace_busy: "Workspace занят другой задачей.",
+  waiting_workspace: "Workspace занят. Задача в очереди.",
+  git_commit_not_requested:
+    "Commit не запрошен. Включите auto-commit или попросите commit.",
+  git_commit_unverified: "Commit возможен только после проверки изменений.",
+  git_push_not_requested:
+    "Push не запрошен. Включите allow-push или попросите push.",
+  git_push_unverified: "Push возможен только после проверки изменений.",
+  email_not_configured: "Почтовый провайдер не настроен.",
+  message_not_configured: "Провайдер сообщений не настроен.",
   invalid_task_transition: "Недопустимый переход состояния задачи.",
   file_size_limit: "Файл слишком большой для этой операции.",
   process_timeout_limit: "Превышен лимит времени процесса.",
@@ -240,7 +270,47 @@ export function summarizeFamily(
       (run) => run.tool_name === "web_search",
     ).length;
     const fetches = runs.filter((run) => run.tool_name === "web_fetch").length;
-    return `Веб · ${runs.length} запросов · ${searches} Search · ${fetches} Fetch · ${status}`;
+    const agents = runs.filter((run) =>
+      ["web_agent", "web_agent_read"].includes(run.tool_name),
+    );
+    const browsers = runs.filter((run) =>
+      [
+        "web_browser",
+        "browser_start",
+        "browser_read",
+        "browser_write",
+      ].includes(run.tool_name),
+    );
+    const agentSteps = agents.reduce(
+      (sum, run) => sum + Number(run.result_metadata?.steps || 0),
+      0,
+    );
+    const agentCost = agents.reduce(
+      (sum, run) => sum + Number(run.cost_estimate || 0),
+      0,
+    );
+    const browserCost = browsers.reduce(
+      (sum, run) => sum + Number(run.cost_estimate || 0),
+      0,
+    );
+    const browserSeconds = browsers.reduce(
+      (sum, run) => sum + Number(run.result_metadata?.duration_seconds || 0),
+      0,
+    );
+    const parts = [
+      `Веб · ${runs.length} запросов · ${searches} Search · ${fetches} Fetch · ${status}`,
+    ];
+    if (agents.length)
+      parts.push(
+        `TinyFish Agent · ${agentSteps} steps · ~$${agentCost.toFixed(3)}`,
+      );
+    if (browsers.length) {
+      const minutes = Math.floor(browserSeconds / 60);
+      const seconds = Math.round(browserSeconds % 60);
+      const clock = browserSeconds ? ` · ${minutes}m ${seconds}s` : "";
+      parts.push(`TinyFish Browser${clock} · ~$${browserCost.toFixed(3)}`);
+    }
+    return parts.join(" · ");
   }
   if (family === "tor") {
     const searches = runs.filter(
@@ -296,4 +366,13 @@ export function dedupeSources<T extends { final_url?: string; url?: string }>(
     seen.add(key);
     return true;
   });
+}
+
+export function publicAssistantText(text: string) {
+  const value = String(text || "");
+  const cut = value.search(
+    /<tool_call\b|<\/?function(?:_call)?\b|```(?:json|xml|tool)?\s*\{\s*"tool_calls"/i,
+  );
+  if (cut < 0) return value;
+  return value.slice(0, cut).trim();
 }

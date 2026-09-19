@@ -136,6 +136,74 @@ class FakeHost:
                     "path": str(path),
                 },
             }
+        if name == "create_directory":
+            path = Path(args["path"])
+            path.mkdir(parents=True, exist_ok=True)
+            return {"text": "ok", "exit_code": 0, "metadata": {"path": str(path), "files_changed": 1}}
+        if name == "copy_file":
+            source, destination = Path(args["source"]), Path(args["destination"])
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(source.read_bytes())
+            after = hashlib.sha256(destination.read_bytes()).hexdigest()
+            return {
+                "text": "ok",
+                "exit_code": 0,
+                "metadata": {"path": str(destination), "after_sha256": after, "files_changed": 1},
+            }
+        if name == "move_file":
+            source, destination = Path(args["source"]), Path(args["destination"])
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            source.replace(destination)
+            after = hashlib.sha256(destination.read_bytes()).hexdigest()
+            return {
+                "text": "ok",
+                "exit_code": 0,
+                "metadata": {"path": str(destination), "after_sha256": after, "files_changed": 1},
+            }
+        if name == "search_files":
+            root = Path(args["root"])
+            query = args.get("query") or ""
+            hits = []
+            for item in root.rglob("*"):
+                if item.is_file() and query.lower() in item.name.lower():
+                    hits.append(item.name)
+            text = "\n".join(hits)
+            return {"text": text, "stdout": text, "exit_code": 0, "metadata": {}}
+        if name == "search_code":
+            root = Path(args["root"])
+            query = args.get("query") or ""
+            hits = []
+            for item in root.rglob("*"):
+                if item.is_file():
+                    try:
+                        body = item.read_text(encoding="utf-8")
+                    except OSError:
+                        continue
+                    if query in body:
+                        hits.append(item.name)
+            text = "\n".join(hits)
+            return {"text": text, "stdout": text, "exit_code": 0, "metadata": {}}
+        if name == "get_known_folders":
+            desktop = Path.home() / "Desktop"
+            documents = Path.home() / "Documents"
+            downloads = Path.home() / "Downloads"
+            text = f"desktop={desktop}\ndocuments={documents}\ndownloads={downloads}"
+            return {
+                "text": text,
+                "stdout": text,
+                "exit_code": 0,
+                "metadata": {
+                    "desktop": str(desktop),
+                    "documents": str(documents),
+                    "downloads": str(downloads),
+                },
+            }
+        if name == "get_system_info":
+            text = (
+                "platform=windows\nos_version=10.0\ncpu_logical_processors=8\n"
+                "ram_total_mb=16000\nram_avail_mb=8000\nsystem_disk_free_gb=100"
+            )
+            return {"text": text, "stdout": text, "exit_code": 0, "metadata": {"os_version": "10.0"}}
         if name == "run_python":
             cwd = args.get("cwd") or str(self.root)
             result = subprocess.run(
@@ -154,11 +222,28 @@ class FakeHost:
                 "exit_code": result.returncode,
                 "metadata": {"exit_code": result.returncode, "cwd": cwd},
             }
-        if name in {"git_status", "git_diff", "git_log"}:
+        if name in {"git_status", "git_diff", "git_log", "git_add", "git_commit", "git_push"}:
             cwd = args.get("cwd") or str(self.root)
-            argv = ["git", name.split("_", 1)[1]]
-            if name == "git_log":
-                argv += ["-n", "5"]
+            if name == "git_add":
+                paths = list(args.get("paths") or [])
+                if any(item in {"-A", "-a", "--all", ".", "*"} for item in paths):
+                    return {
+                        "status": "failed",
+                        "text": "invalid_arguments",
+                        "stderr": "invalid_arguments",
+                        "metadata": {"error": "invalid_arguments"},
+                    }
+                argv = ["git", "add", "--", *paths]
+            elif name == "git_commit":
+                argv = ["git", "commit", "-m", args.get("message") or "update", "--no-gpg-sign"]
+            elif name == "git_push":
+                argv = ["git", "push", args.get("remote") or "origin"]
+                if args.get("branch"):
+                    argv.append(args["branch"])
+            else:
+                argv = ["git", name.split("_", 1)[1]]
+                if name == "git_log":
+                    argv += ["-n", "5"]
             result = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=False)
             return {
                 "text": result.stdout or result.stderr,

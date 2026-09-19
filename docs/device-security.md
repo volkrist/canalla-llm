@@ -29,7 +29,8 @@ Local Device does **not** send or store:
 - IP address as device identity
 - real hostname as identity
 
-`get_system_info` returns a non-identifying summary (`platform=windows`).
+`get_system_info` returns a non-identifying summary (`platform=windows` plus OS version, logical CPU count, RAM, and free system-disk space). No hostname, MAC, MachineGuid, or hardware serials.
+`get_known_folders` resolves Desktop/Documents/Downloads via the Windows Known Folder API.
 `list_processes` is name + PID. `list_volumes` omits volume serials.
 `inspect_process` drops window titles and command lines.
 

@@ -9,7 +9,7 @@ from sqlalchemy import select, update
 
 from ..database import SessionLocal
 from ..models import Chat, Message, User, now
-from .contracts import RiskLevel, ToolError, ToolResult
+from .contracts import ToolError, ToolResult
 from .models import ToolRun, WebSourceSnapshot
 from .policy import ToolPolicy, effective_risk, network_channel, preferences
 from .security import digest, input_summary, sanitized, validate_url
@@ -162,6 +162,8 @@ class ExecutionContext:
     task_title: str = ""
     completed_digests: list = field(default_factory=list)
     resuming: bool = False
+    skip_final_stream: bool = False
+    task_halt: str | None = None
 
     async def progress(self, **values):
         # Providers pass only documented, allowlisted metadata, never raw responses.
@@ -169,15 +171,68 @@ class ExecutionContext:
             k: v
             for k, v in values.items()
             if k
-            in {"provider_run_id", "steps", "supplier_state", "supplier_stop_confirmed", "budget_enforcement"}
+            in {
+                "provider_run_id",
+                "steps",
+                "supplier_state",
+                "supplier_stop_confirmed",
+                "budget_enforcement",
+                "event_kind",
+                "session_id",
+                "estimated_provider_cost",
+            }
         }
         with SessionLocal() as db:
             row = db.get(ToolRun, self.run_id)
             if row:
-                if allowed.get("provider_run_id"):
-                    row.provider_run_id = sanitized(allowed.pop("provider_run_id"), self.secrets, 160)
+                run_id_value = allowed.get("provider_run_id")
+                if run_id_value:
+                    row.provider_run_id = sanitized(str(run_id_value), self.secrets, 160)
+                    allowed = {k: v for k, v in allowed.items() if k != "provider_run_id"}
                 row.result_metadata = {**row.result_metadata, **allowed}
                 db.commit()
+                if self.task_id and allowed.get("event_kind"):
+                    from .local.journal import append_event
+                    from .models import LocalTask
+                    from .tinyfish.budget import load_budget, store_budget
+
+                    mapped = {
+                        "STARTED": "TINYFISH_AGENT_STARTED",
+                        "PROGRESS": "TINYFISH_AGENT_STEP",
+                        "COMPLETE": "TINYFISH_AGENT_COMPLETED",
+                        "CANCELLED": "TINYFISH_AGENT_CANCELLED",
+                        "BROWSER_STARTED": "TINYFISH_BROWSER_STARTED",
+                        "BROWSER_CONNECTED": "TINYFISH_BROWSER_CONNECTED",
+                        "BROWSER_CLOSED": "TINYFISH_BROWSER_CLOSED",
+                    }.get(str(allowed.get("event_kind")))
+                    if mapped:
+                        stored_run = row.provider_run_id or run_id_value
+                        append_event(
+                            db,
+                            self.task_id,
+                            mapped,
+                            {
+                                "steps": allowed.get("steps"),
+                                "run": stored_run,
+                                "session": allowed.get("session_id"),
+                            },
+                            self.secrets,
+                        )
+                        task = db.get(LocalTask, self.task_id)
+                        if task:
+                            budget = load_budget(task.checkpoint)
+                            if mapped == "TINYFISH_AGENT_STARTED" and stored_run:
+                                budget.active_agent_run_id = str(stored_run)[:160]
+                            if mapped in {"TINYFISH_AGENT_COMPLETED", "TINYFISH_AGENT_CANCELLED"}:
+                                budget.active_agent_run_id = ""
+                            if mapped == "TINYFISH_BROWSER_STARTED":
+                                budget.active_browser_session_id = str(
+                                    allowed.get("session_id") or stored_run or ""
+                                )[:160]
+                            if mapped == "TINYFISH_BROWSER_CLOSED":
+                                budget.active_browser_session_id = ""
+                            task.checkpoint = store_budget(task.checkpoint, budget)
+                        db.commit()
                 await self.emit("tool", public_run(row))
 
 
@@ -196,6 +251,41 @@ class ToolExecutor:
         if definition.provider == "local_device":
             metadata["host_args"] = args.model_dump(mode="json")
         return metadata
+
+    def _preflight_tinyfish(self, definition, args, context):
+        if not getattr(context, "task_id", None):
+            return
+        from ..config import get_settings
+        from .local.journal import append_event
+        from .local.task import LocalTaskController
+        from .tinyfish.budget import load_budget, preflight_agent, preflight_browser
+
+        settings = get_settings()
+        prefs = getattr(context, "settings", None)
+        with SessionLocal() as db:
+            row = LocalTaskController()._row(db, context)
+            if not row:
+                return
+            budget = load_budget(row.checkpoint)
+            try:
+                if definition.capability == "agent":
+                    preflight_agent(budget, settings, prefs, requested_steps=1)
+                elif definition.name == "browser_start" or (
+                    definition.name == "web_browser" and getattr(args, "operation", "open") == "open"
+                ):
+                    if not budget.active_browser_session_id:
+                        preflight_browser(budget, settings, prefs, requested_minutes=1)
+            except ToolError as error:
+                if error.code == "run_budget":
+                    append_event(
+                        db,
+                        row.id,
+                        "BUDGET_EXHAUSTED",
+                        {"tool": definition.name},
+                        getattr(context, "secrets", ()),
+                    )
+                    db.commit()
+                raise
 
     def create_run(self, definition, args, context):
         with SessionLocal() as db:
@@ -301,6 +391,19 @@ class ToolExecutor:
         ):
             raise ToolError("sensitive_arguments")
         digest_value = digest(args.model_dump(mode="json"), definition.name)
+        if definition.name in {"git_commit", "git_push"}:
+            from .local.plan import looks_like_commit_request, looks_like_push_request
+
+            prompt = getattr(context, "user_prompt", "") or ""
+            settings = getattr(context, "settings", None)
+            if definition.name == "git_commit" and not (
+                looks_like_commit_request(prompt) or getattr(settings, "auto_commit", False)
+            ):
+                raise ToolError("git_commit_not_requested")
+            if definition.name == "git_push" and not (
+                looks_like_push_request(prompt) or getattr(settings, "allow_push", False)
+            ):
+                raise ToolError("git_push_not_requested")
         if getattr(context, "task_id", None) and definition.provider == "local_device":
             from .local.task import LocalTaskController
 
@@ -364,12 +467,13 @@ class ToolExecutor:
             context.settings = prefs
         context.limits.consume(definition, args)
         context.preview, context.action_fingerprint = {}, None
-        if (
-            definition.capability == "agent"
-            and definition.risk_level == RiskLevel.READ
-            and not getattr(provider, "read_only_enforced", False)
-        ):
-            raise ToolError("agent_read_only_boundary_unavailable")
+        if definition.capability == "agent":
+            from .tinyfish.classify import classify_agent_goal
+
+            goal = getattr(args, "goal", "") or getattr(args, "query", "")
+            classified = classify_agent_goal(goal, getattr(context, "user_prompt", "") or goal)
+            if classified.kind != "READ_ONLY":
+                raise ToolError("agent_side_effect_not_supported")
         if hasattr(provider, "preview"):
             context.preview = await provider.preview(args, context)
         run_id, prefs = self.create_run(definition, args, context)
@@ -439,6 +543,8 @@ class ToolExecutor:
                     )
                     db.commit()
                     await context.emit("tool", public_run(row))
+                if definition.provider == "tinyfish" and definition.cost_class == "paid":
+                    self._preflight_tinyfish(definition, args, context)
                 if definition.provider == "local_device":
                     await self.wait_host(run_id, context)
                     with SessionLocal() as db:
@@ -508,6 +614,9 @@ class ToolExecutor:
                     )
                     with SessionLocal() as db:
                         LocalTaskController().checkpoint(db, context, status)
+                if definition.provider == "tinyfish" and definition.cost_class == "paid":
+                    with SessionLocal() as db:
+                        LocalTaskController().consume_tinyfish(db, context, definition, result)
                 return result
         except BaseException as error:
             cancelled = isinstance(error, asyncio.CancelledError) or (

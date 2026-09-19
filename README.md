@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.9.0**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.9.1**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -186,15 +186,15 @@ Generation metadata now retains its actual context snapshot and nullable TTFT/ca
 
 Files and Settings now prepare the pinned CPU embedding model with real byte progress, cancellation, resumable downloads and verified atomic activation. Chat remains usable without embeddings. Windows model data lives in `%LOCALAPPDATA%/Alex LLM/models/embeddings`; `ALEX_LLM_DATA_DIR` overrides the common data root. No model is bundled in Git or the installer.
 
-Provider-independent Tools add Web Off/Auto/On, Search/Fetch, persisted W sources, separate D document sources, bounded model tool loops, ownership checks and per-action approval. Set `TINYFISH_API_KEY` only in backend configuration. Production uses REST/httpx; no TinyFish CLI subprocess. Paid Browser is Advanced/off by default and has typed Playwright control, timeout and explicit Stop.
+Provider-independent Tools add Web Off/Auto/On, Search/Fetch, persisted W sources, separate D document sources, bounded model tool loops, ownership checks and per-action approval. Set `TINYFISH_API_KEY` only in backend configuration. Production uses REST/httpx; no TinyFish CLI subprocess. TinyFish Search/Fetch are free. TinyFish Browser is Alex-controlled cloud Chromium (typed Playwright/CDP). TinyFish Agent is paid read-only multi-page research; side-effect goals are blocked before the provider call because the current API has no pre-action approval. Agent/Browser modes default to Auto. Vault/Profiles stay off.
 
-**Agent limitation:** the adapter and fake/contract tests exist, but real Agent execution is blocked: the current API does not supply an enforceable read-only boundary or per-action approval hook. A prompt alone cannot meet the required confirmation guarantee. Search/Fetch and manually confirmed typed Browser actions remain available. Real OrcaRouter and paid TinyFish E2E are not part of this release validation.
+**Agent limitation:** the current TinyFish Agent API has no enforceable pre-action intercept. Alex therefore allows Agent only for classified READ_ONLY goals and blocks submit/buy/login/upload goals before the paid call. Prompt instructions are not a security boundary. Search/Fetch stay free. Browser stays Alex-controlled with typed actions and confirmation for side effects.
 
 Run `alembic upgrade head` (0007), then one backend worker. [Embedding lifecycle](docs/embedding-model-manager.md) · [Tools](docs/tools.md) · [Web](docs/web.md) · [TinyFish contracts and limitations](docs/tinyfish.md).
 
 ## Version 0.7.0 — WebRouter, Tor, Local Computer
 
-Web Off/Auto/On stay independent of Tor and Local Computer. **Найти в интернете** is Auto-only. When Web is On and the planner skips `web_search`, the server injects one Search (then Fetch 1–3 canonical URLs, `ttl=0` when fresh) and audits `origin=server_policy`. TinyFish Agent/Browser stay out of the planner; this stage does not run paid TinyFish or GPU/RunPod.
+Web Off/Auto/On stay independent of Tor and Local Computer. **Найти в интернете** is Auto-only. When Web is On and the planner skips `web_search`, the server injects one Search (then Fetch 1–3 canonical URLs, `ttl=0` when fresh) and audits `origin=server_policy`. TinyFish Agent/Browser stay Auto by default: the server injects them only for JS/browser or complex read-only multi-page tasks. Tor never uses TinyFish.
 
 Tor SOCKS5h is a separate transport: real `.onion` fetch, configured Tor-search providers, curated official mapping only for provenance. Local Computer is a paired Tauri host with a random device credential in Windows Credential Manager (DPAPI file fallback), Job Objects, sanitized child environments, atomic writes and a secret-path denylist.
 
@@ -242,6 +242,18 @@ GPU retest on ONE L40S (`o2ossjuc01e6jx`, US-TX-3, $1.09/h, 203s, ~$0.061, volum
 Run `alembic upgrade head` (0010). Keep `LLM_PROVIDER=mock` unless you intentionally start compute.
 
 [Tor](docs/tor.md) · [Verification](docs/verification.md)
+
+## Version 0.9.1 — Local Computer & Task Reliability
+
+Workspace WRITE tasks queue as `WAITING_WORKSPACE` (FIFO, persisted, stale-lock cleanup) instead of failing `workspace_busy`. Desktop/backend restart continues the same `task_id` from checkpoint (task continuation, not token-stream continuation). Pause drops a partial planner buffer and shows `Paused while preparing next action.` Git commit/push stay off unless the user asks or enables the matching setting; push is SENSITIVE and never `--force`. Loopback form submit is SENSITIVE; fake checkout is CRITICAL; email/message contracts exist without a configured provider.
+
+GPU proof used ONE L40S after a stopped first attempt (`a7ea8t33um7wh8`, US-TX-3, $1.09/h, 1170s, ~$0.354, volume `uwgeaie5b0` preserved). Real OrcaRouter (`llamacpp`, Mock=false) chose local tools (`origin=model`, 100 tool actions): Desktop via Known Folder API, created `Desktop\Alex-LLM-E2E\hello.txt`, edited/copied/moved, installed `jqlang.jq` `jq-1.8.2` after SENSITIVE confirmation (user-scope winget, no UAC bypass). Pause UI had no raw tool fragment. **RUNNING GPU FINAL = 0**.
+
+Limitation: the final chat turn still often claimed “no filesystem access” even after successful tools. Local notes are now labeled as host observations; that prompt fix was not GPU-retested. Git/form/fake-purchase GPU cases stayed queued behind an unfinished WRITE task in the harness. Email provider is not configured. No real purchase or real email.
+
+Run `alembic upgrade head` (0012). Keep `LLM_PROVIDER=mock` unless you intentionally start compute. TinyFish Agent/Browser stay unused.
+
+[Autonomous tasks](docs/autonomous-tasks.md) · [Verification](docs/verification.md) · [Device security](docs/device-security.md)
 
 ## Version 0.9.0 — Autonomous Task Agent REAL VERIFIED
 

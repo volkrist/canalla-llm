@@ -385,6 +385,9 @@ def test_browser_start_guards_ownership_duplicate_and_cleanup():
             async def continue_(self):
                 pytest.fail("Private URL must be blocked")
 
+            async def fallback(self):
+                pytest.fail("Private URL must be blocked")
+
         route = Route()
         await runtime.contexts[0].guard(route)
         assert route.aborted
@@ -393,3 +396,43 @@ def test_browser_start_guards_ownership_duplicate_and_cleanup():
 
     asyncio.run(run())
     assert requests == ["POST", "DELETE"]
+
+
+def test_agent_timeout_cancels_stream():
+    cancelled = []
+
+    class Stream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"type":"STARTED","run_id":"run_timeout"}\n\n'
+            await asyncio.sleep(10)
+
+        async def aclose(self):
+            return None
+
+    def handler(request):
+        if request.url.path.endswith("run-sse"):
+            return httpx.Response(200, stream=Stream())
+        cancelled.append(request.url.path)
+        return httpx.Response(200, json={"status": "CANCELLED"})
+
+    context = Context()
+    context.settings.agent_max_runtime = 1
+    context.limits = ToolLimits(max_seconds=1)
+    with pytest.raises(ToolError, match="provider_timeout"):
+        asyncio.run(
+            TinyFishAgentProvider(client(handler)).execute(
+                AgentArgs(url="https://example.com", goal="Read title"), context
+            )
+        )
+    assert cancelled and cancelled[-1].endswith("/cancel")
+
+
+def test_potential_side_effect_goal_never_reaches_provider():
+    provider = TinyFishAgentProvider(client(lambda request: pytest.fail("No supplier call allowed")))
+    with pytest.raises(ToolError, match="agent_side_effect_not_supported"):
+        asyncio.run(
+            provider.execute(
+                AgentArgs(url="https://example.com", goal="Click the documentation link"),
+                Context(),
+            )
+        )

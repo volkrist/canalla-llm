@@ -27,6 +27,7 @@ async def validate_url(value: str, resolver=None):
             or parsed.password
             or parsed.port not in {None, 80, 443}
             or host == "localhost"
+            or host.endswith(".onion")
             or host.endswith((".localhost", ".local", ".internal", ".lan", ".home", ".test"))
         ):
             raise ValueError()
@@ -124,6 +125,16 @@ def input_summary(definition, args, secrets=(), follow=False):
         "start_type",
         "max_count",
         "delete",
+        "field",
+        "item",
+        "quantity",
+        "currency",
+        "total_price",
+        "seller",
+        "to",
+        "subject",
+        "body",
+        "target",
     ):
         if key in values and values[key] not in (None, "", [], {}, False):
             result[key] = sanitized(json.dumps(values[key], ensure_ascii=False), secrets, 500)

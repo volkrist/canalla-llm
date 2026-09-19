@@ -110,7 +110,7 @@ class InstallArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     package: str = Field(min_length=1, max_length=200)
     purpose: str | None = Field(default=None, max_length=500)
-    elevate: bool = True
+    elevate: bool = False
 
 
 class EnvironmentArgs(BaseModel):
@@ -184,6 +184,14 @@ class LocalDeviceProvider(ToolProvider):
                     "error",
                     "branch",
                     "dirty",
+                    "desktop",
+                    "documents",
+                    "downloads",
+                    "os_version",
+                    "cpu_logical_processors",
+                    "ram_total_mb",
+                    "ram_avail_mb",
+                    "system_disk_free_gb",
                 )
                 if k in payload
             },
@@ -344,6 +352,14 @@ def register_local_tools(registry):
             info,
         ),
         (
+            "get_known_folders",
+            EmptyArgs,
+            "local_info",
+            RiskLevel.READ,
+            "Resolve Windows Known Folders (Desktop, Documents, Downloads). No hardcoded user path.",
+            info,
+        ),
+        (
             "registry_read",
             RegistryArgs,
             "local_registry",
@@ -396,7 +412,7 @@ def register_local_tools(registry):
             InstallArgs,
             "local_install",
             RiskLevel.SENSITIVE,
-            "Install a package with winget after confirmation and UAC.",
+            "Install a package with winget after confirmation. Does not bypass UAC; elevate=true shows UAC.",
             install,
         ),
         (

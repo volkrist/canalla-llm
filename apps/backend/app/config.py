@@ -5,12 +5,12 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
     app_env: Literal["development", "production", "test"] = "development"
     database_url: str = "sqlite:///./alex.db"
     jwt_secret: str = Field(min_length=32)
@@ -49,10 +49,33 @@ class Settings(BaseSettings):
     tinyfish_api_key: SecretStr = SecretStr("")
     tinyfish_agent_max_steps_supported: bool = False
     tinyfish_browser_delete_supported: bool = True
-    tinyfish_agent_step_price: float = Field(default=0.016, ge=0, le=1)
-    tinyfish_browser_minute_price: float = Field(default=0.002, ge=0, le=1)
+    tinyfish_agent_step_price: float = Field(
+        default=0.016,
+        ge=0,
+        le=1,
+        validation_alias=AliasChoices("tinyfish_agent_step_price", "tinyfish_agent_cost_per_step_usd"),
+    )
+    tinyfish_browser_minute_price: float = Field(
+        default=0.002,
+        ge=0,
+        le=1,
+        validation_alias=AliasChoices(
+            "tinyfish_browser_minute_price", "tinyfish_browser_cost_per_minute_usd"
+        ),
+    )
     tinyfish_search_fetch_free: bool = True
     tinyfish_search_interval_seconds: float = Field(default=2, ge=0, le=60)
+    tinyfish_agent_max_runs: int = Field(default=2, ge=1, le=8)
+    tinyfish_agent_max_steps: int = Field(default=20, ge=1, le=50)
+    tinyfish_browser_max_sessions: int = Field(default=2, ge=1, le=8)
+    tinyfish_browser_max_minutes: float = Field(default=10, ge=1, le=30)
+    tinyfish_paid_task_budget_usd: float = Field(default=1.0, ge=0.01, le=2)
+    tinyfish_paid_hard_usd: float = Field(default=2.0, ge=0.01, le=10)
+    tinyfish_agent_hard_steps: int = Field(default=50, ge=1, le=500)
+    tinyfish_browser_hard_minutes: float = Field(default=30, ge=1, le=120)
+    tinyfish_vault_enabled: bool = False
+    tinyfish_profile_enabled: bool = False
+    tinyfish_agent_preaction_approval: bool = False
     tools_max_calls: int = Field(default=8, ge=1, le=32)
     tools_max_coding_calls: int = Field(default=24, ge=1, le=100)
     tools_hard_max_calls: int = Field(default=32, ge=8, le=100)

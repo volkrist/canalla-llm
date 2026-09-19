@@ -14,17 +14,26 @@ class WebSettings(BaseModel):
     search_enabled: bool = True
     fetch_enabled: bool = True
     default_mode: Literal["off", "auto", "on"] = "auto"
-    agent_enabled: bool = False
+    agent_mode: Literal["off", "auto", "on"] = "auto"
+    agent_enabled: bool = True
     agent_run_budget: float = Field(default=0.25, gt=0, le=10)
     agent_daily_budget: float = Field(default=1, gt=0, le=50)
     agent_max_runtime: int = Field(default=120, ge=10, le=600)
-    browser_enabled: bool = False
+    agent_max_runs: int = Field(default=2, ge=1, le=8)
+    agent_max_steps: int = Field(default=20, ge=1, le=50)
+    browser_mode: Literal["off", "auto", "on"] = "auto"
+    browser_enabled: bool = True
+    tinyfish_paid_task_budget_usd: float = Field(default=1.0, gt=0, le=2)
+    browser_max_sessions: int = Field(default=2, ge=1, le=8)
+    browser_max_minutes: float = Field(default=10, ge=1, le=30)
     tor_mode: Literal["off", "auto", "on"] = "auto"
     tor_enabled: bool = True
     tor_browser_mode: Literal["off", "auto", "on"] = "auto"
     computer_mode: Literal["off", "ask", "trusted"] = "ask"
     workspace_roots: list[str] = Field(default_factory=list, max_length=8)
     device_display_name: str = Field(default="", max_length=80)
+    auto_commit: bool = False
+    allow_push: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -41,6 +50,12 @@ class WebSettings(BaseModel):
         data["tor_enabled"] = data["tor_mode"] != "off"
         if data.get("tor_browser_mode") not in {"off", "auto", "on"}:
             data["tor_browser_mode"] = "auto"
+        if data.get("agent_mode") not in {"off", "auto", "on"}:
+            data["agent_mode"] = "auto"
+        data["agent_enabled"] = data["agent_mode"] != "off"
+        if data.get("browser_mode") not in {"off", "auto", "on"}:
+            data["browser_mode"] = "auto"
+        data["browser_enabled"] = data["browser_mode"] != "off"
         return data
 
 
@@ -62,6 +77,12 @@ LOCAL_CAPABILITIES = {
     "local_credential",
     "local_git",
 }
+EXTERNAL_CAPABILITIES = {
+    "external_form",
+    "external_message",
+    "external_purchase",
+    "external_email",
+}
 CODING_PLANNER_TOOLS = frozenset(
     {
         "list_directory",
@@ -81,6 +102,15 @@ CODING_PLANNER_TOOLS = frozenset(
 NETWORK_DIRECT = WEB_CAPABILITIES
 NETWORK_TOR = TOR_CAPABILITIES
 PROTECTED_BRANCHES = {"main", "master", "develop", "production"}
+BLANKET_GIT_ADD = {"-a", "-A", "--all", ".", "*", "**", "/", "\\"}
+
+
+def assert_explicit_git_add(paths):
+    for item in paths or []:
+        value = str(item).strip()
+        name = value.replace("/", "\\").rsplit("\\", 1)[-1]
+        if not value or value in BLANKET_GIT_ADD or name in BLANKET_GIT_ADD or value.startswith("-"):
+            raise ToolError("invalid_arguments")
 
 
 @dataclass
@@ -196,6 +226,8 @@ def effective_risk(definition, args=None):
     name = getattr(definition, "name", "")
     if name == "git_push" and getattr(args, "force", False):
         return RiskLevel.CRITICAL
+    if name == "web_browser" and getattr(args, "operation", None) == "type":
+        return RiskLevel.SENSITIVE
     if name == "git_reset" and getattr(args, "mode", None) == "hard":
         return RiskLevel.CRITICAL
     if name == "git_branch" and getattr(args, "delete", False):
@@ -257,10 +289,16 @@ class ToolPolicy:
             raise ToolError("tor_disabled")
         if capability == "tor_browser" and getattr(settings, "tor_browser_mode", "auto") == "off":
             raise ToolError("tor_browser_disabled")
+        if capability == "agent" and getattr(settings, "agent_mode", "off") == "off":
+            raise ToolError("tool_disabled")
+        if capability == "browser" and getattr(settings, "browser_mode", "off") == "off":
+            raise ToolError("tool_disabled")
         if capability in LOCAL_CAPABILITIES and computer_mode == "off":
             raise ToolError("computer_disabled")
         if not definition.auto_route and not explicit:
             raise ToolError("explicit_action_required")
+        if definition.name == "git_add" and args is not None:
+            assert_explicit_git_add(getattr(args, "paths", None) or [])
         enabled = {
             "search": settings.search_enabled,
             "fetch": settings.fetch_enabled,
@@ -277,9 +315,19 @@ class ToolPolicy:
                 return "allowed" if confirmed else "confirmation_required"
             if risk == RiskLevel.READ:
                 return "allowed"
-            if risk == RiskLevel.NORMAL_CHANGE and inside_trusted_scope(
-                definition, args, settings.workspace_roots
+            if risk == RiskLevel.NORMAL_CHANGE and (
+                inside_trusted_scope(definition, args, settings.workspace_roots)
+                or (
+                    computer_mode == "trusted"
+                    and definition.capability == "local_process"
+                    and not getattr(args, "elevate", False)
+                    and not getattr(args, "cwd", None)
+                )
             ):
+                return "allowed"
+            return "allowed" if confirmed else "confirmation_required"
+        if capability in EXTERNAL_CAPABILITIES:
+            if risk == RiskLevel.READ or definition.name == "fill_form_field":
                 return "allowed"
             return "allowed" if confirmed else "confirmation_required"
         if risk == RiskLevel.READ:

@@ -8,6 +8,6 @@ Search provides bounded titles, URLs, snippets and dates. Fetch requests markdow
 
 Sources are separate channels: documents **D***, internet **W***, Tor **T***. The UI shows the first three unique canonical URLs plus **Показать ещё**. Raw Search hits are not dumped as an unbounded list. Tool activity collapses completed Web/Tor/Computer families; waiting confirmation stays visible outside the summary.
 
-HTTP(S), public DNS/IPs and standard ports only for TinyFish. Local/private/link-local/metadata endpoints, credentials in URLs and unsafe final URLs are rejected. Untrusted references never become system instructions.
+HTTP(S), public DNS/IPs and standard ports only for TinyFish. Local/private/link-local/metadata endpoints, `.onion`, credentials in URLs and unsafe final URLs are rejected. Untrusted references never become system instructions.
 
-Real llama.cpp tool calls are contract-tested; actual OrcaRouter tool compliance still requires a separately approved GPU E2E. TinyFish Agent/Browser are not given to the planner in 0.7 and were not launched.
+TinyFish Search and Fetch stay free. TinyFish Browser is Alex-controlled cloud Chromium (Playwright/CDP, typed actions). TinyFish Agent is a paid read-only multi-page workflow owned by TinyFish; Alex classifies the goal and refuses side effects before the run. Default Agent/Browser mode is Auto. Tor never uses TinyFish. See [tinyfish.md](tinyfish.md).

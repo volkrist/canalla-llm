@@ -32,7 +32,7 @@ asks for Tor/.onion; RAG is used when uploaded documents matter.
 
 `CREATED → PLANNING → READY → INSPECTING | RESEARCHING | EXECUTING | VERIFYING | RETRYING`
 
-Waiting: `WAITING_CONFIRMATION`, `WAITING_DEVICE`, `WAITING_LLM`, `CONFLICT`
+Waiting: `WAITING_CONFIRMATION`, `WAITING_DEVICE`, `WAITING_LLM`, `WAITING_WORKSPACE`, `CONFLICT`
 
 Control: `PAUSED`, `STOPPING`, `INTERRUPTED`, `RECOVERING`
 
@@ -197,19 +197,28 @@ allow it.
 - mock web+coding: official-docs search, first fix, remaining failure, plan
   revision, second fix, tests pass
 
-## Known limitations (0.9)
+## Known limitations (0.9.1)
 
-- TinyFish Agent/Browser are not used.
+- TinyFish Agent has no provider pre-action approval. Side-effect goals are blocked before the run. Agent cannot safely submit forms, purchase, or log in.
+- TinyFish Agent has no pause API. Pause waits or Stop cancels the run.
+- Provider `max_steps` is beta; local budget is still enforced.
 - Live plan-step labels can lag the tools until final review closes leftover
   PENDING steps as SKIPPED. Completion is gated by tests/git/sources, not by
   every step row turning green mid-flight.
-- After Pause the in-progress model turn may emit a raw tool-call fragment
-  before Resume continues the same task.
+- After Pause the planner buffer is discarded. The chat shows
+  "Paused while preparing next action." Resume starts a new model turn from
+  task state (task continuation, not token-stream continuation).
+- Two WRITE tasks on one workspace: the second becomes `WAITING_WORKSPACE`
+  and is promoted FIFO when the owner completes, fails, or stops.
+- Desktop/backend restart restores the same `task_id`, plan, and completed
+  digests. The LLM connection is not replayed.
+- Git commit/push stay off unless the user asks or enables the matching
+  setting. Push is SENSITIVE. Force-push is never automatic.
+- Email/message providers are not configured. Form submit and fake checkout
+  are loopback-only and require confirmation.
+- Qwen's final chat turn can still ignore local tool notes unless they are
+  labeled as host observations. GPU 0.9.1 created real Desktop files while the
+  visible answer sometimes denied filesystem access; the local prompt label was
+  added after that run.
 - Web search quality follows the model's query; official docs are preferred
   but not guaranteed if the local test output already contains the contract.
-- Two WRITE tasks on one workspace: the second fails immediately rather than
-  queueing.
-- Desktop restart reconstructs task state from the backend; it does not keep
-  an in-flight LLM generation alive by itself.
-- No automatic git commit/push.
-- No automatic email, form submit, or purchase side effects.

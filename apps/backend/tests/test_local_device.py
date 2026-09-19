@@ -81,7 +81,7 @@ def test_trusted_reduces_normal_change_confirmations():
         policy.validate(
             proc, settings, mode="off", computer_mode="trusted", args=InterpreterArgs(argv=["-c", "print(1)"])
         )
-        == "confirmation_required"
+        == "allowed"
     )
     assert (
         policy.validate(delete, settings, mode="off", computer_mode="trusted", args=inside)
@@ -338,7 +338,7 @@ def test_planner_hides_paid_tools_and_keeps_channels_independent():
     assert "registry_write" in names
     assert "patch_file" in names
     assert "git_status" in names
-    assert "git_push" in names
+    assert "git_push" not in names
     local_on.user_prompt = "Через Tor найди официальный onion-ресурс Tor Project."
     names = {item.name for item in orch.planner_definitions(local_on)}
     assert "tor_search" in names

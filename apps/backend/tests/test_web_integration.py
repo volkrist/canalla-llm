@@ -173,6 +173,8 @@ def test_server_policy_search_is_audited_not_as_model(client, auth, fake_tools, 
             names = [item["function"]["name"] for item in tools]
             assert "web_agent_read" not in names
             assert "browser_start" not in names
+            assert "web_agent" not in names
+            assert "web_browser" not in names
             return {"tool_calls": []}
 
         async def stream_with_usage(self, messages, usage):
@@ -204,7 +206,10 @@ def test_agent_not_auto_routed():
 
     names = [item.name for item in make_registry().definitions()]
     assert "web_search" in names and "web_fetch" in names
+    assert "web_agent" in names
+    assert "web_browser" in names
     assert "web_agent_read" not in names
+    assert "browser_start" not in names
     all_names = [item.name for item in make_registry().definitions(auto_only=False)]
     assert "delete_file" in all_names
     assert "registry_write" in all_names

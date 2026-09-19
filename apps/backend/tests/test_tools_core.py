@@ -109,6 +109,8 @@ def test_policy_cannot_be_overridden_by_model():
         "https://example.com:8080",
         "https://user:secret@example.com",
         "https://example.com\\@localhost",
+        "http://example.onion/",
+        "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion/",
     ],
 )
 def test_ssrf_blocked(url):
@@ -206,6 +208,7 @@ def test_daily_budget_and_disabled_paid(setup, client):
     headers, context, _ = setup
     registry = ToolRegistry()
     registry.register(replace(definition(), capability="agent", cost_class="paid"), FakeProvider())
+    assert client.put("/tools/preferences", headers=headers, json={"agent_mode": "off"}).status_code == 200
     with pytest.raises(ToolError, match="tool_disabled"):
         asyncio.run(ToolExecutor(registry).execute("test_read", {"query": "x"}, context))
     assert (
@@ -213,6 +216,7 @@ def test_daily_budget_and_disabled_paid(setup, client):
             "/tools/preferences",
             headers=headers,
             json={
+                "agent_mode": "on",
                 "agent_enabled": True,
                 "agent_run_budget": 0.6,
                 "agent_daily_budget": 1,
@@ -259,12 +263,14 @@ def test_sanitized_key_and_status(client, auth):
     assert "configured" in response and not any("key" in key for key in response)
 
 
-def test_real_agent_requires_enforceable_read_only_boundary(setup, client):
+def test_real_agent_blocks_side_effects_before_run(setup, client):
     headers, context, _ = setup
     provider, registry = FakeProvider(), ToolRegistry()
     provider.read_only_enforced = False
     registry.register(replace(definition(), capability="agent", cost_class="paid"), provider)
-    assert client.put("/tools/preferences", headers=headers, json={"agent_enabled": True}).status_code == 200
-    with pytest.raises(ToolError, match="agent_read_only_boundary_unavailable"):
-        asyncio.run(ToolExecutor(registry).execute("test_read", {"query": "read"}, context))
-    assert provider.called == 0
+    assert client.put("/tools/preferences", headers=headers, json={"agent_mode": "on"}).status_code == 200
+    asyncio.run(ToolExecutor(registry).execute("test_read", {"query": "read public facts"}, context))
+    assert provider.called == 1
+    with pytest.raises(ToolError, match="agent_side_effect_not_supported"):
+        asyncio.run(ToolExecutor(registry).execute("test_read", {"query": "submit the form"}, context))
+    assert provider.called == 1

@@ -33,7 +33,7 @@ Normal audit/source endpoints filter by owner, including administrator requests.
 Cancellation closes the provider task and records stopped/cancelled_at. Provider
 adapters must perform their own supplier cancellation in finally blocks.
 
-Production Agent is fail-closed without an adapter-enforced read-only boundary; model prompts are not an enforcement mechanism. Agent and Browser definitions exist for explicit Advanced UI only and are omitted from the planner. Browser remains per-action confirmation. Settings change through authenticated APIs without restarting the backend. See [TinyFish limitations](tinyfish.md), [Tor](tor.md) and [Local Computer](local-computer.md).
+Direct Browser typed actions remain explicit (`browser_start` / `browser_read` / `browser_write`) with per-action confirmation. Planner-facing `web_browser` and `web_agent` are Off/Auto/On (default Auto). Auto hides them from the weak planner; the server injects a paid tool only when the deterministic router selects it. Agent is READ_ONLY only: the current TinyFish API has no pre-action approval, so side-effect goals are blocked before the provider call. Prompt text is not a security boundary. Settings change through authenticated APIs without restarting the backend. See [TinyFish](tinyfish.md), [Tor](tor.md) and [Local Computer](local-computer.md).
 
 Autonomous 0.9 tasks add a persistent plan and tighter ceilings (default 40 calls / 30 min / 20 files, hard 100 / 120 min / 100 files) without a second registry. Unattended “run until done” still cannot skip SENSITIVE/CRITICAL confirmation.
 

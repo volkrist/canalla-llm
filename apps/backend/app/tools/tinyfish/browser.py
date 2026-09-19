@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 import time
 from contextlib import suppress
@@ -39,6 +40,14 @@ class BrowserWriteArgs(BaseModel):
     text: str = Field(default="", max_length=1000)
 
 
+class WebBrowserArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["open", "read", "links", "click", "back", "wait", "close"]
+    url: str | None = Field(default=None, max_length=2048)
+    link_id: str | None = Field(default=None, max_length=8)
+    seconds: float = Field(default=1, ge=0, le=5)
+
+
 @dataclass
 class BrowserSession:
     session_id: str
@@ -57,6 +66,10 @@ class BrowserSession:
     write_budget: int = 0
     image: bytes | None = None
     stopped: float | None = None
+    task_id: str | None = None
+    started_by_alex: bool = True
+    last_activity: float = 0.0
+    links: list | None = None
 
 
 class BrowserController:
@@ -121,7 +134,9 @@ class TinyFishBrowserProvider(ToolProvider):
             raise ToolError("browser_stopped")
         return session
 
-    async def execute(self, args: BrowserStartArgs, context):
+    async def execute(self, args, context):
+        if isinstance(args, WebBrowserArgs):
+            return await self.web_execute(args, context)
         async with self.start_lock:
             return await self.start(args, context)
 
@@ -174,39 +189,56 @@ class TinyFishBrowserProvider(ToolProvider):
                 playwright,
                 browser,
                 None,
+                task_id=getattr(context, "task_id", None),
+                last_activity=time.monotonic(),
             )
 
             async def guard(route):
+                # TinyFish CDP sessions are proxied. route.continue_ breaks the tunnel
+                # (net::ERR_TUNNEL_CONNECTION_FAILED). Safe methods use fallback.
                 try:
+                    method = route.request.method
+                    if method in {"GET", "HEAD", "OPTIONS"}:
+                        await validate_url(route.request.url, context.resolver)
+                        await route.fallback()
+                        return
                     await validate_url(route.request.url, context.resolver)
-                    unsafe_method = route.request.method not in {"GET", "HEAD", "OPTIONS"}
-                    if not session.active or (
-                        unsafe_method and (not session.allow_write or session.write_budget <= 0)
-                    ):
+                    if not session.active or not session.allow_write or session.write_budget <= 0:
                         raise ToolError("browser_write_not_confirmed")
-                    if unsafe_method:
-                        session.write_budget -= 1
-                    await route.continue_()
+                    session.write_budget -= 1
+                    await route.fallback()
                 except ToolError:
                     await route.abort()
 
-            await browser_context.route("**/*", guard)
-            # Disable browser websocket channels that bypass request interception.
-            await browser_context.route_web_socket("**/*", lambda socket: socket.close())
+            if self.playwright_factory is not None:
+                await browser_context.route("**/*", guard)
+                await browser_context.route_web_socket("**/*", lambda socket: socket.close())
             page = browser_context.pages[0] if browser_context.pages else await browser_context.new_page()
             session.page = page
             self.sessions[session_id] = session
             self.locks[session_id] = asyncio.Lock()
-            await page.goto(args.url, wait_until="domcontentloaded", timeout=20000)
+            try:
+                await page.goto(args.url, wait_until="domcontentloaded", timeout=20000)
+            except ToolError:
+                raise
+            except Exception:
+                raise ToolError("browser_navigation_failed") from None
             await validate_url(page.url, context.resolver)
             session.task = asyncio.create_task(self.watchdog(session_id, context.user_id, seconds))
             attached = True
+            await context.progress(
+                event_kind="BROWSER_STARTED",
+                session_id=session_id,
+                supplier_state="RUNNING",
+            )
+            await context.progress(event_kind="BROWSER_CONNECTED", session_id=session_id)
             return ToolResult(
                 text="Advanced browser session started.",
                 provider_run_id=session_id,
                 metadata={
                     "session_id": session_id,
                     "supplier_state": "RUNNING",
+                    "started_by_alex": True,
                     "max_runtime_seconds": int(seconds),
                     "budget_enforcement": "local_soft",
                 },
@@ -242,7 +274,15 @@ class TinyFishBrowserProvider(ToolProvider):
             return False
 
     async def watchdog(self, session_id, owner, seconds):
-        await asyncio.sleep(seconds)
+        deadline = time.monotonic() + max(5, seconds)
+        idle = min(120.0, max(5.0, seconds))
+        while time.monotonic() < deadline:
+            await asyncio.sleep(5)
+            session = self.sessions.get(session_id)
+            if not session or not session.active:
+                return
+            if time.monotonic() - (session.last_activity or session.started) > idle:
+                break
         await self.stop(session_id, owner)
 
     async def stop(self, session_id, owner):
@@ -259,29 +299,33 @@ class TinyFishBrowserProvider(ToolProvider):
             with suppress(Exception):
                 await session.playwright.stop()
             terminated = await self.terminate_supplier(session_id)
-        cost = (session.stopped - session.started) / 60 * self.client.settings.tinyfish_browser_minute_price
-        with SessionLocal() as db:
-            row = db.get(ToolRun, session.run_id)
-            if row:
-                row.cost_estimate = cost
-                row.result_metadata = {
-                    **row.result_metadata,
-                    "supplier_stop_confirmed": terminated,
-                    "supplier_state": "TERMINATED" if terminated else "UNKNOWN",
-                    "local_controller_stopped": True,
-                }
-                row.finished_at = now()
-                db.commit()
+        duration = (session.stopped - session.started) if session.stopped else 0
+        cost = duration / 60 * self.client.settings.tinyfish_browser_minute_price
+        with suppress(Exception):
+            with SessionLocal() as db:
+                row = db.get(ToolRun, session.run_id)
+                if row:
+                    row.cost_estimate = cost
+                    row.result_metadata = {
+                        **row.result_metadata,
+                        "supplier_stop_confirmed": terminated,
+                        "supplier_state": "TERMINATED" if terminated else "UNKNOWN",
+                        "local_controller_stopped": True,
+                        "duration_seconds": duration,
+                        "estimated_provider_cost": cost,
+                    }
+                    row.finished_at = now()
+                    db.commit()
         session.image = None
         session.cdp_url = ""
-        if terminated:
-            self.sessions.pop(session_id, None)
-            self.locks.pop(session_id, None)
+        self.sessions.pop(session_id, None)
+        self.locks.pop(session_id, None)
         return {
             "local_controller_stopped": True,
             "supplier_stop_confirmed": terminated,
             "supplier_state": "TERMINATED" if terminated else "UNKNOWN",
             "cost_estimate": cost,
+            "duration_seconds": duration,
         }
 
     async def action(self, args, context):
@@ -304,6 +348,129 @@ class TinyFishBrowserProvider(ToolProvider):
         for session in list(self.sessions.values()):
             if session.active:
                 await self.stop(session.session_id, session.user_id)
+
+    def _owned_session(self, user_id):
+        for session in self.sessions.values():
+            if session.active and session.user_id == user_id:
+                return session
+        return None
+
+    async def _snapshot(self, session, resolver=None):
+        page = session.page
+        current = page.url
+        try:
+            await validate_url(current, resolver)
+        except ToolError:
+            current = ""
+        title = sanitized(await page.title(), (), 400)
+        text = sanitized(await page.locator("body").inner_text(timeout=5000), (), 6000) if current else ""
+        locators = page.locator("a[href]")
+        try:
+            count = min(await locators.count(), 40) if current else 0
+        except Exception:
+            count = 0
+        links = []
+        for index in range(count):
+            href = await locators.nth(index).get_attribute("href") or ""
+            if not str(href).startswith("http"):
+                continue
+            try:
+                await validate_url(href, resolver)
+            except ToolError:
+                continue
+            label = sanitized(await locators.nth(index).inner_text(timeout=2000), (), 120)
+            token = f"L{len(links) + 1}"
+            links.append({"id": token, "url": href[:2048], "text": label, "index": index})
+            if len(links) >= 20:
+                break
+        session.links = links
+        session.last_activity = time.monotonic()
+        return title, text, links, current
+
+    def _public_links(self, links):
+        return [{key: value for key, value in item.items() if key != "index"} for item in links or []]
+
+    def _source(self, url, title, text, links, session_id):
+        return {
+            "url": url,
+            "final_url": url,
+            "title": title,
+            "excerpt": text,
+            "retrieval": "browser",
+            "rendered": True,
+            "links": self._public_links(links),
+            "browser_session_id": session_id,
+        }
+
+    async def web_execute(self, args: WebBrowserArgs, context):
+        if args.operation == "open":
+            if not args.url:
+                raise ToolError("invalid_arguments")
+            existing = self._owned_session(context.user_id)
+            if existing:
+                async with self.locks[existing.session_id]:
+                    text = await self.controller.execute(
+                        existing,
+                        BrowserReadArgs(session_id=existing.session_id, action="navigate", url=args.url),
+                        context.resolver,
+                    )
+                    title, snapshot, links, url = await self._snapshot(existing, context.resolver)
+                    return ToolResult(
+                        text=sanitized(f"{title}\n{snapshot}", context.secrets, 6000),
+                        sources=[self._source(url, title, snapshot, links, existing.session_id)],
+                        provider_run_id=existing.session_id,
+                        metadata={"session_id": existing.session_id, "links": self._public_links(links)[:12]},
+                    )
+            started = await self.execute(BrowserStartArgs(url=args.url), context)
+            session = self.owned(started.metadata["session_id"], context.user_id)
+            title, snapshot, links, url = await self._snapshot(session, context.resolver)
+            return ToolResult(
+                text=sanitized(f"{title}\n{snapshot}", context.secrets, 6000),
+                sources=[self._source(url, title, snapshot, links, session.session_id)],
+                provider_run_id=session.session_id,
+                metadata={
+                    **started.metadata,
+                    "session_id": session.session_id,
+                    "links": self._public_links(links)[:12],
+                    "started_by_alex": True,
+                },
+            )
+        if args.operation == "close":
+            session = self._owned_session(context.user_id)
+            if not session:
+                raise ToolError("not_found")
+            return ToolResult(
+                text="Browser session closed.", metadata=await self.stop(session.session_id, context.user_id)
+            )
+        session = self._owned_session(context.user_id)
+        if not session:
+            raise ToolError("not_found")
+        async with self.locks[session.session_id]:
+            if args.operation == "wait":
+                await asyncio.sleep(args.seconds)
+            elif args.operation == "back":
+                await session.page.go_back(wait_until="domcontentloaded", timeout=20000)
+            elif args.operation == "click":
+                token = (args.link_id or "").upper()
+                match = next((item for item in session.links or [] if item.get("id") == token), None)
+                if not match:
+                    raise ToolError("invalid_arguments")
+                await validate_url(match["url"], context.resolver)
+                session.allow_write = True
+                session.write_budget = 1
+                try:
+                    await session.page.locator("a[href]").nth(int(match.get("index", 0))).click(timeout=10000)
+                finally:
+                    session.allow_write = False
+                    session.write_budget = 0
+            title, snapshot, links, url = await self._snapshot(session, context.resolver)
+            text = snapshot if args.operation != "links" else json.dumps(links, ensure_ascii=False)
+            return ToolResult(
+                text=sanitized(text, context.secrets, 6000),
+                sources=[self._source(url, title, snapshot, links, session.session_id)],
+                provider_run_id=session.session_id,
+                metadata={"session_id": session.session_id, "links": self._public_links(links)[:12]},
+            )
 
 
 class BrowserActionProvider(ToolProvider):

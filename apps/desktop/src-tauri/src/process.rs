@@ -29,6 +29,7 @@ pub fn sanitized_env() -> HashMap<String, String> {
         "TEMP",
         "TMP",
         "USERPROFILE",
+        "LOCALAPPDATA",
         "OS",
         "NUMBER_OF_PROCESSORS",
         "PROCESSOR_ARCHITECTURE",
@@ -48,6 +49,15 @@ pub fn sanitized_env() -> HashMap<String, String> {
                 if std::path::Path::new(git_dir).exists() {
                     path.push(';');
                     path.push_str(git_dir);
+                }
+            }
+            if let Ok(local) = std::env::var("LOCALAPPDATA") {
+                let apps = std::path::PathBuf::from(local)
+                    .join("Microsoft")
+                    .join("WindowsApps");
+                if apps.is_dir() {
+                    path.push(';');
+                    path.push_str(&apps.to_string_lossy());
                 }
             }
             path

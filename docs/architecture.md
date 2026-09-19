@@ -144,11 +144,11 @@ EmbeddingModelManager owns pinned artifacts, filesystem locking, staging, integr
 
 ToolRegistry → ToolOrchestrator → model proposal → ToolExecutor → ToolPolicy → adapter → ToolResult → next model proposal/final ContextBuilder. Adapters depend on generic contracts; core has no TinyFish API dependency. Planner receives current request and public tool results, not private memories/documents/history, reducing external disclosure. ContextBuilder places bounded untrusted web references after documents and before history/current request. Migration 0007 adds preferences, audit runs and web source snapshots.
 
-User Stop cancels planner/provider tasks. Failed/denied tool executions emit terminal audit events, removing stale confirmation cards. Browser is explicit only; action payload and target fingerprint are checked again after one-time approval. Browser sessions are backend-only, owner scoped, guarded before navigation, timed and supplier-terminated where supported. CDP URLs never reach UI, SQL or model context. Real Agent is fail-closed until enforceable read-only controls exist.
+User Stop cancels planner/provider tasks. Failed/denied tool executions emit terminal audit events, removing stale confirmation cards. TinyFish Browser sessions are backend-only, owner scoped, guarded before navigation, timed and supplier-terminated. CDP URLs never reach UI, SQL or model context. TinyFish Agent is READ_ONLY only until the provider exposes pre-action approval.
 
 ## 0.7.0 WebRouter, Tor and Local Computer
 
-WebRouter classifies Off/Auto/On independently of `tor_mode` and `computer_mode`. Planner `tool_choice` remains auto. Missing required Search is injected as `origin=server_policy`, then Fetch 1–3 canonical URLs (`ttl=0` when fresh). Agent/Browser stay `auto_route=false` and are omitted from planner schemas.
+WebRouter classifies Off/Auto/On independently of `tor_mode` and `computer_mode`. Planner `tool_choice` remains auto. Missing required Search is injected as `origin=server_policy`, then Fetch 1–3 canonical URLs (`ttl=0` when fresh). TinyFish Agent/Browser default to Auto: hidden from the planner unless the server route selects them.
 
 Tor uses a custom SOCKS5h client (ATYP 0x03, loopback proxy). Tor Search is configured providers, not the official onion catalog. Authority is official vs reachable, never collapsed.
 
@@ -183,7 +183,7 @@ Planner policy prefers `tor_browser` for an explicit Tor Browser request (offici
 
 ## 0.9 Autonomous Task Agent
 
-Persistent tasks reuse `LocalTask` (migration **0011**): plan steps, journal, checkpoints, exclusive workspace WRITE locks, Pause/Resume/Stop, budgets, and a verification gate before `COMPLETED`. The loop is still `ToolOrchestrator` — not a second agent stack. GPU 0.9.0: real OrcaRouter autonomous coding+docs task **REAL PASS**. See [autonomous-tasks.md](autonomous-tasks.md).
+Persistent tasks reuse `LocalTask` (migrations **0011** and **0012**): plan steps, journal, checkpoints, exclusive workspace WRITE locks with a FIFO `WAITING_WORKSPACE` queue, Pause/Resume/Stop, budgets, and a final verification gate. The loop is still `ToolOrchestrator` — not a second agent stack. 0.9.1 adds queue persistence, task continuation after restart, Pause text sanitization, optional verified git commit/push, and confirmed loopback external actions. See [autonomous-tasks.md](autonomous-tasks.md).
 
 | Method | Route | Purpose |
 |---|---|---|

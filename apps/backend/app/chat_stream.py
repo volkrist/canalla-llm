@@ -177,12 +177,15 @@ async def stream_response(
             await request.app.state.presence.publish()
             yield sse("meta", meta)
             settings = get_settings()
-            from .tools.local.plan import looks_like_autonomous
+            from .tools.local.plan import looks_like_autonomous, looks_like_computer
+            from .tools.local.public_text import public_assistant_text
             from .tools.local.workspace import looks_like_coding
 
             prompt = content if action in {"send", "resume"} else user_message.content
             coding = effective_computer_mode != "off"
-            autonomous = looks_like_autonomous(prompt) or looks_like_coding(prompt)
+            autonomous = (
+                looks_like_autonomous(prompt) or looks_like_coding(prompt) or looks_like_computer(prompt)
+            )
             torish = effective_tor_mode != "off"
             max_calls = settings.tools_max_calls
             if coding:
@@ -288,21 +291,38 @@ async def stream_response(
                         "total_chars": sum(len(m["content"]) for m in enriched_history),
                     }
                     snapshot_db.commit()
-            iterator = request.app.state.provider.stream_with_usage(enriched_history, tokens)
-            async for token in iterator:
-                if await request.is_disconnected():
-                    cancellation.update(
-                        application_cancelled=True,
-                        cancel_requested_at=now().isoformat(),
-                        client_stream_closed_at=now().isoformat(),
-                    )
-                    break
-                if first_token_at is None:
-                    first_token_at = now()
-                parts.append(token)
-                yield sse("delta", {"content": token})
-            else:
+            halt = getattr(tool_context, "task_halt", None)
+            skip_final = bool(getattr(tool_context, "skip_final_stream", False))
+            if skip_final or halt in {
+                "task_paused",
+                "waiting_workspace",
+                "waiting_confirmation",
+                "host_offline",
+                "llm_unavailable",
+                "task_stopped",
+            }:
+                text = public_assistant_text("", halt)
+                parts.append(text)
+                yield sse("delta", {"content": text})
                 status = "complete"
+            else:
+                iterator = request.app.state.provider.stream_with_usage(enriched_history, tokens)
+                async for token in iterator:
+                    if await request.is_disconnected():
+                        cancellation.update(
+                            application_cancelled=True,
+                            cancel_requested_at=now().isoformat(),
+                            client_stream_closed_at=now().isoformat(),
+                        )
+                        break
+                    if first_token_at is None:
+                        first_token_at = now()
+                    parts.append(token)
+                    visible = public_assistant_text(token)
+                    if visible:
+                        yield sse("delta", {"content": visible})
+                else:
+                    status = "complete"
         except asyncio.CancelledError:
             cancellation["cancel_requested_at"] = now().isoformat()
             cancellation["client_stream_closed_at"] = now().isoformat()
@@ -347,6 +367,7 @@ async def stream_response(
                                     "WAITING_LLM",
                                     "WAITING_DEVICE",
                                     "WAITING_CONFIRMATION",
+                                    "WAITING_WORKSPACE",
                                 }:
                                     LocalTaskController().checkpoint(db, tool_context, "INTERRUPTED")
                     except Exception:
@@ -362,7 +383,15 @@ async def stream_response(
                 with SessionLocal() as save_db:
                     saved = save_db.get(Message, assistant_id)
                     if saved:
-                        saved.content, saved.status = "".join(parts), status
+                        saved.content, saved.status = (
+                            public_assistant_text(
+                                "".join(parts),
+                                getattr(tool_context, "task_halt", None)
+                                if getattr(tool_context, "skip_final_stream", False)
+                                else None,
+                            ),
+                            status,
+                        )
                         saved.first_token_at = first_token_at
                         saved.completed_at = now()
                         saved.ttft_ms = (

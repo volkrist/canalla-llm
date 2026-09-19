@@ -90,3 +90,67 @@ def pick_fetch_urls(sources, limit=3):
         if len(urls) >= limit:
             break
     return urls
+
+
+@dataclass(frozen=True)
+class TinyFishDecision:
+    paid: str | None
+    reason: str
+    classification: str | None = None
+    url: str = ""
+
+
+def sources_need_browser(sources) -> bool:
+    return any(
+        (item.get("details") or {}).get("needs_browser") or item.get("needs_browser")
+        for item in sources or []
+    )
+
+
+def first_source_url(sources) -> str:
+    for item in sources or []:
+        url = item.get("final_url") or item.get("url") or ""
+        if url:
+            return url
+    return ""
+
+
+def select_tinyfish_route(prompt: str, context) -> TinyFishDecision:
+    from .local.plan import looks_like_computer
+    from .local.workspace import looks_like_coding
+    from .tinyfish.classify import (
+        classify_agent_goal,
+        implied_start_url,
+        looks_like_agent_task,
+        looks_like_browser_task,
+        looks_like_simple_math,
+    )
+    from .tor.router import classify_tor, effective_tor_mode
+
+    text = prompt or getattr(context, "user_prompt", "") or ""
+    settings = getattr(context, "settings", None)
+    agent_mode = getattr(settings, "agent_mode", "auto") if settings else "auto"
+    browser_mode = getattr(settings, "browser_mode", "auto") if settings else "auto"
+    classified = classify_agent_goal(text, text)
+    url = first_source_url(getattr(context, "sources", None)) or implied_start_url(text)
+    if looks_like_tor(text) or classify_tor(text, effective_tor_mode(context)).allowed:
+        return TinyFishDecision(None, "tor_stack_only", classified.kind, url)
+    if looks_like_simple_math(text) or CHITCHAT.match((text or "").strip()):
+        return TinyFishDecision(None, "no_web_needed", classified.kind, url)
+    if (looks_like_coding(text) or looks_like_computer(text)) and not classify_web(text, "auto").required:
+        return TinyFishDecision(None, "local_computer_only", classified.kind, url)
+    if classified.kind != "READ_ONLY":
+        if (
+            looks_like_browser_task(text)
+            and browser_mode != "off"
+            and getattr(context, "mode", "off") != "off"
+        ):
+            return TinyFishDecision("browser", "side_effect_controlled_browser", classified.kind, url)
+        return TinyFishDecision(None, "agent_side_effect_blocked", classified.kind, url)
+    if browser_mode != "off" and (
+        looks_like_browser_task(text) or sources_need_browser(getattr(context, "sources", None))
+    ):
+        return TinyFishDecision("browser", "js_or_explicit_browser", classified.kind, url)
+    if agent_mode != "off" and looks_like_agent_task(text):
+        return TinyFishDecision("agent", "complex_readonly_web", classified.kind, url)
+    return TinyFishDecision(None, "search_fetch", classified.kind, url)

@@ -3,6 +3,7 @@
 import asyncio
 import json
 from dataclasses import replace
+from types import SimpleNamespace
 
 from app.providers import MockLLMProvider
 from app.tools.contracts import RiskLevel, ToolError, ToolResult
@@ -14,15 +15,16 @@ class TestToolLLM(MockLLMProvider):
 
     async def plan_tools(self, messages, tools, usage):
         prompt = next((m.get("content", "") for m in reversed(messages) if m["role"] == "user"), "")
+        if "Тест Agent действие" in prompt:
+            return {"tool_calls": []}
         if "Тест Agent" in prompt and not any(m["role"] == "tool" for m in messages):
-            name = "test_agent_action" if "действие" in prompt else "web_agent_read"
             return {
                 "tool_calls": [
                     {
                         "id": "fake-agent-plan",
                         "type": "function",
                         "function": {
-                            "name": name,
+                            "name": "web_agent",
                             "arguments": json.dumps(
                                 {"url": "https://example.com", "goal": "Read public facts"}
                             ),
@@ -51,6 +53,9 @@ class FakeWebProvider:
         if "missing-key" in query:
             raise ToolError("provider_not_configured")
         if self.capability == "agent":
+            goal = getattr(args, "goal", "") or getattr(args, "query", "")
+            if any(token in goal.lower() for token in ("submit", "buy", "purchase", "login")):
+                raise ToolError("agent_side_effect_not_supported")
             try:
                 await context.progress(provider_run_id="fake-agent")
                 for step in range(100):
@@ -103,8 +108,50 @@ class FakeBrowser:
     def __init__(self):
         self.sessions = {}
         self.writes = 0
+        self.closed = 0
 
     async def execute(self, args, context):
+        operation = getattr(args, "operation", None)
+        if operation:
+            if operation == "close":
+                self.sessions.pop("fake-browser", None)
+                self.closed += 1
+                return ToolResult(
+                    text="Browser session closed.",
+                    metadata={
+                        "session_id": "fake-browser",
+                        "local_controller_stopped": True,
+                        "supplier_stop_confirmed": True,
+                        "duration_seconds": 2.5,
+                    },
+                    cost_estimate=0.002,
+                )
+            self.sessions["fake-browser"] = context.user_id
+            url = getattr(args, "url", None) or "https://www.python.org/"
+            links = [{"id": "L1", "url": "https://docs.python.org/3/", "text": "Documentation"}]
+            title = "Welcome to Python.org"
+            excerpt = "Python is a programming language. Documentation."
+            return ToolResult(
+                text=f"{title}\n{excerpt}",
+                sources=[
+                    {
+                        "url": url,
+                        "final_url": url,
+                        "title": title,
+                        "excerpt": excerpt,
+                        "retrieval": "browser",
+                        "rendered": True,
+                        "links": links,
+                    }
+                ],
+                provider_run_id="fake-browser",
+                metadata={
+                    "session_id": "fake-browser",
+                    "started_by_alex": True,
+                    "supplier_state": "RUNNING",
+                    "links": links,
+                },
+            )
         self.sessions["fake-browser"] = context.user_id
         return ToolResult(
             text="Test Browser", metadata={"session_id": "fake-browser", "supplier_state": "RUNNING"}
@@ -122,6 +169,11 @@ class FakeBrowser:
             raise ToolError("not_found")
         self.sessions.pop(session_id)
         return {"supplier_stop_confirmed": True, "local_controller_stopped": True}
+
+    def _owned_session(self, user_id):
+        if self.sessions.get("fake-browser") == user_id:
+            return SimpleNamespace(session_id="fake-browser", user_id=user_id, active=True)
+        return None
 
     async def close_all(self):
         self.sessions.clear()
@@ -144,7 +196,7 @@ def fake_registry():
             continue
         if definition.name == "web_agent_read":
             definition = replace(definition, auto_route=True)
-        if definition.name == "browser_start":
+        if definition.name in {"browser_start", "web_browser"}:
             provider = browser
         elif definition.capability == "browser":
             provider = FakeBrowserAction(browser)
@@ -158,3 +210,7 @@ def fake_registry():
         FakeWebProvider("agent"),
     )
     return registry
+
+
+FakeTinyFishAgentProvider = FakeWebProvider
+FakeTinyFishBrowserProvider = FakeBrowser

@@ -4,7 +4,7 @@ import ToolActivity from "../components/ToolActivity";
 import TaskPanel from "../components/TaskPanel";
 import Composer from "../components/Composer";
 import type { Api } from "./api";
-import { summarizeFamily, type ToolRun } from "./tools";
+import { publicAssistantText, summarizeFamily, type ToolRun } from "./tools";
 
 const run: ToolRun = {
   id: "one",
@@ -111,6 +111,38 @@ describe("tool presentation", () => {
     expect(html).toContain("Веб · 3 запросов · 1 Search · 2 Fetch · Завершено");
     expect(html).toContain("Разрешить один раз");
     expect(html.indexOf("alertdialog")).toBeLessThan(html.indexOf("Веб ·"));
+  });
+  it("collapses TinyFish Agent and Browser cost lines", () => {
+    expect(
+      summarizeFamily("web", [
+        {
+          ...run,
+          tool_name: "web_agent",
+          status: "completed",
+          cost_estimate: 0.096,
+          result_metadata: { steps: 6 },
+        },
+        {
+          ...run,
+          id: "b1",
+          tool_name: "web_browser",
+          status: "completed",
+          cost_estimate: 0.006,
+          result_metadata: { duration_seconds: 134 },
+        },
+      ]),
+    ).toContain("TinyFish Agent · 6 steps · ~$0.096");
+    expect(
+      summarizeFamily("web", [
+        {
+          ...run,
+          tool_name: "web_browser",
+          status: "completed",
+          cost_estimate: 0.006,
+          result_metadata: { duration_seconds: 134 },
+        },
+      ]),
+    ).toContain("TinyFish Browser · 2m 14s · ~$0.006");
   });
   it("summarizes computer file actions", () => {
     expect(
@@ -223,6 +255,14 @@ describe("tool presentation", () => {
     );
     expect(on).not.toContain("Найти в интернете");
     expect(off).not.toContain("Найти в интернете");
+  });
+});
+
+describe("public assistant text", () => {
+  it("strips raw tool protocol", () => {
+    expect(
+      publicAssistantText('<tool_call>{"name":"write_file"} leftover'),
+    ).not.toContain("tool_call");
   });
 });
 

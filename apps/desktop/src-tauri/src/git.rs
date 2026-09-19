@@ -81,6 +81,13 @@ pub fn run_git(name: &str, args: &Value, roots: &[String], tool_run_id: &str) ->
                 let Some(path) = item.as_str() else {
                     continue;
                 };
+                let trimmed = path.trim();
+                if trimmed.is_empty()
+                    || trimmed.starts_with('-')
+                    || matches!(trimmed, "-A" | "-a" | "--all" | "." | "*" | "**" | "/" | "\\")
+                {
+                    return err_public("invalid_arguments");
+                }
                 if crate::fs_guard::resolve(path, roots).is_err() {
                     return err_public("path_denied");
                 }

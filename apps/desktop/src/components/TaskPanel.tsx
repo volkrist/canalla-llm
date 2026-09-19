@@ -43,6 +43,9 @@ export default function TaskPanel({
         {task.message || task.status} · {clock(task.elapsed_runtime)} · tools{" "}
         {task.tool_calls_used} / {task.tool_budget} · files {task.files_changed}{" "}
         / {task.file_change_budget}
+        {task.status === "WAITING_WORKSPACE" && task.queue_position
+          ? ` · очередь ${task.queue_position}`
+          : ""}
       </p>
       <ol className="task-plan">
         {task.steps.map((step) => (
@@ -62,6 +65,7 @@ export default function TaskPanel({
           task.status === "INTERRUPTED" ||
           task.status === "WAITING_LLM" ||
           task.status === "WAITING_DEVICE" ||
+          task.status === "WAITING_WORKSPACE" ||
           task.status === "STOPPED") && (
           <button type="button" disabled={busy} onClick={onResume}>
             Resume

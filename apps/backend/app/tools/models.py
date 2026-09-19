@@ -169,3 +169,17 @@ class WorkspaceLock(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     kind: Mapped[str] = mapped_column(String(12), default="WRITE")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class WorkspaceWaiter(Base):
+    __tablename__ = "workspace_waiters"
+    __table_args__ = (
+        Index("ix_workspace_waiters_workspace", "workspace"),
+        Index("ix_workspace_waiters_workspace_requested", "workspace", "requested_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace: Mapped[str] = mapped_column(String(500))
+    task_id: Mapped[str] = mapped_column(ForeignKey("local_tasks.id", ondelete="CASCADE"), unique=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    position: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

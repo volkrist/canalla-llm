@@ -1,6 +1,38 @@
 # Alex LLM — отчёты проверки
 
-Текущий этап: **0.9.0**. Autonomous Task Agent local/mock = **PASS**. Real OrcaRouter autonomous E2E = **REAL PASS**. 0.8.6 Tor Browser fallback remains **REAL PASS**. TorRoutedBrowserProvider = **NOT IMPLEMENTED**.
+Текущий этап: **0.9.1**. Local Computer filesystem/install = **REAL PASS**. Task queue/Pause sanitization = **PASS**. Final chat turn after local tools = **PARTIAL** (prompt fix after GPU). Email provider = **NOT CONFIGURED**. Real purchase = **NO**. TorRoutedBrowserProvider = **NOT IMPLEMENTED**.
+
+## Проверка 0.9.1 — 19 сентября 2026
+
+- Цель: очередь WRITE, продолжение task после restart, Pause без сырого tool fragment, optional git commit/push, external-action framework, REAL Windows Local Computer через OrcaRouter.
+- HEAD before: `87d54333bd629525a89f73fbbfb9039b7b7d42ae` (0.9.0).
+- Local/mock: `WAITING_WORKSPACE` FIFO + promote + stale lock; restart does not rerun completed tool digests; Pause public text; git_add rejects `-A`; install SENSITIVE; trusted `run_powershell` without cwd auto in trusted mode; loopback form/purchase/email contract. Alembic **0012** `workspace_waiters`.
+- Native host: Windows Known Folder API for Desktop/Documents/Downloads; `get_system_info` without MachineGuid/MAC/serial; winget `--scope user` unless elevate.
+- GPU attempt 1 (stopped before retry): Pod `8lcgenirnemug7`, L40S US-TX-3 $1.09/h, 224s, ~$0.068, `stop_reason=manual`. TEST 1 stalled on unapproved `run_powershell` without cwd. **RUNNING GPU = 0**. Volume `uwgeaie5b0` preserved.
+- GPU attempt 2 (ONE new Pod after stop): `a7ea8t33um7wh8`, NVIDIA L40S 48GB, US-TX-3, $1.09/h, billable **1170s**, estimated **$0.35425**, `stop_reason=manual`. Mock=false, `provider=llamacpp`, model `orcarouter-qwen38-27b-q5km`. Native `alex-host-loop` debug. **RUNNING GPU FINAL = 0**. Volume `orcarouter-storage` / `uwgeaie5b0` preserved.
+- Sanity: `2+2` answered, usage complete.
+- Desktop Known Folder: `C:\Users\Volkr\Desktop` (not a hardcoded `<name>` path). Test folder on disk: `C:\Users\Volkr\Desktop\Alex-LLM-E2E` (plus harness `Alex-LLM-E2E-20260919-105055`, not deleted).
+- TEST 1: model `get_known_folders` → `create_directory` → `write_file` → `read_file`, all `origin=model`. File on Desktop: `hello.txt`. **Filesystem REAL PASS**. Final assistant text still denied access.
+- TEST 2: harness rewrote hello to `ALEX_EXTERNAL_FILE_CHANGE_7391`; model `read_file` completed on that path. Visible answer did not quote the marker. **Tool REAL PASS / answer PARTIAL**.
+- TEST 3: second line + `archive\copy.txt` on disk. **Filesystem REAL PASS**.
+- TEST 4: `data.json` with `ALEX_SEARCH_MARKER_49127` exists; task FAILED after 40 tools; answer did not name `data.json`. **PARTIAL**.
+- TEST 5: `get_system_info` completed; answer was a how-to. **Tool PASS / answer PARTIAL**.
+- TEST 6: independent SHA256 `20dc65034169bd773adff0c127157fa559e2e5493e6f026421930e5af7cda1e0`; not quoted in the answer. **PARTIAL**.
+- TEST 7: `jqlang.jq` was absent; SENSITIVE confirmation then `install_software` exit 0; `jq --version` = `jq-1.8.2`. UAC bypass = no. Package left installed. **REAL PASS**.
+- TEST 8: Pause stream `Paused while preparing next action.`; no raw tool protocol; Resume same `task_id`. **PASS**. Model also wrote `Desktop\тест\pause-*.txt` (outside timestamped harness folder).
+- TEST 9: Task B `WAITING_WORKSPACE`, A COMPLETED, B promoted READY. Files `queue-a.txt`/`queue-b.txt` not created because the harness returned the queue message instead of resuming. **Queue semantics PASS / auto-execute PARTIAL**.
+- Git/form/fake-purchase GPU: remained `WAITING_WORKSPACE` behind B. Covered by local tests. Disposable git remote was local bare `file://` only. **GPU NOT TESTED**.
+- Delete GPU: `delete-me.txt` still present (queued). **NOT TESTED on GPU**.
+- Process GPU: no LocalTask / no owned PID. **NOT TESTED on GPU**.
+- Email: contract/policy PASS, provider NOT CONFIGURED, real email NOT TESTED.
+- Real purchase: **NO**. Local fake shop GPU not reached.
+- Confirmations: READ auto; NORMAL_CHANGE auto in trusted Desktop roots; INSTALL SENSITIVE occurred; CRITICAL fake purchase not GPU-executed.
+- Cursor did not perform the user Desktop file task. Model tool actions: **100**. TinyFish Search/Fetch/Agent/Browser: **0**.
+- Local suite before GPU: pytest **308 passed / 1 skipped** then policy test updated; ruff check/format PASS; alembic 0012; cargo test 14; frontend 23; Playwright 15 (1 flake retried); npm audit 0; pip-audit 0.
+- After GPU local prompt fix (no second concurrent Pod): local tool notes are `[Local computer tool results]` instead of web-untrusted wrapping. Not GPU-retested.
+- Tauri release + NSIS x64 — PASS. ProductVersion **0.9.1**.
+  - EXE `apps/desktop/src-tauri/target/release/alex-llm.exe` SHA256 `AEBD4AE91869CEA71D786EF8156359A96F49E828DD81850D66CFEF4487F35660`
+  - Installer `apps/desktop/src-tauri/target/release/bundle/nsis/Alex LLM_0.9.1_x64-setup.exe` SHA256 `8C44CCE8237D09FAF73DBBCBA9AC5DB5BA63E5F9644D030652DA94CFDB2C5A83`
 
 ## Проверка 0.9.0 — 19 сентября 2026
 

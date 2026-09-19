@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..contracts import ToolError, ToolProvider, ToolResult
 from ..security import validate_url
+from .classify import markdown_needs_browser
 from .client import FETCH, SEARCH, get_tinyfish_client
 
 
@@ -108,6 +109,7 @@ class TinyFishSearchProvider(ToolProvider):
                     "publisher": row.get("publisher") or row.get("site_name"),
                     "published_at": row.get("date"),
                     "position": row.get("position"),
+                    "retrieval": "search",
                 }
             )
         return ToolResult(
@@ -149,16 +151,19 @@ class TinyFishFetchProvider(ToolProvider):
             except ToolError:
                 errors.append("unsafe_redirect")
                 continue
+            excerpt = bounded_excerpt(row.get("text", ""), args.purpose)
             sources.append(
                 {
                     "url": row["url"],
                     "final_url": row.get("final_url") or row["url"],
                     "title": row.get("title", ""),
-                    "excerpt": bounded_excerpt(row.get("text", ""), args.purpose),
+                    "excerpt": excerpt,
                     "publisher": row.get("author"),
                     "published_at": row.get("published_date"),
                     "etag": row.get("etag"),
                     "last_modified": row.get("last_modified"),
+                    "retrieval": "fetch",
+                    "needs_browser": markdown_needs_browser(excerpt),
                 }
             )
         return ToolResult(

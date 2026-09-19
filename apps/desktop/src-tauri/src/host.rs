@@ -309,7 +309,8 @@ fn run_local_tool(
     should_stop: impl Fn() -> bool,
 ) -> LocalOutcome {
     match name {
-        "get_system_info" => ok_text("platform=windows".into()),
+        "get_system_info" => system_info(),
+        "get_known_folders" => known_folders(),
         "list_directory" => fs_list(str_arg(args, "path"), roots),
         "read_file" => fs_read(str_arg(args, "path"), roots),
         "write_file" => fs_write(args, roots),
@@ -375,6 +376,109 @@ fn argv_arg(args: &Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn known_folder_path(id: &windows::core::GUID) -> Option<String> {
+    unsafe {
+        let pwstr = windows::Win32::UI::Shell::SHGetKnownFolderPath(
+            id,
+            windows::Win32::UI::Shell::KNOWN_FOLDER_FLAG(0),
+            None,
+        )
+        .ok()?;
+        let value = pwstr.to_string().ok();
+        windows::Win32::System::Com::CoTaskMemFree(Some(pwstr.0 as *const _));
+        value.filter(|item| !item.is_empty())
+    }
+}
+
+fn known_folders() -> LocalOutcome {
+    let desktop = known_folder_path(&windows::Win32::UI::Shell::FOLDERID_Desktop);
+    let documents = known_folder_path(&windows::Win32::UI::Shell::FOLDERID_Documents);
+    let downloads = known_folder_path(&windows::Win32::UI::Shell::FOLDERID_Downloads);
+    if desktop.is_none() && documents.is_none() && downloads.is_none() {
+        return err_text("known_folder_unavailable");
+    }
+    let text = format!(
+        "desktop={}\ndocuments={}\ndownloads={}",
+        desktop.clone().unwrap_or_default(),
+        documents.clone().unwrap_or_default(),
+        downloads.clone().unwrap_or_default()
+    );
+    let mut out = ok_text(text);
+    out.metadata = json!({
+        "desktop": desktop,
+        "documents": documents,
+        "downloads": downloads,
+    });
+    out
+}
+
+#[repr(C)]
+struct OsVersionInfo {
+    dw_os_version_info_size: u32,
+    dw_major: u32,
+    dw_minor: u32,
+    dw_build: u32,
+    dw_platform: u32,
+    sz_csd: [u16; 128],
+}
+
+#[link(name = "ntdll")]
+extern "system" {
+    fn RtlGetVersion(info: *mut OsVersionInfo) -> i32;
+}
+
+fn system_info() -> LocalOutcome {
+    let mut version = OsVersionInfo {
+        dw_os_version_info_size: std::mem::size_of::<OsVersionInfo>() as u32,
+        dw_major: 0,
+        dw_minor: 0,
+        dw_build: 0,
+        dw_platform: 0,
+        sz_csd: [0; 128],
+    };
+    unsafe {
+        let _ = RtlGetVersion(&mut version);
+    }
+    let mut info = windows::Win32::System::SystemInformation::SYSTEM_INFO::default();
+    unsafe {
+        windows::Win32::System::SystemInformation::GetNativeSystemInfo(&mut info);
+    }
+    let mut memory = windows::Win32::System::SystemInformation::MEMORYSTATUSEX::default();
+    memory.dwLength = std::mem::size_of::<windows::Win32::System::SystemInformation::MEMORYSTATUSEX>() as u32;
+    let _ = unsafe { windows::Win32::System::SystemInformation::GlobalMemoryStatusEx(&mut memory) };
+    let mut free: u64 = 0;
+    let _ = unsafe {
+        windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW(
+            windows::core::w!("C:\\"),
+            Some(&mut free),
+            None,
+            None,
+        )
+    };
+    let ram_total_mb = memory.ullTotalPhys / (1024 * 1024);
+    let ram_avail_mb = memory.ullAvailPhys / (1024 * 1024);
+    let disk_free_gb = free / (1024 * 1024 * 1024);
+    let text = format!(
+        "platform=windows\nos_version={}.{}.{}\ncpu_logical_processors={}\nram_total_mb={}\nram_avail_mb={}\nsystem_disk_free_gb={}",
+        version.dw_major,
+        version.dw_minor,
+        version.dw_build,
+        info.dwNumberOfProcessors,
+        ram_total_mb,
+        ram_avail_mb,
+        disk_free_gb
+    );
+    let mut out = ok_text(text);
+    out.metadata = json!({
+        "os_version": format!("{}.{}.{}", version.dw_major, version.dw_minor, version.dw_build),
+        "cpu_logical_processors": info.dwNumberOfProcessors,
+        "ram_total_mb": ram_total_mb,
+        "ram_avail_mb": ram_avail_mb,
+        "system_disk_free_gb": disk_free_gb,
+    });
+    out
 }
 
 fn ok_text(text: String) -> LocalOutcome {
@@ -1056,12 +1160,26 @@ fn firewall_rule(args: &Value, tool_run_id: &str) -> LocalOutcome {
     run_host_command(tool_run_id, &system32_exe("netsh.exe"), &argv, action != "list")
 }
 
+fn winget_executable() -> String {
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let candidate = std::path::PathBuf::from(local)
+            .join("Microsoft")
+            .join("WindowsApps")
+            .join("winget.exe");
+        if candidate.is_file() {
+            return candidate.to_string_lossy().into_owned();
+        }
+    }
+    "winget.exe".into()
+}
+
 fn winget_op(action: &str, args: &Value, tool_run_id: &str) -> LocalOutcome {
     let package = str_arg(args, "package");
     if package.is_empty() {
         return err_text("invalid_arguments");
     }
-    let argv = vec![
+    let elevate = args.get("elevate").and_then(Value::as_bool).unwrap_or(false);
+    let mut argv = vec![
         action.into(),
         "--id".into(),
         package,
@@ -1069,7 +1187,10 @@ fn winget_op(action: &str, args: &Value, tool_run_id: &str) -> LocalOutcome {
         "--accept-package-agreements".into(),
         "--accept-source-agreements".into(),
     ];
-    run_host_command(tool_run_id, "winget.exe", &argv, true)
+    if !elevate {
+        argv.extend(["--scope".into(), "user".into()]);
+    }
+    run_host_command(tool_run_id, &winget_executable(), &argv, elevate)
 }
 
 fn set_environment(args: &Value, tool_run_id: &str) -> LocalOutcome {
@@ -1153,6 +1274,35 @@ mod tests {
         let out = run_local_tool("delete_file", &args, &[], "test-run", || false);
         assert_eq!(out.exit_code, Some(0));
         assert!(!file.exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn known_folders_use_windows_api() {
+        let out = run_local_tool("get_known_folders", &json!({}), &[], "folders", || false);
+        assert_eq!(out.exit_code, Some(0));
+        let desktop = out.metadata["desktop"].as_str().unwrap_or_default();
+        assert!(!desktop.is_empty());
+        assert!(!desktop.to_ascii_lowercase().contains(r"users\<name>\desktop"));
+        assert!(out.text.contains("desktop="));
+        let info = run_local_tool("get_system_info", &json!({}), &[], "sys", || false);
+        assert!(info.text.contains("platform=windows"));
+        assert!(info.text.contains("cpu_logical_processors="));
+        assert!(!info.text.to_ascii_lowercase().contains("machineguid"));
+        assert!(!info.text.to_ascii_lowercase().contains("mac"));
+    }
+
+    #[test]
+    fn git_add_rejects_blanket_all() {
+        let dir = std::env::temp_dir().join("alex-llm-git-add-test");
+        let _ = fs::create_dir_all(&dir);
+        let out = crate::git::run_git(
+            "git_add",
+            &json!({"cwd": dir.to_string_lossy(), "paths": ["-A"]}),
+            &[dir.to_string_lossy().to_string()],
+            "git-add",
+        );
+        assert_eq!(out.text, "invalid_arguments");
         let _ = fs::remove_dir_all(&dir);
     }
 

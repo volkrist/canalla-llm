@@ -158,7 +158,7 @@ def test_compact_keeps_failure_line():
     assert any("FAILED" in item for item in packed["failures"])
 
 
-def test_open_creates_plan_and_rejects_second_writer(setup):
+def test_open_queues_second_writer(setup):
     _headers, context, _events, _root, _host, _device = setup
     with SessionLocal() as db:
         first = LocalTaskController()
@@ -177,8 +177,14 @@ def test_open_creates_plan_and_rejects_second_writer(setup):
             user_prompt=context.user_prompt,
         )
         LocalTaskController().attach(other)
-        with pytest.raises(ToolError, match="workspace_busy"):
-            LocalTaskController().open(db, other)
+        waiting = LocalTaskController().open(db, other)
+        assert waiting.status == machine.WAITING_WORKSPACE
+        assert waiting.id != row.id
+        LocalTaskController().finish(db, context, "COMPLETED")
+        db.expire_all()
+        waiting = db.get(LocalTask, waiting.id)
+        assert waiting.status == machine.READY
+        assert (waiting.facts or {}).get("promoted_from_queue") is True
 
 
 def test_pause_blocks_new_tools_then_resume(setup):
@@ -203,6 +209,10 @@ def test_pause_blocks_new_tools_then_resume(setup):
         row = db.get(LocalTask, context.task_id)
         assert row.status == machine.PAUSED
         assert row.tool_calls_used == 0
+    assert getattr(context, "skip_final_stream", False) is True
+    assert context.task_halt == "task_paused"
+    with SessionLocal() as db:
+        row = db.get(LocalTask, context.task_id)
         LocalTaskController().resume(db, row, context.user_id)
         context.resume_task_id = row.id
         context.resuming = True
