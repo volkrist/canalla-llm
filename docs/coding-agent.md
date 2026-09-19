@@ -1,5 +1,9 @@
 # Coding Agent in 0.8.0
 
+0.9 keeps this coding loop and adds a persistent autonomous task around it
+([autonomous-tasks.md](autonomous-tasks.md)). There is still no second
+CodingAgent framework.
+
 The coding loop is not a second agent stack. It uses the same ToolRegistry,
 ToolPolicy, ToolOrchestrator, ContextBuilder and LocalDeviceProvider as Web/Tor
 and other Local Computer tools.

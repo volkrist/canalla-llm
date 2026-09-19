@@ -1,5 +1,8 @@
 # Local Computer Host in 0.8.0
 
+0.9 autonomous tasks bind Local Computer actions to one paired device and an
+exclusive workspace WRITE lock. See [autonomous-tasks.md](autonomous-tasks.md).
+
 Local tools run on the paired Tauri host, not as a FastAPI shell. FastAPI only
 creates `waiting_host` jobs and records the host result.
 

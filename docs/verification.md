@@ -1,6 +1,21 @@
 # Alex LLM — отчёты проверки
 
-Текущий локальный этап: **0.8.6**. Automatic Tor research = **REAL PASS**. TorBrowserProvider local = **REAL LOCAL PASS**. Model-driven Tor Browser GPU E2E = **REAL PASS**. Automatic `tor_fetch` → actual Tor Browser fallback = **REAL VERIFIED**. Controlled JS onion = **REAL PASS**. External official onion browser = **REAL PASS**. JS-specific onion rendering = **REAL PASS**. TorRoutedBrowserProvider = **NOT IMPLEMENTED**.
+Текущий этап: **0.9.0**. Autonomous Task Agent local/mock = **PASS**. Real OrcaRouter autonomous E2E = **REAL PASS**. 0.8.6 Tor Browser fallback remains **REAL PASS**. TorRoutedBrowserProvider = **NOT IMPLEMENTED**.
+
+## Проверка 0.9.0 — 19 сентября 2026
+
+- Цель: устойчивый автономный агент поверх существующего ToolOrchestrator / LocalTask / CodingWorkspace (не второй agent stack).
+- HEAD before: `4789b93a4accb77535c91e746fb986e4f2fa9502` (0.8.6).
+- Local/mock: plan, pause/resume/stop, budget=3, restart idempotency, workspace lock, device `WAITING_DEVICE`, stale-patch `CONFLICT`, coding FAIL→edit→PASS, web+coding with plan revision. Backend pytest **280 passed**, 1 deselected live_web.
+- Real GPU: ONE new L40S `2sgnu3ljhkefpz`, US-TX-3, $1.09/h, billable **198s**, estimated **$0.05995**, `stop_reason=manual`. No second Pod. **RUNNING GPU FINAL = 0**. Volume `orcarouter-storage` / `uwgeaie5b0` preserved.
+- Sanity: `provider=llamacpp`, Mock=false, answer `2+2 будет 4.`
+- Natural prompt (no tool/file/bug names). Disposable git project with two independent bugs (`add` returned minus; naive `utcnow`). Initial pytest **2 failed**. Cursor did not edit the fixture.
+- Task `37e05514-…`: plan 10 steps, native `alex-host-loop`, Pause after 5 tools (`no_new_tools=true`), Resume same `task_id`. Model `patch_file` on `app.py` (`a+b`, `datetime.now(timezone.utc)`). pytest after **2 passed**. `git diff` reviewed. Status **COMPLETED**. Plan revision 2 after remaining test failure. Web Search=2 Fetch=1 (needed for docs-oriented request). TinyFish Agent=0 Browser=0.
+- Pause/Resume: REAL PASS in the same GPU task. Final user-facing stream after resume was verbose; completion summary and git/tests are the verification gate.
+- Local fix after E2E (no second Pod): `conclude` now marks remaining RUNNING steps COMPLETED and leftover PENDING SKIPPED so the UI plan is not stuck after `COMPLETED`.
+- Tauri release + NSIS x64 — PASS. ProductVersion **0.9.0**.
+  - EXE `apps/desktop/src-tauri/target/release/alex-llm.exe` SHA256 `22B65843F51D7D0EE9874573F65B3B9ABEC6E19D4D0D3D90FC1C29CAD4C14896`
+  - Installer `apps/desktop/src-tauri/target/release/bundle/nsis/Alex LLM_0.9.0_x64-setup.exe` SHA256 `CA5F4C264A15F5C6F4EB5E911C18DCF8F5DD4F10607614719D836CE8C13E6C08`
 
 ## Проверка 0.8.6 — 19 сентября 2026
 

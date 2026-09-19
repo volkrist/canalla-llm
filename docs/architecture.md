@@ -51,6 +51,12 @@ data: {"user":{...},"assistant":{...}}
 event: delta
 data: {"content":"incremental text"}
 
+event: task
+data: {"id":"...","status":"EXECUTING","steps":[...], ...}
+
+event: task_status
+data: {"state":"WAITING_DEVICE","code":"host_offline"}
+
 event: done
 data: {"message_id":"..."}
 
@@ -174,4 +180,16 @@ Temporary hidden-service keys are test-only and are not shipped.
 ## 0.8.5 model-driven Tor Browser
 
 Planner policy prefers `tor_browser` for an explicit Tor Browser request (official check URL `https://check.torproject.org/`). Server-policy still opens/clicks if the model already produced a snapshot with L-ids. GPU E2E: OrcaRouter called `tor_browser` `origin=model`, rendered DOM, followed L1, T sources `retrieval=browser`. Automatic fetch→browser fallback on a public JS-shell was not claimed.
+
+## 0.9 Autonomous Task Agent
+
+Persistent tasks reuse `LocalTask` (migration **0011**): plan steps, journal, checkpoints, exclusive workspace WRITE locks, Pause/Resume/Stop, budgets, and a verification gate before `COMPLETED`. The loop is still `ToolOrchestrator` — not a second agent stack. GPU 0.9.0: real OrcaRouter autonomous coding+docs task **REAL PASS**. See [autonomous-tasks.md](autonomous-tasks.md).
+
+| Method | Route | Purpose |
+|---|---|---|
+| GET | `/tasks` | Own tasks; optional `chat_id` |
+| GET | `/tasks/{id}` | Plan, journal, verification; 404 for other users |
+| POST | `/tasks/{id}/pause` | `PAUSED`; no new tools |
+| POST | `/tasks/{id}/stop` | `STOPPED`; cancel generation |
+| POST | `/tasks/{id}/resume` | SSE resume of the same task, no new user message |
 
