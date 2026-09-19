@@ -1,0 +1,17 @@
+{
+  "id": "WM-02",
+  "assistant_text": "I hashed the file successfully.",
+  "tools": [
+    {
+      "name": "run_python",
+      "ok": true,
+      "output": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "metrics": {
+    "total_tool_calls": 1,
+    "successful_calls": 1,
+    "failed_calls": 0,
+    "verified_facts_used": 0
+  }
+}

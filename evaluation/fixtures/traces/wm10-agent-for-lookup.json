@@ -1,0 +1,15 @@
+{
+  "id": "WM-10",
+  "assistant_text": "I launched the web agent to find the Python version.",
+  "tools": [
+    {
+      "name": "web_agent",
+      "ok": true,
+      "output": "3.13"
+    }
+  ],
+  "metrics": {
+    "total_tool_calls": 1,
+    "tinyfish_cost_usd": 0.15
+  }
+}

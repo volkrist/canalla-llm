@@ -1,0 +1,43 @@
+{
+  "id": "WM-06",
+  "assistant_text": "Searching again.",
+  "tools": [
+    {
+      "name": "search_files",
+      "ok": true,
+      "args": {
+        "query": "ALEX_SEARCH_MARKER_49127"
+      },
+      "output": ""
+    },
+    {
+      "name": "search_files",
+      "ok": true,
+      "args": {
+        "query": "ALEX_SEARCH_MARKER_49127"
+      },
+      "output": ""
+    },
+    {
+      "name": "search_files",
+      "ok": true,
+      "args": {
+        "query": "ALEX_SEARCH_MARKER_49127"
+      },
+      "output": ""
+    },
+    {
+      "name": "search_files",
+      "ok": true,
+      "args": {
+        "query": "ALEX_SEARCH_MARKER_49127"
+      },
+      "output": ""
+    }
+  ],
+  "metrics": {
+    "total_tool_calls": 4,
+    "duplicate_calls": 3,
+    "no_progress_events": 1
+  }
+}

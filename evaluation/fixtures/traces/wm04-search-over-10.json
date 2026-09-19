@@ -1,0 +1,72 @@
+{
+  "id": "WM-04",
+  "assistant_text": "Still looking for the marker.",
+  "tools": [
+    {
+      "name": "search_files",
+      "ok": true,
+      "output": "retry"
+    },
+    {
+      "name": "search_files",
+      "ok": true,
+      "output": "retry"
+    },
+    {
+      "name": "search_files",
+      "ok": true,
+      "output": "retry"
+    },
+    {
+      "name": "search_files",
+      "ok": true,
+      "output": "retry"
+    },
+    {
+      "name": "search_files",
+      "ok": true,
+      "output": "retry"
+    },
+    {
+      "name": "search_files",
+      "ok": true,
+      "output": "retry"
+    },
+    {
+      "name": "search_files",
+      "ok": true,
+      "output": "retry"
+    },
+    {
+      "name": "search_files",
+      "ok": true,
+      "output": "retry"
+    },
+    {
+      "name": "search_files",
+      "ok": true,
+      "output": "retry"
+    },
+    {
+      "name": "search_files",
+      "ok": true,
+      "output": "retry"
+    },
+    {
+      "name": "search_files",
+      "ok": true,
+      "output": "retry"
+    },
+    {
+      "name": "search_files",
+      "ok": true,
+      "output": "retry"
+    }
+  ],
+  "metrics": {
+    "total_tool_calls": 12,
+    "successful_calls": 12,
+    "duplicate_calls": 11,
+    "no_progress_events": 1
+  }
+}

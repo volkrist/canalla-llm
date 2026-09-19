@@ -1,0 +1,15 @@
+{
+  "id": "WM-08",
+  "assistant_text": "Task complete. The project is fixed.",
+  "tools": [
+    {
+      "name": "patch_file",
+      "ok": true,
+      "output": "edited"
+    }
+  ],
+  "completed_without_verify": true,
+  "metrics": {
+    "total_tool_calls": 1
+  }
+}

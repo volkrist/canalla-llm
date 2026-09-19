@@ -1,0 +1,15 @@
+{
+  "id": "WM-03",
+  "assistant_text": "Run systeminfo in Command Prompt to see Windows version, CPU and RAM.",
+  "tools": [
+    {
+      "name": "get_system_info",
+      "ok": true,
+      "output": "Windows 11; CPU; 32 GB RAM"
+    }
+  ],
+  "metrics": {
+    "total_tool_calls": 1,
+    "successful_calls": 1
+  }
+}

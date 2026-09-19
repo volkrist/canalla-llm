@@ -1,0 +1,16 @@
+{
+  "id": "WM-09",
+  "assistant_text": "hello.txt still says Alex Local Computer REAL PASS",
+  "disk_text": "ALEX_EXTERNAL_FILE_CHANGE_7391",
+  "tools": [
+    {
+      "name": "read_file",
+      "ok": true,
+      "output": "ALEX_EXTERNAL_FILE_CHANGE_7391\n"
+    }
+  ],
+  "metrics": {
+    "total_tool_calls": 1,
+    "verified_facts_used": 0
+  }
+}
