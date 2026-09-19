@@ -99,6 +99,43 @@ CODING_PLANNER_TOOLS = frozenset(
         "stop_process",
     }
 )
+COMPUTER_CORE_TOOLS = frozenset(
+    {
+        "get_known_folders",
+        "get_system_info",
+        "hash_file",
+        "list_directory",
+        "read_file",
+        "write_file",
+        "create_directory",
+        "copy_file",
+        "move_file",
+        "search_files",
+        "search_code",
+        "process_status",
+        "stop_process",
+    }
+)
+
+
+def computer_planner_tools(prompt: str) -> set[str]:
+    import re
+
+    allowed = set(COMPUTER_CORE_TOOLS)
+    text = prompt or ""
+    if re.search(r"(?i)установи|install|winget|jq", text):
+        allowed.add("install_software")
+    if re.search(r"(?i)powershell", text):
+        allowed.add("run_powershell")
+    if re.search(r"(?i)\bpytest\b|запусти тест|запусти.*(процесс|python|sleep)|start-sleep", text):
+        allowed.update({"run_python", "run_process"})
+    if re.search(r"(?i)удал|delete", text):
+        allowed.update({"delete_file", "delete_directory"})
+    if re.search(r"(?i)\bgit\b|закоммить|commit|push", text):
+        allowed.update({"git_status", "git_diff", "git_log", "git_add", "git_commit"})
+    return allowed
+
+
 NETWORK_DIRECT = WEB_CAPABILITIES
 NETWORK_TOR = TOR_CAPABILITIES
 PROTECTED_BRANCHES = {"main", "master", "develop", "production"}

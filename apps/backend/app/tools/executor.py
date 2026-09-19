@@ -430,6 +430,12 @@ class ToolExecutor:
                                 "files_changed",
                                 "conflict",
                                 "cwd",
+                                "pid",
+                                "digest",
+                                "sha256",
+                                "path",
+                                "tool_run_id",
+                                "verified_dead",
                             )
                             if hosted.get(key, meta.get(key)) is not None
                         },

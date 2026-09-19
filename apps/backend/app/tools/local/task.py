@@ -1,3 +1,4 @@
+import re
 from datetime import timezone
 
 from sqlalchemy import select
@@ -84,14 +85,22 @@ class LocalTaskController:
             existing = db.get(LocalTask, context.task_id)
             if existing and existing.user_id == context.user_id:
                 context.task_title = existing.title
+                existing.device_id = getattr(context, "assigned_device_id", None) or existing.device_id
+                self._bind_runtime(context, existing)
                 return existing
         secrets = getattr(context, "secrets", ())
         cfg = get_settings()
         chat = db.get(Chat, context.chat_id) if context.chat_id else None
         write = computer and looks_like_write(prompt)
         computer_only = looks_like_computer(prompt) and not bool(context.coding_task) and not git_task
+        from .scope import build_scope
+
+        roots = list(getattr(getattr(context, "settings", None), "workspace_roots", None) or [])
+        preview_scope = build_scope(prompt, roots, "pending")
         if git_task and workspace.git_root:
             lock_key = workspace.git_root
+        elif computer_only and preview_scope.primary_root:
+            lock_key = preview_scope.primary_root
         elif computer_only:
             lock_key = f"user:{context.user_id}:computer"
         else:
@@ -194,6 +203,17 @@ class LocalTaskController:
         context.task_id = row.id
         context.autonomous = autonomous
         context.task_title = row.title
+        from .scope import build_scope
+
+        scope = build_scope(prompt, roots, row.id)
+        context.task_scope = scope
+        facts = dict(row.facts or {})
+        facts["scope"] = {"primary_root": scope.primary_root, "scratch": scope.scratch}
+        facts["autonomy"] = "HIGH"
+        facts["research_depth"] = "DEEP"
+        row.facts = facts
+        db.commit()
+        self._bind_runtime(context, row)
         if queued:
             context.skip_final_stream = True
             context.task_halt = "waiting_workspace"
@@ -242,7 +262,44 @@ class LocalTaskController:
         context.files_changed = row.files_changed
         context.task_commands = list((row.checkpoint or {}).get("commands") or [])
         context.completed_digests = list((row.checkpoint or {}).get("digests_completed") or [])
+        self._bind_runtime(context, row)
         return row
+
+    def _bind_runtime(self, context, row):
+        from .scope import build_scope
+
+        facts = row.facts or {}
+        roots = list(getattr(getattr(context, "settings", None), "workspace_roots", None) or [])
+        scope = build_scope(
+            row.original_user_request or getattr(context, "user_prompt", "") or "", roots, row.id
+        )
+        stored = facts.get("scope") or {}
+        if stored.get("primary_root"):
+            scope.primary_root = stored["primary_root"]
+        if stored.get("scratch"):
+            scope.scratch = stored["scratch"]
+        context.task_scope = scope
+        owned = list((row.checkpoint or {}).get("owned_processes") or [])
+        if owned:
+            context.owned_process = owned[-1]
+        else:
+            context.owned_process = self.last_owned_process(row.user_id)
+
+    def last_owned_process(self, user_id: str):
+        from ...database import SessionLocal
+
+        with SessionLocal() as db:
+            rows = db.scalars(
+                select(LocalTask)
+                .where(LocalTask.user_id == user_id)
+                .order_by(LocalTask.updated_at.desc())
+                .limit(8)
+            ).all()
+            for row in rows:
+                owned = list((row.checkpoint or {}).get("owned_processes") or [])
+                if owned:
+                    return owned[-1]
+        return None
 
     def _store_plan(self, db, row, steps, revision=1):
         row.plan_revision = revision
@@ -387,7 +444,16 @@ class LocalTaskController:
         kind = "COMPLETED" if status == "COMPLETED" else "FAILED" if status == "FAILED" else "STOPPED"
         append_event(db, row.id, kind, {"status": status}, getattr(context, "secrets", ()))
         if status in machine.TERMINAL:
-            release(db, row.id)
+            promoted = release(db, row.id)
+            if promoted:
+                from .continue_task import mark_auto_continue
+
+                mark_auto_continue(promoted)
+                if context is not None:
+                    context.promoted_task_id = promoted.id
+        from .scope import cleanup_scratch
+
+        cleanup_scratch(row.id)
         db.commit()
 
     def steps(self, db, task_id):
@@ -496,7 +562,7 @@ class LocalTaskController:
                 if verification.get("tests") != "passed" or not verification.get("git_reviewed"):
                     raise ToolError("git_push_unverified")
 
-    def observe_tool(self, db, context, name, output, error=None):
+    def observe_tool(self, db, context, name, output, error=None, arguments=None):
         row = self._row(db, context)
         if not row:
             return
@@ -528,11 +594,16 @@ class LocalTaskController:
                 append_event(db, row.id, "CONFIRMATION_REQUESTED", {"tool": name}, secrets)
             elif error == "host_offline":
                 self.waiting_device(db, context)
+            elif error == "workspace_scope":
+                from .facts import bump_metric
+
+                row.facts = bump_metric(row.facts, "workspace_scope_violations_blocked")
+                self._advance_step(db, row, name, failed=True, summary=error)
             else:
                 self._advance_step(db, row, name, failed=True, summary=error)
         else:
             append_event(db, row.id, "TOOL_COMPLETED", {"tool": name}, secrets)
-            self._capture_facts(row, name, output)
+            self._capture_facts(row, name, output, arguments=arguments, context=context)
             self._advance_step(
                 db, row, name, failed=False, summary=str((output or {}).get("text") or "")[:200]
             )
@@ -552,8 +623,12 @@ class LocalTaskController:
         row.updated_at = now()
         db.commit()
 
-    def _capture_facts(self, row, name, output):
-        facts = dict(row.facts or {})
+    def _capture_facts(self, row, name, output, arguments=None, context=None):
+        from .facts import bump_metric, from_tool
+
+        facts = from_tool(
+            row.facts or {}, name, output or {}, arguments or {}, getattr(context, "run_id", None)
+        )
         meta = (output or {}).get("metadata") or {}
         text = str((output or {}).get("text") or "")
         if meta.get("exit_code") is not None and name in {"run_python", "run_process", "run_powershell"}:
@@ -573,7 +648,26 @@ class LocalTaskController:
             facts["git_diff_seen"] = True
         if (output or {}).get("sources"):
             facts["source_count"] = facts.get("source_count", 0) + len(output["sources"])
+        facts = bump_metric(facts, "tool_calls_total")
+        facts = bump_metric(
+            facts, "tool_calls_success" if not (output or {}).get("error") else "tool_calls_failed"
+        )
+        facts = bump_metric(facts, "verified_facts", 0)
+        facts["verified_facts"] = len(facts.get("verified") or [])
         row.facts = facts
+        pid = meta.get("pid")
+        if not pid:
+            match = re.search(r"pid=(\d+)", text)
+            pid = int(match.group(1)) if match else None
+        run_id = meta.get("tool_run_id") or getattr(context, "run_id", None)
+        if pid or (run_id and name in {"run_python", "run_process", "run_powershell"}):
+            checkpoint = dict(row.checkpoint or {})
+            owned = list(checkpoint.get("owned_processes") or [])
+            owned.append({"pid": pid, "tool_run_id": run_id, "started_by_alex": True})
+            checkpoint["owned_processes"] = owned[-8:]
+            row.checkpoint = checkpoint
+            if context is not None:
+                context.owned_process = owned[-1]
         verification = dict(row.verification or {})
         if facts.get("tests_passed"):
             verification["tests"] = "passed"
@@ -688,9 +782,29 @@ class LocalTaskController:
 
     def maybe_revise_plan(self, db, context):
         row = self._row(db, context)
-        if not row or not context.coding_task:
+        if not row:
             return
         facts = row.facts or {}
+        if (
+            facts.get("last_progress_error") == "no_progress"
+            and (row.checkpoint or {}).get("revised_for") != "no_progress"
+        ):
+            from .facts import bump_metric
+
+            row.facts = bump_metric(facts, "replans")
+            row.plan_revision += 1
+            row.checkpoint = {**(row.checkpoint or {}), "revised_for": "no_progress"}
+            append_event(
+                db,
+                row.id,
+                "PLAN_UPDATED",
+                {"revision": row.plan_revision, "reason": "no_progress"},
+                getattr(context, "secrets", ()),
+            )
+            db.commit()
+            facts = row.facts or {}
+        if not getattr(context, "coding_task", False):
+            return
         last = ((row.checkpoint or {}).get("commands") or [])[-1:]
         if not last or last[0].get("tool") not in {"run_python", "run_process"}:
             return
@@ -905,12 +1019,21 @@ class LocalTaskController:
             self._finish_open_steps(db, row, success=False)
             machine.transition(row, machine.FAILED)
             append_event(db, row.id, "FAILED", {"reason": row.last_error})
-            release(db, row.id)
+            promoted = release(db, row.id)
         else:
             self._finish_open_steps(db, row, success=True)
             machine.transition(row, machine.COMPLETED)
             append_event(db, row.id, "COMPLETED", {})
-            release(db, row.id)
+            promoted = release(db, row.id)
+        if promoted:
+            from .continue_task import mark_auto_continue
+
+            mark_auto_continue(promoted)
+            if context is not None:
+                context.promoted_task_id = promoted.id
+        from .scope import cleanup_scratch
+
+        cleanup_scratch(row.id)
         row.updated_at = now()
         db.commit()
 
@@ -939,8 +1062,31 @@ class LocalTaskController:
             missing.append("tests_not_verified")
         if looks_like_coding(row.original_user_request) and not verification.get("git_reviewed"):
             missing.append("git_not_reviewed")
-        if needs_research(row.original_user_request) and not facts.get("source_count"):
+        if needs_research(row.original_user_request) and not (
+            facts.get("source_count")
+            or any(item.get("kind") == "RESEARCH_SOURCE" for item in facts.get("verified") or [])
+        ):
             missing.append("sources_missing")
+        report = {
+            "files": [
+                item
+                for item in facts.get("verified") or []
+                if str(item.get("kind") or "").startswith("FILE_")
+            ],
+            "system": [item for item in facts.get("verified") or [] if item.get("kind") == "SYSTEM_INFO"],
+            "hash": [item for item in facts.get("verified") or [] if item.get("kind") == "HASH_RESULT"],
+            "process": [
+                item
+                for item in facts.get("verified") or []
+                if item.get("kind") in {"PROCESS_STARTED", "PROCESS_STOPPED"}
+            ],
+            "sources": [
+                item
+                for item in facts.get("verified") or []
+                if item.get("kind") in {"BROWSER_PAGE", "RESEARCH_SOURCE"}
+            ],
+        }
+        row.verification = {**(row.verification or {}), "report": report}
         ok = not missing
         summary = (
             "Completed: " + "; ".join((row.success_criteria or {}).get("all") or ["request addressed"])
@@ -993,6 +1139,7 @@ class LocalTaskController:
             "message": status_message(row),
             "queue_position": waiter_position(db, row.id),
             "promoted_from_queue": bool((row.facts or {}).get("promoted_from_queue")),
+            "metrics": (row.facts or {}).get("metrics") or {},
             "tinyfish": (row.checkpoint or {}).get("tinyfish") or {},
             "steps": [
                 {
@@ -1017,14 +1164,20 @@ class LocalTaskController:
         return payload
 
     def context_prompt(self, db, context) -> str:
+        from .facts import public_block
+
         row = self._row(db, context)
         if not row:
             return ""
         steps = self.steps(db, row.id)
         plan = "; ".join(f"{step.status}:{step.title}" for step in steps[:12])
         facts = row.facts or {}
+        scope = facts.get("scope") or {}
+        metrics = facts.get("metrics") or {}
         checkpoint = row.checkpoint or {}
-        completed = [step.title for step in steps if step.status == "COMPLETED"]
+        current = next((step.title for step in steps if step.status == "RUNNING"), row.current_step or "none")
+        criteria = "; ".join((row.success_criteria or {}).get("all") or [])
+        verified = public_block(facts)
         continuation = (
             " This is TASK CONTINUATION after restart or pause, not token-stream continuation. "
             "Do not repeat completed tool digests or rewrite already changed files. "
@@ -1032,26 +1185,22 @@ class LocalTaskController:
             else ""
         )
         return (
-            f" Autonomous task id={row.id} status={row.status} step={row.current_step or 'none'}. "
-            f"Original goal: {(row.original_user_request or '')[:500]}. "
-            f"Plan revision {row.plan_revision}: {plan}. "
-            f"Completed steps: {'; '.join(completed[:12]) or 'none'}. "
-            f"Changed files: {str(checkpoint.get('changed_files') or [])[:500]}. "
-            f"Budgets tool_calls={row.tool_calls_used}/{row.tool_budget} "
+            f" TASK GOAL: {(row.original_user_request or '')[:500]}. "
+            f"CURRENT STEP: {current}. "
+            f"SUCCESS CRITERIA: {criteria or 'Original request is addressed'}. "
+            f"WORKSPACE SCOPE: primary={scope.get('primary_root') or row.workspace} "
+            f"scratch={scope.get('scratch') or ''} write_outside=false. "
+            f"{verified + ' ' if verified else ''}"
+            f"LAST ERROR: {row.last_error or 'none'}. "
+            f"REMAINING BUDGET: tool_calls={row.tool_calls_used}/{row.tool_budget} "
             f"files={row.files_changed}/{row.file_change_budget} "
             f"runtime_s={row.elapsed_runtime}/{row.runtime_budget}. "
-            f"TinyFish paid remaining is enforced by the server; do not calculate cost. "
-            f"Important facts: tests={facts.get('tests_passed')} "
-            f"exit_code={facts.get('last_exit_code')} failures={facts.get('last_failures')}. "
-            "Do not repeat completed tool digests. Re-read before every write. "
-            "Complete only after verification of success criteria. "
-            "Never disable confirmations for SENSITIVE or CRITICAL actions. "
-            "git_commit only if the user asked or auto_commit is enabled after verification. "
-            "git_push only if the user asked or allow_push is enabled, after confirmation. "
-            "Use get_known_folders to resolve Desktop/Documents/Downloads. "
-            "Use inspect_form/fill_form_field/submit_form for local forms; submit requires confirmation. "
-            "checkout_purchase is a local fake shop only and is always CRITICAL. "
-            "Do not send real email." + continuation
+            f"Autonomy=HIGH research_depth=DEEP. Propose one next action only. "
+            f"Plan: {plan}. Changed files: {str(checkpoint.get('changed_files') or [])[:300]}. "
+            f"Metrics={metrics}. TinyFish cost is enforced by the server. "
+            "Never claim lack of access when VERIFIED_RESULTS list a success. "
+            "Never disable SENSITIVE/CRITICAL confirmations. "
+            "Do not write helper files on the Desktop." + continuation
         )
 
 

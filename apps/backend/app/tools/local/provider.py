@@ -43,6 +43,7 @@ class ProcessArgs(BaseModel):
     timeout_seconds: int = Field(default=30, ge=1, le=120)
     purpose: str | None = Field(default=None, max_length=500)
     elevate: bool = False
+    wait: bool = True
 
 
 class InterpreterArgs(BaseModel):
@@ -52,6 +53,7 @@ class InterpreterArgs(BaseModel):
     timeout_seconds: int = Field(default=30, ge=1, le=120)
     purpose: str | None = Field(default=None, max_length=500)
     elevate: bool = False
+    wait: bool = True
 
 
 class ProcessIdArgs(BaseModel):
@@ -175,6 +177,13 @@ class LocalDeviceProvider(ToolProvider):
                     "before_sha256",
                     "after_sha256",
                     "sha256",
+                    "digest",
+                    "path",
+                    "pid",
+                    "tool_run_id",
+                    "status",
+                    "started_by_alex",
+                    "verified_dead",
                     "files_changed",
                     "reference",
                     "available",
@@ -228,7 +237,7 @@ def register_local_tools(registry):
             PathArgs,
             "local_fs",
             RiskLevel.READ,
-            "List a local directory on this computer.",
+            "List a local directory. WHEN TO USE: inspect a known folder listing. WHEN NOT: find text inside files — use search_code. Do not write helper files.",
             provider,
         ),
         (
@@ -236,7 +245,15 @@ def register_local_tools(registry):
             PathArgs,
             "local_fs",
             RiskLevel.READ,
-            "Read a UTF-8 file. The result includes sha256=<hex> for patch_file.",
+            "Read a UTF-8 file. WHEN TO USE: user asks to read a known path. WHEN NOT: hashing only — use hash_file. RETURNS: sha256=<hex> then content.",
+            provider,
+        ),
+        (
+            "hash_file",
+            PathArgs,
+            "local_fs",
+            RiskLevel.READ,
+            "SHA-256 of a file. WHEN TO USE: user asks for hash/SHA256. WHEN NOT: reading content. RETURNS: digest hex.",
             provider,
         ),
         (
@@ -244,7 +261,7 @@ def register_local_tools(registry):
             WriteArgs,
             "local_fs",
             RiskLevel.NORMAL_CHANGE,
-            "Atomically write a file on this computer.",
+            "Atomically write a file. WHEN TO USE: create/overwrite a requested path. WHEN NOT: Desktop helper dumps or listings. RETURNS: after_sha256.",
             provider,
         ),
         (
@@ -252,7 +269,7 @@ def register_local_tools(registry):
             PathArgs,
             "local_fs",
             RiskLevel.NORMAL_CHANGE,
-            "Create a directory on this computer.",
+            "Create a directory. WHEN TO USE: user asked for a folder. WHEN NOT: scratch on Desktop root. RETURNS: path exists.",
             provider,
         ),
         (
@@ -260,7 +277,7 @@ def register_local_tools(registry):
             CopyArgs,
             "local_fs",
             RiskLevel.NORMAL_CHANGE,
-            "Copy a file on this computer.",
+            "Copy a file. WHEN TO USE: copy/duplicate a known path. WHEN NOT: invent extra Desktop copies.",
             provider,
         ),
         (
@@ -268,7 +285,7 @@ def register_local_tools(registry):
             CopyArgs,
             "local_fs",
             RiskLevel.NORMAL_CHANGE,
-            "Move a file on this computer.",
+            "Move a file. WHEN TO USE: relocate a known path. WHEN NOT: shuffle unrelated Desktop files.",
             provider,
         ),
         (
@@ -276,7 +293,7 @@ def register_local_tools(registry):
             SearchArgs,
             "local_fs",
             RiskLevel.READ,
-            "Search file names under a local directory.",
+            "Search file names under a local directory. WHEN TO USE: locate a filename. WHEN NOT: search file contents — use search_code. Do not write helper scripts.",
             provider,
         ),
         (
@@ -316,7 +333,7 @@ def register_local_tools(registry):
             InterpreterArgs,
             "local_process",
             RiskLevel.NORMAL_CHANGE,
-            "Run PowerShell with explicit argv.",
+            "PowerShell escape hatch. WHEN TO USE: no typed tool exists. WHEN NOT: list/search/read/hash/system info.",
             process,
         ),
         (
@@ -324,7 +341,7 @@ def register_local_tools(registry):
             InterpreterArgs,
             "local_process",
             RiskLevel.NORMAL_CHANGE,
-            'Run Python with explicit argv after the interpreter, for example ["-m", "pytest", "-q"] with cwd set to the project root.',
+            "Python escape hatch or pytest. WHEN TO USE: project tests or no typed tool. WHEN NOT: file search/hash/system info. wait=false starts a Job Object process.",
             process,
         ),
         (
@@ -332,7 +349,7 @@ def register_local_tools(registry):
             ProcessIdArgs,
             "local_info",
             RiskLevel.READ,
-            "Status of an Alex-started process.",
+            "Status of an Alex-started Job Object. WHEN TO USE: check the process this task started. WHEN NOT: kill-by-name.",
             info,
         ),
         (
@@ -340,7 +357,7 @@ def register_local_tools(registry):
             ProcessIdArgs,
             "local_info",
             RiskLevel.NORMAL_CHANGE,
-            "Stop only the Alex Job Object for this tool_run_id.",
+            "Stop only the Alex Job Object for this tool_run_id. WHEN TO USE: user asked to stop the process Alex started. WHEN NOT: kill by name or unrelated PIDs.",
             info,
         ),
         (
@@ -348,7 +365,7 @@ def register_local_tools(registry):
             EmptyArgs,
             "local_info",
             RiskLevel.READ,
-            "Non-identifying local host summary. No hostname, MAC, or hardware serials.",
+            "Windows/CPU/RAM/disk summary. WHEN TO USE: system info questions. WHEN NOT: PowerShell/systeminfo. RETURNS: os_version, cpu, ram, disk. No hostname/MAC/serials.",
             info,
         ),
         (

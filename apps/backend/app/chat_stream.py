@@ -293,6 +293,13 @@ async def stream_response(
                     snapshot_db.commit()
             halt = getattr(tool_context, "task_halt", None)
             skip_final = bool(getattr(tool_context, "skip_final_stream", False))
+            facts = {}
+            with SessionLocal() as snapshot_db:
+                from .tools.local.task import LocalTaskController
+
+                row = LocalTaskController()._row(snapshot_db, tool_context)
+                if row:
+                    facts = dict(row.facts or {})
             if skip_final or halt in {
                 "task_paused",
                 "waiting_workspace",
@@ -306,23 +313,85 @@ async def stream_response(
                 yield sse("delta", {"content": text})
                 status = "complete"
             else:
-                iterator = request.app.state.provider.stream_with_usage(enriched_history, tokens)
-                async for token in iterator:
-                    if await request.is_disconnected():
-                        cancellation.update(
-                            application_cancelled=True,
-                            cancel_requested_at=now().isoformat(),
-                            client_stream_closed_at=now().isoformat(),
-                        )
-                        break
-                    if first_token_at is None:
-                        first_token_at = now()
-                    parts.append(token)
-                    visible = public_assistant_text(token)
-                    if visible:
-                        yield sse("delta", {"content": visible})
-                else:
+                from .tools.local.facts import bump_metric, record, store
+                from .tools.local.grounding import fallback_answer, issue_for, repair_prompt, simple_factual
+                from .tools.tinyfish.classify import looks_like_browser_task
+
+                grounded = dict(facts)
+                for source in getattr(tool_context, "sources", None) or []:
+                    grounded = record(
+                        grounded,
+                        "BROWSER_PAGE",
+                        {
+                            "url": source.get("final_url") or source.get("url"),
+                            "title": source.get("title"),
+                            "source_id": source.get("label"),
+                        },
+                        tool="web_browser",
+                    )
+                    grounded = record(
+                        grounded,
+                        "RESEARCH_SOURCE",
+                        {
+                            "label": source.get("label"),
+                            "url": source.get("final_url") or source.get("url"),
+                            "authority": source.get("authority"),
+                        },
+                        tool=source.get("provider") or "web_browser",
+                    )
+                if (simple_factual(prompt) or looks_like_browser_task(prompt)) and store(grounded):
+                    text = fallback_answer(grounded, prompt)
+                    parts.append(text)
+                    yield sse("delta", {"content": text})
                     status = "complete"
+                else:
+                    iterator = request.app.state.provider.stream_with_usage(enriched_history, tokens)
+                    async for token in iterator:
+                        if await request.is_disconnected():
+                            cancellation.update(
+                                application_cancelled=True,
+                                cancel_requested_at=now().isoformat(),
+                                client_stream_closed_at=now().isoformat(),
+                            )
+                            break
+                        if first_token_at is None:
+                            first_token_at = now()
+                        parts.append(token)
+                        visible = public_assistant_text(token)
+                        if visible:
+                            yield sse("delta", {"content": visible})
+                    else:
+                        status = "complete"
+                    joined = public_assistant_text("".join(parts))
+                    issue = issue_for(joined, grounded, prompt)
+                    if (not joined.strip() and store(grounded)) or (issue and status == "complete"):
+                        repaired = ""
+                        if joined.strip() and issue:
+                            try:
+                                repaired = public_assistant_text(
+                                    await request.app.state.provider.chat(
+                                        [
+                                            *enriched_history,
+                                            {"role": "assistant", "content": joined},
+                                            {"role": "user", "content": repair_prompt(grounded, issue)},
+                                        ]
+                                    )
+                                )
+                            except Exception:
+                                repaired = ""
+                        final = (
+                            repaired
+                            if repaired and not issue_for(repaired, grounded, prompt)
+                            else fallback_answer(grounded, prompt)
+                        )
+                        parts = [final]
+                        if final != joined:
+                            yield sse("delta", {"content": "\n" + final})
+                        with SessionLocal() as metric_db:
+                            row = LocalTaskController()._row(metric_db, tool_context)
+                            if row:
+                                row.facts = bump_metric(row.facts, "final_answer_repairs")
+                                metric_db.commit()
         except asyncio.CancelledError:
             cancellation["cancel_requested_at"] = now().isoformat()
             cancellation["client_stream_closed_at"] = now().isoformat()
@@ -404,6 +473,37 @@ async def stream_response(
                         if saved_chat:
                             saved_chat.updated_at = now()
                         save_db.commit()
+                if status == "complete" and getattr(tool_context, "promoted_task_id", None):
+                    try:
+                        from .tools.local.continue_task import continue_pending
+                        from .tools.local.grounding import fallback_answer
+                        from .tools.models import LocalTask as QueuedTask
+
+                        results = await continue_pending(
+                            make_orchestrator(request.app.state.tools),
+                            request.app.state.provider,
+                            user_id=user.id,
+                            host_online=True,
+                            emit=emit,
+                        )
+                        for result in results:
+                            with SessionLocal() as extra_db:
+                                queued = extra_db.get(QueuedTask, getattr(result.context, "task_id", None))
+                                if not queued:
+                                    continue
+                                follow = Message(
+                                    chat_id=queued.chat_id
+                                    or getattr(result.context, "chat_id", None)
+                                    or chat_id,
+                                    role="assistant",
+                                    content=fallback_answer(queued.facts, queued.original_user_request or ""),
+                                    status="complete",
+                                    created_at=now(),
+                                )
+                                extra_db.add(follow)
+                                extra_db.commit()
+                    except Exception:
+                        logger.warning("queue_auto_continue_failed", exc_info=True)
                 # Only aggregate counts when every planner response reported its usage.
                 if planner_usage.get("_planner_calls") and not planner_usage.get("_planner_usage_incomplete"):
                     for upstream, column in (

@@ -124,7 +124,7 @@ def register_coding_tools(registry):
             SearchCodeArgs,
             "local_fs",
             RiskLevel.READ,
-            "Search file contents under a local directory. Bounded, skips .git and dependencies.",
+            "Search file contents under a known root. WHEN TO USE: find a marker/text in this folder. WHEN NOT: whole user profile, helper scripts, or filename-only search.",
             files,
         ),
         (

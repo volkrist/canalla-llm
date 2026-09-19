@@ -1,0 +1,178 @@
+"""Deterministic final-answer grounding. Prompt is not the only control."""
+
+import re
+
+from .facts import latest, public_block, store
+
+DENIAL = re.compile(
+    r"(?i)("
+    r"no (filesystem|file|disk|local) access|don't have (filesystem|file) access|"
+    r"cannot access (the )?(file|filesystem|disk|computer)|"
+    r"не (могу|имею) .{0,24}(доступ|файл|файлов(ой|ую)|диск)|"
+    r"нет доступа к (файл|диск|компьютер)|"
+    r"i (can't|cannot) (read|access|open) (the )?file|"
+    r"run systeminfo yourself|запустите systeminfo|"
+    r"you need to install jq yourself"
+    r")"
+)
+HEX64 = re.compile(r"\b[a-fA-F0-9]{64}\b")
+
+
+def contradiction(text: str, facts: dict) -> str | None:
+    value = text or ""
+    items = store(facts)
+    if not items:
+        return None
+    if DENIAL.search(value):
+        if any(
+            item.get("kind")
+            in {
+                "FILE_READ",
+                "FILE_CREATED",
+                "FILE_WRITTEN",
+                "HASH_RESULT",
+                "SYSTEM_INFO",
+                "DIRECTORY_CREATED",
+                "SOFTWARE_INSTALLED",
+            }
+            for item in items
+        ):
+            return "denies_verified_local_access"
+    if latest(facts, "SOFTWARE_INSTALLED") and re.search(
+        r"(?i)install jq yourself|установите jq сами|you need to install", value
+    ):
+        return "ignores_verified_install"
+    return None
+
+
+def incomplete(text: str, facts: dict, prompt: str) -> str | None:
+    value = text or ""
+    asked = prompt or ""
+    digest = (latest(facts, "HASH_RESULT") or {}).get("digest")
+    if digest and re.search(r"(?i)sha256|хеш|hash", asked) and digest.casefold() not in value.casefold():
+        return "missing_hash"
+    read = latest(facts, "FILE_READ")
+    excerpt = (read or {}).get("content_excerpt") or ""
+    if (
+        excerpt
+        and re.search(r"(?i)прочитай|перечитай|что внутри|что записано|read (the )?file|содержим", asked)
+        and excerpt[:24].strip()
+        and excerpt[:24].strip() not in value
+    ):
+        return "missing_file_content"
+    info = latest(facts, "SYSTEM_INFO")
+    if info and re.search(r"(?i)windows|cpu|ram|диск", asked):
+        token = str(info.get("windows_version") or info.get("cpu") or "")
+        if token and token not in value:
+            return "missing_system_info"
+    found = latest(facts, "FILE_FOUND")
+    if found and re.search(r"(?i)найди|имя файла|which file", asked):
+        name = str(found.get("path") or "").replace("\\", "/").rsplit("/", 1)[-1]
+        if name and name.casefold() not in value.casefold():
+            return "missing_search_filename"
+    return None
+
+
+def issue_for(text: str, facts: dict, prompt: str) -> str | None:
+    return contradiction(text, facts) or incomplete(text, facts, prompt)
+
+
+def repair_prompt(facts: dict, issue: str) -> str:
+    return (
+        "Your response conflicts with verified tool results or omits a requested verified value "
+        f"({issue}). Rewrite using VERIFIED_RESULTS only. Do not rerun actions. "
+        "Do not claim lack of access.\n\n" + public_block(facts)
+    )
+
+
+def fallback_answer(facts: dict, prompt: str) -> str:
+    asked = prompt or ""
+    lines = []
+    found = latest(facts, "FILE_FOUND")
+    if found and re.search(r"(?i)найди|имя файла|which file", asked):
+        path = found.get("path") or ""
+        name = str(path).replace("\\", "/").rsplit("/", 1)[-1]
+        lines.append(f"Файл: {name}" + (f" ({path})" if path else ""))
+    digest_item = latest(facts, "HASH_RESULT")
+    if digest_item and re.search(r"(?i)sha256|хеш|hash", asked):
+        if digest_item.get("digest"):
+            lines.append(str(digest_item["digest"]))
+    read = latest(facts, "FILE_READ")
+    if read and re.search(r"(?i)прочитай|перечитай|что внутри|что записано|read (the )?file|содержим", asked):
+        content = (read.get("content_excerpt") or "").strip()
+        path = read.get("path") or ""
+        if path:
+            lines.append(f"Прочитан файл: {path}")
+        if content:
+            lines.append(content)
+    created = latest(facts, "FILE_CREATED") or latest(facts, "FILE_WRITTEN")
+    if created and re.search(r"(?i)создай|запис", asked):
+        lines.append(f"Создан файл: {created.get('path')}")
+        if read and read.get("content_excerpt"):
+            lines.append(read["content_excerpt"].strip())
+    info = latest(facts, "SYSTEM_INFO")
+    if info and re.search(r"(?i)windows|cpu|ram|диск|system", asked):
+        lines.append(
+            f"Windows: {info.get('windows_version')}; CPU: {info.get('cpu')}; "
+            f"RAM: {info.get('ram')}; disk: {info.get('disk')}"
+        )
+    installed = latest(facts, "SOFTWARE_INSTALLED")
+    if installed:
+        lines.append(f"{installed.get('package_id')} {installed.get('version')}".strip())
+    stopped = latest(facts, "PROCESS_STOPPED")
+    started = latest(facts, "PROCESS_STARTED")
+    if stopped:
+        lines.append(f"Процесс остановлен, pid={stopped.get('pid')}")
+    elif started and re.search(r"(?i)запусти|процесс", asked):
+        lines.append(f"Процесс запущен, pid={started.get('pid')}")
+    page = latest(facts, "BROWSER_PAGE")
+    if page:
+        title = page.get("title") or ""
+        url = page.get("url") or ""
+        if title or url:
+            lines.append(f"{title} {url}".strip())
+    if not lines:
+        block = public_block(facts)
+        return block or "Инструменты выполнены, но проверяемых фактов нет."
+    return "\n".join(line for line in lines if line).strip()
+
+
+def goal_met(facts: dict, prompt: str) -> bool:
+    asked = prompt or ""
+    if latest(facts, "HASH_RESULT") and re.search(r"(?i)sha256|хеш|hash", asked):
+        return True
+    if latest(facts, "FILE_FOUND") and re.search(r"(?i)найди|имя файла|which file", asked):
+        return True
+    if latest(facts, "SYSTEM_INFO") and re.search(r"(?i)windows|cpu|ram|диск|system info", asked):
+        return True
+    if latest(facts, "FILE_READ") and re.search(
+        r"(?i)прочитай|перечитай|что внутри|что записано|read (the )?file|содержим", asked
+    ):
+        return True
+    if (
+        (latest(facts, "FILE_CREATED") or latest(facts, "FILE_WRITTEN"))
+        and latest(facts, "FILE_READ")
+        and re.search(r"(?i)создай|запис", asked)
+    ):
+        return True
+    if latest(facts, "PROCESS_STOPPED") and re.search(r"(?i)останови процесс|stop (the )?process", asked):
+        return True
+    if latest(facts, "BROWSER_PAGE") and re.search(r"(?i)браузер|browser", asked):
+        return True
+    return False
+
+
+def simple_factual(prompt: str) -> bool:
+    return bool(
+        re.search(
+            r"(?i)("
+            r"прочитай|перечитай|что внутри|что записано|sha256|хеш|hash|"
+            r"версию windows|cpu|ram|свободное место|"
+            r"найди в этой папке|имя файла|"
+            r"создай файл.{0,80}прочитай|"
+            r"останови процесс|запусти.{0,40}(процесс|python|sleep)|"
+            r"открой в браузере|посмотри страницу в браузере|перейди по ссылке"
+            r")",
+            prompt or "",
+        )
+    )

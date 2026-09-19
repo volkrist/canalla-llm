@@ -64,6 +64,23 @@ async def lifespan(application):
     application.state.compute = compute
     if compute.llm:
         application.state.provider = compute.llm
+
+    async def queue_monitor():
+        from .tools.local.continue_task import continue_pending
+        from .tools.registry import make_orchestrator
+
+        while True:
+            await asyncio.sleep(2)
+            try:
+                await continue_pending(
+                    make_orchestrator(application.state.tools),
+                    application.state.provider,
+                    host_online=True,
+                )
+            except Exception as error:
+                logging.getLogger(__name__).warning("queue_monitor_failure type=%s", type(error).__name__)
+
+    queue_task = asyncio.create_task(queue_monitor()) if settings.app_env != "test" else None
     try:
         await compute.recover()
     except RunPodError as error:
@@ -85,6 +102,10 @@ async def lifespan(application):
         presence_task.cancel()
         with suppress(asyncio.CancelledError):
             await presence_task
+        if queue_task:
+            queue_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await queue_task
         if task:
             task.cancel()
             with suppress(asyncio.CancelledError):
@@ -93,7 +114,7 @@ async def lifespan(application):
 
 app = FastAPI(
     title="Alex LLM API",
-    version="0.8.2",
+    version="0.9.3",
     lifespan=lifespan,
     docs_url="/docs" if settings.app_env != "production" else None,
     redoc_url=None,

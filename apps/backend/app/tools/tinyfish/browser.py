@@ -5,7 +5,7 @@ import time
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Literal
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urljoin, urlsplit
 
 import anyio
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,6 +16,17 @@ from ..contracts import ToolError, ToolProvider, ToolResult
 from ..models import ToolRun
 from ..security import digest, sanitized, validate_url
 from .client import BROWSER, get_tinyfish_client
+
+
+def absolute_http_url(base: str, href: str) -> str:
+    raw = (href or "").strip()
+    if not raw or raw.startswith(("#", "javascript:", "mailto:", "data:")):
+        return ""
+    value = urljoin(base or "", raw)
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return value
 
 
 class BrowserStartArgs(BaseModel):
@@ -371,8 +382,8 @@ class TinyFishBrowserProvider(ToolProvider):
             count = 0
         links = []
         for index in range(count):
-            href = await locators.nth(index).get_attribute("href") or ""
-            if not str(href).startswith("http"):
+            href = absolute_http_url(current, await locators.nth(index).get_attribute("href") or "")
+            if not href:
                 continue
             try:
                 await validate_url(href, resolver)

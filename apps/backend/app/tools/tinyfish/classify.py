@@ -35,6 +35,7 @@ BROWSER_TASK = re.compile(
     r"(?i)("
     r"открой.{0,40}браузер|в браузере|tinyfish browser|cloud browser|"
     r"посмотри страницу в браузере|open.{0,40}in (a |the )?browser|"
+    r"перейди по ссылке|перейди по url|"
     r"render(ed)? page|js shell"
     r")"
 )
