@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.8.6**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.9.0**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -87,6 +87,7 @@ alex-llm/
 ## Implemented
 
 - 0.3.0: real llama.cpp transport, authenticated Pod gateway, dynamic endpoint recovery, model-alias readiness, supplier token usage, and visible Start/Stop AI controls. [Real LLM setup and preflight](docs/real-llm.md). Paid integration requires explicit approval and has not yet been executed.
+- 0.9 autonomous tasks: persistent plan, Pause/Resume/Stop, checkpoints, budgets, workspace lock, and verification before Completed. Built on the existing tool stack. [Autonomous tasks](docs/autonomous-tasks.md). Real OrcaRouter proof: disposable two-bug Python project, native host, natural prompt, Pause/Resume, tests FAIL→PASS.
 
 - Chat rename/search/pin, Markdown/JSON export (one or all), user-message editing, edit-and-resend and regeneration with linear-history truncation.
 - Per-account/backend/chat local drafts, keyboard shortcuts, configurable Enter, timestamps, syntax highlighting, safe system-browser links and native save dialog.
@@ -241,6 +242,14 @@ GPU retest on ONE L40S (`o2ossjuc01e6jx`, US-TX-3, $1.09/h, 203s, ~$0.061, volum
 Run `alembic upgrade head` (0010). Keep `LLM_PROVIDER=mock` unless you intentionally start compute.
 
 [Tor](docs/tor.md) · [Verification](docs/verification.md)
+
+## Version 0.9.0 — Autonomous Task Agent REAL VERIFIED
+
+A large natural request becomes one persistent task: plan, inspect, optional research, execute, verify, diagnose, fix, re-verify, then complete. Pause / Resume / Stop, checkpoints, budgets, exclusive workspace WRITE locks, and Sensitive/Critical confirmations stay on the existing tool stack. GPU proof on ONE L40S (`2sgnu3ljhkefpz`, US-TX-3, $1.09/h, 198s, ~$0.060, volume `uwgeaie5b0` preserved): real OrcaRouter, native host, disposable two-bug Python project, natural prompt (no tool/file/bug names), Pause with no new tools then Resume, `patch_file` of `app.py`, tests FAIL→PASS, `COMPLETED`. TinyFish Search/Fetch only; Agent/Browser 0.
+
+Run `alembic upgrade head` (0011). Keep `LLM_PROVIDER=mock` unless you intentionally start compute.
+
+[Autonomous tasks](docs/autonomous-tasks.md) · [Verification](docs/verification.md)
 
 ## Version 0.8.6 — automatic Tor Browser fallback REAL VERIFIED
 

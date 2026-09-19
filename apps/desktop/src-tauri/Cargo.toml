@@ -1,6 +1,6 @@
 [package]
 name = "alex-llm"
-version = "0.8.6"
+version = "0.9.0"
 description = "Alex LLM desktop client"
 edition = "2021"
 default-run = "alex-llm"
