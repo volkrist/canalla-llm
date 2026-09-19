@@ -1,4 +1,4 @@
-# TinyFish adapters — 0.9.2
+# TinyFish adapters — 0.9.3
 
 Production uses direct REST with httpx, never CLI subprocesses. CLI/MCP is developer tooling only. `BackendCredentialProvider` resolves the shared `SecretStr` `TINYFISH_API_KEY` from the backend environment. The UI receives a configured boolean only; keys, CDP URLs, cookies and website passwords are not stored in audit, context, schema or the frontend.
 
@@ -35,7 +35,7 @@ The weaker production model does not own budgets or provider choice.
 5. Local files/computer → Local Computer tools.
 6. External side effect → confirmation-controlled Browser or loopback form tools. **Agent is not started.**
 
-Auto mode hides paid tools from the planner. The server injects Agent/Browser **before** the planner loop when `select_tinyfish_route` selects them (`origin=server_policy`), then closes the Browser session so cloud minutes are not billed during model generation. A second pass after Search/Fetch still covers a JS shell (`needs_browser`). On makes the matching paid tool visible to the planner. Off removes them.
+Auto mode hides paid tools from the planner. The server injects Agent/Browser **before** the planner loop when `select_tinyfish_route` selects them (`origin=server_policy`), even if that leaves the planner tool list empty (explicit Browser + Auto previously returned before inject). Relative page links are resolved against the current URL before click. After a Browser snapshot the visible answer is grounded from W sources / verified facts, not from model memory. The Browser session is closed so cloud minutes are not billed during model generation. A second pass after Search/Fetch still covers a JS shell (`needs_browser`). On makes the matching paid tool visible to the planner. Off removes them.
 
 Planner-facing names: `web_search`, `web_fetch`, `web_browser`, `web_agent`. Legacy `web_agent_read` / `browser_*` stay explicit (`auto_route=false`).
 

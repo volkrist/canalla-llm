@@ -71,10 +71,7 @@ same-payload ceilings are hard.
 
 ## Context
 
-The planner sees a bounded prompt: goal, current plan/step, important facts
-(paths, errors, test names, hashes, exit codes), memory/project/RAG/Web/Tor
-sources, recent compact tool results. Full pytest/npm/page dumps are not
-replayed every turn. Truncation sets `truncated=true`.
+The planner sees a bounded prompt: TASK GOAL, CURRENT STEP, SUCCESS CRITERIA, WORKSPACE SCOPE, VERIFIED_RESULTS, LAST ERROR, REMAINING BUDGET, then plan/memory/project/RAG/Web/Tor sources and recent compact tool results. Autonomy is always HIGH and research depth is always DEEP. Full pytest/npm/page dumps are not replayed every turn. Truncation sets `truncated=true`.
 
 ## Journal and checkpoints
 
@@ -197,29 +194,22 @@ allow it.
 - mock web+coding: official-docs search, first fix, remaining failure, plan
   revision, second fix, tests pass
 
-## Known limitations (0.9.2)
+## Known limitations (0.9.3)
 
 - TinyFish Agent has no provider pre-action approval. Side-effect goals are blocked before the run. Agent cannot safely submit forms, purchase, or log in.
 - TinyFish Agent has no pause API. Pause waits or Stop cancels the run.
 - Provider `max_steps` is beta; Alex still cancels the stream at the local step cap.
-- Explicit TinyFish Browser on the 0.9.1 GPU pod used Search/Fetch; the controller now injects Browser before the planner. Direct Browser remains REAL PASS.
+- GPU TinyFish Browser routing is REAL PASS (`web_browser` `origin=server_policy`). Following a relative documentation link to a second page was not observed on that pod; relative href resolution is local-proven after the run.
+- GPU WRITE queue promotion worked; automatic `queue-b.txt` on that pod did not appear. Native-host auto-resume is REAL PASS.
 - Live plan-step labels can lag the tools until final review closes leftover
   PENDING steps as SKIPPED. Completion is gated by tests/git/sources, not by
   every step row turning green mid-flight.
 - After Pause the planner buffer is discarded. The chat shows
   "Paused while preparing next action." Resume starts a new model turn from
   task state (task continuation, not token-stream continuation).
-- Two WRITE tasks on one workspace: the second becomes `WAITING_WORKSPACE`
-  and is promoted FIFO when the owner completes, fails, or stops.
-- Desktop/backend restart restores the same `task_id`, plan, and completed
-  digests. The LLM connection is not replayed.
 - Git commit/push stay off unless the user asks or enables the matching
   setting. Push is SENSITIVE. Force-push is never automatic.
 - Email/message providers are not configured. Form submit and fake checkout
   are loopback-only and require confirmation.
-- Qwen's final chat turn can still ignore local tool notes unless they are
-  labeled as host observations. GPU 0.9.1 created real Desktop files while the
-  visible answer sometimes denied filesystem access; the local prompt label was
-  added after that run.
 - Web search quality follows the model's query; official docs are preferred
   but not guaranteed if the local test output already contains the contract.

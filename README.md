@@ -1,6 +1,6 @@
 # Alex LLM
 
-Windows desktop **0.9.2**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
+Windows desktop **0.9.3**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
 
 ## Quick start on Windows
@@ -242,6 +242,16 @@ GPU retest on ONE L40S (`o2ossjuc01e6jx`, US-TX-3, $1.09/h, 203s, ~$0.061, volum
 Run `alembic upgrade head` (0010). Keep `LLM_PROVIDER=mock` unless you intentionally start compute.
 
 [Tor](docs/tor.md) · [Verification](docs/verification.md)
+
+## Version 0.9.3 — Weak-Model Reliability & Grounded Execution
+
+Production is still OrcaRouter/Qwen 27B Q5_K_M. Autonomy stays **HIGH** and research stays **DEEP** with no Low/Normal/High or Fast/Normal/Deep selectors. Reliability moves into the controller: verified facts from successful tools, final answers grounded (or repaired once, then a deterministic fallback), obvious Local Computer intents routed with `origin=server_policy`, no-progress / duplicate suppression, TaskScope + Alex-owned scratch, and WRITE queue auto-resume without a new user message.
+
+GPU: create/read/hash/search answers **REAL PASS** on L40S `j2qzj29p7d8zlq`. TinyFish Browser inject **REAL PASS** on a sequential later L40S after GPU=0 (`aoy0ocnnk6okur`, `web_browser` `origin=server_policy`). Native host process start/stop and queue auto-resume **REAL PASS**. **RUNNING GPU FINAL = 0**. Volume `uwgeaie5b0` preserved.
+
+Run `alembic upgrade head` (0012). Keep `LLM_PROVIDER=mock` unless you intentionally start compute.
+
+[Autonomous tasks](docs/autonomous-tasks.md) · [TinyFish](docs/tinyfish.md) · [Verification](docs/verification.md)
 
 ## Version 0.9.2 — TinyFish Agent & Browser Integration
 

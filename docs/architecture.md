@@ -183,7 +183,7 @@ Planner policy prefers `tor_browser` for an explicit Tor Browser request (offici
 
 ## 0.9 Autonomous Task Agent
 
-Persistent tasks reuse `LocalTask` (migrations **0011** and **0012**): plan steps, journal, checkpoints, exclusive workspace WRITE locks with a FIFO `WAITING_WORKSPACE` queue, Pause/Resume/Stop, budgets, and a final verification gate. The loop is still `ToolOrchestrator` — not a second agent stack. 0.9.1 adds queue persistence, task continuation after restart, Pause text sanitization, optional verified git commit/push, and confirmed loopback external actions. 0.9.2 adds TinyFish Agent (READ_ONLY) and TinyFish Browser (Alex-controlled CDP) with app-side paid budgets. See [autonomous-tasks.md](autonomous-tasks.md) and [tinyfish.md](tinyfish.md).
+Persistent tasks reuse `LocalTask` (migrations **0011** and **0012**): plan steps, journal, checkpoints, exclusive workspace WRITE locks with a FIFO `WAITING_WORKSPACE` queue, Pause/Resume/Stop, budgets, and a final verification gate. The loop is still `ToolOrchestrator` — not a second agent stack. 0.9.1 adds queue persistence, task continuation after restart, Pause text sanitization, optional verified git commit/push, and confirmed loopback external actions. 0.9.2 adds TinyFish Agent (READ_ONLY) and TinyFish Browser (Alex-controlled CDP) with app-side paid budgets. 0.9.3 adds a VerifiedFactStore, final-answer grounding/repair/fallback, deterministic Local Computer routing, no-progress protection, TaskScope/scratch, and WRITE queue auto-execute after promotion. See [autonomous-tasks.md](autonomous-tasks.md) and [tinyfish.md](tinyfish.md).
 
 | Method | Route | Purpose |
 |---|---|---|

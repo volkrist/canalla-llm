@@ -1,6 +1,28 @@
 # Alex LLM — отчёты проверки
 
-Текущий этап: **0.9.2**. TinyFish Search/Fetch/Browser/Agent direct = **REAL PASS**. GPU TinyFish Agent routing = **REAL PASS**. GPU TinyFish Browser routing on the 0.9.1 pod = **FAIL**; inject-first controller is local-proven in 0.9.2 (no second TinyFish GPU pod). Local Computer 0.9.1 filesystem/install = **REAL PASS**. Email provider = **NOT CONFIGURED**. Real purchase = **NO**. TorRoutedBrowserProvider = **NOT IMPLEMENTED**.
+Текущий этап: **0.9.3**. Weak-model grounding + TinyFish Browser GPU routing = **REAL PASS** for deterministic Browser selection. Local Computer create/read/hash/search answers = **GPU REAL PASS**. WRITE queue auto-resume = **native REAL PASS** / GPU file missing (**PARTIAL**). TinyFish Agent remains READ_ONLY. Email provider = **NOT CONFIGURED**. Real purchase = **NO**. TorRoutedBrowserProvider = **NOT IMPLEMENTED**.
+
+## Проверка 0.9.3 — 19 сентября 2026
+
+- Цель: надёжность на production OrcaRouter/Qwen3.8-27B-Uncensored Q5_K_M без снижения Autonomy=HIGH и Research=DEEP. Thin model + thick deterministic controller: VerifiedFactStore, final-answer grounding, one repair + fallback, local intent router, no-progress, TaskScope, scratch isolation, WRITE queue auto-resume.
+- HEAD before: `b23debdd96a8c009a50e865d7aec65578dfc64f0` (0.9.2).
+- Local: backend pytest **330 passed**; ruff check/format PASS; alembic **0012**; frontend 23; TypeScript/Prettier/Vite PASS; Playwright 15; cargo check+test 15; npm audit production 0; pip-audit 0.
+- Native host (mock LLM): owned Python sleep pid **15000** started and stopped via Job Object; WRITE queue Task B `WAITING_WORKSPACE` then auto-continued; `queue-a.txt`/`queue-b.txt` both in the intended folder. **REAL PASS**.
+- GPU pod 1 (grounding): `j2qzj29p7d8zlq`, NVIDIA L40S 48GB, US-TX-3, $1.09/h, billable **89s**, estimated **$0.026947**, `stop_reason=manual`. Mock=false, `orcarouter-qwen38-27b-q5km`. **RUNNING GPU = 0**. Volume `uwgeaie5b0` preserved.
+  - File: `grounded.txt` = `GROUNDING_REAL_PASS`, visible answer contains the marker, `origin=server_policy`. **REAL PASS**.
+  - Hash: independent = tool = answer `f160b9c527b5f9b5bca558ba48ffc3dd8c847c6e855c27a49a488446384e8630`. **REAL PASS**.
+  - Search: `data.json` / `ALEX_SEARCH_MARKER_49127`, 1 tool (`search_code`), no helper files. **REAL PASS**.
+  - Browser on this pod: `tools=[]` (empty planner surface skipped inject). **FAIL**.
+  - Queue: A wrote `QUEUE_A`; B waited; `queue-b.txt` missing on this pod. **PARTIAL**.
+- GPU pod 2 (Browser only, after GPU=0, inject fix): `aoy0ocnnk6okur`, L40S US-TX-3, $1.09/h, billable **90s**, estimated **$0.02725**, `stop_reason=manual`. **RUNNING GPU FINAL = 0**. Volume `uwgeaie5b0` preserved.
+  - `web_browser` `origin=server_policy`. Search/Fetch not used instead. W1 `https://www.python.org/` title `Welcome to Python.org`, `retrieval=browser`. Session closed.
+  - Second-page click was not observed on that pod (python.org `/doc/` is a relative href). Local fix resolves relative links; not GPU-retested. Visible stream on that pod was empty; source-grounded fallback landed after. **Routing REAL PASS / multi-page PARTIAL**.
+- TinyFish wallet official GET: `$12.77368` before and after Browser retest (estimated Browser ~$0.00047; dashboard delta not claimed). Auto-reload `unconfigured`. Agent new runs: 0.
+- Cursor did not perform the Desktop file or Browser navigation tasks.
+- Tauri release + NSIS x64 — PASS. ProductVersion **0.9.3**.
+  - EXE `apps/desktop/src-tauri/target/release/alex-llm.exe` SHA256 `FCB1B46F1B98D2EDBAF1D22CF3E253678C440B262F1DD58924B8A979A3776EC7`
+  - Installer `apps/desktop/src-tauri/target/release/bundle/nsis/Alex LLM_0.9.3_x64-setup.exe` SHA256 `FBF7BBB6EAD9377EB28B0DEF7F4C47E80BB1D31E4B7A3C61C1925778CF970894`
+  - Launch smoke: ProductVersion **0.9.3**, process started and stopped.
 
 ## Проверка 0.9.2 — 19 сентября 2026
 
