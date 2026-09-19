@@ -1,0 +1,431 @@
+[
+  {
+    "id": "RG-01",
+    "title": "Exact fact from upload",
+    "category": "rag",
+    "difficulty": "standard",
+    "natural_user_prompt": "Какой код объекта указан в загруженном документе про маяк?",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "rag_docs",
+      "files": [
+        "lantern.txt"
+      ]
+    },
+    "expected_capabilities": [
+      "rag"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "answer_contains",
+        "text": "silver-lantern-otter"
+      },
+      {
+        "kind": "cites_d_labels"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "rag"
+  },
+  {
+    "id": "RG-02",
+    "title": "Compare two docs",
+    "category": "rag",
+    "difficulty": "standard",
+    "natural_user_prompt": "Сравни два загруженных файла: совпадает ли код объекта?",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "rag_docs",
+      "files": [
+        "lantern.txt",
+        "lantern-conflict.md"
+      ]
+    },
+    "expected_capabilities": [
+      "rag"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "mentions_conflict_or_difference"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "rag"
+  },
+  {
+    "id": "RG-03",
+    "title": "Answer only from uploaded material",
+    "category": "rag",
+    "difficulty": "standard",
+    "natural_user_prompt": "Отвечай только по загруженным файлам. Кто капитан корабля Aurora?",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "rag_docs",
+      "files": [
+        "lantern.txt"
+      ]
+    },
+    "expected_capabilities": [
+      "rag"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_search",
+      "web_fetch",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "says_unavailable"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "rag"
+  },
+  {
+    "id": "RG-04",
+    "title": "D source references",
+    "category": "rag",
+    "difficulty": "standard",
+    "natural_user_prompt": "Откуда ты взял код объекта? Укажи источник D.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "rag_docs",
+      "files": [
+        "lantern.txt"
+      ]
+    },
+    "expected_capabilities": [
+      "rag"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "cites_d_labels"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "rag"
+  },
+  {
+    "id": "RG-05",
+    "title": "Conflicting documents",
+    "category": "rag",
+    "difficulty": "standard",
+    "natural_user_prompt": "Документы противоречат друг другу по коду объекта. Как ты это разрешишь?",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "rag_docs",
+      "files": [
+        "lantern.txt",
+        "lantern-conflict.md"
+      ]
+    },
+    "expected_capabilities": [
+      "rag"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "mentions_conflict_or_difference"
+      },
+      {
+        "kind": "does_not_invent_merge"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "rag"
+  },
+  {
+    "id": "RG-06",
+    "title": "Missing information",
+    "category": "rag",
+    "difficulty": "standard",
+    "natural_user_prompt": "Какой серийный номер двигателя в загруженных файлах?",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "rag_docs",
+      "files": [
+        "lantern.txt"
+      ]
+    },
+    "expected_capabilities": [
+      "rag"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_search",
+      "web_fetch",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "says_unavailable"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "rag"
+  },
+  {
+    "id": "RG-07",
+    "title": "PDF exact fact",
+    "category": "rag",
+    "difficulty": "standard",
+    "natural_user_prompt": "Какой product code указан в загруженном PDF?",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "rag_docs",
+      "files": [
+        "brief.pdf"
+      ]
+    },
+    "expected_capabilities": [
+      "rag"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "answer_contains",
+        "text": "EVAL-ALPHA"
+      },
+      {
+        "kind": "cites_d_labels"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "PDF fixture is synthetic. REAL depends on production PDF extractors.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "rag"
+  },
+  {
+    "id": "RG-08",
+    "title": "DOCX exact fact",
+    "category": "rag",
+    "difficulty": "standard",
+    "natural_user_prompt": "Кто owner в загруженном DOCX?",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "rag_docs",
+      "files": [
+        "owner.docx"
+      ]
+    },
+    "expected_capabilities": [
+      "rag"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "answer_contains",
+        "text": "Mira Chen"
+      },
+      {
+        "kind": "cites_d_labels"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "DOCX fixture is synthetic. REAL depends on production DOCX extractors.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "rag"
+  }
+]

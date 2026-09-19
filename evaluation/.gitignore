@@ -1,0 +1,7 @@
+.work/
+reports/*/
+!reports/BASELINE.md
+!reports/FOUND_ISSUES.md
+__pycache__/
+*.pyc
+.pytest_cache/

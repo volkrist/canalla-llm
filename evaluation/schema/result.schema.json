@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Alex LLM evaluation result",
+  "type": "object",
+  "required": ["run_id", "mode", "base_head", "cases", "metrics_totals"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "mode": { "type": "string", "enum": ["spec", "mock", "real"] },
+    "base_head": { "type": "string" },
+    "paid_resources": { "type": "object" },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "reason"],
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "type": "string", "enum": ["PASS", "PARTIAL", "FAIL", "SKIPPED"] },
+          "reason": { "type": "string" },
+          "evidence": { "type": "object" },
+          "metrics": { "type": "object" },
+          "cleanup_status": { "type": "string" }
+        }
+      }
+    }
+  }
+}

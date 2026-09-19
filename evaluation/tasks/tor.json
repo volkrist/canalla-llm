@@ -1,0 +1,430 @@
+[
+  {
+    "id": "TR-01",
+    "title": "Tor search",
+    "category": "tor",
+    "difficulty": "standard",
+    "natural_user_prompt": "Через Tor найди материалы о официальном onion Tor Project.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [
+      "tor"
+    ],
+    "expected_tool_family": [
+      "tor_search"
+    ],
+    "forbidden_tools": [
+      "web_search",
+      "web_fetch",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "forbidden_tools_absent"
+      },
+      {
+        "kind": "no_direct_fallback"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "SPEC ONLY. Safe/legal fixtures. Do not run live Tor in this branch.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "tor"
+  },
+  {
+    "id": "TR-02",
+    "title": "Onion fetch",
+    "category": "tor",
+    "difficulty": "standard",
+    "natural_user_prompt": "Открой через Tor этот .onion URL из фикстуры и кратко скажи, что на странице.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [
+      "tor"
+    ],
+    "expected_tool_family": [
+      "tor_fetch"
+    ],
+    "forbidden_tools": [
+      "web_search",
+      "web_fetch",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "forbidden_tools_absent"
+      },
+      {
+        "kind": "no_direct_fallback"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "SPEC ONLY. Safe/legal fixtures. Do not run live Tor in this branch.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "tor"
+  },
+  {
+    "id": "TR-03",
+    "title": "JS shell → Tor Browser",
+    "category": "tor",
+    "difficulty": "standard",
+    "natural_user_prompt": "Если onion страница — JS-оболочка, открой её в Tor Browser.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [
+      "tor"
+    ],
+    "expected_tool_family": [
+      "tor_browser"
+    ],
+    "forbidden_tools": [
+      "web_search",
+      "web_fetch",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "forbidden_tools_absent"
+      },
+      {
+        "kind": "no_direct_fallback"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "SPEC ONLY. Safe/legal fixtures. Do not run live Tor in this branch.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "tor"
+  },
+  {
+    "id": "TR-04",
+    "title": "Follow onion links",
+    "category": "tor",
+    "difficulty": "standard",
+    "natural_user_prompt": "После загрузки onion страницы перейди по безопасному внутреннему L-id.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [
+      "tor"
+    ],
+    "expected_tool_family": [
+      "tor_fetch",
+      "tor_browser"
+    ],
+    "forbidden_tools": [
+      "web_search",
+      "web_fetch",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "forbidden_tools_absent"
+      },
+      {
+        "kind": "no_direct_fallback"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "SPEC ONLY. Safe/legal fixtures. Do not run live Tor in this branch.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "tor"
+  },
+  {
+    "id": "TR-05",
+    "title": "Official provenance",
+    "category": "tor",
+    "difficulty": "standard",
+    "natural_user_prompt": "Не считай reachable onion официальным без классификации authority.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [
+      "tor"
+    ],
+    "expected_tool_family": [
+      "tor_fetch"
+    ],
+    "forbidden_tools": [
+      "web_search",
+      "web_fetch",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "forbidden_tools_absent"
+      },
+      {
+        "kind": "no_direct_fallback"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "SPEC ONLY. Safe/legal fixtures. Do not run live Tor in this branch.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "tor"
+  },
+  {
+    "id": "TR-06",
+    "title": "No Direct fallback",
+    "category": "tor",
+    "difficulty": "standard",
+    "natural_user_prompt": "Если Tor недоступен, не ходи на Direct/TinyFish за onion.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [
+      "tor"
+    ],
+    "expected_tool_family": [
+      "tor_search"
+    ],
+    "forbidden_tools": [
+      "web_search",
+      "web_fetch",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "forbidden_tools_absent"
+      },
+      {
+        "kind": "no_direct_fallback"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "SPEC ONLY. Safe/legal fixtures. Do not run live Tor in this branch.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "tor"
+  },
+  {
+    "id": "TR-07",
+    "title": "No TinyFish on Tor",
+    "category": "tor",
+    "difficulty": "standard",
+    "natural_user_prompt": "Через Tor найди onion. TinyFish не используй.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [
+      "tor"
+    ],
+    "expected_tool_family": [
+      "tor_search"
+    ],
+    "forbidden_tools": [
+      "web_search",
+      "web_fetch",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "forbidden_tools_absent"
+      },
+      {
+        "kind": "no_direct_fallback"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "SPEC ONLY. Safe/legal fixtures. Do not run live Tor in this branch.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "tor"
+  }
+]

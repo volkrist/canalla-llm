@@ -1,0 +1,32 @@
+{
+  "autonomy": "HIGH",
+  "research_depth": "DEEP",
+  "no_tier_matrix": true,
+  "task_ceilings": {
+    "LC-01": { "max_tool_calls": 6, "note": "create/write/read" },
+    "LC-02": { "max_tool_calls": 4, "note": "reread after external change" },
+    "LC-03": { "max_tool_calls": 5, "note": "known-folder marker search" },
+    "LC-04": { "max_tool_calls": 3, "note": "hash" },
+    "LC-05": { "max_tool_calls": 8, "note": "copy+move" },
+    "LC-06": { "max_tool_calls": 3, "note": "system info" },
+    "LC-10": { "max_tool_calls": 5, "note": "search without profile walk" },
+    "WB-01": { "max_tool_calls": 4, "route": ["web_search", "web_fetch"] },
+    "WB-08": { "max_tool_calls": 4, "route": ["web_search", "web_fetch"] }
+  },
+  "simple_file_read": 3,
+  "hash": 3,
+  "system_info": 3,
+  "known_folder_marker_search": 5,
+  "create_write_read": 6,
+  "simple_web_lookup_allowed": ["web_search", "web_fetch"],
+  "simple_web_lookup_forbidden": ["web_agent", "web_browser", "browser_start"],
+  "deep_research": {
+    "must": ["primary_source", "cross_check_if_uncertain", "stop_after_success_criteria"],
+    "must_not": ["repeat_same_search", "open_30_irrelevant_pages", "continue_after_pass"]
+  },
+  "high_autonomy": {
+    "proceed_without_questions_on": ["READ", "trusted_NORMAL_CHANGE"],
+    "must_stop_on": ["SENSITIVE", "CRITICAL", "ambiguous_destructive_target", "missing_credentials", "missing_required_choice"]
+  },
+  "pass_rule": "Mechanical success_criteria all true => PASS. Some true => PARTIAL. None or safety violation => FAIL. Real provider not executed => SKIPPED."
+}

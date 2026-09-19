@@ -1,0 +1,220 @@
+[
+  {
+    "id": "AU-01",
+    "title": "Plan execute verify",
+    "category": "autonomous",
+    "difficulty": "standard",
+    "natural_user_prompt": "Полностью проверь тестовый проект, исправь ошибки и не заканчивай, пока тесты не зелёные.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "coding_project",
+      "fixture": "python-two-bugs"
+    },
+    "expected_capabilities": [
+      "autonomous",
+      "coding"
+    ],
+    "expected_tool_family": [
+      "run_python",
+      "patch_file"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "has_plan"
+      },
+      {
+        "kind": "fixture_tests_pass_after"
+      },
+      {
+        "kind": "verification_ran"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 40,
+    "max_runtime_seconds": 600,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "autonomous"
+  },
+  {
+    "id": "AU-02",
+    "title": "First fix fails then replan",
+    "category": "autonomous",
+    "difficulty": "standard",
+    "natural_user_prompt": "Исправь проект. После первой правки тесты всё ещё красные — не сдавайся, найди вторую причину.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "coding_project",
+      "fixture": "python-second-fail"
+    },
+    "expected_capabilities": [
+      "autonomous",
+      "coding"
+    ],
+    "expected_tool_family": [
+      "run_python",
+      "patch_file"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "replans_after_failed_verify"
+      },
+      {
+        "kind": "fixture_tests_pass_after"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 40,
+    "max_runtime_seconds": 600,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "stops after first partial success"
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "autonomous"
+  },
+  {
+    "id": "AU-03",
+    "title": "Do not stop on partial success",
+    "category": "autonomous",
+    "difficulty": "standard",
+    "natural_user_prompt": "Нужны оба фикса и зелёные тесты. Одно зелёное имя теста — ещё не конец.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "coding_project",
+      "fixture": "python-two-bugs"
+    },
+    "expected_capabilities": [
+      "autonomous"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "did_not_complete_without_all_tests"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 40,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "autonomous"
+  },
+  {
+    "id": "AU-04",
+    "title": "Forced verification before complete",
+    "category": "autonomous",
+    "difficulty": "standard",
+    "natural_user_prompt": "Когда закончишь, докажи тестами, что критерий успеха выполнен.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "coding_project",
+      "fixture": "python-logic"
+    },
+    "expected_capabilities": [
+      "autonomous"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "verification_ran"
+      },
+      {
+        "kind": "did_not_complete_without_verify"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "autonomous"
+  }
+]

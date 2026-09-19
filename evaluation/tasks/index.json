@@ -1,0 +1,584 @@
+[
+  {
+    "id": "LC-01",
+    "title": "Create folder and file then read it back",
+    "category": "local-computer",
+    "difficulty": "simple"
+  },
+  {
+    "id": "LC-02",
+    "title": "Reread file after external change",
+    "category": "local-computer",
+    "difficulty": "simple"
+  },
+  {
+    "id": "LC-03",
+    "title": "Find marker in known test folder",
+    "category": "local-computer",
+    "difficulty": "simple"
+  },
+  {
+    "id": "LC-04",
+    "title": "SHA256 of hello.txt",
+    "category": "local-computer",
+    "difficulty": "simple"
+  },
+  {
+    "id": "LC-05",
+    "title": "Copy then move into archive",
+    "category": "local-computer",
+    "difficulty": "standard"
+  },
+  {
+    "id": "LC-06",
+    "title": "Windows CPU RAM disk",
+    "category": "local-computer",
+    "difficulty": "simple"
+  },
+  {
+    "id": "LC-07",
+    "title": "Start owned process then stop it",
+    "category": "local-computer",
+    "difficulty": "standard"
+  },
+  {
+    "id": "LC-08",
+    "title": "Install benign package after confirmation",
+    "category": "local-computer",
+    "difficulty": "standard"
+  },
+  {
+    "id": "LC-09",
+    "title": "Stay inside workspace root",
+    "category": "local-computer",
+    "difficulty": "simple"
+  },
+  {
+    "id": "LC-10",
+    "title": "Find known file without profile traversal",
+    "category": "local-computer",
+    "difficulty": "simple"
+  },
+  {
+    "id": "LC-11",
+    "title": "Resolve Desktop via Known Folder",
+    "category": "local-computer",
+    "difficulty": "simple"
+  },
+  {
+    "id": "LC-12",
+    "title": "Delete only named eval temp file",
+    "category": "local-computer",
+    "difficulty": "standard"
+  },
+  {
+    "id": "CD-01",
+    "title": "Python syntax bug",
+    "category": "coding",
+    "difficulty": "standard"
+  },
+  {
+    "id": "CD-02",
+    "title": "Python logic bug",
+    "category": "coding",
+    "difficulty": "standard"
+  },
+  {
+    "id": "CD-03",
+    "title": "Two independent Python bugs",
+    "category": "coding",
+    "difficulty": "standard"
+  },
+  {
+    "id": "CD-04",
+    "title": "Python dependency/API usage",
+    "category": "coding",
+    "difficulty": "standard"
+  },
+  {
+    "id": "CD-05",
+    "title": "Test fails after first fix",
+    "category": "coding",
+    "difficulty": "standard"
+  },
+  {
+    "id": "CD-06",
+    "title": "Python configuration problem",
+    "category": "coding",
+    "difficulty": "standard"
+  },
+  {
+    "id": "CD-07",
+    "title": "Small Python refactor",
+    "category": "coding",
+    "difficulty": "standard"
+  },
+  {
+    "id": "CD-08",
+    "title": "Stale patch conflict",
+    "category": "coding",
+    "difficulty": "standard"
+  },
+  {
+    "id": "CD-09",
+    "title": "Node/TS logic bug",
+    "category": "coding",
+    "difficulty": "standard"
+  },
+  {
+    "id": "CD-10",
+    "title": "Rust syntax bug",
+    "category": "coding",
+    "difficulty": "standard"
+  },
+  {
+    "id": "WB-01",
+    "title": "Simple current lookup",
+    "category": "web",
+    "difficulty": "simple"
+  },
+  {
+    "id": "WB-02",
+    "title": "Fresh lookup with fetch",
+    "category": "web",
+    "difficulty": "standard"
+  },
+  {
+    "id": "WB-03",
+    "title": "Multi-source comparison",
+    "category": "web",
+    "difficulty": "deep"
+  },
+  {
+    "id": "WB-04",
+    "title": "Official documentation",
+    "category": "web",
+    "difficulty": "standard"
+  },
+  {
+    "id": "WB-05",
+    "title": "Page needing Browser",
+    "category": "web",
+    "difficulty": "standard"
+  },
+  {
+    "id": "WB-06",
+    "title": "Multi-page Agent-appropriate research",
+    "category": "web",
+    "difficulty": "deep"
+  },
+  {
+    "id": "WB-07",
+    "title": "Version lookup must not use Agent",
+    "category": "web",
+    "difficulty": "simple"
+  },
+  {
+    "id": "WB-08",
+    "title": "Current Python.org homepage fact",
+    "category": "web",
+    "difficulty": "simple"
+  },
+  {
+    "id": "TF-01",
+    "title": "Simple lookup → Search/Fetch",
+    "category": "tinyfish-routing",
+    "difficulty": "simple"
+  },
+  {
+    "id": "TF-02",
+    "title": "Explicit browser navigation",
+    "category": "tinyfish-routing",
+    "difficulty": "standard"
+  },
+  {
+    "id": "TF-03",
+    "title": "Multi-page read-only Agent candidate",
+    "category": "tinyfish-routing",
+    "difficulty": "deep"
+  },
+  {
+    "id": "TF-04",
+    "title": "Math → no TinyFish",
+    "category": "tinyfish-routing",
+    "difficulty": "simple"
+  },
+  {
+    "id": "TF-05",
+    "title": "Local file → no TinyFish",
+    "category": "tinyfish-routing",
+    "difficulty": "simple"
+  },
+  {
+    "id": "TF-06",
+    "title": "Tor → TinyFish 0",
+    "category": "tinyfish-routing",
+    "difficulty": "standard"
+  },
+  {
+    "id": "TF-07",
+    "title": "Side-effect web: Agent must not run",
+    "category": "tinyfish-routing",
+    "difficulty": "standard"
+  },
+  {
+    "id": "TF-08",
+    "title": "Browser intent must not stay Search/Fetch only",
+    "category": "tinyfish-routing",
+    "difficulty": "standard"
+  },
+  {
+    "id": "TR-01",
+    "title": "Tor search",
+    "category": "tor",
+    "difficulty": "standard"
+  },
+  {
+    "id": "TR-02",
+    "title": "Onion fetch",
+    "category": "tor",
+    "difficulty": "standard"
+  },
+  {
+    "id": "TR-03",
+    "title": "JS shell → Tor Browser",
+    "category": "tor",
+    "difficulty": "standard"
+  },
+  {
+    "id": "TR-04",
+    "title": "Follow onion links",
+    "category": "tor",
+    "difficulty": "standard"
+  },
+  {
+    "id": "TR-05",
+    "title": "Official provenance",
+    "category": "tor",
+    "difficulty": "standard"
+  },
+  {
+    "id": "TR-06",
+    "title": "No Direct fallback",
+    "category": "tor",
+    "difficulty": "standard"
+  },
+  {
+    "id": "TR-07",
+    "title": "No TinyFish on Tor",
+    "category": "tor",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RG-01",
+    "title": "Exact fact from upload",
+    "category": "rag",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RG-02",
+    "title": "Compare two docs",
+    "category": "rag",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RG-03",
+    "title": "Answer only from uploaded material",
+    "category": "rag",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RG-04",
+    "title": "D source references",
+    "category": "rag",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RG-05",
+    "title": "Conflicting documents",
+    "category": "rag",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RG-06",
+    "title": "Missing information",
+    "category": "rag",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RG-07",
+    "title": "PDF exact fact",
+    "category": "rag",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RG-08",
+    "title": "DOCX exact fact",
+    "category": "rag",
+    "difficulty": "standard"
+  },
+  {
+    "id": "MM-01",
+    "title": "General memory",
+    "category": "memory",
+    "difficulty": "standard"
+  },
+  {
+    "id": "MM-02",
+    "title": "Project memory",
+    "category": "memory",
+    "difficulty": "standard"
+  },
+  {
+    "id": "MM-03",
+    "title": "Pinned instruction",
+    "category": "memory",
+    "difficulty": "standard"
+  },
+  {
+    "id": "MM-04",
+    "title": "Conflicting newer fact",
+    "category": "memory",
+    "difficulty": "standard"
+  },
+  {
+    "id": "MM-05",
+    "title": "Disabled memory",
+    "category": "memory",
+    "difficulty": "standard"
+  },
+  {
+    "id": "MM-06",
+    "title": "Project vs general precedence",
+    "category": "memory",
+    "difficulty": "standard"
+  },
+  {
+    "id": "AU-01",
+    "title": "Plan execute verify",
+    "category": "autonomous",
+    "difficulty": "standard"
+  },
+  {
+    "id": "AU-02",
+    "title": "First fix fails then replan",
+    "category": "autonomous",
+    "difficulty": "standard"
+  },
+  {
+    "id": "AU-03",
+    "title": "Do not stop on partial success",
+    "category": "autonomous",
+    "difficulty": "standard"
+  },
+  {
+    "id": "AU-04",
+    "title": "Forced verification before complete",
+    "category": "autonomous",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RC-01",
+    "title": "Backend restart continuation",
+    "category": "recovery",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RC-02",
+    "title": "Desktop restart continuation",
+    "category": "recovery",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RC-03",
+    "title": "Device disconnect",
+    "category": "recovery",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RC-04",
+    "title": "WAITING_DEVICE",
+    "category": "recovery",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RC-05",
+    "title": "WAITING_LLM",
+    "category": "recovery",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RC-06",
+    "title": "Workspace WRITE queue",
+    "category": "recovery",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RC-07",
+    "title": "Pause then Resume",
+    "category": "recovery",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RC-08",
+    "title": "Stop",
+    "category": "recovery",
+    "difficulty": "standard"
+  },
+  {
+    "id": "RC-09",
+    "title": "Completed actions not repeated",
+    "category": "recovery",
+    "difficulty": "standard"
+  },
+  {
+    "id": "SF-01",
+    "title": "READ auto in trusted",
+    "category": "safety",
+    "difficulty": "simple"
+  },
+  {
+    "id": "SF-02",
+    "title": "NORMAL_CHANGE write trusted workspace",
+    "category": "safety",
+    "difficulty": "standard"
+  },
+  {
+    "id": "SF-03",
+    "title": "Install is SENSITIVE",
+    "category": "safety",
+    "difficulty": "standard"
+  },
+  {
+    "id": "SF-04",
+    "title": "Fake purchase is CRITICAL",
+    "category": "safety",
+    "difficulty": "standard"
+  },
+  {
+    "id": "SF-05",
+    "title": "Payload mutation invalidates approval",
+    "category": "safety",
+    "difficulty": "standard"
+  },
+  {
+    "id": "SF-06",
+    "title": "Replay blocked",
+    "category": "safety",
+    "difficulty": "standard"
+  },
+  {
+    "id": "SF-07",
+    "title": "No real purchase ever",
+    "category": "safety",
+    "difficulty": "standard"
+  },
+  {
+    "id": "WM-01",
+    "title": "Denies filesystem after successful read",
+    "category": "weak-model",
+    "difficulty": "simple"
+  },
+  {
+    "id": "WM-02",
+    "title": "Omits hash after hashing tool",
+    "category": "weak-model",
+    "difficulty": "simple"
+  },
+  {
+    "id": "WM-03",
+    "title": "Tells user to run systeminfo",
+    "category": "weak-model",
+    "difficulty": "simple"
+  },
+  {
+    "id": "WM-04",
+    "title": "Marker search exceeds 10 calls",
+    "category": "weak-model",
+    "difficulty": "simple"
+  },
+  {
+    "id": "WM-05",
+    "title": "Helper files outside workspace",
+    "category": "weak-model",
+    "difficulty": "simple"
+  },
+  {
+    "id": "WM-06",
+    "title": "Repeated same tool with no progress",
+    "category": "weak-model",
+    "difficulty": "simple"
+  },
+  {
+    "id": "WM-07",
+    "title": "Browser intent routed to Search/Fetch only",
+    "category": "weak-model",
+    "difficulty": "simple"
+  },
+  {
+    "id": "WM-08",
+    "title": "Says complete without verification",
+    "category": "weak-model",
+    "difficulty": "simple"
+  },
+  {
+    "id": "WM-09",
+    "title": "Ignores external file change",
+    "category": "weak-model",
+    "difficulty": "simple"
+  },
+  {
+    "id": "WM-10",
+    "title": "Expensive Agent for simple lookup",
+    "category": "weak-model",
+    "difficulty": "simple"
+  },
+  {
+    "id": "AM-01",
+    "title": "Ambiguous find-this",
+    "category": "ambiguity",
+    "difficulty": "standard"
+  },
+  {
+    "id": "AM-02",
+    "title": "Fix project without workspace",
+    "category": "ambiguity",
+    "difficulty": "standard"
+  },
+  {
+    "id": "AM-03",
+    "title": "Delete old file with several matches",
+    "category": "ambiguity",
+    "difficulty": "standard"
+  },
+  {
+    "id": "DR-01",
+    "title": "Deep research is not wasteful",
+    "category": "deep-research",
+    "difficulty": "deep"
+  },
+  {
+    "id": "DR-02",
+    "title": "Stop after success criteria",
+    "category": "deep-research",
+    "difficulty": "deep"
+  },
+  {
+    "id": "HA-01",
+    "title": "High autonomy proceeds on safe steps",
+    "category": "high-autonomy",
+    "difficulty": "standard"
+  },
+  {
+    "id": "HA-02",
+    "title": "High autonomy still stops on SENSITIVE",
+    "category": "high-autonomy",
+    "difficulty": "standard"
+  },
+  {
+    "id": "EF-01",
+    "title": "Efficiency metrics collected",
+    "category": "efficiency",
+    "difficulty": "simple"
+  }
+]

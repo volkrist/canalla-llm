@@ -1,0 +1,7 @@
+# Eval-Alpha internal brief (synthetic)
+
+Product code: EVAL-ALPHA
+Launch date: 2026-11-02
+Owner: Mira Chen
+Budget USD: 48000
+Status: planning

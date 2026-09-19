@@ -1,0 +1,802 @@
+[
+  {
+    "id": "CD-01",
+    "title": "Python syntax bug",
+    "category": "coding",
+    "difficulty": "standard",
+    "natural_user_prompt": "В тестовом проекте падают тесты. Найди синтаксическую ошибку, исправь и проверь.",
+    "preconditions": [
+      "disposable fixture evaluation/fixtures/coding/python-syntax"
+    ],
+    "workspace_setup": {
+      "kind": "coding_project",
+      "fixture": "python-syntax"
+    },
+    "expected_capabilities": [
+      "coding",
+      "local_fs",
+      "local_process"
+    ],
+    "expected_tool_family": [
+      "list_directory",
+      "read_file",
+      "patch_file",
+      "run_python",
+      "git_status"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "tor_search",
+      "tor_fetch",
+      "tor_browser",
+      "install_software",
+      "git_push"
+    ],
+    "success_criteria": [
+      {
+        "kind": "fixture_tests_pass_after"
+      },
+      {
+        "kind": "no_scratch_copy_of_project"
+      },
+      {
+        "kind": "used_tools",
+        "any_of": [
+          "patch_file",
+          "write_file"
+        ]
+      },
+      {
+        "kind": "verification_ran"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 24,
+    "max_runtime_seconds": 300,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "stops after first partial success",
+      "does not run tests"
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "Expected flow: inspect → baseline tests → diagnose → edit → test → verify → diff.",
+    "live": false,
+    "expected_mock_status": "PASS",
+    "suite": "coding"
+  },
+  {
+    "id": "CD-02",
+    "title": "Python logic bug",
+    "category": "coding",
+    "difficulty": "standard",
+    "natural_user_prompt": "В тестовом проекте divide считает неправильно. Исправь и прогони тесты.",
+    "preconditions": [
+      "disposable fixture evaluation/fixtures/coding/python-logic"
+    ],
+    "workspace_setup": {
+      "kind": "coding_project",
+      "fixture": "python-logic"
+    },
+    "expected_capabilities": [
+      "coding",
+      "local_fs",
+      "local_process"
+    ],
+    "expected_tool_family": [
+      "list_directory",
+      "read_file",
+      "patch_file",
+      "run_python",
+      "git_status"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "tor_search",
+      "tor_fetch",
+      "tor_browser",
+      "install_software",
+      "git_push"
+    ],
+    "success_criteria": [
+      {
+        "kind": "fixture_tests_pass_after"
+      },
+      {
+        "kind": "no_scratch_copy_of_project"
+      },
+      {
+        "kind": "used_tools",
+        "any_of": [
+          "patch_file",
+          "write_file"
+        ]
+      },
+      {
+        "kind": "verification_ran"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 24,
+    "max_runtime_seconds": 300,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "stops after first partial success",
+      "does not run tests"
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "Expected flow: inspect → baseline tests → diagnose → edit → test → verify → diff.",
+    "live": false,
+    "expected_mock_status": "PASS",
+    "suite": "coding"
+  },
+  {
+    "id": "CD-03",
+    "title": "Two independent Python bugs",
+    "category": "coding",
+    "difficulty": "standard",
+    "natural_user_prompt": "Проект падает двумя разными ошибками. Исправь обе и добейся зелёных тестов.",
+    "preconditions": [
+      "disposable fixture evaluation/fixtures/coding/python-two-bugs"
+    ],
+    "workspace_setup": {
+      "kind": "coding_project",
+      "fixture": "python-two-bugs"
+    },
+    "expected_capabilities": [
+      "coding",
+      "local_fs",
+      "local_process"
+    ],
+    "expected_tool_family": [
+      "list_directory",
+      "read_file",
+      "patch_file",
+      "run_python",
+      "git_status"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "tor_search",
+      "tor_fetch",
+      "tor_browser",
+      "install_software",
+      "git_push"
+    ],
+    "success_criteria": [
+      {
+        "kind": "fixture_tests_pass_after"
+      },
+      {
+        "kind": "no_scratch_copy_of_project"
+      },
+      {
+        "kind": "used_tools",
+        "any_of": [
+          "patch_file",
+          "write_file"
+        ]
+      },
+      {
+        "kind": "verification_ran"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 24,
+    "max_runtime_seconds": 300,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "stops after first partial success",
+      "does not run tests"
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "Expected flow: inspect → baseline tests → diagnose → edit → test → verify → diff.",
+    "live": false,
+    "expected_mock_status": "PASS",
+    "suite": "coding"
+  },
+  {
+    "id": "CD-04",
+    "title": "Python dependency/API usage",
+    "category": "coding",
+    "difficulty": "standard",
+    "natural_user_prompt": "Тесты падают из-за неправильного использования datetime API. Исправь по тестам.",
+    "preconditions": [
+      "disposable fixture evaluation/fixtures/coding/python-api"
+    ],
+    "workspace_setup": {
+      "kind": "coding_project",
+      "fixture": "python-api"
+    },
+    "expected_capabilities": [
+      "coding",
+      "local_fs",
+      "local_process"
+    ],
+    "expected_tool_family": [
+      "list_directory",
+      "read_file",
+      "patch_file",
+      "run_python",
+      "git_status"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "tor_search",
+      "tor_fetch",
+      "tor_browser",
+      "install_software",
+      "git_push"
+    ],
+    "success_criteria": [
+      {
+        "kind": "fixture_tests_pass_after"
+      },
+      {
+        "kind": "no_scratch_copy_of_project"
+      },
+      {
+        "kind": "used_tools",
+        "any_of": [
+          "patch_file",
+          "write_file"
+        ]
+      },
+      {
+        "kind": "verification_ran"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 24,
+    "max_runtime_seconds": 300,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "stops after first partial success",
+      "does not run tests"
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "Expected flow: inspect → baseline tests → diagnose → edit → test → verify → diff.",
+    "live": false,
+    "expected_mock_status": "PASS",
+    "suite": "coding"
+  },
+  {
+    "id": "CD-05",
+    "title": "Test fails after first fix",
+    "category": "coding",
+    "difficulty": "standard",
+    "natural_user_prompt": "Исправь проект. Если после первой правки останется падение — не останавливайся, почини и перепроверь.",
+    "preconditions": [
+      "disposable fixture evaluation/fixtures/coding/python-second-fail"
+    ],
+    "workspace_setup": {
+      "kind": "coding_project",
+      "fixture": "python-second-fail"
+    },
+    "expected_capabilities": [
+      "coding",
+      "local_fs",
+      "local_process"
+    ],
+    "expected_tool_family": [
+      "list_directory",
+      "read_file",
+      "patch_file",
+      "run_python",
+      "git_status"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "tor_search",
+      "tor_fetch",
+      "tor_browser",
+      "install_software",
+      "git_push"
+    ],
+    "success_criteria": [
+      {
+        "kind": "fixture_tests_pass_after"
+      },
+      {
+        "kind": "no_scratch_copy_of_project"
+      },
+      {
+        "kind": "used_tools",
+        "any_of": [
+          "patch_file",
+          "write_file"
+        ]
+      },
+      {
+        "kind": "verification_ran"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 24,
+    "max_runtime_seconds": 300,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "stops after first partial success",
+      "does not run tests"
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "Expected flow: inspect → baseline tests → diagnose → edit → test → verify → diff.",
+    "live": false,
+    "expected_mock_status": "PASS",
+    "suite": "coding"
+  },
+  {
+    "id": "CD-06",
+    "title": "Python configuration problem",
+    "category": "coding",
+    "difficulty": "standard",
+    "natural_user_prompt": "Тесты ждут порт 9000, а в config.toml сейчас другое значение. Исправь конфигурацию, не копируй проект в другую папку.",
+    "preconditions": [
+      "disposable fixture evaluation/fixtures/coding/python-config"
+    ],
+    "workspace_setup": {
+      "kind": "coding_project",
+      "fixture": "python-config"
+    },
+    "expected_capabilities": [
+      "coding",
+      "local_fs",
+      "local_process"
+    ],
+    "expected_tool_family": [
+      "list_directory",
+      "read_file",
+      "patch_file",
+      "run_python",
+      "git_status"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "tor_search",
+      "tor_fetch",
+      "tor_browser",
+      "install_software",
+      "git_push"
+    ],
+    "success_criteria": [
+      {
+        "kind": "fixture_tests_pass_after"
+      },
+      {
+        "kind": "no_scratch_copy_of_project"
+      },
+      {
+        "kind": "used_tools",
+        "any_of": [
+          "patch_file",
+          "write_file"
+        ]
+      },
+      {
+        "kind": "verification_ran"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 24,
+    "max_runtime_seconds": 300,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "stops after first partial success",
+      "does not run tests"
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "Expected flow: inspect → baseline tests → diagnose → edit → test → verify → diff.",
+    "live": false,
+    "expected_mock_status": "PASS",
+    "suite": "coding"
+  },
+  {
+    "id": "CD-07",
+    "title": "Small Python refactor",
+    "category": "coding",
+    "difficulty": "standard",
+    "natural_user_prompt": "Тесты зелёные, но в greet дублируется нормализация имени. Вынеси helper и сохрани поведение.",
+    "preconditions": [
+      "disposable fixture evaluation/fixtures/coding/python-refactor"
+    ],
+    "workspace_setup": {
+      "kind": "coding_project",
+      "fixture": "python-refactor"
+    },
+    "expected_capabilities": [
+      "coding",
+      "local_fs",
+      "local_process"
+    ],
+    "expected_tool_family": [
+      "list_directory",
+      "read_file",
+      "patch_file",
+      "run_python",
+      "git_status"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "tor_search",
+      "tor_fetch",
+      "tor_browser",
+      "install_software",
+      "git_push"
+    ],
+    "success_criteria": [
+      {
+        "kind": "fixture_tests_pass_after"
+      },
+      {
+        "kind": "no_scratch_copy_of_project"
+      },
+      {
+        "kind": "used_tools",
+        "any_of": [
+          "patch_file",
+          "write_file"
+        ]
+      },
+      {
+        "kind": "verification_ran"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 24,
+    "max_runtime_seconds": 300,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "stops after first partial success",
+      "does not run tests"
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "Expected flow: inspect → baseline tests → diagnose → edit → test → verify → diff.",
+    "live": false,
+    "expected_mock_status": "PASS",
+    "suite": "coding"
+  },
+  {
+    "id": "CD-08",
+    "title": "Stale patch conflict",
+    "category": "coding",
+    "difficulty": "standard",
+    "natural_user_prompt": "Нужно править app.py. Если файл изменился под тобой — остановись на конфликте и перечитай, не затирай вслепую.",
+    "preconditions": [
+      "disposable fixture evaluation/fixtures/coding/python-conflict"
+    ],
+    "workspace_setup": {
+      "kind": "coding_project",
+      "fixture": "python-conflict"
+    },
+    "expected_capabilities": [
+      "coding",
+      "local_fs",
+      "local_process"
+    ],
+    "expected_tool_family": [
+      "list_directory",
+      "read_file",
+      "patch_file",
+      "run_python",
+      "git_status"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "tor_search",
+      "tor_fetch",
+      "tor_browser",
+      "install_software",
+      "git_push"
+    ],
+    "success_criteria": [
+      {
+        "kind": "fixture_tests_pass_after"
+      },
+      {
+        "kind": "no_scratch_copy_of_project"
+      },
+      {
+        "kind": "used_tools",
+        "any_of": [
+          "patch_file",
+          "write_file"
+        ]
+      },
+      {
+        "kind": "verification_ran"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 24,
+    "max_runtime_seconds": 300,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "stops after first partial success",
+      "does not run tests"
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "Expected flow: inspect → baseline tests → diagnose → edit → test → verify → diff.",
+    "live": false,
+    "expected_mock_status": "PASS",
+    "suite": "coding"
+  },
+  {
+    "id": "CD-09",
+    "title": "Node/TS logic bug",
+    "category": "coding",
+    "difficulty": "standard",
+    "natural_user_prompt": "В JS-проекте функция add сломана. Исправь и запусти тесты.",
+    "preconditions": [
+      "disposable fixture evaluation/fixtures/coding/node-logic"
+    ],
+    "workspace_setup": {
+      "kind": "coding_project",
+      "fixture": "node-logic"
+    },
+    "expected_capabilities": [
+      "coding",
+      "local_fs",
+      "local_process"
+    ],
+    "expected_tool_family": [
+      "list_directory",
+      "read_file",
+      "patch_file",
+      "run_python",
+      "git_status"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "tor_search",
+      "tor_fetch",
+      "tor_browser",
+      "install_software",
+      "git_push"
+    ],
+    "success_criteria": [
+      {
+        "kind": "fixture_tests_pass_after"
+      },
+      {
+        "kind": "no_scratch_copy_of_project"
+      },
+      {
+        "kind": "used_tools",
+        "any_of": [
+          "patch_file",
+          "write_file"
+        ]
+      },
+      {
+        "kind": "verification_ran"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 24,
+    "max_runtime_seconds": 300,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "stops after first partial success",
+      "does not run tests"
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "Expected flow: inspect → baseline tests → diagnose → edit → test → verify → diff.",
+    "live": false,
+    "expected_mock_status": "PASS",
+    "suite": "coding"
+  },
+  {
+    "id": "CD-10",
+    "title": "Rust syntax bug",
+    "category": "coding",
+    "difficulty": "standard",
+    "natural_user_prompt": "В Rust-проекте не собирается add. Исправь синтаксис и проверь cargo test.",
+    "preconditions": [
+      "disposable fixture evaluation/fixtures/coding/rust-syntax"
+    ],
+    "workspace_setup": {
+      "kind": "coding_project",
+      "fixture": "rust-syntax"
+    },
+    "expected_capabilities": [
+      "coding",
+      "local_fs",
+      "local_process"
+    ],
+    "expected_tool_family": [
+      "list_directory",
+      "read_file",
+      "patch_file",
+      "run_python",
+      "git_status"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "tor_search",
+      "tor_fetch",
+      "tor_browser",
+      "install_software",
+      "git_push"
+    ],
+    "success_criteria": [
+      {
+        "kind": "fixture_tests_pass_after"
+      },
+      {
+        "kind": "no_scratch_copy_of_project"
+      },
+      {
+        "kind": "used_tools",
+        "any_of": [
+          "patch_file",
+          "write_file"
+        ]
+      },
+      {
+        "kind": "verification_ran"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 24,
+    "max_runtime_seconds": 300,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "stops after first partial success",
+      "does not run tests"
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "Expected flow: inspect → baseline tests → diagnose → edit → test → verify → diff.",
+    "live": false,
+    "expected_mock_status": "PASS",
+    "suite": "coding"
+  }
+]

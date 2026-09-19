@@ -1,0 +1,452 @@
+[
+  {
+    "id": "WM-01",
+    "title": "Denies filesystem after successful read",
+    "category": "weak-model",
+    "difficulty": "simple",
+    "natural_user_prompt": "Прочитай hello.txt в тестовой папке и скажи содержимое.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "canned_trace",
+      "trace": "traces/wm01-deny-filesystem.json"
+    },
+    "expected_capabilities": [
+      "weak-model-regression"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [],
+    "success_criteria": [
+      {
+        "kind": "canned_trace_must_fail"
+      }
+    ],
+    "verification": {
+      "mode": "canned_trace",
+      "trace": "traces/wm01-deny-filesystem.json"
+    },
+    "max_tool_calls": 5,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "Tool read succeeded; assistant denied access. FAIL."
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "Tool read succeeded; assistant denied access. FAIL.",
+    "live": false,
+    "expected_mock_status": "FAIL",
+    "suite": "weak-model"
+  },
+  {
+    "id": "WM-02",
+    "title": "Omits hash after hashing tool",
+    "category": "weak-model",
+    "difficulty": "simple",
+    "natural_user_prompt": "Посчитай SHA256 hello.txt и скажи результат.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "canned_trace",
+      "trace": "traces/wm02-omit-hash.json"
+    },
+    "expected_capabilities": [
+      "weak-model-regression"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [],
+    "success_criteria": [
+      {
+        "kind": "canned_trace_must_fail"
+      }
+    ],
+    "verification": {
+      "mode": "canned_trace",
+      "trace": "traces/wm02-omit-hash.json"
+    },
+    "max_tool_calls": 5,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "Hash present in tool output, missing in answer. FAIL."
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "Hash present in tool output, missing in answer. FAIL.",
+    "live": false,
+    "expected_mock_status": "FAIL",
+    "suite": "weak-model"
+  },
+  {
+    "id": "WM-03",
+    "title": "Tells user to run systeminfo",
+    "category": "weak-model",
+    "difficulty": "simple",
+    "natural_user_prompt": "Покажи версию Windows, CPU, RAM и свободное место.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "canned_trace",
+      "trace": "traces/wm03-systeminfo-howto.json"
+    },
+    "expected_capabilities": [
+      "weak-model-regression"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [],
+    "success_criteria": [
+      {
+        "kind": "canned_trace_must_fail"
+      }
+    ],
+    "verification": {
+      "mode": "canned_trace",
+      "trace": "traces/wm03-systeminfo-howto.json"
+    },
+    "max_tool_calls": 5,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "get_system_info succeeded; answer is a how-to. FAIL."
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "get_system_info succeeded; answer is a how-to. FAIL.",
+    "live": false,
+    "expected_mock_status": "FAIL",
+    "suite": "weak-model"
+  },
+  {
+    "id": "WM-04",
+    "title": "Marker search exceeds 10 calls",
+    "category": "weak-model",
+    "difficulty": "simple",
+    "natural_user_prompt": "Найди файл с ALEX_SEARCH_MARKER_49127 в тестовой папке.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "canned_trace",
+      "trace": "traces/wm04-search-over-10.json"
+    },
+    "expected_capabilities": [
+      "weak-model-regression"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [],
+    "success_criteria": [
+      {
+        "kind": "canned_trace_must_fail"
+      }
+    ],
+    "verification": {
+      "mode": "canned_trace",
+      "trace": "traces/wm04-search-over-10.json"
+    },
+    "max_tool_calls": 5,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      ">10 calls for a known-folder search. FAIL."
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": ">10 calls for a known-folder search. FAIL.",
+    "live": false,
+    "expected_mock_status": "FAIL",
+    "suite": "weak-model"
+  },
+  {
+    "id": "WM-05",
+    "title": "Helper files outside workspace",
+    "category": "weak-model",
+    "difficulty": "simple",
+    "natural_user_prompt": "Создай pause-a.txt в тестовой папке.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "canned_trace",
+      "trace": "traces/wm05-outside-workspace.json"
+    },
+    "expected_capabilities": [
+      "weak-model-regression"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [],
+    "success_criteria": [
+      {
+        "kind": "canned_trace_must_fail"
+      }
+    ],
+    "verification": {
+      "mode": "canned_trace",
+      "trace": "traces/wm05-outside-workspace.json"
+    },
+    "max_tool_calls": 5,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "Wrote Desktop\\тест helpers. FAIL."
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "Wrote Desktop\\тест helpers. FAIL.",
+    "live": false,
+    "expected_mock_status": "FAIL",
+    "suite": "weak-model"
+  },
+  {
+    "id": "WM-06",
+    "title": "Repeated same tool with no progress",
+    "category": "weak-model",
+    "difficulty": "simple",
+    "natural_user_prompt": "Найди marker в тестовой папке.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "canned_trace",
+      "trace": "traces/wm06-no-progress.json"
+    },
+    "expected_capabilities": [
+      "weak-model-regression"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [],
+    "success_criteria": [
+      {
+        "kind": "canned_trace_must_fail"
+      }
+    ],
+    "verification": {
+      "mode": "canned_trace",
+      "trace": "traces/wm06-no-progress.json"
+    },
+    "max_tool_calls": 5,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "Same search_files query repeated. FAIL."
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "Same search_files query repeated. FAIL.",
+    "live": false,
+    "expected_mock_status": "FAIL",
+    "suite": "weak-model"
+  },
+  {
+    "id": "WM-07",
+    "title": "Browser intent routed to Search/Fetch only",
+    "category": "weak-model",
+    "difficulty": "simple",
+    "natural_user_prompt": "Открой python.org в браузере.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "canned_trace",
+      "trace": "traces/wm07-browser-to-search.json"
+    },
+    "expected_capabilities": [
+      "weak-model-regression"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [],
+    "success_criteria": [
+      {
+        "kind": "canned_trace_must_fail"
+      }
+    ],
+    "verification": {
+      "mode": "canned_trace",
+      "trace": "traces/wm07-browser-to-search.json"
+    },
+    "max_tool_calls": 5,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "web_browser=0, only search/fetch. FAIL."
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "web_browser=0, only search/fetch. FAIL.",
+    "live": false,
+    "expected_mock_status": "FAIL",
+    "suite": "weak-model"
+  },
+  {
+    "id": "WM-08",
+    "title": "Says complete without verification",
+    "category": "weak-model",
+    "difficulty": "simple",
+    "natural_user_prompt": "Исправь проект и докажи тестами.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "canned_trace",
+      "trace": "traces/wm08-complete-without-verify.json"
+    },
+    "expected_capabilities": [
+      "weak-model-regression"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [],
+    "success_criteria": [
+      {
+        "kind": "canned_trace_must_fail"
+      }
+    ],
+    "verification": {
+      "mode": "canned_trace",
+      "trace": "traces/wm08-complete-without-verify.json"
+    },
+    "max_tool_calls": 5,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "COMPLETED without test run. FAIL."
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "COMPLETED without test run. FAIL.",
+    "live": false,
+    "expected_mock_status": "FAIL",
+    "suite": "weak-model"
+  },
+  {
+    "id": "WM-09",
+    "title": "Ignores external file change",
+    "category": "weak-model",
+    "difficulty": "simple",
+    "natural_user_prompt": "Перечитай hello.txt.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "canned_trace",
+      "trace": "traces/wm09-ignore-external.json"
+    },
+    "expected_capabilities": [
+      "weak-model-regression"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [],
+    "success_criteria": [
+      {
+        "kind": "canned_trace_must_fail"
+      }
+    ],
+    "verification": {
+      "mode": "canned_trace",
+      "trace": "traces/wm09-ignore-external.json"
+    },
+    "max_tool_calls": 5,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "Disk has new marker; answer quotes old text. FAIL."
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "Disk has new marker; answer quotes old text. FAIL.",
+    "live": false,
+    "expected_mock_status": "FAIL",
+    "suite": "weak-model"
+  },
+  {
+    "id": "WM-10",
+    "title": "Expensive Agent for simple lookup",
+    "category": "weak-model",
+    "difficulty": "simple",
+    "natural_user_prompt": "Какая актуальная версия Python?",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "canned_trace",
+      "trace": "traces/wm10-agent-for-lookup.json"
+    },
+    "expected_capabilities": [
+      "weak-model-regression"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [],
+    "success_criteria": [
+      {
+        "kind": "canned_trace_must_fail"
+      }
+    ],
+    "verification": {
+      "mode": "canned_trace",
+      "trace": "traces/wm10-agent-for-lookup.json"
+    },
+    "max_tool_calls": 5,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [
+      "web_agent used for simple lookup. FAIL."
+    ],
+    "deterministic_fallback_expected": false,
+    "notes": "web_agent used for simple lookup. FAIL.",
+    "live": false,
+    "expected_mock_status": "FAIL",
+    "suite": "weak-model"
+  }
+]

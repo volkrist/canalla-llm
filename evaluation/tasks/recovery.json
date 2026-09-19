@@ -1,0 +1,479 @@
+[
+  {
+    "id": "RC-01",
+    "title": "Backend restart continuation",
+    "category": "recovery",
+    "difficulty": "standard",
+    "natural_user_prompt": "После рестарта backend продолжи ту же задачу с того же места.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "recovery_scenario",
+      "scenario": "backend_restart"
+    },
+    "expected_capabilities": [
+      "autonomous",
+      "recovery"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "same_task_id"
+      },
+      {
+        "kind": "completed_actions_not_repeated"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "Harness later; mock validates spec only. Do not start GPU.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "recovery"
+  },
+  {
+    "id": "RC-02",
+    "title": "Desktop restart continuation",
+    "category": "recovery",
+    "difficulty": "standard",
+    "natural_user_prompt": "После рестарта desktop продолжи ту же задачу.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "recovery_scenario",
+      "scenario": "desktop_restart"
+    },
+    "expected_capabilities": [
+      "autonomous",
+      "recovery"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "same_task_id"
+      },
+      {
+        "kind": "completed_actions_not_repeated"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "Harness later; mock validates spec only. Do not start GPU.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "recovery"
+  },
+  {
+    "id": "RC-03",
+    "title": "Device disconnect",
+    "category": "recovery",
+    "difficulty": "standard",
+    "natural_user_prompt": "Если компьютер отключился, дождись WAITING_DEVICE и продолжи.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "recovery_scenario",
+      "scenario": "device_disconnect"
+    },
+    "expected_capabilities": [
+      "autonomous",
+      "recovery"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "same_task_id"
+      },
+      {
+        "kind": "completed_actions_not_repeated"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "Harness later; mock validates spec only. Do not start GPU.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "recovery"
+  },
+  {
+    "id": "RC-04",
+    "title": "WAITING_DEVICE",
+    "category": "recovery",
+    "difficulty": "standard",
+    "natural_user_prompt": "Host offline должен дать WAITING_DEVICE, не FAILED.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "recovery_scenario",
+      "scenario": "waiting_device"
+    },
+    "expected_capabilities": [
+      "autonomous",
+      "recovery"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "same_task_id"
+      },
+      {
+        "kind": "completed_actions_not_repeated"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "Harness later; mock validates spec only. Do not start GPU.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "recovery"
+  },
+  {
+    "id": "RC-05",
+    "title": "WAITING_LLM",
+    "category": "recovery",
+    "difficulty": "standard",
+    "natural_user_prompt": "Если LLM недоступна, задача WAITING_LLM и потом продолжается.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "recovery_scenario",
+      "scenario": "waiting_llm"
+    },
+    "expected_capabilities": [
+      "autonomous",
+      "recovery"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "same_task_id"
+      },
+      {
+        "kind": "completed_actions_not_repeated"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "Harness later; mock validates spec only. Do not start GPU.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "recovery"
+  },
+  {
+    "id": "RC-06",
+    "title": "Workspace WRITE queue",
+    "category": "recovery",
+    "difficulty": "standard",
+    "natural_user_prompt": "Пока Task A пишет, Task B должна встать в WAITING_WORKSPACE и продолжиться после A.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "recovery_scenario",
+      "scenario": "workspace_queue"
+    },
+    "expected_capabilities": [
+      "autonomous",
+      "recovery"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "same_task_id"
+      },
+      {
+        "kind": "completed_actions_not_repeated"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "Harness later; mock validates spec only. Do not start GPU.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "recovery"
+  },
+  {
+    "id": "RC-07",
+    "title": "Pause then Resume",
+    "category": "recovery",
+    "difficulty": "standard",
+    "natural_user_prompt": "Поставь на паузу длинную задачу и продолжи с тем же task_id.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "recovery_scenario",
+      "scenario": "pause_resume"
+    },
+    "expected_capabilities": [
+      "autonomous",
+      "recovery"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "same_task_id"
+      },
+      {
+        "kind": "completed_actions_not_repeated"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "Harness later; mock validates spec only. Do not start GPU.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "recovery"
+  },
+  {
+    "id": "RC-08",
+    "title": "Stop",
+    "category": "recovery",
+    "difficulty": "standard",
+    "natural_user_prompt": "Останови задачу. Новых tools быть не должно.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "recovery_scenario",
+      "scenario": "stop"
+    },
+    "expected_capabilities": [
+      "autonomous",
+      "recovery"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "same_task_id"
+      },
+      {
+        "kind": "completed_actions_not_repeated"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "Harness later; mock validates spec only. Do not start GPU.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "recovery"
+  },
+  {
+    "id": "RC-09",
+    "title": "Completed actions not repeated",
+    "category": "recovery",
+    "difficulty": "standard",
+    "natural_user_prompt": "После recovery не повторяй уже сделанный write с тем же digest.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "recovery_scenario",
+      "scenario": "no_repeat"
+    },
+    "expected_capabilities": [
+      "autonomous",
+      "recovery"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "same_task_id"
+      },
+      {
+        "kind": "completed_actions_not_repeated"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "Harness later; mock validates spec only. Do not start GPU.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "recovery"
+  }
+]

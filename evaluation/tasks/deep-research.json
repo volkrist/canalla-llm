@@ -1,0 +1,102 @@
+[
+  {
+    "id": "DR-01",
+    "title": "Deep research is not wasteful",
+    "category": "deep-research",
+    "difficulty": "deep",
+    "natural_user_prompt": "Найди официальный контракт FastAPI Query и перекрёстно проверь его по docs.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [],
+    "expected_tool_family": [
+      "web_search",
+      "web_fetch"
+    ],
+    "forbidden_tools": [
+      "web_agent"
+    ],
+    "success_criteria": [
+      {
+        "kind": "stopped_after_success_criteria"
+      },
+      {
+        "kind": "no_repeat_same_query"
+      },
+      {
+        "kind": "max_pages",
+        "n": 8
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": true,
+    "expected_mock_status": "SKIPPED",
+    "suite": "deep-research"
+  },
+  {
+    "id": "DR-02",
+    "title": "Stop after success criteria",
+    "category": "deep-research",
+    "difficulty": "deep",
+    "natural_user_prompt": "Достаточно официальной страницы Query parameters. Не открывай всё подряд.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [],
+    "expected_tool_family": [
+      "web_search",
+      "web_fetch"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "stopped_after_success_criteria"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 6,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": true,
+    "expected_mock_status": "SKIPPED",
+    "suite": "deep-research"
+  }
+]

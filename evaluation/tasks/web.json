@@ -1,0 +1,440 @@
+[
+  {
+    "id": "WB-01",
+    "title": "Simple current lookup",
+    "category": "web",
+    "difficulty": "simple",
+    "natural_user_prompt": "Какая сейчас актуальная стабильная версия Python на python.org?",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [
+      "search",
+      "fetch"
+    ],
+    "expected_tool_family": [
+      "web_search",
+      "web_fetch"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read",
+      "tor_search",
+      "tor_fetch",
+      "tor_browser"
+    ],
+    "success_criteria": [
+      {
+        "kind": "route_is",
+        "family": [
+          "web_search",
+          "web_fetch"
+        ]
+      },
+      {
+        "kind": "forbidden_tools_absent"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 4,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "Agent/Browser unnecessary.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "web"
+  },
+  {
+    "id": "WB-02",
+    "title": "Fresh lookup with fetch",
+    "category": "web",
+    "difficulty": "standard",
+    "natural_user_prompt": "Проверь по официальному сайту актуальную версию Node.js LTS.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [
+      "search",
+      "fetch"
+    ],
+    "expected_tool_family": [
+      "web_search",
+      "web_fetch"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "route_is",
+        "family": [
+          "web_search",
+          "web_fetch"
+        ]
+      },
+      {
+        "kind": "used_official_domain",
+        "domain": "nodejs.org"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 5,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "web"
+  },
+  {
+    "id": "WB-03",
+    "title": "Multi-source comparison",
+    "category": "web",
+    "difficulty": "deep",
+    "natural_user_prompt": "Сравни, что официальные docs Python и docs.python.org говорят про match/case, и дай два независимых источника.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [
+      "search",
+      "fetch"
+    ],
+    "expected_tool_family": [
+      "web_search",
+      "web_fetch"
+    ],
+    "forbidden_tools": [
+      "web_agent"
+    ],
+    "success_criteria": [
+      {
+        "kind": "min_distinct_sources",
+        "n": 2
+      },
+      {
+        "kind": "no_repeat_same_query"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "Deep ≠ 30 irrelevant pages. Agent only if Search/Fetch cannot finish.",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "web"
+  },
+  {
+    "id": "WB-04",
+    "title": "Official documentation",
+    "category": "web",
+    "difficulty": "standard",
+    "natural_user_prompt": "Найди официальную документацию FastAPI Query parameters и кратко перескажи контракт.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [
+      "search",
+      "fetch"
+    ],
+    "expected_tool_family": [
+      "web_search",
+      "web_fetch"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "used_official_domain",
+        "domain": "fastapi.tiangolo.com"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 5,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "web"
+  },
+  {
+    "id": "WB-05",
+    "title": "Page needing Browser",
+    "category": "web",
+    "difficulty": "standard",
+    "natural_user_prompt": "Открой в браузере официальный сайт Python и кратко скажи заголовок страницы документации, на которую ведёт Docs.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [
+      "browser"
+    ],
+    "expected_tool_family": [
+      "web_browser"
+    ],
+    "forbidden_tools": [
+      "web_agent"
+    ],
+    "success_criteria": [
+      {
+        "kind": "used_tools",
+        "any_of": [
+          "web_browser",
+          "browser_start"
+        ]
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0.02,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "REAL later. This branch must not call TinyFish. Spec only / mock SKIPPED.",
+    "live": true,
+    "expected_mock_status": "SKIPPED",
+    "suite": "web"
+  },
+  {
+    "id": "WB-06",
+    "title": "Multi-page Agent-appropriate research",
+    "category": "web",
+    "difficulty": "deep",
+    "natural_user_prompt": "Исследуй официальный сайт Python: найди три раздела документации, сравни их назначение и верни ссылки.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [
+      "agent"
+    ],
+    "expected_tool_family": [
+      "web_agent"
+    ],
+    "forbidden_tools": [
+      "tor_search"
+    ],
+    "success_criteria": [
+      {
+        "kind": "used_tools",
+        "any_of": [
+          "web_agent"
+        ]
+      },
+      {
+        "kind": "agent_read_only"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 12,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0.2,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": true,
+    "expected_mock_status": "SKIPPED",
+    "suite": "web"
+  },
+  {
+    "id": "WB-07",
+    "title": "Version lookup must not use Agent",
+    "category": "web",
+    "difficulty": "simple",
+    "natural_user_prompt": "Найди текущую версию pip по официальным источникам.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [
+      "search",
+      "fetch"
+    ],
+    "expected_tool_family": [
+      "web_search",
+      "web_fetch"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "forbidden_tools_absent"
+      },
+      {
+        "kind": "tool_count_max",
+        "n": 4
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 4,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "web"
+  },
+  {
+    "id": "WB-08",
+    "title": "Current Python.org homepage fact",
+    "category": "web",
+    "difficulty": "simple",
+    "natural_user_prompt": "Что написано на главной python.org в первом абзаце? Нужен живой источник, не память модели.",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "none"
+    },
+    "expected_capabilities": [
+      "search",
+      "fetch"
+    ],
+    "expected_tool_family": [
+      "web_search",
+      "web_fetch"
+    ],
+    "forbidden_tools": [
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "route_is",
+        "family": [
+          "web_search",
+          "web_fetch"
+        ]
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 4,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "web"
+  }
+]

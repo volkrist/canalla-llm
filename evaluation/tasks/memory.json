@@ -1,0 +1,363 @@
+[
+  {
+    "id": "MM-01",
+    "title": "General memory",
+    "category": "memory",
+    "difficulty": "standard",
+    "natural_user_prompt": "Как меня зовут в профиле памяти?",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "memory",
+      "general": [
+        {
+          "content": "User preferred name is Nika Testova.",
+          "category": "identity"
+        }
+      ]
+    },
+    "expected_capabilities": [
+      "memory"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_search",
+      "web_fetch",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "answer_contains",
+        "text": "Nika Testova"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "memory"
+  },
+  {
+    "id": "MM-02",
+    "title": "Project memory",
+    "category": "memory",
+    "difficulty": "standard",
+    "natural_user_prompt": "Какой стек у проекта EvalDemo?",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "memory",
+      "project": "EvalDemo",
+      "items": [
+        {
+          "content": "EvalDemo uses Python 3.12.",
+          "category": "project"
+        }
+      ]
+    },
+    "expected_capabilities": [
+      "memory",
+      "projects"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_search",
+      "web_fetch",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "answer_contains",
+        "text": "Python 3.12"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "memory"
+  },
+  {
+    "id": "MM-03",
+    "title": "Pinned instruction",
+    "category": "memory",
+    "difficulty": "standard",
+    "natural_user_prompt": "Какое закреплённое правило ответа?",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "memory",
+      "pinned": [
+        {
+          "content": "Always answer in one short paragraph.",
+          "category": "instruction",
+          "is_pinned": true
+        }
+      ]
+    },
+    "expected_capabilities": [
+      "memory"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_search",
+      "web_fetch",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "answer_contains",
+        "text": "one short paragraph"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "memory"
+  },
+  {
+    "id": "MM-04",
+    "title": "Conflicting newer fact",
+    "category": "memory",
+    "difficulty": "standard",
+    "natural_user_prompt": "Где я живу для тестов?",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "memory",
+      "general": [
+        {
+          "content": "Test city is Oldtown.",
+          "category": "fact"
+        },
+        {
+          "content": "Test city is Newhaven. This supersedes Oldtown.",
+          "category": "fact"
+        }
+      ]
+    },
+    "expected_capabilities": [
+      "memory"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_search",
+      "web_fetch",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "answer_contains",
+        "text": "Newhaven"
+      },
+      {
+        "kind": "answer_excludes",
+        "text": "Oldtown"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "memory"
+  },
+  {
+    "id": "MM-05",
+    "title": "Disabled memory",
+    "category": "memory",
+    "difficulty": "standard",
+    "natural_user_prompt": "Как меня зовут?",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "memory",
+      "use_memory": false,
+      "general": [
+        {
+          "content": "User preferred name is Nika Testova.",
+          "category": "identity"
+        }
+      ]
+    },
+    "expected_capabilities": [
+      "memory"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_search",
+      "web_fetch",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "did_not_use_disabled_memory"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "memory"
+  },
+  {
+    "id": "MM-06",
+    "title": "Project vs general precedence",
+    "category": "memory",
+    "difficulty": "standard",
+    "natural_user_prompt": "Какой язык проекта?",
+    "preconditions": [],
+    "workspace_setup": {
+      "kind": "memory",
+      "project": "EvalDemo",
+      "general": [
+        {
+          "content": "Default language is Rust.",
+          "category": "preference"
+        }
+      ],
+      "items": [
+        {
+          "content": "EvalDemo language is Python.",
+          "category": "project"
+        }
+      ]
+    },
+    "expected_capabilities": [
+      "memory",
+      "projects"
+    ],
+    "expected_tool_family": [],
+    "forbidden_tools": [
+      "web_search",
+      "web_fetch",
+      "web_agent",
+      "web_browser",
+      "browser_start",
+      "browser_read",
+      "browser_write",
+      "web_agent_read"
+    ],
+    "success_criteria": [
+      {
+        "kind": "answer_contains",
+        "text": "Python"
+      }
+    ],
+    "verification": {
+      "mode": "mechanical"
+    },
+    "max_tool_calls": 8,
+    "max_runtime_seconds": 180,
+    "max_paid_cost_usd": 0,
+    "cleanup": {
+      "strategy": "delete_eval_workspace_only",
+      "preserve_user_files": true,
+      "never_delete": [
+        "C:\\Users\\Volkr\\Documents",
+        "C:\\Users\\Volkr\\Desktop\\резюме"
+      ]
+    },
+    "weak_model_risks": [],
+    "deterministic_fallback_expected": false,
+    "notes": "",
+    "live": false,
+    "expected_mock_status": "SKIPPED",
+    "suite": "memory"
+  }
+]
