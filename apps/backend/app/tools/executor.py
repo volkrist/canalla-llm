@@ -10,7 +10,7 @@ from sqlalchemy import select, update
 from ..database import SessionLocal
 from ..models import Chat, Message, User, now
 from .contracts import RiskLevel, ToolError, ToolResult
-from .models import LocalTask, ToolRun, WebSourceSnapshot
+from .models import ToolRun, WebSourceSnapshot
 from .policy import ToolPolicy, effective_risk, network_channel, preferences
 from .security import digest, input_summary, sanitized, validate_url
 from .web_router import canonical_url
@@ -103,19 +103,16 @@ def public_source(row):
 
 
 def reconcile_tools():
-    # A crashed local task cannot resume a paid run implicitly.
+    from .local.task import recover_interrupted
+
     with SessionLocal() as db:
         db.execute(
             update(ToolRun)
             .where(ToolRun.status.not_in(TERMINAL))
             .values(status="failed", finished_at=now(), error_code="backend_interrupted")
         )
-        db.execute(
-            update(LocalTask)
-            .where(LocalTask.finished_at.is_(None))
-            .values(status="FAILED", finished_at=now())
-        )
         db.commit()
+    recover_interrupted()
 
 
 @dataclass
@@ -160,6 +157,11 @@ class ExecutionContext:
     files_changed: int = 0
     task_commands: list = field(default_factory=list)
     coding_task: bool = False
+    autonomous: bool = False
+    resume_task_id: str | None = None
+    task_title: str = ""
+    completed_digests: list = field(default_factory=list)
+    resuming: bool = False
 
     async def progress(self, **values):
         # Providers pass only documented, allowlisted metadata, never raw responses.
@@ -258,10 +260,23 @@ class ToolExecutor:
                         follow=definition.capability == "tor_fetch" and bool(context.tor_fetch_done),
                     ),
                     **context.preview,
+                    **(
+                        {
+                            key: value
+                            for key, value in {
+                                "task": getattr(context, "task_title", "") or "",
+                                "step": getattr(context, "current_step", "") or "",
+                            }.items()
+                            if value
+                        }
+                        if getattr(context, "task_id", None)
+                        else {}
+                    ),
                 },
                 input_digest=digest(args.model_dump(mode="json"), definition.name),
                 status="waiting_confirmation" if decision == "confirmation_required" else "planning",
                 result_metadata=self._run_metadata(definition, args, context, reservation),
+                task_id=getattr(context, "task_id", None),
             )
             db.add(row)
             db.commit()
@@ -285,6 +300,37 @@ class ToolExecutor:
             r"(?i)bearer\s+|(?:password|passwd|api[_-]?key|access_token|secret)\s*[:=]", payload
         ):
             raise ToolError("sensitive_arguments")
+        digest_value = digest(args.model_dump(mode="json"), definition.name)
+        if getattr(context, "task_id", None) and definition.provider == "local_device":
+            from .local.task import LocalTaskController
+
+            with SessionLocal() as db:
+                LocalTaskController().preflight(db, context, definition.name, digest_value)
+                replay = db.scalar(
+                    select(ToolRun).where(
+                        ToolRun.task_id == context.task_id,
+                        ToolRun.input_digest == digest_value,
+                        ToolRun.status == "completed",
+                    )
+                )
+                if replay:
+                    hosted = (replay.result_metadata or {}).get("host_result") or {}
+                    meta = replay.result_metadata or {}
+                    return ToolResult(
+                        text=str(hosted.get("text") or meta.get("text") or "already completed"),
+                        metadata={
+                            key: hosted.get(key, meta.get(key))
+                            for key in (
+                                "before_sha256",
+                                "after_sha256",
+                                "exit_code",
+                                "files_changed",
+                                "conflict",
+                                "cwd",
+                            )
+                            if hosted.get(key, meta.get(key)) is not None
+                        },
+                    )
         if definition.provider == "local_device":
             from .local.devices import active_device
             from .local.provider import _guard_paths
@@ -293,9 +339,28 @@ class ToolExecutor:
                 prefs = preferences(db, context.user_id)
                 device = active_device(db, context.user_id)
             if not device:
+                if getattr(context, "task_id", None):
+                    from .local.task import LocalTaskController
+
+                    with SessionLocal() as db:
+                        LocalTaskController().waiting_device(db, context)
                 raise ToolError("host_offline")
-            _guard_paths(args, prefs.workspace_roots)
+            bound = getattr(context, "assigned_device_id", None)
+            if getattr(context, "task_id", None):
+                from .models import LocalTask
+
+                with SessionLocal() as db:
+                    task = db.get(LocalTask, context.task_id)
+                    bound = (task.device_id if task else None) or bound
+            if bound and device.id != bound:
+                if getattr(context, "task_id", None):
+                    from .local.task import LocalTaskController
+
+                    with SessionLocal() as db:
+                        LocalTaskController().waiting_device(db, context)
+                raise ToolError("host_offline")
             context.assigned_device_id = device.id
+            _guard_paths(args, prefs.workspace_roots)
             context.settings = prefs
         context.limits.consume(definition, args)
         context.preview, context.action_fingerprint = {}, None
@@ -501,7 +566,33 @@ class ToolExecutor:
                     raise ToolError("cancelled")
                 if row.status in TERMINAL:
                     raise ToolError("host_offline")
-                if row.started_at.replace(tzinfo=timezone.utc) < now() - timedelta(minutes=5):
+                from .local.devices import public_device
+                from .models import PairedDevice
+
+                device = db.get(PairedDevice, row.assigned_device_id) if row.assigned_device_id else None
+                online = bool(device and public_device(device)["online"])
+                if not online:
+                    from .local.task import LocalTaskController
+
+                    LocalTaskController().waiting_device(db, context)
+                    await context.emit(
+                        "task_status",
+                        {"state": "WAITING_DEVICE", "code": "host_offline", "task_id": context.task_id},
+                    )
+                    raise ToolError("host_offline")
+                elif getattr(context, "task_id", None) and row.status == "waiting_host":
+                    from .local.machine import WAITING_DEVICE
+                    from .local.task import LocalTaskController
+                    from .models import LocalTask as TaskRow
+
+                    task = db.get(TaskRow, context.task_id)
+                    if task and task.status == WAITING_DEVICE:
+                        LocalTaskController().checkpoint(db, context, "EXECUTING")
+                timeout_at = now() - timedelta(minutes=5)
+                if getattr(context, "autonomous", False):
+                    if context.limits.remaining <= 0:
+                        raise ToolError("timeout")
+                elif row.started_at.replace(tzinfo=timezone.utc) < timeout_at:
                     raise ToolError("timeout")
                 if row.status == "host_ready":
                     return

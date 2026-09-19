@@ -1,0 +1,125 @@
+"""Explicit autonomous-task state machine. Illegal transitions raise ToolError."""
+
+from ..contracts import ToolError
+
+CREATED = "CREATED"
+PLANNING = "PLANNING"
+READY = "READY"
+INSPECTING = "INSPECTING"
+RESEARCHING = "RESEARCHING"
+EXECUTING = "EXECUTING"
+WAITING_CONFIRMATION = "WAITING_CONFIRMATION"
+WAITING_DEVICE = "WAITING_DEVICE"
+WAITING_LLM = "WAITING_LLM"
+VERIFYING = "VERIFYING"
+RETRYING = "RETRYING"
+PAUSED = "PAUSED"
+STOPPING = "STOPPING"
+STOPPED = "STOPPED"
+COMPLETED = "COMPLETED"
+FAILED = "FAILED"
+INTERRUPTED = "INTERRUPTED"
+RECOVERING = "RECOVERING"
+CONFLICT = "CONFLICT"
+
+ALL = (
+    CREATED,
+    PLANNING,
+    READY,
+    INSPECTING,
+    RESEARCHING,
+    EXECUTING,
+    WAITING_CONFIRMATION,
+    WAITING_DEVICE,
+    WAITING_LLM,
+    VERIFYING,
+    RETRYING,
+    PAUSED,
+    STOPPING,
+    STOPPED,
+    COMPLETED,
+    FAILED,
+    INTERRUPTED,
+    RECOVERING,
+    CONFLICT,
+)
+TERMINAL = {COMPLETED, FAILED, STOPPED}
+RECOVERABLE = {
+    INTERRUPTED,
+    PAUSED,
+    WAITING_LLM,
+    WAITING_DEVICE,
+    WAITING_CONFIRMATION,
+    CONFLICT,
+    STOPPED,
+    FAILED,
+}
+ACTIVE = set(ALL) - TERMINAL
+WORKING = {INSPECTING, RESEARCHING, EXECUTING, VERIFYING, RETRYING, READY}
+
+_WORK = WORKING | {
+    WAITING_CONFIRMATION,
+    WAITING_DEVICE,
+    WAITING_LLM,
+    CONFLICT,
+    PAUSED,
+    STOPPING,
+    INTERRUPTED,
+    FAILED,
+    COMPLETED,
+}
+
+TRANSITIONS = {
+    CREATED: {PLANNING, STOPPED, FAILED, INTERRUPTED},
+    PLANNING: {READY, EXECUTING, WAITING_CONFIRMATION, PAUSED, STOPPING, FAILED, INTERRUPTED, WAITING_LLM},
+    READY: set(_WORK),
+    INSPECTING: set(_WORK),
+    RESEARCHING: set(_WORK),
+    EXECUTING: set(_WORK),
+    VERIFYING: set(_WORK),
+    RETRYING: set(_WORK),
+    WAITING_CONFIRMATION: {EXECUTING, READY, PAUSED, STOPPING, STOPPED, FAILED, INTERRUPTED, VERIFYING},
+    WAITING_DEVICE: {RECOVERING, READY, EXECUTING, PAUSED, STOPPING, STOPPED, INTERRUPTED, FAILED},
+    WAITING_LLM: {RECOVERING, READY, EXECUTING, PAUSED, STOPPING, STOPPED, INTERRUPTED, FAILED},
+    PAUSED: {READY, RECOVERING, STOPPING, STOPPED, FAILED},
+    STOPPING: {STOPPED, INTERRUPTED, FAILED},
+    STOPPED: {RECOVERING, READY},
+    COMPLETED: set(),
+    FAILED: {RECOVERING, READY},
+    INTERRUPTED: {RECOVERING, READY, STOPPED, PAUSED, FAILED},
+    RECOVERING: {
+        READY,
+        EXECUTING,
+        VERIFYING,
+        WAITING_DEVICE,
+        WAITING_LLM,
+        CONFLICT,
+        FAILED,
+        PAUSED,
+        STOPPING,
+    },
+    CONFLICT: {RETRYING, EXECUTING, INSPECTING, FAILED, PAUSED, STOPPING, INTERRUPTED},
+}
+
+
+def can_transition(source: str, dest: str) -> bool:
+    if source == dest:
+        return True
+    return dest in TRANSITIONS.get(source, set())
+
+
+def transition(row, dest: str):
+    current = row.status
+    if current == dest:
+        return row
+    if not can_transition(current, dest):
+        raise ToolError("invalid_task_transition")
+    row.status = dest
+    row.current_phase = dest
+    if dest in TERMINAL and getattr(row, "finished_at", None) is None:
+        from ...models import now
+
+        row.finished_at = now()
+    if dest not in TERMINAL:
+        row.finished_at = None
+    return row

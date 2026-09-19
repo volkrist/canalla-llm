@@ -7,9 +7,79 @@ from collections.abc import AsyncIterator
 import httpx
 
 from .config import Settings
+from .tools.local.plan import looks_like_autonomous, needs_research
+from .tools.local.workspace import looks_like_coding
 from .tools.tor.browser import browser_target_from_prompt, looks_like_tor_browser
 from .tools.tor.router import classify_tor
 from .tools.web_router import classify_web
+
+
+def _mock_tool_call(name, args, call_id):
+    return {
+        "tool_calls": [
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {"name": name, "arguments": json.dumps(args, ensure_ascii=False)},
+            }
+        ]
+    }
+
+
+def _mock_coding_plan(prompt, previous, names, policy):
+    if not looks_like_coding(prompt) and not looks_like_autonomous(prompt):
+        return None
+    if "list_directory" not in names and "read_file" not in names:
+        return None
+    mode = "auto"
+    if "Web mode=on" in policy:
+        mode = "on"
+    elif "Web mode=off" in policy:
+        mode = "off"
+    web_needed = needs_research(prompt) or classify_web(prompt, mode).required
+    done = []
+    last = {}
+    for message in previous:
+        try:
+            last = json.loads(message.get("content") or "{}")
+        except (ValueError, TypeError):
+            last = {}
+        done.append(last.get("tool") or ("web" if last.get("sources") else "other"))
+    if web_needed:
+        if not any(item in done for item in ("web_search", "web_fetch", "web")):
+            return None
+        if "web_search" in done and "web_fetch" not in done:
+            return None
+    root = "C:\\AlexWorkspace"
+    match = re.search(r"CodingWorkspace root=([^;]+)", policy or "")
+    if match and match.group(1).strip() and match.group(1).strip() != "(not set)":
+        root = match.group(1).strip()
+    if "list_directory" in names and "list_directory" not in done:
+        return _mock_tool_call("list_directory", {"path": root, "purpose": "Inspect project"}, "mock-list")
+    if "git_status" in names and "git_status" not in done:
+        return _mock_tool_call("git_status", {"cwd": root, "purpose": "Inspect git"}, "mock-git")
+    if "run_python" in names and "run_python" not in done:
+        return _mock_tool_call(
+            "run_python",
+            {"argv": ["-m", "pytest", "-q"], "cwd": root, "purpose": "Run baseline tests"},
+            "mock-pytest",
+        )
+    if last.get("metadata", {}).get("exit_code") not in (None, 0) or last.get("failures"):
+        text = str(last.get("text") or "")
+        path_match = re.search(r"([\w./\\-]+\.py)", text)
+        rel = path_match.group(1) if path_match else "app.py"
+        target = rel if ":" in rel or rel.startswith("\\") or rel.startswith("/") else str(Pathish(root, rel))
+        if "read_file" in names and done.count("read_file") < 3:
+            return _mock_tool_call(
+                "read_file", {"path": target, "purpose": "Read failing source"}, "mock-read-fail"
+            )
+    if "git_diff" in names and "git_diff" not in done and last.get("metadata", {}).get("exit_code") == 0:
+        return _mock_tool_call("git_diff", {"cwd": root, "purpose": "Review diff"}, "mock-diff")
+    return {"tool_calls": []}
+
+
+def Pathish(root, rel):
+    return root.rstrip("\\/") + "\\" + rel.replace("/", "\\").lstrip("\\")
 
 
 class LLMProvider(ABC):
@@ -45,6 +115,9 @@ class MockLLMProvider(LLMProvider):
         previous = [m for m in messages if m["role"] == "tool"]
         names = {item.get("function", {}).get("name") for item in tools if isinstance(item, dict)}
         policy = str(messages[0].get("content", "")) if messages else ""
+        coding_plan = _mock_coding_plan(prompt, previous, names, policy)
+        if coding_plan is not None:
+            return coding_plan
         if "tor_browser" in names and looks_like_tor_browser(prompt) and not previous:
             url = browser_target_from_prompt(prompt) or "https://check.torproject.org/"
             return {

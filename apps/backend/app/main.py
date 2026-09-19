@@ -26,6 +26,7 @@ from .security import current_user
 from .tools.executor import reconcile_tools
 from .tools.registry import make_registry
 from .tools.routes import router as tools_router
+from .tools.task_routes import router as tasks_router
 
 
 class RedactTicket(logging.Filter):
@@ -116,6 +117,7 @@ app.include_router(personal_router)
 app.include_router(presence_router)
 app.include_router(documents_router)
 app.include_router(tools_router)
+app.include_router(tasks_router)
 
 
 @app.exception_handler(RunPodError)

@@ -51,12 +51,25 @@ async def stream_response(
     web_mode=None,
     computer_mode=None,
     tor_mode=None,
+    resume_task_id=None,
 ):
     if chat.id in request.app.state.generating:
         raise HTTPException(409, "В этом диалоге уже идёт генерация")
     if request.app.state.provider_name == "llamacpp":
         state = await request.app.state.provider.status()
         if state != "ready":
+            if resume_task_id:
+                from types import SimpleNamespace
+
+                from .tools.local.task import LocalTaskController
+                from .tools.models import LocalTask
+
+                with SessionLocal() as db:
+                    task = db.get(LocalTask, resume_task_id)
+                    if task and task.user_id == user.id:
+                        LocalTaskController().waiting_llm(
+                            db, SimpleNamespace(task_id=task.id, user_id=user.id, secrets=()), state
+                        )
             raise LLMError(state)
     target = None
     if target_id:
@@ -82,7 +95,20 @@ async def stream_response(
     request.app.state.generating.add(chat.id)
     mutation_lock.acquire()
     try:
-        if action == "send":
+        if action == "resume":
+            from .tools.models import LocalTask
+
+            task = db.get(LocalTask, resume_task_id)
+            if not task or task.user_id != user.id or (task.chat_id and task.chat_id != chat.id):
+                raise HTTPException(404, "Задача не найдена")
+            content = task.original_user_request
+            prior = ordered_messages(db, chat.id)
+            user_message = next((row for row in reversed(prior) if row.role == "user"), None)
+            if user_message is None:
+                user_message = Message(chat_id=chat.id, role="user", content=content)
+                db.add(user_message)
+                db.flush()
+        elif action == "send":
             prior = ordered_messages(db, chat.id)
             created = now()
             if prior:
@@ -151,14 +177,30 @@ async def stream_response(
             await request.app.state.presence.publish()
             yield sse("meta", meta)
             settings = get_settings()
+            from .tools.local.plan import looks_like_autonomous
+            from .tools.local.workspace import looks_like_coding
+
+            prompt = content if action in {"send", "resume"} else user_message.content
             coding = effective_computer_mode != "off"
+            autonomous = looks_like_autonomous(prompt) or looks_like_coding(prompt)
             torish = effective_tor_mode != "off"
             max_calls = settings.tools_max_calls
             if coding:
                 max_calls = max(max_calls, settings.tools_max_coding_calls)
             if torish:
                 max_calls = max(max_calls, settings.tools_max_tor_calls)
-            max_calls = min(max_calls, settings.tools_hard_max_calls)
+            if autonomous:
+                max_calls = max(max_calls, settings.tools_task_max_calls)
+            max_calls = min(
+                max_calls, settings.tools_task_hard_calls if autonomous else settings.tools_hard_max_calls
+            )
+            max_seconds = (
+                min(settings.tools_task_max_runtime, settings.tools_task_hard_runtime)
+                if autonomous
+                else settings.tools_max_seconds
+            )
+            max_search = settings.tools_task_max_search if autonomous else settings.tools_max_search
+            max_fetch = settings.tools_task_max_fetch if autonomous else settings.tools_max_fetch
             queue = asyncio.Queue(maxsize=64)
 
             async def emit(event, value):
@@ -172,16 +214,22 @@ async def stream_response(
                 assistant_id,
                 ToolLimits(
                     max_calls=max_calls,
-                    max_search=settings.tools_max_search,
-                    max_fetch=settings.tools_max_fetch,
+                    max_search=max_search,
+                    max_fetch=max_fetch,
                     max_pages=settings.tools_max_pages,
                     max_chars=settings.tools_max_chars,
-                    max_seconds=settings.tools_max_seconds,
-                    max_local_calls=settings.tools_max_local_calls,
-                    max_files_changed=settings.tools_max_files_changed,
+                    max_seconds=max_seconds,
+                    max_local_calls=max(settings.tools_max_local_calls, max_calls),
+                    max_files_changed=(
+                        min(settings.tools_task_max_files, settings.tools_task_hard_files)
+                        if autonomous
+                        else settings.tools_max_files_changed
+                    ),
                     max_file_bytes=settings.tools_max_file_bytes,
                     max_process_seconds=settings.tools_max_process_seconds,
-                    hard_max_calls=settings.tools_hard_max_calls,
+                    hard_max_calls=settings.tools_task_hard_calls
+                    if autonomous
+                    else settings.tools_hard_max_calls,
                     max_tor_search=settings.tools_max_tor_search,
                     max_tor_fetch=settings.tools_max_tor_fetch,
                     max_tor_pages=settings.tools_max_tor_pages,
@@ -205,7 +253,10 @@ async def stream_response(
                 ),
                 resolver=getattr(request.app.state, "tool_dns_override", None),
             )
-            tool_context.user_prompt = content if action == "send" else user_message.content
+            tool_context.user_prompt = content if action in {"send", "resume"} else user_message.content
+            tool_context.autonomous = autonomous
+            tool_context.resume_task_id = resume_task_id
+            tool_context.resuming = bool(resume_task_id)
             tool_task = asyncio.create_task(
                 make_orchestrator(request.app.state.tools).prepare(
                     request.app.state.provider,
@@ -280,6 +331,25 @@ async def stream_response(
                     try:
                         await tool_task
                     except (asyncio.CancelledError, Exception):
+                        pass
+                    try:
+                        from .tools.local.machine import TERMINAL
+                        from .tools.local.task import LocalTaskController
+                        from .tools.models import LocalTask
+
+                        with SessionLocal() as db:
+                            row = db.get(LocalTask, getattr(tool_context, "task_id", None))
+                            if row and row.status not in TERMINAL:
+                                if row.stop_requested:
+                                    LocalTaskController().stop(db, tool_context)
+                                elif row.status not in {
+                                    "PAUSED",
+                                    "WAITING_LLM",
+                                    "WAITING_DEVICE",
+                                    "WAITING_CONFIRMATION",
+                                }:
+                                    LocalTaskController().checkpoint(db, tool_context, "INTERRUPTED")
+                    except Exception:
                         pass
                 try:
                     if iterator:

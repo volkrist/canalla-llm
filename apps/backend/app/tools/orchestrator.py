@@ -1,7 +1,9 @@
 import json
 
 from ..context_builder import ContextBuilder
+from ..providers import LLMError
 from .contracts import ToolError
+from .local.compact import compact_tool_output
 from .local.workspace import looks_like_coding
 from .policy import CODING_PLANNER_TOOLS, LOCAL_CAPABILITIES, TOR_CAPABILITIES
 from .security import sanitized
@@ -39,7 +41,11 @@ class ToolOrchestrator:
                     continue
                 selected.append(definition)
             elif capability in LOCAL_CAPABILITIES and context.computer_mode != "off" and host_online:
-                if coding and definition.name not in CODING_PLANNER_TOOLS:
+                allowed = set(CODING_PLANNER_TOOLS)
+                workspace = getattr(context, "workspace", None)
+                if workspace and getattr(workspace, "test_via", "") == "run_process":
+                    allowed.add("run_process")
+                if coding and definition.name not in allowed:
                     continue
                 selected.append(definition)
         return selected
@@ -61,11 +67,24 @@ class ToolOrchestrator:
             if device:
                 context.assigned_device_id = device.id
             LocalTaskController().attach(context)
-            LocalTaskController().open(db, context)
+            try:
+                LocalTaskController().open(db, context)
+            except ToolError as error:
+                if error.code == "workspace_busy":
+                    context.task_blocked = error.code
+                else:
+                    raise
 
-        def close_task(status="COMPLETED"):
+        def close_task(status=None):
             with SessionLocal() as db:
-                LocalTaskController().finish(db, context, status)
+                if status:
+                    LocalTaskController().finish(db, context, status)
+                else:
+                    LocalTaskController().conclude(db, context)
+
+        if getattr(context, "task_blocked", None) == "workspace_busy":
+            await context.emit("task_status", {"state": "FAILED", "code": "workspace_busy"})
+            return ContextBuilder.with_web(history, insert_at, [], ["Workspace занят другой задачей."])
 
         prompt = getattr(context, "user_prompt", "") or (history[-1]["content"] if history else "")
         tor_mode = effective_tor_mode(context)
@@ -76,7 +95,16 @@ class ToolOrchestrator:
             self._load_previous_tor(context)
         definitions = self.planner_definitions(context)
         if not definitions:
-            close_task()
+            if (
+                getattr(context, "autonomous", False)
+                and getattr(context, "computer_mode", "off") != "off"
+                and not context.host_online
+            ):
+                with SessionLocal() as db:
+                    LocalTaskController().waiting_device(db, context)
+                await context.emit("task_status", {"state": "WAITING_DEVICE", "code": "host_offline"})
+            else:
+                close_task()
             return history
         if not getattr(provider, "supports_tools", False):
             close_task()
@@ -140,25 +168,90 @@ class ToolOrchestrator:
             + previous
             + coding
         )
+        with SessionLocal() as db:
+            policy += LocalTaskController().context_prompt(db, context)
+        if getattr(context, "task_id", None):
+            with SessionLocal() as db:
+                row = LocalTaskController()._row(db, context)
+                if row:
+                    await context.emit("task", LocalTaskController().public(db, row))
         planning = [{"role": "system", "content": policy}, history[-1]]
         notes = []
         await context.emit("web_status", {"state": "planning"})
+        empty_rounds = 0
         try:
             while context.limits.calls < context.limits.max_calls and context.limits.remaining > 0:
+                halt = LocalTaskController().blocked(context)
+                if halt == "task_paused":
+                    with SessionLocal() as db:
+                        LocalTaskController().pause(db, context)
+                    break
+                if halt == "task_stopped":
+                    with SessionLocal() as db:
+                        LocalTaskController().stop(db, context)
+                    break
+                if halt in {"host_offline", "llm_unavailable"}:
+                    notes.append("Task is waiting to recover.")
+                    break
+                if halt in {"task_budget", "task_runtime_limit", "task_file_limit"}:
+                    notes.append("Task budget exhausted.")
+                    with SessionLocal() as db:
+                        row = LocalTaskController()._row(db, context)
+                        if row:
+                            row.last_error = halt
+                            LocalTaskController().finish(db, context, "FAILED")
+                    break
                 try:
                     import asyncio
 
                     async with asyncio.timeout(context.limits.remaining):
                         decision = await provider.plan_tools(planning, tools, usage)
                 except asyncio.CancelledError:
+                    with SessionLocal() as db:
+                        if getattr(context, "stop_requested", False):
+                            LocalTaskController().stop(db, context)
+                        else:
+                            LocalTaskController().checkpoint(db, context, "INTERRUPTED")
                     raise
+                except LLMError as error:
+                    notes.append("LLM temporarily unavailable. Task is recoverable.")
+                    with SessionLocal() as db:
+                        LocalTaskController().waiting_llm(db, context, error.code)
+                    await context.emit("task_status", {"state": "WAITING_LLM", "code": error.code})
+                    break
                 except Exception:
                     notes.append("No web results available for this step: planning failed.")
                     await context.emit("web_status", {"state": "failed", "code": "planning_failed"})
                     break
                 calls = decision.get("tool_calls", [])
                 if not calls:
+                    empty_rounds += 1
+                    forced = LocalTaskController().next_forced_action(context)
+                    if forced and empty_rounds <= 4:
+                        name, arguments = forced
+                        output = await self._run(
+                            name,
+                            json.dumps(arguments, ensure_ascii=False),
+                            context,
+                            notes,
+                            origin="server_policy",
+                        )
+                        planning.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": f"server_verify_{empty_rounds}",
+                                "content": sanitized(
+                                    json.dumps(output, default=str, ensure_ascii=False),
+                                    context.secrets,
+                                    context.limits.max_chars,
+                                ),
+                            }
+                        )
+                        with SessionLocal() as db:
+                            LocalTaskController().maybe_revise_plan(db, context)
+                        continue
                     break
+                empty_rounds = 0
                 if not isinstance(calls, list) or len(calls) > context.limits.max_calls:
                     notes.append("Tool call limit reached.")
                     break
@@ -177,6 +270,10 @@ class ToolOrchestrator:
                     break
                 planning.append({"role": "assistant", "content": None, "tool_calls": assistant_calls})
                 for call in assistant_calls:
+                    halt = LocalTaskController().blocked(context)
+                    if halt:
+                        notes.append("Task paused or stopped before the next tool.")
+                        break
                     function = call["function"]
                     output = await self._run(
                         function.get("name", ""),
@@ -319,7 +416,20 @@ class ToolOrchestrator:
         if tor_intent.required and not context.sources:
             notes.append("No Tor results available. Do not claim to have checked Tor.")
         await context.emit("web_status", {"state": "finishing", "sources": len(context.sources)})
-        close_task()
+        halt = LocalTaskController().blocked(context)
+        if halt in {"task_budget", "task_runtime_limit", "task_file_limit"}:
+            with SessionLocal() as db:
+                row = LocalTaskController()._row(db, context)
+                if row:
+                    row.last_error = halt
+                    LocalTaskController().finish(db, context, "FAILED")
+        else:
+            close_task()
+        if getattr(context, "task_id", None):
+            with SessionLocal() as db:
+                row = LocalTaskController()._row(db, context)
+                if row:
+                    await context.emit("task", LocalTaskController().public(db, row))
         return ContextBuilder.with_web(history, insert_at, context.sources, notes)
 
     def _tor_browser_allowed(self, context, prompt):
@@ -448,6 +558,9 @@ class ToolOrchestrator:
                 context.tor_candidates.append({**link, "depth": int(details.get("depth") or 0) + 1})
 
     async def _run(self, name, arguments, context, notes, origin):
+        from ..database import SessionLocal
+        from .local.task import LocalTaskController
+
         try:
             result = await self.executor.execute(name, arguments, context, origin=origin)
             output = {
@@ -483,17 +596,37 @@ class ToolOrchestrator:
                 output["metadata"] = meta
             if result.errors:
                 notes.append("Some operations failed: " + ", ".join(result.errors))
-            return output
+            packed = compact_tool_output(name, output, context.secrets, min(4000, context.limits.max_chars))
+            with SessionLocal() as db:
+                LocalTaskController().observe_tool(db, context, name, packed)
+                LocalTaskController().maybe_revise_plan(db, context)
+                row = LocalTaskController()._row(db, context)
+                if row:
+                    await context.emit("task", LocalTaskController().public(db, row))
+            if name in {"tor_browser"}:
+                with SessionLocal() as db:
+                    row = LocalTaskController()._row(db, context)
+                    if row:
+                        row.checkpoint = {**(row.checkpoint or {}), "owned_browser": True}
+                        db.commit()
+            return packed
         except ToolError as error:
             context.limits.calls = max(context.limits.calls, len(notes) + 1)
             web = name.startswith("web_") or name.startswith("tor_")
             notes.append(("No web results available: " if web else "Local step failed: ") + error.code)
             if web:
                 await context.emit("web_status", {"state": "failed", "code": error.code})
-            return {
+            packed = {
                 "error": error.code,
                 "text": "Operation did not complete."
                 if not web
                 else "No web results available for this operation.",
                 "origin": origin,
             }
+            with SessionLocal() as db:
+                LocalTaskController().observe_tool(db, context, name, packed, error=error.code)
+                LocalTaskController().maybe_revise_plan(db, context)
+                row = LocalTaskController()._row(db, context)
+                if row:
+                    await context.emit("task", LocalTaskController().public(db, row))
+            return packed
