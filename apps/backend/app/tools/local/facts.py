@@ -25,6 +25,7 @@ ALLOWED_KINDS = {
     "PROCESS_STARTED",
     "PROCESS_STOPPED",
     "BROWSER_PAGE",
+    "BROWSER_ERROR",
     "RESEARCH_SOURCE",
     "DIRECTORY_CREATED",
     "KNOWN_FOLDERS",
@@ -111,7 +112,9 @@ def public_block(facts: dict) -> str:
             lines.append(f"file_created path={item.get('path')} exists=true")
         elif kind == "FILE_WRITTEN":
             lines.append(
-                f"file_written path={item.get('path')} after_sha={item.get('after_sha') or ''} exists=true"
+                f"file_written path={item.get('path')} after_sha={item.get('after_sha') or ''} "
+                f"expected_sha={item.get('expected_sha256') or ''} verified={item.get('verified')} "
+                f"content={item.get('content_excerpt') or ''} exists=true"
             )
         elif kind == "FILE_FOUND":
             lines.append(f"file_found query={item.get('query')} path={item.get('path')}")
@@ -141,6 +144,11 @@ def public_block(facts: dict) -> str:
             lines.append(
                 f"browser_page url={item.get('url')} title={item.get('title')} source={item.get('source_id')}"
             )
+        elif kind == "BROWSER_ERROR":
+            lines.append(
+                f"browser_error code={item.get('error_code')} status={item.get('session_status')} "
+                f"url={item.get('url') or ''}"
+            )
         elif kind == "RESEARCH_SOURCE":
             lines.append(
                 f"research_source id={item.get('label')} url={item.get('url')} "
@@ -163,12 +171,12 @@ def from_tool(facts: dict, name: str, output: dict, arguments=None, tool_run_id=
     path = str(meta.get("path") or args.get("path") or args.get("destination") or "")
     payload = facts or {}
     if name == "read_file" and text:
-        digest = str(meta.get("sha256") or meta.get("before_sha256") or "")
+        digest = _digest_hex(meta.get("sha256") or meta.get("before_sha256") or "")
         body = text
         if body.lower().startswith("sha256="):
             first, _, rest = body.partition("\n")
-            if not digest and "=" in first:
-                digest = first.split("=", 1)[1].strip()
+            if not digest:
+                digest = _digest_hex(first.split("=", 1)[1] if "=" in first else "")
             body = rest
         payload = record(
             payload,
@@ -181,29 +189,43 @@ def from_tool(facts: dict, name: str, output: dict, arguments=None, tool_run_id=
             payload = record(
                 payload,
                 "HASH_RESULT",
-                {"path": path, "algorithm": "sha256", "digest": digest},
+                {"path": path, "algorithm": "sha256", "digest": digest, "verified": True},
                 tool=name,
                 tool_run_id=tool_run_id,
             )
     elif name == "hash_file":
-        digest = str(
-            meta.get("digest") or meta.get("sha256") or (text.strip().split()[-1] if text.strip() else "")
+        digest = _digest_hex(
+            meta.get("digest") or meta.get("sha256") or text,
         )
+        if not digest:
+            return payload
         payload = record(
             payload,
             "HASH_RESULT",
-            {"path": path, "algorithm": "sha256", "digest": digest},
+            {
+                "path": path,
+                "algorithm": "sha256",
+                "digest": digest,
+                "verified": True,
+            },
             tool=name,
             tool_run_id=tool_run_id,
         )
     elif name == "write_file":
+        expected = str(meta.get("expected_sha256") or "")
+        actual = str(meta.get("after_sha256") or meta.get("after_sha") or "")
+        verified = bool(meta.get("verified")) or (expected and expected == actual)
+        content = str(args.get("content") or meta.get("content_excerpt") or "")[:1500]
         payload = record(
             payload,
             "FILE_CREATED" if not meta.get("before_sha256") else "FILE_WRITTEN",
             {
                 "path": path,
                 "before_sha": meta.get("before_sha256"),
-                "after_sha": meta.get("after_sha256"),
+                "after_sha": actual,
+                "expected_sha256": expected,
+                "verified": verified,
+                "content_excerpt": content,
                 "exists": True,
             },
             tool=name,
@@ -286,6 +308,18 @@ def from_tool(facts: dict, name: str, output: dict, arguments=None, tool_run_id=
             tool=name,
             tool_run_id=tool_run_id,
         )
+    elif name == "web_browser" and (output or {}).get("error"):
+        payload = record(
+            payload,
+            "BROWSER_ERROR",
+            {
+                "error_code": (output or {}).get("error") or meta.get("error_code"),
+                "session_status": meta.get("session_status") or "FAILED",
+                "url": meta.get("current_url") or args.get("url") or "",
+            },
+            tool=name,
+            tool_run_id=tool_run_id,
+        )
     elif name == "web_browser" and (output or {}).get("sources"):
         source = (output.get("sources") or [{}])[0]
         payload = record(
@@ -313,6 +347,14 @@ def from_tool(facts: dict, name: str, output: dict, arguments=None, tool_run_id=
                 tool_run_id=tool_run_id,
             )
     return payload
+
+
+def _digest_hex(value) -> str:
+    token = str(value or "").strip()
+    if re.fullmatch(r"[0-9a-fA-F]{64}", token):
+        return token.lower()
+    match = re.search(r"\b([0-9a-fA-F]{64})\b", token)
+    return match.group(1).lower() if match else ""
 
 
 def _kv(text: str, key: str) -> str:

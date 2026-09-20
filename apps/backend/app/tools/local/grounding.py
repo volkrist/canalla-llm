@@ -15,6 +15,12 @@ DENIAL = re.compile(
     r"you need to install jq yourself"
     r")"
 )
+BROWSER_DENIAL = re.compile(
+    r"(?i)("
+    r"don't have a browser|do not have a browser|no browser tool|"
+    r"нет браузер|браузер недоступ|i (can't|cannot|don't) .{0,24}browser"
+    r")"
+)
 HEX64 = re.compile(r"\b[a-fA-F0-9]{64}\b")
 
 
@@ -42,22 +48,39 @@ def contradiction(text: str, facts: dict) -> str | None:
         r"(?i)install jq yourself|установите jq сами|you need to install", value
     ):
         return "ignores_verified_install"
+    if BROWSER_DENIAL.search(value) and any(
+        item.get("kind") in {"BROWSER_PAGE", "BROWSER_ERROR"} for item in items
+    ):
+        return "denies_verified_browser"
     return None
 
 
 def incomplete(text: str, facts: dict, prompt: str) -> str | None:
     value = text or ""
     asked = prompt or ""
-    digest = (latest(facts, "HASH_RESULT") or {}).get("digest")
-    if digest and re.search(r"(?i)sha256|хеш|hash", asked) and digest.casefold() not in value.casefold():
+    digest = (latest(facts, "HASH_RESULT") or {}).get("digest") or ""
+    if (
+        HEX64.fullmatch(str(digest))
+        and re.search(r"(?i)sha256|хеш|hash", asked)
+        and digest.casefold() not in value.casefold()
+    ):
         return "missing_hash"
     read = latest(facts, "FILE_READ")
     excerpt = (read or {}).get("content_excerpt") or ""
+    written = latest(facts, "FILE_WRITTEN") or latest(facts, "FILE_CREATED")
+    written_excerpt = (written or {}).get("content_excerpt") or ""
     if (
         excerpt
         and re.search(r"(?i)прочитай|перечитай|что внутри|что записано|read (the )?file|содержим", asked)
         and excerpt[:24].strip()
         and excerpt[:24].strip() not in value
+    ):
+        return "missing_file_content"
+    if (
+        written_excerpt
+        and re.search(r"(?i)создай|запис|create|write|с текстом|with(?: the)? text", asked)
+        and written_excerpt[:24].strip()
+        and written_excerpt[:24].strip() not in value
     ):
         return "missing_file_content"
     info = latest(facts, "SYSTEM_INFO")
@@ -94,9 +117,9 @@ def fallback_answer(facts: dict, prompt: str) -> str:
         name = str(path).replace("\\", "/").rsplit("/", 1)[-1]
         lines.append(f"Файл: {name}" + (f" ({path})" if path else ""))
     digest_item = latest(facts, "HASH_RESULT")
-    if digest_item and re.search(r"(?i)sha256|хеш|hash", asked):
-        if digest_item.get("digest"):
-            lines.append(str(digest_item["digest"]))
+    digest = str((digest_item or {}).get("digest") or "")
+    if digest_item and re.search(r"(?i)sha256|хеш|hash", asked) and HEX64.fullmatch(digest):
+        lines.append(digest)
     read = latest(facts, "FILE_READ")
     if read and re.search(r"(?i)прочитай|перечитай|что внутри|что записано|read (the )?file|содержим", asked):
         content = (read.get("content_excerpt") or "").strip()
@@ -106,10 +129,15 @@ def fallback_answer(facts: dict, prompt: str) -> str:
         if content:
             lines.append(content)
     created = latest(facts, "FILE_CREATED") or latest(facts, "FILE_WRITTEN")
-    if created and re.search(r"(?i)создай|запис", asked):
+    if created and re.search(r"(?i)создай|запис|create|write|с текстом|with(?: the)? text", asked):
         lines.append(f"Создан файл: {created.get('path')}")
-        if read and read.get("content_excerpt"):
-            lines.append(read["content_excerpt"].strip())
+        excerpt = (created.get("content_excerpt") or "").strip() or (
+            (read or {}).get("content_excerpt") or ""
+        ).strip()
+        if excerpt:
+            lines.append(excerpt)
+        if created.get("expected_sha256"):
+            lines.append(f"sha256={created.get('expected_sha256')} verified={created.get('verified')}")
     info = latest(facts, "SYSTEM_INFO")
     if info and re.search(r"(?i)windows|cpu|ram|диск|system", asked):
         lines.append(
@@ -131,6 +159,12 @@ def fallback_answer(facts: dict, prompt: str) -> str:
         url = page.get("url") or ""
         if title or url:
             lines.append(f"{title} {url}".strip())
+    error = latest(facts, "BROWSER_ERROR")
+    if error:
+        lines.append(
+            f"Browser navigation failed: {error.get('error_code') or 'browser_error'} "
+            f"status={error.get('session_status') or 'FAILED'}"
+        )
     if not lines:
         block = public_block(facts)
         return block or "Инструменты выполнены, но проверяемых фактов нет."
@@ -139,7 +173,8 @@ def fallback_answer(facts: dict, prompt: str) -> str:
 
 def goal_met(facts: dict, prompt: str) -> bool:
     asked = prompt or ""
-    if latest(facts, "HASH_RESULT") and re.search(r"(?i)sha256|хеш|hash", asked):
+    digest = str((latest(facts, "HASH_RESULT") or {}).get("digest") or "")
+    if HEX64.fullmatch(digest) and re.search(r"(?i)sha256|хеш|hash", asked):
         return True
     if latest(facts, "FILE_FOUND") and re.search(r"(?i)найди|имя файла|which file", asked):
         return True
@@ -149,10 +184,11 @@ def goal_met(facts: dict, prompt: str) -> bool:
         r"(?i)прочитай|перечитай|что внутри|что записано|read (the )?file|содержим", asked
     ):
         return True
+    written = latest(facts, "FILE_CREATED") or latest(facts, "FILE_WRITTEN")
     if (
-        (latest(facts, "FILE_CREATED") or latest(facts, "FILE_WRITTEN"))
-        and latest(facts, "FILE_READ")
-        and re.search(r"(?i)создай|запис", asked)
+        written
+        and written.get("verified") is not False
+        and re.search(r"(?i)создай|запис|create|write|с текстом|with(?: the)? text", asked)
     ):
         return True
     if latest(facts, "PROCESS_STOPPED") and re.search(r"(?i)останови процесс|stop (the )?process", asked):
@@ -169,6 +205,7 @@ def simple_factual(prompt: str) -> bool:
             r"прочитай|перечитай|что внутри|что записано|sha256|хеш|hash|"
             r"версию windows|cpu|ram|свободное место|"
             r"найди в этой папке|имя файла|"
+            r"создай файл|create .{0,40}file|с текстом|with(?: the)? text|"
             r"создай файл.{0,80}прочитай|"
             r"останови процесс|запусти.{0,40}(процесс|python|sleep)|"
             r"открой в браузере|посмотри страницу в браузере|перейди по ссылке"

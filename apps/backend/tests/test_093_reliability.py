@@ -480,3 +480,130 @@ def test_deterministic_fallback_and_repair_prompt():
     assert "3.13.7 Documentation" in fallback_answer(
         page, "Открой в браузере официальный сайт Python и скажи заголовок следующей страницы."
     )
+
+
+def test_write_routes_preserve_requested_content():
+    root = r"C:\eval\workspace"
+    context = SimpleNamespace(
+        task_scope=SimpleNamespace(primary_root=root), settings=WebSettings(workspace_roots=[root])
+    )
+    write = select_local_route(
+        "Создай в тестовой папке файл notes.txt с текстом ALEX_EVAL_WRITE_OK и потом прочитай его.",
+        context,
+    )
+    assert write.action == "write_file"
+    assert write.arguments["content"] == "ALEX_EVAL_WRITE_OK"
+    assert write.arguments["path"].endswith("notes.txt")
+    assert "\\notes.txt\\notes.txt" not in write.arguments["path"]
+    english = select_local_route("Create notes.txt with the text MARKER_OK in the test folder", context)
+    assert english.action == "write_file"
+    assert english.arguments["content"] == "MARKER_OK"
+    scoped = select_local_route("В тестовой папке создай только файл inside.txt с текстом SCOPE_OK.", context)
+    assert scoped.action == "write_file" and scoped.arguments["content"] == "SCOPE_OK"
+    queued = select_local_route("Создай файл queue-a.txt с текстом QUEUE_A в тестовой папке.", context)
+    assert queued.action == "write_file" and queued.arguments["content"] == "QUEUE_A"
+
+
+def test_hash_ignores_non_hex_host_text():
+    failed = from_tool({}, "hash_file", {"text": "read_failed", "metadata": {"path": r"C:\t\hello.txt"}})
+    assert latest(failed, "HASH_RESULT") is None
+    digest = "a" * 64
+    ok = from_tool(
+        {}, "hash_file", {"text": digest, "metadata": {"digest": digest, "path": r"C:\t\hello.txt"}}
+    )
+    assert latest(ok, "HASH_RESULT")["digest"] == digest
+    assert digest in fallback_answer(ok, "What is the SHA256 of hello.txt?")
+
+
+def test_write_file_on_disk_and_paraphrase(setup):
+    handled, root, context, _events, _host = _run(
+        setup,
+        "Создай в тестовой папке файл notes.txt с текстом ALEX_EVAL_WRITE_OK и потом прочитай его. Скажи, что именно записано.",
+    )
+    path = root / "notes.txt"
+    assert path.read_text(encoding="utf-8") == "ALEX_EVAL_WRITE_OK"
+    assert "write_file" in handled
+    with SessionLocal() as db:
+        row = db.get(LocalTask, context.task_id)
+        text = fallback_answer(row.facts, context.user_prompt)
+        assert "ALEX_EVAL_WRITE_OK" in text
+        written = latest(row.facts, "FILE_CREATED") or latest(row.facts, "FILE_WRITTEN")
+        assert written and written.get("verified") is not False
+
+
+def test_coding_red_baseline_without_patch_cannot_complete():
+    controller = LocalTaskController()
+    row = SimpleNamespace(
+        original_user_request="В тестовом проекте divide считает неправильно. Исправь и прогони тесты.",
+        facts={
+            "baseline_tests": False,
+            "tests_passed": True,
+            "verified": [{"kind": "FILE_READ", "path": "app.py"}],
+            "verification_stale": False,
+        },
+        verification={"tests": "passed", "git_reviewed": True},
+        tool_calls_used=4,
+        checkpoint={"commands": [{"tool": "run_python"}]},
+        success_criteria={},
+    )
+    review = controller.final_review(row)
+    assert review["ok"] is False
+    assert review["reason"] == "no_effective_change"
+
+
+def test_coding_stale_verification_blocks_complete():
+    controller = LocalTaskController()
+    row = SimpleNamespace(
+        original_user_request="В тестовом проекте падают тесты. Найди синтаксическую ошибку, исправь и проверь.",
+        facts={
+            "baseline_tests": False,
+            "tests_passed": False,
+            "verification_stale": True,
+            "file_hashes": {"app.py": "abc"},
+            "verified": [],
+        },
+        verification={"tests": "stale", "git_reviewed": True},
+        tool_calls_used=5,
+        checkpoint={"commands": [{"tool": "patch_file"}]},
+        success_criteria={},
+    )
+    review = controller.final_review(row)
+    assert review["ok"] is False
+    assert review["reason"] in {"verification_required", "tests_not_verified"}
+
+
+def test_tor_only_policy_rejects_clearnet():
+    from app.tools.contracts import ToolError
+    from app.tools.policy import ToolPolicy
+    from app.tools.registry import make_registry
+
+    search = make_registry().get("web_search")[0]
+    policy = ToolPolicy()
+    with pytest.raises(ToolError, match="tor_route_violation_blocked"):
+        policy.validate(
+            search,
+            WebSettings(),
+            mode="on",
+            network_route="TOR_ONLY",
+            args=search.input_model(query="onion"),
+        )
+    names = {
+        item.name
+        for item in orch().planner_definitions(
+            SimpleNamespace(
+                user_prompt="Через Tor найди onion-сервис Tor Project.",
+                mode="on",
+                settings=WebSettings(),
+                computer_mode="off",
+                host_online=False,
+                assigned_device_id=None,
+                coding_task=False,
+                sources=[],
+                tor_enabled=True,
+                tor_mode="auto",
+            )
+        )
+    }
+    assert "web_search" not in names
+    assert "web_fetch" not in names
+    assert "web_browser" not in names

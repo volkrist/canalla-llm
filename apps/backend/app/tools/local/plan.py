@@ -10,7 +10,7 @@ COMPUTER_HINT = (
     r"(?i)("
     r"рабоч(ий|ем)\s+стол|desktop|"
     r"alex-llm-e2e|hello\.txt|grounded\.txt|"
-    r"создай.*(папк|файл|директор)|"
+    r"создай.*(папк|файл|директор)|create.{0,40}file|with(?: the)? text|"
     r"установи.*(jq|winget|програм)|"
     r"посчитай.*(sha256|хеш|hash)|sha256|hash_file|"
     r"перечитай|скопируй файл|перемест|"

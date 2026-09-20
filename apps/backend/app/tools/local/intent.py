@@ -8,6 +8,11 @@ from .plan import looks_like_computer
 PATH = re.compile(r'(?:[A-Za-z]:\\|\\\\)[^\s"<>|*?]{3,240}')
 MARKER = re.compile(r"ALEX_[A-Z0-9_]{4,}")
 FILENAME = re.compile(r"\b([\w.\-]+\.(?:txt|md|json|py|log|csv))\b", re.I)
+CONTENT_PHRASE = re.compile(
+    r"(?i)(?:"
+    r"с текстом|with(?: the)? text|containing|содерж(?:ащ(?:им|ий|ее)?|ит)"
+    r")\s+(?:[«\"']([^\"'«»]+)[»\"']|(\S+))"
+)
 
 
 @dataclass(frozen=True)
@@ -36,10 +41,40 @@ def marker(prompt: str) -> str:
     return match.group(0) if match else ""
 
 
+def requested_file_content(prompt: str) -> str:
+    text = prompt or ""
+    match = CONTENT_PHRASE.search(text)
+    if match:
+        value = (match.group(1) or match.group(2) or "").strip(" «»\"',.;:")
+        if value and not re.search(r"[\\/]", value):
+            return value
+    token = marker(text)
+    if token:
+        return token
+    for match in re.finditer(r"[«\"']([^\"'«»]{1,400})[»\"']", text):
+        value = match.group(1).strip()
+        if value and not re.search(r"[\\/]|\.txt$", value, re.I) and " " not in value:
+            return value
+    return ""
+
+
+def _join(root: str, name: str) -> str:
+    if not name:
+        return root or ""
+    if re.match(r"(?:[A-Za-z]:\\|\\\\|/)", name):
+        return name.replace("/", "\\")
+    if root:
+        trimmed = root.rstrip("\\/")
+        return trimmed + "\\" + name
+    return name
+
+
 def select_local_route(prompt: str, context=None) -> LocalDecision:
     text = prompt or ""
     if not looks_like_computer(text) and not re.search(
-        r"(?i)прочитай файл|sha256|get_system_info|останови процесс|найди в этой папке", text
+        r"(?i)прочитай файл|sha256|get_system_info|останови процесс|найди в этой папке|"
+        r"create .{0,40}file|write .{0,20}file|with(?: the)? text",
+        text,
     ):
         return LocalDecision(None, {}, "not_local")
     scope = getattr(context, "task_scope", None)
@@ -50,7 +85,7 @@ def select_local_route(prompt: str, context=None) -> LocalDecision:
         root = roots[0]
     path = quoted_path(text)
     name = filename(text)
-    target = path or (f"{root}\\{name}" if root and name else name)
+    target = path or (_join(root, name) if name else "")
     token = marker(text)
     if re.search(r"(?i)останови процесс|stop (the )?process", text):
         owned = getattr(context, "owned_process", None) if context is not None else None
@@ -85,7 +120,7 @@ def select_local_route(prompt: str, context=None) -> LocalDecision:
             )
     if re.search(r"(?i)скопируй", text) and path:
         dest = filename(text) or "copy.txt"
-        dest_path = dest if "\\" in dest else f"{root}\\{dest}" if root else dest
+        dest_path = dest if "\\" in dest or "/" in dest else _join(root, dest)
         return LocalDecision(
             "copy_file", {"source": path, "destination": dest_path, "purpose": "copy"}, "copy_file"
         )
@@ -94,26 +129,16 @@ def select_local_route(prompt: str, context=None) -> LocalDecision:
         return LocalDecision(
             "move_file", {"source": path, "destination": dest, "purpose": "move"}, "move_file"
         )
-    if re.search(r"(?i)создай.{0,24}папк|create.{0,24}folder|create_directory", text):
-        folder = path or (f"{root}\\{name}" if root and name else target)
-        if folder:
-            extra = ()
-            if name and re.search(r"(?i)файл|\.txt", text):
-                extra = (
-                    (
-                        "write_file",
-                        {"path": f"{folder}\\{name}" if "\\" not in name else name, "content": ""},
-                    ),
-                )
-            return LocalDecision(
-                "create_directory", {"path": folder, "purpose": "create folder"}, "create_directory", extra
-            )
-    if re.search(r"(?i)создай.{0,40}файл|write_file|запис", text) and (target or name):
-        content = "GROUNDING_REAL_PASS" if "GROUNDING_REAL_PASS" in text else ""
-        match = re.search(r"(?i)с текстом\s+(\S+)", text)
-        if match:
-            content = match.group(1).strip(" «»\"',.;:")
-        path_write = target or (f"{root}\\{name}" if root and name else name)
+    creating_file = bool(
+        re.search(
+            r"(?i)создай.{0,80}файл|write_file|запис.{0,40}файл|create.{0,40}file|с текстом|with(?: the)? text",
+            text,
+        )
+        and (target or name)
+    )
+    if creating_file:
+        content = requested_file_content(text)
+        path_write = target or _join(root, name)
         extra = (("read_file", {"path": path_write, "purpose": "verify write"}),)
         return LocalDecision(
             "write_file",
@@ -121,6 +146,21 @@ def select_local_route(prompt: str, context=None) -> LocalDecision:
             "write_file",
             extra,
         )
-    if re.search(r"(?i)перечитай|прочитай|что внутри|что записано", text) and target:
+    if re.search(r"(?i)создай.{0,24}папк|create.{0,24}folder|create_directory", text) and not re.search(
+        r"(?i)файл|\.txt", text
+    ):
+        folder = path or (_join(root, name) if name else target)
+        if folder:
+            return LocalDecision(
+                "create_directory", {"path": folder, "purpose": "create folder"}, "create_directory"
+            )
+    if re.search(r"(?i)установи|install .{0,12}(jq|winget)|winget install", text):
+        package = "jqlang.jq" if re.search(r"(?i)\bjq\b", text) else "JanDeDobbeleer.OhMyPosh"
+        return LocalDecision(
+            "install_software",
+            {"package": package, "purpose": "install requested package"},
+            "install_software",
+        )
+    if re.search(r"(?i)перечитай|прочитай|что внутри|что записано|read (the )?file", text) and target:
         return LocalDecision("read_file", {"path": target, "purpose": "read requested file"}, "read_file")
     return LocalDecision(None, {}, "ambiguous_local")
