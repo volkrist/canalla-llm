@@ -18,6 +18,7 @@ from .security import sanitized
 from .tor.router import (
     classify_tor,
     effective_tor_mode,
+    looks_like_tor,
     normalize_http_url,
     onion_urls_from_prompt,
     pick_follow_urls,
@@ -39,9 +40,11 @@ class ToolOrchestrator:
         coding = bool(getattr(context, "coding_task", False) or looks_like_coding(prompt))
         tor_mode = effective_tor_mode(context)
         tor_intent = classify_tor(prompt, tor_mode)
-        want_tor = bool(tor_intent.allowed)
+        want_tor = bool(tor_intent.allowed) or looks_like_tor(prompt)
         for definition in self.registry.definitions():
             capability = definition.capability
+            if want_tor and capability in {"search", "fetch", "agent", "browser"}:
+                continue
             if capability in {"search", "fetch"} and context.mode != "off":
                 from .web_router import classify_web, select_tinyfish_route
 
@@ -131,6 +134,8 @@ class ToolOrchestrator:
         context.tor_mode = tor_mode
         context.tor_enabled = tor_mode != "off"
         tor_intent = classify_tor(prompt, tor_mode)
+        if looks_like_tor(prompt) or tor_intent.required:
+            context.network_route = "TOR_ONLY"
         if tor_intent.continue_research:
             self._load_previous_tor(context)
         definitions = self.planner_definitions(context)
@@ -459,7 +464,13 @@ class ToolOrchestrator:
             from .web_router import select_tinyfish_route
 
             paid_route = select_tinyfish_route(prompt, context).paid
-            skip_cheap_web = paid_route in {"browser", "agent"} or looks_like_computer(prompt)
+            skip_cheap_web = (
+                paid_route in {"browser", "agent"}
+                or looks_like_computer(prompt)
+                or getattr(context, "network_route", "") == "TOR_ONLY"
+                or tor_intent.required
+                or looks_like_tor(prompt)
+            )
             if (
                 intent.required
                 and not tor_intent.required
@@ -575,7 +586,10 @@ class ToolOrchestrator:
         from .tor.router import classify_tor, effective_tor_mode
         from .web_router import classify_web, select_tinyfish_route
 
-        if classify_tor(prompt, effective_tor_mode(context)).allowed:
+        if (
+            getattr(context, "network_route", "") == "TOR_ONLY"
+            or classify_tor(prompt, effective_tor_mode(context)).allowed
+        ):
             return False
         if mode == "auto":
             return False
@@ -607,6 +621,8 @@ class ToolOrchestrator:
         if getattr(context, "mode", "off") == "off":
             return ""
         settings = getattr(context, "settings", None)
+        if getattr(context, "network_route", "") == "TOR_ONLY":
+            return first_source_url(getattr(context, "sources", None))
         if not settings or not settings.search_enabled or getattr(context, "web_search_done", False):
             return first_source_url(getattr(context, "sources", None))
         await self._run(
@@ -634,7 +650,11 @@ class ToolOrchestrator:
         )
 
     async def _maybe_tinyfish_paid(self, context, notes, prompt, tor_intent, planning=None):
-        if tor_intent.required or getattr(context, "mode", "off") == "off":
+        if (
+            tor_intent.required
+            or getattr(context, "network_route", "") == "TOR_ONLY"
+            or getattr(context, "mode", "off") == "off"
+        ):
             return
         from .tinyfish.classify import looks_like_browser_task
         from .web_router import first_source_url, select_tinyfish_route

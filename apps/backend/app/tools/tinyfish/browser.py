@@ -276,13 +276,16 @@ class TinyFishBrowserProvider(ToolProvider):
     async def terminate_supplier(self, session_id):
         if not self.client.settings.tinyfish_browser_delete_supported:
             return False
-        try:
-            value = await self.client.request(
-                "DELETE", BROWSER + "/" + quote(session_id, safe=""), timeout=10
-            )
-            return value.get("terminated") is True
-        except ToolError:
-            return False
+        for _ in range(2):
+            try:
+                value = await self.client.request(
+                    "DELETE", BROWSER + "/" + quote(session_id, safe=""), timeout=10
+                )
+                if value.get("terminated") is True:
+                    return True
+            except ToolError:
+                continue
+        return False
 
     async def watchdog(self, session_id, owner, seconds):
         deadline = time.monotonic() + max(5, seconds)
@@ -413,6 +416,16 @@ class TinyFishBrowserProvider(ToolProvider):
             "browser_session_id": session_id,
         }
 
+    def _result_meta(self, session, extra=None, *, status="READY", error_code=None):
+        payload = {
+            "session_id": session.session_id if session else "",
+            "session_status": status,
+            "error_code": error_code,
+        }
+        if extra:
+            payload.update(extra)
+        return {key: value for key, value in payload.items() if value is not None}
+
     async def web_execute(self, args: WebBrowserArgs, context):
         if args.operation == "open":
             if not args.url:
@@ -430,7 +443,16 @@ class TinyFishBrowserProvider(ToolProvider):
                         text=sanitized(f"{title}\n{snapshot}", context.secrets, 6000),
                         sources=[self._source(url, title, snapshot, links, existing.session_id)],
                         provider_run_id=existing.session_id,
-                        metadata={"session_id": existing.session_id, "links": self._public_links(links)[:12]},
+                        metadata=self._result_meta(
+                            existing,
+                            {
+                                "links": self._public_links(links)[:12],
+                                "current_url": url,
+                                "title": title,
+                                "page_text_excerpt": snapshot[:1500],
+                                "navigation_history": [url] if url else [],
+                            },
+                        ),
                     )
             started = await self.execute(BrowserStartArgs(url=args.url), context)
             session = self.owned(started.metadata["session_id"], context.user_id)
@@ -439,19 +461,27 @@ class TinyFishBrowserProvider(ToolProvider):
                 text=sanitized(f"{title}\n{snapshot}", context.secrets, 6000),
                 sources=[self._source(url, title, snapshot, links, session.session_id)],
                 provider_run_id=session.session_id,
-                metadata={
-                    **started.metadata,
-                    "session_id": session.session_id,
-                    "links": self._public_links(links)[:12],
-                    "started_by_alex": True,
-                },
+                metadata=self._result_meta(
+                    session,
+                    {
+                        **started.metadata,
+                        "links": self._public_links(links)[:12],
+                        "started_by_alex": True,
+                        "current_url": url,
+                        "title": title,
+                        "page_text_excerpt": snapshot[:1500],
+                        "navigation_history": [url] if url else [],
+                    },
+                ),
             )
         if args.operation == "close":
             session = self._owned_session(context.user_id)
             if not session:
                 raise ToolError("not_found")
+            stopped = await self.stop(session.session_id, context.user_id)
             return ToolResult(
-                text="Browser session closed.", metadata=await self.stop(session.session_id, context.user_id)
+                text="Browser session closed.",
+                metadata={**stopped, "session_status": "CLOSED", "error_code": None},
             )
         session = self._owned_session(context.user_id)
         if not session:
@@ -480,7 +510,16 @@ class TinyFishBrowserProvider(ToolProvider):
                 text=sanitized(text, context.secrets, 6000),
                 sources=[self._source(url, title, snapshot, links, session.session_id)],
                 provider_run_id=session.session_id,
-                metadata={"session_id": session.session_id, "links": self._public_links(links)[:12]},
+                metadata=self._result_meta(
+                    session,
+                    {
+                        "links": self._public_links(links)[:12],
+                        "current_url": url,
+                        "title": title,
+                        "page_text_excerpt": snapshot[:1500],
+                        "navigation_history": [url] if url else [],
+                    },
+                ),
             )
 
 

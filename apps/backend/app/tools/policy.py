@@ -314,6 +314,7 @@ class ToolPolicy:
         computer_mode="off",
         tor_enabled=False,
         tor_mode="off",
+        network_route="",
         explicit=False,
         confirmed=False,
         args=None,
@@ -322,6 +323,8 @@ class ToolPolicy:
         if capability in WEB_CAPABILITIES and mode == "off":
             raise ToolError("web_disabled")
         mode_tor = tor_mode if tor_mode in {"off", "auto", "on"} else ("auto" if tor_enabled else "off")
+        if network_route == "TOR_ONLY" and capability in WEB_CAPABILITIES:
+            raise ToolError("tor_route_violation_blocked")
         if capability in TOR_CAPABILITIES and mode_tor == "off":
             raise ToolError("tor_disabled")
         if capability == "tor_browser" and getattr(settings, "tor_browser_mode", "auto") == "off":
