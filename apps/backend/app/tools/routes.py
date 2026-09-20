@@ -279,38 +279,27 @@ def run(key: str, user: User = Depends(current_user), db: Session = Depends(get_
 class Confirmation(BaseModel):
     model_config = ConfigDict(extra="forbid")
     allow: bool
+    digest: str | None = Field(default=None, max_length=64)
+
+
+def _confirm_error(error: ToolError):
+    status = 404 if error.code == "not_found" else 409
+    raise HTTPException(status, detail={"code": error.code, "message": error.code}) from error
 
 
 @router.post("/tools/runs/{key}/confirm")
 def confirm(key: str, body: Confirmation, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    row = db.scalar(select(ToolRun).where(ToolRun.id == key, ToolRun.user_id == user.id))
-    if not row:
-        raise HTTPException(404, "Запуск не найден")
-    values = (
-        {"status": "approved", "confirmed_at": now()}
-        if body.allow
-        else {
-            "status": "stopped",
-            "cancelled_at": now(),
-            "finished_at": now(),
-            "error_code": "confirmation_denied",
-            "result_metadata": {**row.result_metadata, "reserved_budget": 0},
-        }
-    )
-    changed = db.execute(
-        update(ToolRun)
-        .where(
-            ToolRun.id == key,
-            ToolRun.user_id == user.id,
-            ToolRun.status == "waiting_confirmation",
-            ToolRun.started_at >= now() - timedelta(minutes=5),
-        )
-        .values(**values)
-        .execution_options(synchronize_session=False)
-    )
+    from .confirmation import confirm_allow, confirm_deny
+
+    try:
+        if body.allow:
+            confirm_allow(db, run_id=key, user_id=user.id, digest_value=body.digest)
+        else:
+            confirm_deny(db, run_id=key, user_id=user.id)
+    except ToolError as error:
+        db.rollback()
+        _confirm_error(error)
     db.commit()
-    if changed.rowcount != 1:
-        raise HTTPException(409, "Подтверждение уже использовано или истекло")
     return {"status": "approved" if body.allow else "stopped"}
 
 

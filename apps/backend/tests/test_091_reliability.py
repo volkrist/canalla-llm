@@ -464,5 +464,5 @@ def test_payload_mutation_invalidates_approval(setup, pages):
             client.post(f"/tools/runs/{value['id']}/confirm", headers=headers, json={"allow": True})
 
     context.emit = allow
-    with pytest.raises(ToolError, match="confirmation_mismatch"):
+    with pytest.raises(ToolError, match="confirmation_payload_changed"):
         asyncio.run(executor.execute("submit_form", {"url": pages + "/form", "purpose": "submit"}, context))

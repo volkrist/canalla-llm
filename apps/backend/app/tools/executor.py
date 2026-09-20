@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 from dataclasses import dataclass, field
 from datetime import timedelta, timezone
@@ -152,6 +153,7 @@ class ExecutionContext:
     tor_candidates: list = field(default_factory=list)
     tor_queries: list = field(default_factory=list)
     user_prompt: str = ""
+    network_route: str = ""
     workspace: object = None
     task_id: str | None = None
     files_changed: int = 0
@@ -311,6 +313,7 @@ class ToolExecutor:
                 computer_mode=context.computer_mode,
                 tor_enabled=context.tor_enabled,
                 tor_mode=getattr(context, "tor_mode", "off"),
+                network_route=getattr(context, "network_route", "") or "",
                 explicit=context.explicit,
                 args=args,
             )
@@ -369,6 +372,26 @@ class ToolExecutor:
                 task_id=getattr(context, "task_id", None),
             )
             db.add(row)
+            db.flush()
+            if decision == "confirmation_required":
+                from .confirmation import make_envelope, store_envelope
+
+                store_envelope(
+                    row,
+                    make_envelope(
+                        user_id=user.id,
+                        task_id=getattr(context, "task_id", None),
+                        tool_name=definition.name,
+                        risk_level=row.risk_level,
+                        payload=args.model_dump(mode="json"),
+                        confirmation_id=row.id,
+                    ),
+                )
+                row.input_digest = (
+                    (row.result_metadata or {})
+                    .get("confirmation", {})
+                    .get("payload_digest", row.input_digest)
+                )
             db.commit()
             return row.id, prefs
 
@@ -391,6 +414,26 @@ class ToolExecutor:
         ):
             raise ToolError("sensitive_arguments")
         digest_value = digest(args.model_dump(mode="json"), definition.name)
+        if getattr(context, "network_route", "") == "TOR_ONLY" and (
+            definition.capability in {"search", "fetch", "browser", "agent"}
+            or definition.name in {"web_search", "web_fetch", "web_browser", "web_agent"}
+        ):
+            if getattr(context, "task_id", None):
+                from .local.journal import append_event
+                from .local.task import LocalTaskController
+
+                with SessionLocal() as db:
+                    row = LocalTaskController()._row(db, context)
+                    if row:
+                        append_event(
+                            db,
+                            row.id,
+                            "TOR_ROUTE_VIOLATION_BLOCKED",
+                            {"tool": definition.name},
+                            getattr(context, "secrets", ()),
+                        )
+                        db.commit()
+            raise ToolError("tor_route_violation_blocked")
         if definition.name in {"git_commit", "git_push"}:
             from .local.plan import looks_like_commit_request, looks_like_push_request
 
@@ -498,13 +541,42 @@ class ToolExecutor:
                         LocalTaskController().checkpoint(db, context, "WAITING_CONFIRMATION")
                     await self.wait_confirmation(run_id, context)
                 # Revalidate permissions and the immutable payload immediately before execution.
+                from .confirmation import consume_if_valid, envelope_of, payload_digest
+
+                execution_payload = args.model_dump(mode="json")
+                execution_digest = payload_digest(definition.name, execution_payload)
                 with SessionLocal() as db:
                     row = db.get(ToolRun, run_id)
                     fresh = preferences(db, context.user_id)
                     if row.status == "stopped":
                         raise ToolError("cancelled")
-                    if row.input_digest != digest(args.model_dump(mode="json"), definition.name):
-                        raise ToolError("confirmation_mismatch")
+                    if waiting:
+                        consume_if_valid(
+                            db,
+                            run_id=run_id,
+                            user_id=context.user_id,
+                            expected_digest=execution_digest,
+                        )
+                        row = db.get(ToolRun, run_id)
+                    elif row.input_digest != execution_digest:
+                        raise ToolError("confirmation_payload_changed")
+                    host_args = (row.result_metadata or {}).get("host_args")
+                    envelope = envelope_of(row)
+                    canonical = envelope.get("canonical_payload")
+                    if (
+                        host_args is not None
+                        and payload_digest(definition.name, host_args) != execution_digest
+                    ):
+                        raise ToolError("confirmation_payload_changed")
+                    if (
+                        canonical is not None
+                        and payload_digest(definition.name, canonical) != execution_digest
+                    ):
+                        raise ToolError("confirmation_payload_changed")
+                    if canonical is not None:
+                        metadata = dict(row.result_metadata or {})
+                        metadata["host_args"] = canonical
+                        row.result_metadata = metadata
                     if (
                         self.policy.validate(
                             definition,
@@ -513,6 +585,7 @@ class ToolExecutor:
                             computer_mode=context.computer_mode,
                             tor_enabled=context.tor_enabled,
                             tor_mode=getattr(context, "tor_mode", "off"),
+                            network_route=getattr(context, "network_route", "") or "",
                             explicit=context.explicit,
                             confirmed=row.confirmed_at is not None,
                             args=args,
@@ -563,6 +636,19 @@ class ToolExecutor:
                 if definition.capability == "tor_fetch":
                     self._guard_tor_fetch(args, context)
                 result = await provider.execute(args, context)
+                if definition.name == "write_file":
+                    intended = (getattr(args, "content", "") or "").encode("utf-8")
+                    expected_sha = hashlib.sha256(intended).hexdigest()
+                    actual = str((result.metadata or {}).get("after_sha256") or "")
+                    if actual != expected_sha:
+                        raise ToolError("write_verification_failed")
+                    result.metadata = {
+                        **(result.metadata or {}),
+                        "expected_sha256": expected_sha,
+                        "actual_sha256": actual,
+                        "verified": True,
+                        "content_excerpt": (getattr(args, "content", "") or "")[:1500],
+                    }
                 result.text = sanitized(
                     result.text, context.secrets, max(0, context.limits.max_chars - context.limits.chars)
                 )
@@ -660,15 +746,7 @@ class ToolExecutor:
                 if row.started_at.replace(tzinfo=timezone.utc) < now() - timedelta(minutes=5):
                     raise ToolError("confirmation_expired")
                 if row.status == "approved":
-                    # The conditional transition makes approval consumable exactly once.
-                    changed = db.execute(
-                        update(ToolRun)
-                        .where(ToolRun.id == run_id, ToolRun.status == "approved")
-                        .values(status="authorized")
-                    )
-                    db.commit()
-                    if changed.rowcount == 1:
-                        return
+                    return
             await asyncio.sleep(0.25)
 
     async def wait_host(self, run_id, context):
