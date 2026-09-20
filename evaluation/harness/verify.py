@@ -289,6 +289,52 @@ def _criterion_ok(task: dict, state: dict, criterion: dict) -> tuple[bool, str]:
         ok = not state.get("unnecessary_questions")
         return ok, "no unnecessary questions" if ok else "asked unnecessary questions"
 
+    if kind == "no_filesystem_denial":
+        lowered = answer.lower()
+        needles = (
+            "cannot access",
+            "can't access",
+            "нет доступа",
+            "не могу получить доступ",
+            "filesystem unavailable",
+            "no access to the filesystem",
+            "у меня нет доступа к файловой",
+        )
+        ok = not any(item in lowered for item in needles)
+        return ok, "no filesystem denial" if ok else "assistant denied filesystem"
+
+    if kind == "no_runaway_loop":
+        total = metrics.get("total_tool_calls", len(names))
+        ok = total <= 40 and not state.get("runaway")
+        return ok, "no runaway loop" if ok else f"runaway tool_calls={total}"
+
+    if kind == "origin_is":
+        expected = criterion.get("value")
+        origins = state.get("origins") or []
+        ok = expected in origins or any(row.get("origin") == expected for row in _tools(state))
+        return ok, f"origin {expected}" if ok else f"origin missing {expected}; have {origins}"
+
+    if kind == "browser_second_page":
+        ok = bool(state.get("browser_second_page"))
+        return ok, "second page observed" if ok else "second page navigation not observed"
+
+    if kind == "visible_grounded_browser":
+        ok = bool(state.get("visible_grounded_browser"))
+        return ok, "visible grounded browser result" if ok else "visible answer missing grounded page result"
+
+    if kind == "session_closed":
+        ok = bool(state.get("session_closed"))
+        return ok, "browser session closed" if ok else "browser session not closed"
+
+    if kind == "no_tinyfish_agent":
+        used = [name for name in names if name in {"web_agent", "web_agent_read"}]
+        ok = not used and (state.get("tinyfish_agent_calls") or 0) == 0
+        return ok, "TinyFish Agent calls=0" if ok else f"Agent used: {used}"
+
+    if kind == "queue_promoted":
+        ok = bool(state.get("queue_promoted"))
+        return ok, "queue promoted and B completed" if ok else "queue auto-continuation not proven"
+
     if kind == "metrics_present":
         required = [
             "total_tool_calls",

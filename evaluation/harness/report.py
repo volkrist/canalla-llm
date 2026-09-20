@@ -45,10 +45,10 @@ def render_markdown(payload: dict) -> str:
     for row in payload["cases"]:
         reason = (row.get("reason") or "").replace("|", "/")
         lines.append(
-            f"| {row['id']} | {row.get('category', '')} | {row['status']} | {reason} | "
+            f"| {row['id']} | {row.get('category', '')} | {row.get('display_status') or row['status']} | {reason} | "
             f"{(row.get('metrics') or {}).get('total_tool_calls', 0)} | {row.get('cleanup_status', '')} |"
         )
-    lines += ["", "## Legend", "", "- SPEC READY / SKIPPED: spec validated, provider not executed.", "- LOCAL MOCK PASS: harness actor + mechanical checks, not the production model.", "- REAL NOT RUN: OrcaRouter/RunPod/TinyFish/Tor were not started.", ""]
+        lines += ["", "## Legend", "", "- SPEC READY / SKIPPED: spec validated, provider not executed.", "- LOCAL MOCK PASS: harness actor + mechanical checks, not the production model.", "- REAL PASS/PARTIAL/FAIL: OrcaRouter + production path + mechanical verification.", "- REAL NOT RUN / SKIPPED: unpaid guard, budget, or not in this-stage plan.", ""]
     return "\n".join(lines) + "\n"
 
 

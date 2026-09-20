@@ -12,8 +12,12 @@ Production code is not modified here.
 - `AUTONOMY = HIGH` always
 - `RESEARCH_DEPTH = DEEP` always
 - There is no Low/Normal/High or Fast/Normal/Deep matrix in this pack
-- Cost of **this branch**: `$0`
-- RunPod / GPU / TinyFish Agent / TinyFish Browser / TinyFish Search / Fetch: **not started**
+- Production model under test: `orcarouter-qwen38-27b-q5km` (`llamacpp`, Mock=false, `enable_thinking=false`)
+- `AUTONOMY = HIGH` always
+- `RESEARCH_DEPTH = DEEP` always
+- Real mode never starts RunPod unless `--allow-runpod` and `--runpod-budget-usd` are set
+- TinyFish Agent: no new runs this stage
+- TinyFish Browser: only with `--allow-tinyfish-browser` (hard $0.05)
 
 ## Worktree rule
 
@@ -42,9 +46,16 @@ python evaluation/harness/run_eval.py --suite local-computer --mode mock
 python evaluation/harness/run_eval.py --suite weak-model --mode mock
 python evaluation/harness/run_eval.py --suite all --mode spec
 python evaluation/harness/run_eval.py --task LC-01 --mode mock
+python evaluation/tests/test_real_runner.py
 ```
 
-`--mode real` is **disabled**. It exits `2` and must not start RunPod or TinyFish. Real-provider execution is added after 0.9.3 merge.
+`--mode real` without `--allow-runpod` **exits 2** and must not start RunPod.
+
+```powershell
+python evaluation/harness/run_eval.py --suite weak-model --mode real --allow-runpod --runpod-budget-usd 1.20 --allow-tinyfish-browser --tinyfish-budget-usd 0.05
+python evaluation/harness/run_eval.py --resume <run-id> --mode real --allow-runpod --runpod-budget-usd 1.20
+python evaluation/harness/run_eval.py --resume <run-id> --rerun-failed --mode real --allow-runpod --runpod-budget-usd 1.20
+```
 
 Outputs:
 
@@ -63,7 +74,7 @@ Timestamped report directories are gitignored. Committed baselines live at:
 |---|---|
 | `spec` | Validate task schema. Status `SKIPPED` + reason `SPEC READY`. No model. |
 | `mock` | Setup fixtures, mechanical verification, cleanup, JSON/Markdown reports. A local fake actor may fulfill **harness** checks. This is **LOCAL MOCK**, not the production model. |
-| `real` | Refused in this pack. |
+| `real` | Production backend + native host + OrcaRouter. Requires `--allow-runpod` and `--runpod-budget-usd`. Never marks REAL PASS if the provider is mock. |
 
 Never mark **REAL PASS** without OrcaRouter + real tools.
 

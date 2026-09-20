@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
+import subprocess
 
 from paths import WORK
 
@@ -30,6 +31,21 @@ def _is_protected(path: Path) -> bool:
     return any(text.startswith(prefix) for prefix in PROTECTED_PREFIXES)
 
 
+def stop_owned_processes(state: dict) -> list[str]:
+    stopped = []
+    for pid in list(state.get("owned_pids") or []):
+        try:
+            subprocess.run(["taskkill", "/PID", str(int(pid)), "/F"], capture_output=True, check=False)
+            stopped.append(str(pid))
+        except Exception:
+            try:
+                os.kill(int(pid), 9)
+                stopped.append(str(pid))
+            except OSError:
+                pass
+    return stopped
+
+
 def leftover_scan(state: dict, workspace: Path | None) -> list[str]:
     leftovers: list[str] = []
     for pid in state.get("owned_pids") or []:
@@ -46,6 +62,7 @@ def leftover_scan(state: dict, workspace: Path | None) -> list[str]:
 
 
 def cleanup_task(task: dict, state: dict, *, keep_workspace: bool = False) -> dict:
+    stop_owned_processes(state)
     workspace = Path(state["workspace"]) if state.get("workspace") else None
     leftovers_before = leftover_scan(state, workspace)
     deleted = []
