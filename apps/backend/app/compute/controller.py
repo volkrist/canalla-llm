@@ -13,6 +13,7 @@ from ..config import Settings
 from ..database import SessionLocal
 from ..models import Message, User, now
 from ..providers import LlamaCppProvider
+from ..security import can_start_compute
 from .models import (
     ComputeControl,
     ComputeEvent,
@@ -227,6 +228,9 @@ class RunPodController:
             "stop_reason": session.stop_reason,
             "error_code": session.error_code,
             "managed": session.managed,
+            "managed_lifecycle": session.managed,
+            "created_by_alex": session.created_by_alex,
+            "adopted_by_alex": session.adopted_by_alex,
             "datacenter": session.datacenter,
         }
         if admin or owner:
@@ -254,7 +258,7 @@ class RunPodController:
                 "configured": self.api.configured,
                 "state": state,
                 "session": self.session_out(session, user=user) if session else None,
-                "can_control": user.role == "admin" or self.settings.allow_user_compute_start,
+                "can_control": can_start_compute(user),
                 "active_generations": active,
                 "active_users": [
                     {"id": uid, "email": email}
@@ -368,7 +372,7 @@ class RunPodController:
             return quote
         with self.sessions() as db:
             user = db.get(User, user_id)
-            if not user or not (user.role == "admin" or self.settings.allow_user_compute_start):
+            if not user or not can_start_compute(user):
                 control = db.get(ComputeControl, 1)
                 control.next_search_at = None
                 control.search_state = "offline"
@@ -441,6 +445,8 @@ class RunPodController:
             session_budget=prefs.session_budget,
             auto_stop_minutes=prefs.auto_stop_minutes,
             managed=managed,
+            created_by_alex=managed,
+            adopted_by_alex=False,
             status="creating",
             last_activity_at=self.clock(),
             created_at=self.clock(),
@@ -463,7 +469,7 @@ class RunPodController:
         async with self.operation():
             return await self._start_compute_locked(user, request)
 
-    async def _start_compute_locked(self, user, request: StartRequest):
+    async def _start_compute_locked(self, user, request: StartRequest, managed_lifecycle=False):
         if self.llm and len(self.settings.llm_api_key) < 32:
             raise RunPodError("llm_key_missing", 422)
         with self.sessions() as db:
@@ -512,7 +518,11 @@ class RunPodController:
             if len(active_pods) > 1:
                 raise RunPodError("multiple_compute", 409)
             pod = active_pods[0]
+            if managed_lifecycle:
+                await self._adopt_managed(user, pod)
+                return self.get_compute_status(user)
             session = self.new_session(user, request, approved, prefs, managed=False)
+            session.created_by_alex, session.adopted_by_alex = False, False
             session.pod_id, session.pod_name, session.status = pod.id, pod.name, "external_compute"
             session.gpu_type = pod.gpu.get("id", "Unknown GPU")
             session.hourly_rate = pod.cost
@@ -609,9 +619,19 @@ class RunPodController:
         row.pending_stop = False
         row.billable_seconds, row.estimated_cost = estimate(row, self.clock())
         row.updated_at = self.clock()
+        if reason == "session_budget":
+            row.error_code = "COMPUTE_BUDGET_REACHED"
         control = db.get(ComputeControl, 1)
         control.active_session_id, control.search_state = None, "stopped"
         control.error_code = row.error_code
+        control.demand_idempotency_key = None
+        control.last_confirmed_gpu = None
+        control.last_confirmed_hourly = None
+        control.last_confirmed_at = None
+        control.last_confirm_digest = None
+        control.confirmation_run_id = None
+        control.create_attempts = 0
+        control.demand_user_id = None
         self.event(db, "stopped", row, code=reason)
 
     async def _terminate(self, session_id, reason):
@@ -626,6 +646,8 @@ class RunPodController:
             row.status = "stopping"
             if reason in {"startup_failed", "startup_timeout", "price_violation"}:
                 row.error_code = reason
+            if reason == "session_budget":
+                row.error_code = "COMPUTE_BUDGET_REACHED"
             pod_id = row.pod_id
             db.commit()
         try:
@@ -716,7 +738,20 @@ class RunPodController:
                     .where(GenerationUsage.completed_at.is_(None))
                     .values(status="interrupted", completed_at=self.clock())
                 )
-                db.execute(update(Message).where(Message.status == "generating").values(status="error"))
+                from ..tools.local import machine
+                from ..tools.models import LocalTask
+
+                waiting = db.scalars(
+                    select(LocalTask.generation_id).where(
+                        LocalTask.status == machine.WAITING_LLM,
+                        LocalTask.generation_id.is_not(None),
+                    )
+                ).all()
+                keep = {item for item in waiting if item}
+                generating = db.scalars(select(Message).where(Message.status == "generating")).all()
+                for message in generating:
+                    if message.id not in keep:
+                        message.status = "error"
                 db.commit()
         if self.api.configured:
             await self.tick()
@@ -788,6 +823,11 @@ class RunPodController:
                     return
                 saved.error_code = None
                 active = self.active_generations(db)
+                work = self.model_work_pending(db, saved)
+                confirm_hold = self.confirmation_hold_active(db, saved)
+                busy = bool(active or work or confirm_hold)
+                if active or work:
+                    saved.last_activity_at = self.clock()
                 # Reserve one polling interval plus the supplier request timeout for shutdown.
                 reserve = saved.hourly_rate * Decimal(str(self.settings.compute_poll_seconds + 15)) / 3600
                 budget = saved.managed and saved.estimated_cost + reserve >= saved.session_budget
@@ -795,7 +835,7 @@ class RunPodController:
                     saved.managed
                     and saved.status == "ready"
                     and saved.auto_stop_minutes > 0
-                    and not active
+                    and not busy
                     and (self.clock() - utc(saved.last_activity_at)).total_seconds()
                     >= saved.auto_stop_minutes * 60
                 )
@@ -892,3 +932,395 @@ class RunPodController:
                     saved.actual_cost, saved.actual_cost_at = actual, self.clock()
                     db.commit()
         return {"updated": len(rows)}
+
+    def model_work_pending(self, db, session):
+        from ..tools.local import machine
+        from ..tools.models import LocalTask
+
+        keep = machine.WORKING | {
+            machine.PLANNING,
+            machine.CREATED,
+            machine.WAITING_LLM,
+            machine.WAITING_DEVICE,
+            machine.WAITING_WORKSPACE,
+            machine.RECOVERING,
+        }
+        return bool(db.scalar(select(LocalTask.id).where(LocalTask.status.in_(keep)).limit(1)))
+
+    def confirmation_hold_active(self, db, session):
+        from ..tools.local import machine
+        from ..tools.models import LocalTask
+
+        hold = timedelta(minutes=max(1, session.auto_stop_minutes or 10))
+        row = db.scalar(
+            select(LocalTask)
+            .where(LocalTask.status == machine.WAITING_CONFIRMATION)
+            .order_by(LocalTask.updated_at.desc())
+            .limit(1)
+        )
+        if not row:
+            return False
+        return self.clock() - utc(row.updated_at) < hold
+
+    def llm_public_status(self, user: User):
+        from .runtime import compact_ai, idle_deadline
+
+        compute = self.get_compute_status(user)
+        session = None
+        with self.sessions() as db:
+            control = db.get(ComputeControl, 1)
+            if control and control.active_session_id:
+                session = db.get(ComputeSession, control.active_session_id)
+        ai, label = compact_ai(
+            provider=self.settings.llm_provider,
+            app_env=self.settings.app_env,
+            configured=self.api.configured,
+            compute_state=compute["state"],
+            error_code=compute.get("error_code"),
+        )
+        payload = {
+            "provider": self.settings.llm_provider,
+            "available": ai == "ready",
+            "state": "mock"
+            if self.settings.llm_provider == "mock" and ai == "ready"
+            else compute["state"]
+            if self.settings.llm_provider != "mock"
+            else "unavailable",
+            "model": self.settings.llm_model,
+            "ai": ai,
+            "ai_label": label,
+            "diagnostic": {
+                "pod_id": (compute.get("session") or {}).get("pod_id"),
+                "gpu": (compute.get("session") or {}).get("gpu_type"),
+                "datacenter": (compute.get("session") or {}).get("datacenter"),
+                "price_per_hour": (compute.get("session") or {}).get("hourly_rate"),
+                "estimated_spend": (compute.get("session") or {}).get("estimated_cost"),
+                "started_at": (compute.get("session") or {}).get("started_at"),
+                "idle_deadline": idle_deadline(session, self.clock()) if session else None,
+                "managed": (compute.get("session") or {}).get("managed"),
+                "last_error": compute.get("error_code"),
+                "compute_state": compute.get("state"),
+            },
+        }
+        if self.settings.llm_provider == "llamacpp":
+            payload["state"] = (
+                "starting"
+                if compute["state"]
+                in {
+                    "creating",
+                    "starting_pod",
+                    "starting_environment",
+                    "mounting_storage",
+                    "starting_llm",
+                    "connecting",
+                    "loading_model",
+                    "searching",
+                }
+                else compute["state"]
+            )
+            if payload["state"] == "ready" and not payload["available"]:
+                payload["available"] = True
+            if ai != "ready":
+                payload["available"] = False
+        return payload
+
+    def compatible_pods(self, pods):
+        return [
+            pod for pod in pods if self.matches_volume(pod) and pod.status not in {"EXITED", "TERMINATED"}
+        ]
+
+    def _demand_result(self, user, kind, code=None, tool=None, prompt=None):
+        status = self.get_compute_status(user)
+        from .runtime import compact_ai
+
+        ai, _ = compact_ai(
+            provider=self.settings.llm_provider,
+            app_env=self.settings.app_env,
+            configured=self.api.configured,
+            compute_state=status["state"],
+            error_code=code or status.get("error_code"),
+        )
+        payload = {
+            "kind": kind,
+            "code": code or status.get("error_code"),
+            "ai": ai,
+            "status": status,
+            "tool": tool,
+            "prompt": prompt,
+        }
+        return payload
+
+    async def ensure_on_demand(self, user, *, chat_id=None, task_id=None, confirm=False):
+        """Single locked coordinator: one Pod, optional paid confirmation, adopt or create."""
+        if not can_start_compute(user):
+            raise HTTPException(403, "Запуск GPU доступен владельцу этого компьютера")
+        if not self.api.configured:
+            return self._demand_result(user, "unavailable", "not_configured")
+        async with self.operation():
+            return await self._ensure_on_demand_locked(
+                user, chat_id=chat_id, task_id=task_id, confirm=confirm
+            )
+
+    async def _ensure_on_demand_locked(self, user, *, chat_id=None, task_id=None, confirm=False):
+        from ..tools.models import ToolRun
+        from .demand import consume_start_confirmation, request_start_confirmation
+        from .runtime import money_prompt
+
+        with self.sessions() as db:
+            control = db.get(ComputeControl, 1)
+            session = db.get(ComputeSession, control.active_session_id) if control.active_session_id else None
+            if session and session.status in {
+                "ready",
+                "generating",
+                "starting_pod",
+                "starting_environment",
+                "mounting_storage",
+                "starting_llm",
+                "connecting",
+                "loading_model",
+                "creating",
+                "external_compute",
+            }:
+                kind = "ready" if session.status in {"ready", "generating"} else "starting"
+                if session.status == "external_compute":
+                    kind = "external_compute"
+                return self._demand_result(user, kind)
+            if session and session.status == "multiple_compute":
+                return self._demand_result(user, "multiple_compute", "multiple_compute")
+            if session and session.status == "stopping":
+                return self._demand_result(user, "starting")
+            pending = db.get(ToolRun, control.confirmation_run_id) if control.confirmation_run_id else None
+            if pending and pending.status == "waiting_confirmation" and not confirm:
+                return self._demand_result(
+                    user,
+                    "waiting_confirmation",
+                    tool=self._public_confirm(pending),
+                    prompt=(pending.input_summary or {}).get("action_detail"),
+                )
+            if pending and pending.status == "stopped":
+                control.confirmation_run_id = None
+                db.commit()
+                return self._demand_result(user, "denied", "confirmation_denied")
+        pods = self.compatible_pods(await self.api.list_pods())
+        if len(pods) > 1:
+            with self.sessions() as db:
+                control = db.get(ComputeControl, 1)
+                control.search_state = "multiple_compute"
+                control.error_code = "multiple_compute"
+                db.commit()
+            return self._demand_result(user, "multiple_compute", "multiple_compute")
+        with self.sessions() as db:
+            control = db.get(ComputeControl, 1)
+            session = db.get(ComputeSession, control.active_session_id) if control.active_session_id else None
+            if session and session.status == "create_unknown":
+                if pods:
+                    row = session
+                    row.pod_id = pods[0].id
+                    row.pod_name = pods[0].name
+                    row.status = "starting_pod"
+                    row.managed = True
+                    row.adopted_by_alex = True
+                    row.created_by_alex = row.created_by_alex or pods[0].name.startswith("alex-llm-")
+                    self.record_pod(row, pods[0])
+                    db.commit()
+                    return self._demand_result(user, "starting")
+                if (control.create_attempts or 0) >= 1:
+                    return self._demand_result(user, "create_unknown", "create_unknown")
+                control.create_attempts = (control.create_attempts or 0) + 1
+                control.demand_idempotency_key = "demand-" + str(uuid4())
+                control.active_session_id = None
+                session.status = "stopped"
+                session.stopped_at = self.clock()
+                db.commit()
+        prefs = self.preferences(user.id).enforce(self.settings)
+        if prefs.selection == "automatic":
+            prefs = prefs.model_copy(update={"gpu_id": None})
+        gpu = None
+        hourly = None
+        quote = None
+        if pods:
+            hourly = pods[0].cost if pods[0].cost else prefs.max_hourly_price
+            if hourly > prefs.max_hourly_price:
+                return self._demand_result(user, "unavailable", "price_limit")
+            from .schemas import GpuOption as Gpu
+
+            gpu = Gpu(
+                id=pods[0].gpu.get("id") or "unknown",
+                name=pods[0].gpu.get("id") or "unknown",
+                vram_gb=prefs.min_vram_gb,
+                hourly_rate=hourly,
+                availability="HIGH",
+                compatible=True,
+                selectable=True,
+            )
+        else:
+            quote = await self._search(user.id, prefs)
+            available = [g for g in quote["options"] if g.selectable]
+            if not available:
+                return self._demand_result(
+                    user, "unavailable", quote.get("error_code") or "no_compatible_gpu"
+                )
+            gpu = available[0]
+            preferred = next(
+                (g for g in available if "L40S" in f"{g.id} {g.name}"),
+                None,
+            )
+            if preferred:
+                gpu = preferred
+            hourly = gpu.hourly_rate
+            if preferred:
+                with self.sessions() as db:
+                    saved_quote = db.get(ComputeQuote, quote["quote_id"])
+                    if saved_quote:
+                        prefs_data = dict(saved_quote.preferences or {})
+                        prefs_data["selection"] = "manual"
+                        prefs_data["gpu_id"] = gpu.id
+                        saved_quote.preferences = prefs_data
+                        db.commit()
+        with self.sessions() as db:
+            control = db.get(ComputeControl, 1)
+            pending = db.get(ToolRun, control.confirmation_run_id) if control.confirmation_run_id else None
+            already = (
+                control.last_confirmed_gpu == gpu.id
+                and control.last_confirmed_hourly is not None
+                and abs(Decimal(control.last_confirmed_hourly) - hourly) <= Decimal("0.01")
+                and control.last_confirmed_at is not None
+            )
+            if pending and pending.status == "approved":
+                consume_start_confirmation(
+                    db, user_id=user.id, run_id=pending.id, digest_value=pending.input_digest
+                )
+                control.last_confirmed_gpu = gpu.id
+                control.last_confirmed_hourly = hourly
+                control.last_confirmed_at = self.clock()
+                control.last_confirm_digest = pending.input_digest
+                control.confirmation_run_id = None
+                db.commit()
+                already = True
+            if not already and not confirm and chat_id:
+                row = request_start_confirmation(
+                    db, user=user, chat_id=chat_id, task_id=task_id, gpu=gpu, hourly=hourly
+                )
+                if row:
+                    control.confirmation_run_id = row.id
+                    control.demand_user_id = user.id
+                    db.commit()
+                    return self._demand_result(
+                        user,
+                        "waiting_confirmation",
+                        tool=self._public_confirm(row),
+                        prompt=money_prompt(gpu.name or gpu.id, hourly),
+                    )
+            if not already and confirm:
+                control.last_confirmed_gpu = gpu.id
+                control.last_confirmed_hourly = hourly
+                control.last_confirmed_at = self.clock()
+                db.commit()
+            if not control.demand_idempotency_key:
+                control.demand_idempotency_key = "demand-" + str(uuid4())
+                control.demand_user_id = user.id
+                db.commit()
+            idem = control.demand_idempotency_key
+        if pods:
+            return await self._adopt_managed(user, pods[0])
+        request = StartRequest(
+            quote_id=quote["quote_id"],
+            gpu_id=gpu.id,
+            idempotency_key=idem,
+            confirmed=True,
+        )
+        try:
+            await self._start_compute_locked(user, request, managed_lifecycle=True)
+        except RunPodError as error:
+            kind = "create_unknown" if error.code == "create_unknown" else "unavailable"
+            if error.code in {"multiple_compute", "error"}:
+                kind = error.code
+            return self._demand_result(user, kind, error.code)
+        status = self.get_compute_status(user)
+        kind = status["state"]
+        if kind in {"ready", "generating"}:
+            kind = "ready"
+        elif kind == "create_unknown":
+            kind = "create_unknown"
+        elif kind in {"multiple_compute", "external_compute", "error"}:
+            pass
+        else:
+            kind = "starting"
+        return self._demand_result(user, kind)
+
+    def _public_confirm(self, row):
+        from ..tools.executor import public_run
+
+        return public_run(row)
+
+    async def _adopt_managed(self, user, pod):
+        from .schemas import GpuOption
+
+        prefs = self.preferences(user.id).enforce(self.settings)
+        hourly = pod.cost if pod.cost else prefs.max_hourly_price
+        if hourly > prefs.max_hourly_price:
+            return self._demand_result(user, "unavailable", "price_limit")
+        gpu = GpuOption(
+            id=pod.gpu.get("id") or "unknown",
+            name=pod.gpu.get("id") or "unknown",
+            vram_gb=prefs.min_vram_gb,
+            hourly_rate=hourly,
+            availability="HIGH",
+            compatible=True,
+            selectable=True,
+        )
+        request = StartRequest(
+            quote_id="00000000-0000-0000-0000-000000000000",
+            gpu_id=gpu.id,
+            idempotency_key="adopt-" + pod.id + "-managed",
+            confirmed=True,
+        )
+        session = self.new_session(user, request, gpu, prefs, managed=True)
+        session.created_by_alex = bool(pod.name.startswith("alex-llm-"))
+        session.adopted_by_alex = True
+        session.managed = True
+        session.pod_id, session.pod_name, session.status = pod.id, pod.name, "starting_pod"
+        if pod.started_at:
+            session.started_at = utc(datetime.fromisoformat(pod.started_at.replace("Z", "+00:00")))
+        session.hourly_rate = hourly
+        with self.sessions() as db:
+            existing = db.scalar(
+                select(ComputeSession).where(ComputeSession.idempotency_key == request.idempotency_key)
+            )
+            if existing:
+                db.get(ComputeControl, 1).active_session_id = existing.id
+                db.commit()
+                return self._demand_result(user, "starting")
+            db.add(session)
+            db.flush()
+            control = db.get(ComputeControl, 1)
+            control.active_session_id = session.id
+            control.error_code = None
+            db.commit()
+        return self._demand_result(user, "starting")
+
+    async def shutdown_managed(self, reason="app_quit"):
+        """Stop Alex-managed compute only. Never deletes the Network Volume. Never touches external Pods."""
+        async with self.operation():
+            with self.sessions() as db:
+                control = db.get(ComputeControl, 1)
+                row = db.get(ComputeSession, control.active_session_id) if control.active_session_id else None
+                if not row or not row.managed:
+                    return {"stopped": False, "managed": False}
+                sid = row.id
+                owner_id = row.started_by_user_id
+            try:
+                await self._terminate(sid, reason)
+            except RunPodError as error:
+                return {"stopped": False, "code": error.code, "managed": True}
+        dummy = SimpleUser()
+        dummy.id = owner_id
+        dummy.role = "admin"
+        dummy.email = "runtime@local"
+        return {"stopped": True, "managed": True, "state": self.get_compute_status(dummy)}
+
+
+class SimpleUser:
+    id = "runtime"
+    role = "admin"
+    email = "runtime@local"

@@ -8,8 +8,9 @@ No paid resources were created, started, stopped or deleted while developing thi
 Copy the compute entries from root `.env.example` into `apps/backend/.env`. Supply a RunPod API key there only.
 An absent key returns `not_configured`; the application and mock chat still work.
 `ADMIN_EMAILS=["your-address@example.com"]` defines admins on the backend. Restart the backend after configuration changes.
-Ordinary registration cannot grant admin privileges. `ALLOW_USER_COMPUTE_START=false` restricts start/search/stop to admins;
-enabling it allows ordinary users to operate the shared compute. Updating active session settings requires its initiator or an admin.
+Ordinary registration cannot grant admin privileges. `ALLOW_USER_COMPUTE_START=false` still restricts arbitrary users.
+The oldest registered local user (desktop first owner) may start/search/stop managed compute without editing server config.
+Admins always can. Non-owners cannot start paid GPU. SENSITIVE confirmation remains for each paid session/price decision.
 
 Defaults: existing STANDARD 50 GB volume `uwgeaie5b0`, `US-TX-3`, NVIDIA, 48 GB minimum VRAM,
 $1.20/hour ceiling, $3.00 session budget, idle timeout 10 minutes, search interval 30 seconds.
@@ -77,7 +78,10 @@ The exact compatibility of the image, existing scripts and model is **not live-v
 Startup timeout defaults to 900 seconds and terminates managed compute. Idle timeout applies only after readiness, without active generation.
 Budget is evaluated from supplier-confirmed start time. Budget/price termination does not wait for an unbounded response; the terminated upstream stream is closed and the existing chat finalizer preserves received partial text.
 Manual stop while generating requires confirmation to stop after the answer. Network Volume is retained in all paths.
-The backend must remain running for monitoring/auto-stop; closing the desktop is safe, shutting down the backend suspends enforcement.
+The backend must remain running for monitoring/auto-stop while a session is active.
+Desktop **Quit** now asks the owned backend to stop **managed** Pods (`POST /runtime/shutdown`) before killing the process.
+Closing an internal window is not Quit. An external developer backend is never claimed or stopped by Desktop.
+See [on-demand-ai.md](on-demand-ai.md).
 
 ## Time, cost and usage
 

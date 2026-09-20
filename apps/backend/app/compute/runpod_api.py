@@ -36,6 +36,7 @@ ERROR_MESSAGES = {
     "external_compute": "Обнаружен существующий compute. Дополнительный Pod не создаётся.",
     "multiple_compute": "Обнаружено несколько Pods для этого Volume. Требуется проверка администратора.",
     "session_budget": "Достигнут бюджет compute-сессии.",
+    "COMPUTE_BUDGET_REACHED": "Достигнут бюджет compute-сессии.",
     "price_violation": "RunPod подтвердил цену выше лимита. Созданный compute освобождается.",
     "not_found": "Ресурс больше не существует в RunPod.",
     "llm_key_missing": "Для защищённого подключения настройте LLM_API_KEY на backend (не менее 32 символов).",

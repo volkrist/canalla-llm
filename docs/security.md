@@ -13,7 +13,7 @@
 - No third-party fonts, raw HTML rendering, remote images or executable Markdown are used.
 - Markdown links open only after a click, through the system browser; HTTP(S) only, no credentials in URLs.
 - Tauri has no shell, RunPod or arbitrary remote IPC permissions. File writes are limited to paths explicitly selected in the save dialog; no read/delete permission is granted.
-- Compute writes require an authenticated admin, or an authenticated user when the backend explicitly enables user compute control.
+- Compute writes require an authenticated admin, the first local owner, or an authenticated user when the backend explicitly enables user compute control.
 - RunPod errors are sanitized; API keys and supplier response bodies are not logged or returned. Paid creates have persistent intent, idempotency and price checks.
 - Backend and upstream error details are not exposed to users. The frontend handles expired JWTs by returning to login.
 

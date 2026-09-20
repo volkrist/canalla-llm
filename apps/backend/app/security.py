@@ -4,10 +4,11 @@ import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pwdlib import PasswordHash
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .database import get_db
+from .database import SessionLocal, get_db
 from .models import User
 
 password_hash = PasswordHash.recommended()
@@ -70,7 +71,25 @@ def admin_user(user: User = Depends(current_user)):
     return user
 
 
+def is_first_owner(user: User, db: Session | None = None) -> bool:
+    """Oldest registered local user is the desktop product owner."""
+    close = db is None
+    session = db or SessionLocal()
+    try:
+        first = session.scalar(select(User).order_by(User.created_at.asc(), User.id.asc()).limit(1))
+        return bool(first and first.id == user.id)
+    finally:
+        if close:
+            session.close()
+
+
+def can_start_compute(user: User, db: Session | None = None) -> bool:
+    if user.role == "admin" or get_settings().allow_user_compute_start:
+        return True
+    return is_first_owner(user, db)
+
+
 def compute_user(user: User = Depends(current_user)):
-    if user.role != "admin" and not get_settings().allow_user_compute_start:
-        raise HTTPException(403, "Запуск и остановка GPU доступны только администратору")
+    if not can_start_compute(user):
+        raise HTTPException(403, "Запуск и остановка GPU доступны владельцу этого компьютера")
     return user

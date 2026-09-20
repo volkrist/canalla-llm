@@ -28,6 +28,7 @@ class Supplier:
         self.actions = []
         self.failure = None
         self.price = 0.8
+        self.phase = "ready"
 
     def handle(self, request):
         path = request.url.path
@@ -52,6 +53,13 @@ class Supplier:
                             ("small", "NVIDIA", 24, 0.3, "HIGH"),
                             ("amd", "AMD", 192, 0.2, "HIGH"),
                             ("gpu-48", "NVIDIA", 48, self.price, "LOW"),
+                            (
+                                "NVIDIA L40S",
+                                "NVIDIA",
+                                48,
+                                self.price if self.price > 1.20 else 1.09,
+                                "HIGH",
+                            ),
                             ("gpu-80", "NVIDIA", 80, 1.6, "HIGH"),
                         ]
                     ]
@@ -94,7 +102,10 @@ class Supplier:
             self.actions.append(json.loads(request.content))
             return httpx.Response(204)
         if path.endswith("/logs"):
-            marker = {"line": "ALEX_LLM_PHASE=ready", "ts": datetime.now(timezone.utc).isoformat()}
+            marker = {
+                "line": f"ALEX_LLM_PHASE={self.phase}",
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }
             return httpx.Response(200, text="data: " + json.dumps(marker) + "\n\n")
         if path.endswith("/pods/pod-test"):
             return httpx.Response(200, json=self.pods[0])
@@ -127,7 +138,7 @@ async def start(controller, user, preferences=None):
 def test_catalog_filters_and_price_cap(compute):
     controller, supplier, _ = compute
     options = asyncio.run(controller.api.gpu_options(ComputePreferences()))
-    assert [g.id for g in options if g.selectable] == ["gpu-48"]
+    assert [g.id for g in options if g.selectable] == ["gpu-48", "NVIDIA L40S"]
     assert "amd" not in [g.id for g in options]
     assert next(g for g in options if g.id == "gpu-80").reason == "price_limit"
     assert next(g for g in options if g.id == "small").reason == "insufficient_vram"
@@ -262,9 +273,14 @@ def test_session_owner_sees_pod_id_not_volume(compute):
 def test_missing_key_and_admin_permissions(client, auth):
     headers = auth()
     assert client.get("/compute/status", headers=headers).json()["state"] == "not_configured"
-    assert client.get("/llm/status", headers=headers).json()["state"] == "mock"
+    llm = client.get("/llm/status", headers=headers).json()
+    assert llm["state"] == "mock"
+    assert llm["ai"] == "ready"
     assert client.get("/admin/users", headers=headers).status_code == 403
-    assert client.post("/compute/search", headers=headers, json={}).status_code == 403
+    search = client.post("/compute/search", headers=headers, json={})
+    assert search.status_code == 503
+    other = auth("bob@example.com")
+    assert client.post("/compute/search", headers=other, json={}).status_code == 403
     response = client.get("/compute/options", headers=headers)
     assert response.status_code == 503
     assert response.json()["code"] == "not_configured"
@@ -526,6 +542,14 @@ def test_auto_connect_rechecks_permissions_after_wait(compute):
         supplier.price = 4
         await controller.search_gpu(user, ComputePreferences(auto_connect=True, gpu_id="gpu-48"))
         with SessionLocal() as db:
+            db.add(
+                User(
+                    email="first-owner@example.com",
+                    password_hash="unused",
+                    role="user",
+                    created_at=supplier.time - timedelta(days=1),
+                )
+            )
             db.get(User, user.id).role = "user"
             db.commit()
         supplier.price = 0.8
@@ -626,7 +650,9 @@ def test_live_search_preferences_restrict_next_attempt(compute):
 
 
 def test_preferences_route_requires_compute_permission(client, auth):
-    assert client.put("/compute/preferences", headers=auth(), json={"session_budget": 5}).status_code == 403
+    auth()
+    other = auth("bob@example.com")
+    assert client.put("/compute/preferences", headers=other, json={"session_budget": 5}).status_code == 403
 
 
 def test_auto_manual_requires_exact_gpu():

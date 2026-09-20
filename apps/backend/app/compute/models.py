@@ -16,6 +16,8 @@ class ComputeSession(Base):
     pod_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     pod_name: Mapped[str] = mapped_column(String(120))
     managed: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by_alex: Mapped[bool] = mapped_column(Boolean, default=True)
+    adopted_by_alex: Mapped[bool] = mapped_column(Boolean, default=False)
     network_volume_id: Mapped[str] = mapped_column(String(64))
     datacenter: Mapped[str] = mapped_column(String(32))
     gpu_type: Mapped[str] = mapped_column(String(160))
@@ -54,6 +56,14 @@ class ComputeControl(Base):
     search_state: Mapped[str] = mapped_column(String(32), default="offline")
     next_search_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    demand_idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_confirmed_gpu: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    last_confirmed_hourly: Mapped[Decimal | None] = mapped_column(Numeric(14, 6), nullable=True)
+    last_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_confirm_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    confirmation_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    create_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    demand_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 class ComputeQuote(Base):
