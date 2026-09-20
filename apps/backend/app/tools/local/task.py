@@ -283,6 +283,12 @@ class LocalTaskController:
         if stored.get("scratch"):
             scope.scratch = stored["scratch"]
         context.task_scope = scope
+        from .targets import last_file_target
+
+        context.verified_facts = facts
+        context.last_file_target = last_file_target(facts) or self.previous_file_target(
+            row.user_id, row.chat_id
+        )
         owned = list((row.checkpoint or {}).get("owned_processes") or [])
         if owned:
             context.owned_process = owned[-1]
@@ -303,6 +309,21 @@ class LocalTaskController:
                 owned = list((row.checkpoint or {}).get("owned_processes") or [])
                 if owned:
                     return owned[-1]
+        return None
+
+    def previous_file_target(self, user_id: str, chat_id: str | None = None):
+        from ...database import SessionLocal
+        from .targets import last_file_target
+
+        with SessionLocal() as db:
+            query = select(LocalTask).where(LocalTask.user_id == user_id)
+            if chat_id:
+                query = query.where(LocalTask.chat_id == chat_id)
+            rows = db.scalars(query.order_by(LocalTask.updated_at.desc()).limit(8)).all()
+            for row in rows:
+                path = last_file_target(row.facts)
+                if path:
+                    return path
         return None
 
     def _store_plan(self, db, row, steps, revision=1):

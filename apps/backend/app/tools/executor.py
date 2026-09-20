@@ -512,6 +512,30 @@ class ToolExecutor:
                         LocalTaskController().waiting_device(db, context)
                 raise ToolError("host_offline")
             context.assigned_device_id = device.id
+            if definition.name in {
+                "read_file",
+                "write_file",
+                "hash_file",
+                "patch_file",
+                "delete_file",
+            } and hasattr(args, "path"):
+                from .local.targets import coerce_file_argument, last_file_target
+
+                roots = list(prefs.workspace_roots or [])
+                root = roots[0] if roots else ""
+                previous = last_file_target(getattr(context, "verified_facts", None)) or getattr(
+                    context, "last_file_target", None
+                )
+                new_path = coerce_file_argument(
+                    definition.name,
+                    args.path,
+                    getattr(context, "user_prompt", "") or "",
+                    workspace_root=root,
+                    roots=roots,
+                    previous_file=previous,
+                )
+                if new_path != args.path:
+                    args = args.model_copy(update={"path": new_path})
             _guard_paths(args, prefs.workspace_roots)
             context.settings = prefs
         context.limits.consume(definition, args)
@@ -823,6 +847,8 @@ class ToolExecutor:
                 continue
             available = max(0, context.limits.max_chars - context.limits.chars)
             excerpt = sanitized(source.get("excerpt", ""), context.secrets, min(available, 6000))
+            if not excerpt:
+                excerpt = sanitized(source.get("title", "") or "browser page", context.secrets, 400)
             if not excerpt:
                 continue
             if key in context.seen_canonical:

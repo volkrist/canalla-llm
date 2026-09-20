@@ -4,10 +4,10 @@ import re
 from dataclasses import dataclass, field
 
 from .plan import looks_like_computer
+from .targets import extract_absolute_paths, extract_filename, last_file_target, resolve_target
 
 PATH = re.compile(r'(?:[A-Za-z]:\\|\\\\)[^\s"<>|*?]{3,240}')
 MARKER = re.compile(r"ALEX_[A-Z0-9_]{4,}")
-FILENAME = re.compile(r"\b([\w.\-]+\.(?:txt|md|json|py|log|csv))\b", re.I)
 CONTENT_PHRASE = re.compile(
     r"(?i)(?:"
     r"с текстом|with(?: the)? text|containing|содерж(?:ащ(?:им|ий|ее)?|ит)"
@@ -25,15 +25,22 @@ class LocalDecision:
 
 def quoted_path(prompt: str) -> str:
     match = re.search(r"[«\"']([^\"'«»]{3,240})[»\"']", prompt or "")
-    if match and ("\\" in match.group(1) or "/" in match.group(1) or match.group(1).endswith(".txt")):
+    if match and (
+        "\\" in match.group(1) or "/" in match.group(1) or re.search(r"\.\w{1,8}$", match.group(1))
+    ):
         return match.group(1).replace("/", "\\")
-    found = PATH.search(prompt or "")
-    return found.group(0) if found else ""
+    files = [
+        item
+        for item in extract_absolute_paths(prompt)
+        if extract_filename(item) or "." in item.rsplit("\\", 1)[-1]
+    ]
+    if files:
+        return files[-1]
+    return ""
 
 
 def filename(prompt: str) -> str:
-    match = FILENAME.search(prompt or "")
-    return match.group(1) if match else ""
+    return extract_filename(prompt)
 
 
 def marker(prompt: str) -> str:
@@ -72,8 +79,10 @@ def _join(root: str, name: str) -> str:
 def select_local_route(prompt: str, context=None) -> LocalDecision:
     text = prompt or ""
     if not looks_like_computer(text) and not re.search(
-        r"(?i)прочитай файл|sha256|get_system_info|останови процесс|найди в этой папке|"
-        r"create .{0,40}file|write .{0,20}file|with(?: the)? text",
+        r"(?i)прочитай файл|прочитай .{0,80}\.\w{1,8}|read .{0,80}\.\w{1,8}|"
+        r"создай .{0,80}\.\w{1,8}|create .{0,40}file|write .{0,20}file|"
+        r"with(?: the)? text|с текстом|sha256|get_system_info|останови процесс|"
+        r"найди в этой папке|перечитай|hash .{0,80}\.\w{1,8}|посчитай.{0,24}хеш",
         text,
     ):
         return LocalDecision(None, {}, "not_local")
@@ -83,9 +92,22 @@ def select_local_route(prompt: str, context=None) -> LocalDecision:
     roots = list(getattr(settings, "workspace_roots", None) or [])
     if not root and roots:
         root = roots[0]
+    previous = last_file_target(getattr(context, "verified_facts", None)) or getattr(
+        context, "last_file_target", None
+    )
+    resolved = resolve_target(
+        text,
+        workspace_root=root,
+        roots=roots,
+        previous_file=previous,
+        expect="file",
+    )
     path = quoted_path(text)
     name = filename(text)
-    target = path or (_join(root, name) if name else "")
+    target = resolved.path if resolved.kind == "file" else (path or (_join(root, name) if name else ""))
+    if resolved.kind == "file":
+        target = resolved.path
+        name = resolved.target_file or name
     token = marker(text)
     if re.search(r"(?i)останови процесс|stop (the )?process", text):
         owned = getattr(context, "owned_process", None) if context is not None else None
@@ -106,8 +128,8 @@ def select_local_route(prompt: str, context=None) -> LocalDecision:
             },
             "start_harmless_process",
         )
-    if re.search(r"(?i)sha256|посчитай.{0,24}хеш|hash", text) and target:
-        return LocalDecision("hash_file", {"path": target, "purpose": "sha256"}, "hash_file")
+    if re.search(r"(?i)sha256|посчитай.{0,24}хеш|hash", text) and resolved.kind == "file":
+        return LocalDecision("hash_file", {"path": resolved.path, "purpose": "sha256"}, "hash_file")
     if re.search(r"(?i)windows|cpu|ram|свободное место|system info|информаци.{0,12}компьютер", text):
         return LocalDecision("get_system_info", {"purpose": "host summary"}, "system_info")
     if token and re.search(r"(?i)найди|find", text):
@@ -134,11 +156,11 @@ def select_local_route(prompt: str, context=None) -> LocalDecision:
             r"(?i)создай.{0,80}файл|write_file|запис.{0,40}файл|create.{0,40}file|с текстом|with(?: the)? text",
             text,
         )
-        and (target or name)
+        and (resolved.kind == "file" or name)
     )
     if creating_file:
         content = requested_file_content(text)
-        path_write = target or _join(root, name)
+        path_write = resolved.path if resolved.kind == "file" else _join(root, name)
         extra = (("read_file", {"path": path_write, "purpose": "verify write"}),)
         return LocalDecision(
             "write_file",
@@ -161,6 +183,16 @@ def select_local_route(prompt: str, context=None) -> LocalDecision:
             {"package": package, "purpose": "install requested package"},
             "install_software",
         )
-    if re.search(r"(?i)перечитай|прочитай|что внутри|что записано|read (the )?file", text) and target:
-        return LocalDecision("read_file", {"path": target, "purpose": "read requested file"}, "read_file")
+    if re.search(r"(?i)перечитай|прочитай|что внутри|что записано|read (the )?file", text) and (
+        resolved.kind == "file" or (previous and re.search(r"(?i)перечитай|re-?read", text))
+    ):
+        read_path = resolved.path if resolved.kind == "file" else previous
+        if read_path:
+            return LocalDecision(
+                "read_file", {"path": read_path, "purpose": "read requested file"}, "read_file"
+            )
+    if re.search(r"(?i)удали(ть)? файл|delete (the )?file", text) and resolved.kind == "file":
+        return LocalDecision(
+            "delete_file", {"path": resolved.path, "purpose": "delete requested file"}, "delete_file"
+        )
     return LocalDecision(None, {}, "ambiguous_local")

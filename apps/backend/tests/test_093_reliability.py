@@ -251,7 +251,30 @@ def test_browser_prepare_injects_when_planner_surface_empty(setup):
     async def fake_run(name, arguments, context, notes, origin="model"):
         recorded.append((name, origin, arguments))
         if name == "web_browser":
+            payload = arguments if isinstance(arguments, dict) else arguments
+            if "close" in str(payload):
+                return {"ok": True, "text": "Browser session closed.", "sources": [], "origin": origin}
             context.tinyfish_browser_done = True
+            if "click" in str(payload) or "/doc/" in str(payload):
+                context.tinyfish_browser_navigated = True
+                context.sources = [
+                    {
+                        "url": "https://www.python.org/doc/",
+                        "final_url": "https://www.python.org/doc/",
+                        "title": "Python Docs",
+                        "excerpt": "Official Python documentation.",
+                        "label": "W2",
+                        "kind": "W",
+                        "details": {"retrieval": "browser", "links": []},
+                    }
+                ]
+                return {
+                    "ok": True,
+                    "text": "Python Docs",
+                    "sources": context.sources,
+                    "origin": origin,
+                    "metadata": {"title": "Python Docs", "current_url": "https://www.python.org/doc/"},
+                }
             context.sources = [
                 {
                     "url": "https://www.python.org/",
@@ -262,7 +285,14 @@ def test_browser_prepare_injects_when_planner_surface_empty(setup):
                     "kind": "W",
                     "details": {
                         "retrieval": "browser",
-                        "links": [{"id": "L2", "url": "https://docs.python.org/3/", "text": "Documentation"}],
+                        "links": [
+                            {
+                                "id": "L2",
+                                "url": "https://www.python.org/doc/",
+                                "text": "Documentation",
+                                "href": "/doc/",
+                            }
+                        ],
                     },
                 }
             ]
@@ -277,9 +307,27 @@ def test_browser_prepare_injects_when_planner_surface_empty(setup):
     names = {item.name for item in orchestrator.planner_definitions(context)}
     assert "web_search" not in names
     assert "web_browser" not in names
+    _, browser = orchestrator.registry.get("browser_start")
+    browser._owned_session = lambda uid: SimpleNamespace(
+        session_id="s",
+        user_id=uid,
+        active=True,
+        links=[
+            {
+                "id": "L2",
+                "url": "https://www.python.org/doc/",
+                "text": "Documentation",
+                "href": "/doc/",
+            }
+        ],
+    )
     orchestrator._run = fake_run
     asyncio.run(orchestrator.prepare(QuietProvider(), [{"role": "user", "content": prompt}], 1, context, {}))
     assert any(name == "web_browser" and origin == "server_policy" for name, origin, _ in recorded)
+    assert any(
+        "click" in str(arguments) or "/doc/" in str(arguments) for _name, _origin, arguments in recorded
+    )
+    assert any("close" in str(arguments) for _name, _origin, arguments in recorded)
     assert not any(name in {"web_search", "web_fetch"} for name, _origin, _arguments in recorded)
 
 
@@ -607,3 +655,94 @@ def test_tor_only_policy_rejects_clearnet():
     assert "web_search" not in names
     assert "web_fetch" not in names
     assert "web_browser" not in names
+
+
+def test_file_targets_ignore_workspace_directory_in_prompt():
+    from app.tools.contracts import ToolError
+    from app.tools.local.targets import coerce_file_argument, resolve_target
+
+    root = r"C:\Users\Volkr\Desktop\Alex LLM тест\WM-01"
+    prompt = f'Создай notes.txt в "{root}" с текстом ALEX_EVAL_WRITE_OK'
+    resolved = resolve_target(prompt, workspace_root=root, roots=[root], expect="file")
+    assert resolved.kind == "file"
+    assert resolved.path.endswith("notes.txt")
+    assert resolved.path.rstrip("\\") != root.rstrip("\\")
+    joined = coerce_file_argument("write_file", root, prompt, workspace_root=root, roots=[root])
+    assert joined.endswith("notes.txt")
+    nested = resolve_target("прочитай archive/notes.txt", workspace_root=root, roots=[root], expect="file")
+    assert nested.path.replace("/", "\\").endswith("archive\\notes.txt")
+    previous = root + "\\hello.txt"
+    reread = resolve_target(
+        "Перечитай файл.",
+        workspace_root=root,
+        roots=[root],
+        previous_file=previous,
+        expect="file",
+    )
+    assert reread.path == previous
+    english = resolve_target("hash hello.txt", workspace_root=root, roots=[root], expect="file")
+    assert english.path.endswith("hello.txt")
+    with pytest.raises(ToolError, match="target_is_directory"):
+        coerce_file_argument("read_file", root, "read this folder", workspace_root=root, roots=[root])
+
+
+def _assert_file_tools_not_workspace(host, root: Path):
+    workspace = str(root).replace("/", "\\").rstrip("\\")
+    for name, path in host.handled_paths:
+        if name in {"read_file", "write_file", "hash_file", "patch_file", "delete_file"}:
+            assert path.replace("/", "\\").rstrip("\\") != workspace
+
+
+def test_named_file_ops_do_not_use_workspace_root(setup):
+    root = setup[3]
+
+    def seed(path: Path):
+        (path / "hello.txt").write_text("hello-target", encoding="utf-8")
+        (path / "archive").mkdir(exist_ok=True)
+        (path / "archive" / "notes.txt").write_text("nested-ok", encoding="utf-8")
+
+    _handled, root, _context, _events, host = _run(
+        setup,
+        f"Создай notes.txt с текстом ALEX_EVAL_WRITE_OK в {root} и потом прочитай его.",
+        seed,
+    )
+    assert (root / "notes.txt").read_text(encoding="utf-8") == "ALEX_EVAL_WRITE_OK"
+    _assert_file_tools_not_workspace(host, root)
+    handled, root, context, _events, host = _run(setup, f"Прочитай hello.txt. Рабочая папка: {root}", seed)
+    assert "read_file" in handled
+    _assert_file_tools_not_workspace(host, root)
+    handled, root, _context, _events, host = _run(setup, f"Посчитай SHA256 hello.txt. Каталог: {root}", seed)
+    assert handled.count("hash_file") == 1
+    _assert_file_tools_not_workspace(host, root)
+    handled, root, context, _events, host = _run(setup, "прочитай archive/notes.txt", seed)
+    assert "read_file" in handled
+    _assert_file_tools_not_workspace(host, root)
+    with SessionLocal() as db:
+        row = db.get(LocalTask, context.task_id)
+        assert "nested-ok" in (latest(row.facts, "FILE_READ") or {}).get("content_excerpt", "")
+
+
+def test_pronoun_reread_keeps_previous_file(setup):
+    root = setup[3]
+
+    def seed(path: Path):
+        (path / "hello.txt").write_text("OLD", encoding="utf-8")
+
+    _handled, root, context, _events, host = _run(setup, f"Прочитай файл hello.txt в {root}", seed)
+    (root / "hello.txt").write_text("ALEX_EXTERNAL_FILE_CHANGE_7391", encoding="utf-8")
+    context.user_prompt = "Перечитай файл."
+    context.resume_task_id = None
+    context.task_id = None
+    context.local_intent_done = False
+    context.skip_final_stream = False
+    before = list(host.handled)
+    asyncio.run(
+        orch().prepare(QuietProvider(), [{"role": "user", "content": context.user_prompt}], 1, context, {})
+    )
+    assert "read_file" in host.handled[len(before) :]
+    _assert_file_tools_not_workspace(host, root)
+    with SessionLocal() as db:
+        row = db.get(LocalTask, context.task_id)
+        assert "ALEX_EXTERNAL_FILE_CHANGE_7391" in (latest(row.facts, "FILE_READ") or {}).get(
+            "content_excerpt", ""
+        )

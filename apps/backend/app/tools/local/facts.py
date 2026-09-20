@@ -29,6 +29,8 @@ ALLOWED_KINDS = {
     "RESEARCH_SOURCE",
     "DIRECTORY_CREATED",
     "KNOWN_FOLDERS",
+    "FILE_TARGET",
+    "BROWSER_CLOSED",
 }
 
 
@@ -57,7 +59,7 @@ def record(facts: dict, kind: str, data: dict, *, tool=None, tool_run_id=None, s
         return facts or {}
     payload = dict(facts or {})
     items = store(payload)
-    if kind in {"FILE_READ", "HASH_RESULT", "FILE_WRITTEN"} and data.get("path"):
+    if kind in {"FILE_READ", "HASH_RESULT", "FILE_WRITTEN", "FILE_TARGET"} and data.get("path"):
         items = [
             item
             for item in items
@@ -84,11 +86,20 @@ def record(facts: dict, kind: str, data: dict, *, tool=None, tool_run_id=None, s
 def latest(facts: dict, kind: str, path: str | None = None) -> dict | None:
     items = [item for item in reversed(store(facts)) if item.get("kind") == kind]
     if path:
-        needle = path.replace("/", "\\").casefold()
-        items = [
-            item for item in items if needle in str(item.get("path") or "").replace("/", "\\").casefold()
-        ]
+        items = [item for item in items if _same_path(item.get("path"), path)]
     return items[0] if items else None
+
+
+def _same_path(stored, needle) -> bool:
+    left = str(stored or "").replace("/", "\\").casefold().rstrip("\\")
+    right = str(needle or "").replace("/", "\\").casefold().rstrip("\\")
+    if not right:
+        return True
+    if left == right:
+        return True
+    if "\\" not in right and (left.endswith("\\" + right) or left.rsplit("\\", 1)[-1] == right):
+        return True
+    return False
 
 
 def public_block(facts: dict) -> str:
@@ -160,6 +171,16 @@ def public_block(facts: dict) -> str:
             lines.append(
                 f"known_folders desktop={item.get('desktop')} documents={item.get('documents')} "
                 f"downloads={item.get('downloads')}"
+            )
+        elif kind == "FILE_TARGET":
+            lines.append(
+                f"file_target path={item.get('path')} kind={item.get('kind') or 'file'} "
+                f"source={item.get('source') or ''}"
+            )
+        elif kind == "BROWSER_CLOSED":
+            lines.append(
+                f"browser_closed session={item.get('session_id') or ''} "
+                f"supplier_stop_confirmed={item.get('supplier_stop_confirmed')}"
             )
     return "\n".join(lines)
 
@@ -320,19 +341,49 @@ def from_tool(facts: dict, name: str, output: dict, arguments=None, tool_run_id=
             tool=name,
             tool_run_id=tool_run_id,
         )
-    elif name == "web_browser" and (output or {}).get("sources"):
-        source = (output.get("sources") or [{}])[0]
+    elif name == "web_browser" and (args.get("operation") or "") == "close":
         payload = record(
             payload,
-            "BROWSER_PAGE",
+            "BROWSER_CLOSED",
             {
-                "url": source.get("final_url") or source.get("url"),
-                "title": (output.get("text") or "").split("\n", 1)[0][:200],
-                "source_id": source.get("label"),
+                "session_id": meta.get("session_id") or "",
+                "supplier_stop_confirmed": meta.get("supplier_stop_confirmed"),
+                "session_status": meta.get("session_status") or "CLOSED",
             },
             tool=name,
             tool_run_id=tool_run_id,
         )
+    elif name == "web_browser":
+        source = (output.get("sources") or [{}])[0] if (output or {}).get("sources") else {}
+        title = str(meta.get("title") or source.get("title") or (text.split("\n", 1)[0] if text else ""))[
+            :200
+        ]
+        url = str(
+            meta.get("current_url") or source.get("final_url") or source.get("url") or args.get("url") or ""
+        )
+        if title or url:
+            payload = record(
+                payload,
+                "BROWSER_PAGE",
+                {
+                    "url": url,
+                    "title": title,
+                    "source_id": source.get("label"),
+                },
+                tool=name,
+                tool_run_id=tool_run_id,
+            )
+    if name in {"read_file", "write_file", "hash_file", "patch_file", "delete_file"} and path:
+        from .targets import looks_like_file_path
+
+        if looks_like_file_path(path):
+            payload = record(
+                payload,
+                "FILE_TARGET",
+                {"path": path, "kind": "file", "source": "previous_action"},
+                tool=name,
+                tool_run_id=tool_run_id,
+            )
     if (output or {}).get("sources") and str(name).startswith(("web_", "tor_")):
         for source in (output.get("sources") or [])[:8]:
             payload = record(

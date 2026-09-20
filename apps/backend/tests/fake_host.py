@@ -18,6 +18,7 @@ class FakeHost:
         self.root = Path(root)
         self.stop = threading.Event()
         self.handled = []
+        self.handled_paths = []
         self.thread = None
         self.jobs = {}
 
@@ -45,6 +46,9 @@ class FakeHost:
         args = job.get("host_args") or {}
         digest = job["input_digest"]
         self.handled.append(name)
+        self.handled_paths.append(
+            (name, str(args.get("path") or args.get("root") or args.get("source") or ""))
+        )
         try:
             payload = self._execute(name, args, job["id"])
         except Exception as error:
@@ -149,6 +153,10 @@ class FakeHost:
                     "path": str(path),
                 },
             }
+        if name == "delete_file":
+            path = Path(args["path"])
+            path.unlink()
+            return {"text": "ok", "exit_code": 0, "metadata": {"path": str(path), "files_changed": 1}}
         if name == "create_directory":
             path = Path(args["path"])
             path.mkdir(parents=True, exist_ok=True)

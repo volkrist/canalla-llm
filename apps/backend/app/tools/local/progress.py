@@ -35,10 +35,32 @@ def similar_count(facts: dict, name: str, arguments) -> int:
 
 def should_block(facts: dict, name: str, arguments, prompt: str = "") -> str | None:
     asked = prompt or ""
+    args = arguments if isinstance(arguments, dict) else {}
     if name == "read_file" and re.search(r"(?i)перечитай|re-?read|recheck|заново прочит", asked):
         return None
     if re.search(r"(?i)заново посчитай|пересчитай|recompute", asked) and name == "hash_file":
         return None
+    if name in {"hash_file", "read_file"}:
+        from .facts import latest
+        from .targets import coerce_file_argument, is_directory_path
+
+        offered = str(args.get("path") or "")
+        try:
+            resolved = coerce_file_argument(name, offered, asked)
+        except Exception:
+            resolved = offered
+        if name == "hash_file":
+            hashed = latest(facts, "HASH_RESULT", resolved or None) or latest(facts, "HASH_RESULT")
+            if hashed and hashed.get("digest"):
+                if offered and is_directory_path(offered):
+                    return "duplicate_readonly"
+                if resolved and _same_tool_path(hashed.get("path"), resolved):
+                    return "duplicate_readonly"
+        if name == "read_file":
+            read = latest(facts, "FILE_READ", resolved or None)
+            if read and not re.search(r"(?i)перечитай|re-?read|заново прочит", asked):
+                if offered and is_directory_path(offered):
+                    return "duplicate_readonly"
     digest = signature(name, arguments)
     history = list((facts or {}).get("action_signatures") or [])
     same = [item for item in history if item.get("digest") == digest]
@@ -64,6 +86,12 @@ def should_block(facts: dict, name: str, arguments, prompt: str = "") -> str | N
     return None
 
 
+def _same_tool_path(stored, needle) -> bool:
+    left = str(stored or "").replace("/", "\\").casefold().rstrip("\\")
+    right = str(needle or "").replace("/", "\\").casefold().rstrip("\\")
+    return bool(left and right and left == right)
+
+
 def apply_block(facts: dict, code: str) -> dict:
     payload = bump_metric(
         facts, "duplicate_actions_blocked" if code == "duplicate_readonly" else "no_progress_events"
@@ -82,9 +110,16 @@ def recommended(code: str) -> str:
 
 def reused_result(facts: dict, name: str, arguments) -> dict | None:
     from .facts import latest
+    from .targets import coerce_file_argument
 
     args = arguments if isinstance(arguments, dict) else {}
     path = str(args.get("path") or args.get("root") or "")
+    prompt = str(args.get("purpose") or "")
+    if name in {"read_file", "hash_file"} and path:
+        try:
+            path = coerce_file_argument(name, path, prompt)
+        except Exception:
+            pass
     if name == "read_file":
         item = latest(facts, "FILE_READ", path or None)
         if item:
