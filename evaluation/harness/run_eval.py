@@ -25,6 +25,7 @@ if str(HARNESS_DIR) not in sys.path:
 
 from catalog import SUITES, all_tasks, select  # noqa: E402
 from cleanup import cleanup_run, cleanup_task  # noqa: E402
+from fixture_proof import HarnessSetupError  # noqa: E402
 from fixtures import ensure_ready, setup_workspace  # noqa: E402  # type: ignore
 from mock_actor import play  # noqa: E402
 from paid import PaidConfig, PaidRefused, authorize_case, checkpoint, hydrate_paid, validate_real_start  # noqa: E402
@@ -260,6 +261,20 @@ def run_real_case(task: dict, run_id: str, session, paid: PaidConfig, keep_work:
         if state.get("metrics", {}).get("runtime_seconds", 0) > timeout + 5:
             timed_out = True
             state["timeout"] = True
+    except HarnessSetupError as error:
+        cleanup = cleanup_task(overlay, state, keep_workspace=keep_work)
+        return {
+            "id": overlay["id"],
+            "title": overlay["title"],
+            "category": overlay["category"],
+            "status": "FAIL",
+            "display_status": "HARNESS_SETUP_FAIL",
+            "reason": f"HARNESS_SETUP_FAIL: {error.reason}",
+            "evidence": {"harness_setup": error.details, "reason": error.reason},
+            "metrics": state.get("metrics") or empty_totals(),
+            "cleanup_status": cleanup["status"],
+            "model": "none",
+        }
     except Exception as error:
         state["answer"] = state.get("answer") or ""
         state.setdefault("metrics", empty_totals())
@@ -454,7 +469,38 @@ def main(argv: list[str] | None = None, runtime=None) -> int:
             prev_pod = ((existing or {}).get("runtime") or {}).get("pod_id")
             if prev_pod:
                 session.info["managed_pod_ids"] = [prev_pod]
-            extra["runtime"] = session.start()
+            extra["runtime"] = session.start(gpu=False, host=True)
+            extra["precheck"] = {"backend_port": session.port, "port_isolated": int(session.port) >= 8010}
+            from sf_confirmation_probe import run_sf_gate
+
+            print("eval SF HTTP gate starting (no GPU, no winget)", flush=True)
+            extra["sf_gate"] = run_sf_gate(session)
+            persist_payload(out_dir, build_payload("real", run_id, cases, paid, extra))
+            if not extra["sf_gate"].get("pass"):
+                print("SF GATE FAILED; not starting RunPod", flush=True)
+                for tid in ("SF-05", "SF-06"):
+                    if tid in by_id and tid not in done:
+                        row = run_real_case(by_id[tid], run_id, session, paid, keep_work=args.keep_work)
+                        cases = merge_case({"cases": cases}, row)["cases"]
+                        done.add(tid)
+                persist_payload(out_dir, build_payload("real", run_id, cases, paid, extra))
+                extra["cleanup"] = session.stop()
+                persist_payload(out_dir, build_payload("real", run_id, cases, paid, extra))
+                payload = load_payload(out_dir) or build_payload("real", run_id, cases, paid, extra)
+                print(
+                    json.dumps(
+                        {
+                            "run_id": run_id,
+                            "json": str(out_dir / "results.json"),
+                            "markdown": str(out_dir / "summary.md"),
+                            "counts": payload.get("status_counts"),
+                            "sf_gate": extra.get("sf_gate"),
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+                return 4
+            extra["runtime"] = session.start_gpu()
             started_session = True
         else:
             extra["runtime"] = getattr(session, "info", {}) or {"injected": True}

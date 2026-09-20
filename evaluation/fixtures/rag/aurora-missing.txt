@@ -1,0 +1,7 @@
+Harbour barge inventory (synthetic, RG-03 unique SHA)
+
+This file is an equipment ledger for a coastal survey barge.
+It is not a lantern field note and not a passenger-ship roster.
+No vessel named Aurora is listed here.
+No captain is named in this inventory.
+Fixture marker: rg03-aurora-absent-sha-9c1e4b7d

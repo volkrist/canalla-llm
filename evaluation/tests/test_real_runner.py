@@ -141,6 +141,18 @@ class SuiteAndLabelTests(unittest.TestCase):
         self.assertEqual(len(rows), 10)
         self.assertEqual([row["id"] for row in rows], [f"WM-{i:02d}" for i in range(1, 11)])
 
+    def test_mm04_does_not_require_excluding_oldtown(self):
+        task = select(task_id="MM-04")[0]
+        kinds = [row["kind"] for row in task["success_criteria"]]
+        self.assertIn("answer_contains", kinds)
+        self.assertNotIn("answer_excludes", kinds)
+
+    def test_rg03_uses_unique_fixture(self):
+        task = select(task_id="RG-03")[0]
+        self.assertEqual(task["workspace_setup"]["files"], ["aurora-missing.txt"])
+        fixture = Path(__file__).resolve().parents[1] / "fixtures" / "rag" / "aurora-missing.txt"
+        self.assertTrue(fixture.is_file())
+
     def test_all_plan_starts_with_weak_model(self):
         ids = real_plan_ids(select(suite="all"), "all")
         self.assertEqual(ids[:10], [f"WM-{i:02d}" for i in range(1, 11)])

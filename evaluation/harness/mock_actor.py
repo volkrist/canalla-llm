@@ -337,7 +337,7 @@ def _memory(task: dict, state: dict) -> None:
         state["answer"] = "Закреплено: Always answer in one short paragraph."
         return
     if tid == "MM-04":
-        state["answer"] = "Для тестов город Newhaven."
+        state["answer"] = "Сейчас тестовый город Newhaven. Oldtown — предыдущее значение, superseded."
         return
     if tid == "MM-06":
         state["answer"] = "Язык проекта EvalDemo — Python."

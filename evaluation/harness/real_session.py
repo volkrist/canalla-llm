@@ -197,12 +197,30 @@ class RealSession:
         }
         self.sentinel_pid = None
 
-    def start(self) -> dict:
+    def start(self, gpu: bool = True, host: bool = True) -> dict:
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.docs_dir.mkdir(parents=True, exist_ok=True)
         self.device_dir.mkdir(parents=True, exist_ok=True)
+        if gpu:
+            self._assert_gpu_clear()
+        print("eval backend starting", flush=True)
+        self._start_backend()
+        print("eval backend health wait", flush=True)
+        self._wait_health()
+        print("eval register synthetic user", flush=True)
+        self._register()
+        self._baseline_prefs()
+        if host:
+            print("eval native host starting", flush=True)
+            self._start_host()
+        if gpu:
+            self.start_gpu()
+        print("eval runtime ready pod=%s gpu=%s" % (self.pod_id, gpu), flush=True)
+        return self.info
+
+    def _assert_gpu_clear(self) -> None:
         if not secret_present(self.env_values, "RUNPOD_API_KEY") or not secret_present(self.env_values, "LLM_API_KEY"):
             raise RuntimeError("missing compute credentials in backend .env")
         pods = list_runpod_pods(self.env_values["RUNPOD_API_KEY"])
@@ -222,20 +240,13 @@ class RealSession:
                 self.info["runpod_running_before"] = 0
             else:
                 raise RuntimeError(f"existing_gpu_must_not_start_second_pod:{running}")
-        print("eval backend starting", flush=True)
-        self._start_backend()
-        print("eval backend health wait", flush=True)
-        self._wait_health()
-        print("eval register synthetic user", flush=True)
-        self._register()
-        self._baseline_prefs()
-        print("eval native host starting", flush=True)
-        self._start_host()
+
+    def start_gpu(self) -> dict:
+        self._assert_gpu_clear()
         print("eval GPU starting", flush=True)
         self._start_gpu()
         print("eval orcarouter sanity", flush=True)
         self._sanity()
-        print("eval runtime ready pod=%s" % self.pod_id, flush=True)
         return self.info
 
     def _start_backend(self) -> None:

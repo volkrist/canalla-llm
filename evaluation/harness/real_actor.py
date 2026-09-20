@@ -11,6 +11,7 @@ import threading
 import time
 from pathlib import Path
 
+from fixture_proof import HarnessSetupError, seed_memory, upload_docs
 from fixtures import empty_metrics
 from http_client import Client, HttpError
 from mock_actor import run_fixture_tests
@@ -18,6 +19,7 @@ from paid import PaidConfig, case_allows_search, case_needs_browser
 from real_cases import apply_real_overlay
 from real_observe import apply_product, fail_fast_reason
 from real_session import RealSession, collect_answer, latest_runs, latest_tasks
+from sf_confirmation_probe import as_product, probe_case
 
 WRITE_TOOLS = {"write_file", "create_directory", "delete_file", "move_file", "copy_file", "patch_file"}
 SENSITIVE_AUTO = {"delete_file"}
@@ -445,20 +447,13 @@ def execute_real_case(session: RealSession, task: dict, state: dict, paid: PaidC
 
     setup = overlay.get("workspace_setup") or {}
     if setup.get("kind") == "rag_docs" and workspace:
-        _upload_docs(client, list(Path(workspace).glob("*")))
+        state["rag_setup"] = upload_docs(client, [path for path in Path(workspace).glob("*") if path.is_file()])
     if setup.get("kind") == "memory":
-        _seed_memory(client, setup)
+        state["memory_setup"] = seed_memory(client, setup)
 
     if overlay["id"] in {"SF-05", "SF-06"}:
-        probe = _policy_probe(client, overlay["id"], workspace or session.workspace_root)
-        product = {
-            "answer": "policy probe",
-            "tools": [],
-            "confirmations": probe.get("confirmations") or [{"tool": "install_software", "risk": "SENSITIVE", "required": True}],
-            "digest_mutation_blocked": probe.get("digest_mutation_blocked"),
-            "replay_blocked": probe.get("replay_blocked"),
-            "risk_by_tool": {"install_software": "SENSITIVE"},
-        }
+        probe = probe_case(session, overlay["id"])
+        product = as_product(overlay["id"], probe)
         apply_product(overlay, state, product)
         state["metrics"]["runtime_seconds"] = round(time.time() - started, 3)
         state["metrics"]["runpod_cost_usd"] = max(0.0, session.session_cost() - cost_before)

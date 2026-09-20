@@ -157,4 +157,4 @@ Every filesystem/process fixture declares `cleanup`. The harness:
 
 ## Capability map
 
-See `evaluation/capabilities.md` (frozen to origin/main **0.9.2**, not uncommitted 0.9.3 work).
+See `evaluation/capabilities.md` (post-0.9.3 main; reliability closed).

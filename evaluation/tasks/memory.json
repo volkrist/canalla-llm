@@ -211,10 +211,6 @@
       {
         "kind": "answer_contains",
         "text": "Newhaven"
-      },
-      {
-        "kind": "answer_excludes",
-        "text": "Oldtown"
       }
     ],
     "verification": {
@@ -233,7 +229,7 @@
     },
     "weak_model_risks": [],
     "deterministic_fallback_expected": false,
-    "notes": "",
+    "notes": "Oldtown may appear as superseded history. Do not require answer_excludes Oldtown.",
     "live": false,
     "expected_mock_status": "SKIPPED",
     "suite": "memory"

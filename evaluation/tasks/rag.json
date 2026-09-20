@@ -116,7 +116,7 @@
     "workspace_setup": {
       "kind": "rag_docs",
       "files": [
-        "lantern.txt"
+        "aurora-missing.txt"
       ]
     },
     "expected_capabilities": [
@@ -154,7 +154,7 @@
     },
     "weak_model_risks": [],
     "deterministic_fallback_expected": false,
-    "notes": "",
+    "notes": "Unique SHA fixture so product document-dedup does not collide with RG-01 lantern.txt.",
     "live": false,
     "expected_mock_status": "SKIPPED",
     "suite": "rag"
