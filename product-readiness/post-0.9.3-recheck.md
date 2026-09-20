@@ -1,70 +1,59 @@
 # Recheck after 0.9.3 merge
 
-0.9.3 (Weak-Model Reliability & Grounded Execution) is **in progress on
-another worktree**. This planning tree is frozen to **0.9.2 / origin/main**.
+**Audited:** 20 September 2026 against `origin/main` `80c53ade3756ca8fd10471295f9b29bbe89d17f0` (0.9.3 closeout).
 
-After 0.9.3 merges to `main`, re-read the repo and tick each row.
-Do **not** assume today’s limitations still exist. Do **not** assume they
-are gone.
+Reliability stage is **CLOSED**. Do not reopen a broad repair loop. Known limitations (WM-07 Browser live lifecycle, CD-08 REAL stale-SHA coverage) stay focused backlog.
 
-Cheap audit: walk this file, update `current-state.md` stamps from
-`CURRENT VERIFIED FROM REPO` where needed, adjust MUST items that 0.9.3
-already satisfied.
+This file is the cheap post-0.9.3 readiness recheck. Production code was **not** changed on the planning branch.
 
 ---
 
-## Product statements that may go stale
+## Product statements
 
-| # | 0.9.2 statement | Why it may change |
+| # | 0.9.2 statement | After 0.9.3 |
 |---|---|---|
-| 1 | Planner/orchestrator may skip inspect/test; weak tool XML leaks | reliability loop, compact, plan |
-| 2 | Assistant may claim “no filesystem access” after successful tools | grounding / host observation labels |
-| 3 | No `continue_task` module | new continue_task path |
-| 4 | Progress is mostly tool names + TaskPanel enums | `progress` events / copy |
-| 5 | Intent is regex/`needs_research` heuristics | `intent` classifier |
-| 6 | Facts are not a first-class bounded store | `facts` |
-| 7 | Scope of edits may drift | `scope` |
-| 8 | TinyFish classify / Agent inject rules | `classify.py` |
-| 9 | Coding path quality on Qwen | `coding.py` + tests `test_093_reliability.py` |
-| 10 | Chat stream error/task events | `chat_stream.py` |
-| 11 | ContextBuilder layout | `context_builder.py` |
-| 12 | Policy/orchestrator confirmation frequency | may reduce Ask-like nags **or** add more gates |
-| 13 | `tools_max_*` / task ceilings | pyproject/tests may retune |
-| 14 | Desktop host/process/git (dirty in the other tree) | only if those land; **this tree’s desktop is 0.9.2** |
-| 15 | README version narrative | will become 0.9.3 |
-| 16 | OpenAPI still 0.8.2 | maybe bumped |
-| 17 | Eval 97-case scores vs 0.9.2 | must re-run; do not reuse |
-| 18 | WAITING_LLM / resume behavior | continue_task may auto-resume |
-| 19 | “New task created” vs same id | must re-verify copy and API |
-| 20 | Over-questioning (“should I read?”) | primary 0.9.3 goal — recheck HIGH autonomy |
-| 21 | Deep research looping | grounding may stop useless fetches |
-| 22 | Mock vs real provider tests | new fixtures |
-| 23 | Computer default still **Ask** | 0.9.3 may not touch UX defaults |
-| 24 | No backend sidecar | 0.9.3 should **not** need to; still a 1.0 MUST |
-| 25 | No on-demand GPU start | likely **unchanged** — still MUST |
-| 26 | JWT in memory only | likely **unchanged** |
-| 27 | NSIS without backend | likely **unchanged** |
-| 28 | Idle stop ignores non-generation tasks | likely **unchanged** |
-| 29 | `ALLOW_USER_COMPUTE_START=false` | likely **unchanged** |
-| 30 | Auto memory capture off | likely **unchanged** |
+| 1 | Planner may skip inspect/test; weak tool XML leaks | **Improved.** Thick controller, compact, plan, no-progress. Residual UI copy can still be tightened. |
+| 2 | Assistant claims “no filesystem access” after tools | **Closed** for core grounding (WM-01 class). |
+| 3 | No `continue_task` module | **Present** (`continue_task.py`, queue monitor). |
+| 4 | Progress is mostly tool names | **Improved** (`progress.py`, task events). Five-chip UX still missing. |
+| 5 | Intent is regex heuristics | **Present** (`intent.py`) — still deterministic, not a user selector. |
+| 6 | Facts not first-class | **Present** (`facts.py` VerifiedFactStore). |
+| 7 | Scope of edits may drift | **Present** (`targets.py`, TaskScope). |
+| 8 | TinyFish classify / Agent inject | **Agent READ_ONLY.** Browser routing/`server_policy` work; live Browser lifecycle = known limitation. |
+| 9 | Coding path on Qwen | **DoD + fresh verification.** CD-08 REAL stale-SHA = coverage debt, not confirmed product FAIL. |
+| 10 | Chat stream error/task events | **Present**; remaining work is copy/UX. |
+| 11 | ContextBuilder layout | **Memory vs RAG independent; Newhaven supersedes Oldtown.** |
+| 12 | Confirmation frequency | **Payload-bound, replay-protected, allow-once.** Headlines still SHOULD. |
+| 13 | `tools_max_*` ceilings | **Present**, retuned in 0.9.3. |
+| 14 | Desktop host/process/git | **Owned Job Object processes** (0.9.3). Sidecar backend was still missing at closeout; first slice is `feat/product-runtime-foundation`. |
+| 15 | README version | **0.9.3** |
+| 16 | OpenAPI still 0.8.2 | **Fixed** — FastAPI `version="0.9.3"`. |
+| 17 | Eval 97-case scores | Do **not** reuse 0.9.2. Canonical eval rebased; no new 97 REAL this stage. |
+| 18 | WAITING_LLM / resume | **continue_task** auto-resumes pending; GPU on-demand still missing. |
+| 19 | “New task created” vs same id | **Improved** in controller; UX copy still a MUST polish. |
+| 20 | Over-questioning | **HIGH autonomy in controller.** Computer UI default remains **Ask** — still a 1.0 MUST. |
+| 21 | Deep research looping | **Grounding + no-progress.** RESEARCH_DEPTH stays DEEP, no selector. |
+| 22 | Mock vs real provider tests | **Expanded** (`test_093_*`). |
+| 23 | Computer default Ask | **Still Ask.** |
+| 24 | No backend sidecar | **First implementation slice started** (not on this planning branch). |
+| 25 | No on-demand GPU start | **Unchanged** — next slice after runtime foundation. |
+| 26 | JWT in memory only | **Unchanged** (session restore still MUST). Desktop now can persist **backend** JWT in data dir. |
+| 27 | NSIS without backend | **Unchanged.** Packaging spike documented, not shipped. |
+| 28 | Idle stop ignores non-generation tasks | **Unchanged.** |
+| 29 | `ALLOW_USER_COMPUTE_START=false` | **Unchanged.** |
+| 30 | Auto memory capture off | **Unchanged** (after 1.0). |
 
 ---
 
-## Recheck procedure (after merge)
+## Still true
 
-1. New worktree from `origin/main` (do not reuse the dirty 0.9.3 tree).
-2. `git log 0.9.2..HEAD --oneline`.
-3. Diff this folder’s “CURRENT VERIFIED” claims against new code.
-4. Run Gate A tests locally (no paid GPU required for the audit).
-5. Update `roadmap-to-1.0.md` MUST list: move done items to “satisfied in 0.9.3”.
-6. Do not start LoRA because 0.9.3 landed.
+- 0.9.3 is a development release, not 1.0.
+- AUTONOMY=HIGH and RESEARCH_DEPTH=DEEP stay non-selectable.
+- Zero-terminal, installer sidecar, status chips, forgotten-GPU policy, LoRA gate remain product work.
+- Do not start LoRA.
 
----
+## First product slice
 
-## Still true even if 0.9.3 is perfect
+**RUNTIME FOUNDATION** on `feat/product-runtime-foundation` (not this planning branch): Desktop-owned backend, data root, port policy, JWT file, Starting/Ready/Error.
 
-- This is not a feature release and not production fixes in
-  `planning/1.0-product-readiness`.
-- Zero-terminal, installer sidecar, status chips, forgotten-GPU policy,
-  and LoRA gate remain product work **after** reliability.
-- `AUTONOMY=HIGH` and `RESEARCH_DEPTH=DEEP` stay non-selectable.
+Next recommended slice after that PASSes: **on-demand AI / RunPod lifecycle**.

@@ -1,7 +1,7 @@
 # Current product map
 
 **Source of truth:** this worktree, branch `planning/1.0-product-readiness`,
-base `origin/main` = **0.9.2** (`b23debdd96a8c009a50e865d7aec65578dfc64f0`).
+base `origin/main` = **0.9.3** (`80c53ade3756ca8fd10471295f9b29bbe89d17f0`).
 
 Legend:
 
@@ -33,7 +33,7 @@ rule `HIGH` because Computer defaults to **Ask**.
 
 **CURRENT VERIFIED FROM REPO**
 
-- Tauri 2 + React + TypeScript, product name `Alex LLM`, version `0.9.2`.
+- Tauri 2 + React + TypeScript, product name `Alex LLM`, version `0.9.3`.
 - Entry: `apps/desktop/src/main.tsx` → `App.tsx`.
 - No onboarding, no first-run flag, no tutorial.
 - Settings from `localStorage` key `alex-settings`.
@@ -54,8 +54,8 @@ RESEARCH_DEPTH selector.
 
 **CURRENT VERIFIED FROM REPO**
 
-- FastAPI + SQLAlchemy + Alembic, `apps/backend/pyproject.toml` version `0.9.2`.
-- OpenAPI `version=` still **`0.8.2`** (stale metadata).
+- FastAPI + SQLAlchemy + Alembic, `apps/backend/pyproject.toml` version `0.9.3`.
+- OpenAPI `version=` **`0.9.3`**.
 - Start: `scripts/start-backend.ps1` → `alembic upgrade head` then
   `uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1`.
 - **One worker is required** for stream ownership / crash recovery.

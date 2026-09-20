@@ -12,26 +12,20 @@ controller, routing, verification, recovery, and product shell compensate.
 ## Sequence
 
 ```text
-0.9.3  Weak-model reliability & grounded execution
-   │     (other worktree; do not merge from here)
-   ▼
-Real-world evaluation   (eval/real-world-suite, 97 cases)
-   │     parallel-ok with late 0.9.3 hardening
-   ▼
-Small 0.9.x fixes       only failures from eval + reliability
-   │     no product chrome yet if the agent still lies/loops
-   ▼
-Product / runtime polish
-   │     sidecar backend, first-run, statuses, GPU on-demand,
-   │     idle policy vs tasks, confirmations copy, diagnostics
-   ▼
-0.99  release candidate (installer + zero-terminal + gates D–I)
+0.9.3  Weak-model reliability — CLOSED on origin/main
    │
    ▼
-LoRA decision           (default: skip)
-   │     only after baseline snapshot; near the end on purpose
+Canonical eval rebased (eval/real-world-suite) — no 97 REAL this stage
+   │
    ▼
-Final regression        GATE K
+Product / runtime polish   ← current phase
+   │     first slice: Desktop-owned backend (feat/product-runtime-foundation)
+   │     then: on-demand GPU, installer, first-run, session restore, chips
+   ▼
+0.99  release candidate
+   │
+   ▼
+LoRA decision (default: skip)
    ▼
 1.0
 ```
@@ -55,11 +49,11 @@ eval, not a scatter of micro-themes.
 
 ---
 
-## MUST before 1.0 (count: 28)
+## MUST before 1.0 (count: 24)
 
-Each item names a **user failure**. Details in sibling files.
+Reliability foundation is closed. Remaining MUST items are product/runtime.
 
-1. Desktop-owned backend lifecycle — “I opened Alex, nothing listens.”
+1. Desktop-owned backend lifecycle — “I opened Alex, nothing listens.” (**slice in progress**)
 2. Bundled installer (UI+backend+host) — “I need Python to chat.”
 3. First-run to chat without `.env` — “README is the product.”
 4. Local session restore — “I log in every launch.”
@@ -73,35 +67,33 @@ Each item names a **user failure**. Details in sibling files.
 12. No duplicate Pods / visible multiple_compute recovery — “two bills.”
 13. Monitor lives while Pod lives — “closed window, GPU all night.”
 14. Five-chip status model — “20 badges, none mean ‘can I talk’.”
-15. Compact progress, no tool XML — “Tool call 14.”
-16. Five-question errors — “Something went wrong.”
-17. Same-task recovery copy — “New task created.”
-18. HIGH autonomy default (not Ask) — “may I read this file?”
-19. Keep AUTONOMY/DEEP absent — “user tunes the weak model.”
-20. Human confirmation headlines — “digest=a0e277.”
-21. Cost ceilings + never delete volume — money/data safety.
-22. Secrets out of UI/logs/bundle — key leak.
-23. Support bundle — “paste .env in Discord.”
-24. Honest degrade, no prod mock masquerade — “fake success.”
-25. Gates A–C (regression, 97 suite, live trials) — quality bar.
-26. Upgrade preserves data — “update wiped chats.”
-27. Zero-terminal daily flows — “PowerShell to start AI.”
-28. Advanced diagnostics door — “need Pod id without putting it in chat.”
+15. Five-question errors — “Something went wrong.”
+16. Same-task recovery copy — “New task created.”
+17. HIGH autonomy default (not Ask) — “may I read this file?”
+18. Keep AUTONOMY/DEEP absent — “user tunes the weak model.”
+19. Human confirmation headlines — “digest=a0e277.”
+20. Secrets out of UI/logs/bundle — key leak.
+21. Support bundle — “paste .env in Discord.”
+22. Honest degrade, no prod mock masquerade — “fake success.”
+23. Upgrade preserves data — “update wiped chats.”
+24. Zero-terminal daily flows — “PowerShell to start AI.”
+
+Satisfied in 0.9.3 (do not reopen as reliability work): confirmation payload/replay/allow-once, write verification, directory-as-file, SHA256 grounding, workspace scope, no-progress, owned process control, coding DoD, WRITE queue, Tor fail-closed, RAG missing-fact, memory/Newhaven, Agent READ_ONLY, OpenAPI version string 0.9.3, cost ceilings + never delete volume, eval Gate C still required later.
 
 ## SHOULD before 1.0 (count: 12)
 
-29. Authenticode / SmartScreen story.
-30. In-app updater **or** a documented one-click upgrade.
-31. Embedding auto-prepare on first attach.
-32. Tor Browser missing: in-app detect + download guide.
-33. Git missing: Computer message, not a tool traceback.
-34. Volume monthly cost only if supplier truth exists.
-35. JWT refresh / longer local device session.
-36. Collapse composer Web/Tor/Computer radios to status+Advanced.
-37. Pre-migrate SQLite copy.
-38. Uninstall keep/delete data.
-39. Map remaining unmapped error codes.
-40. FastAPI OpenAPI version string matches release.
+25. Authenticode / SmartScreen story.
+26. In-app updater **or** a documented one-click upgrade.
+27. Embedding auto-prepare on first attach.
+28. Tor Browser missing: in-app detect + download guide.
+29. Git missing: Computer message, not a tool traceback.
+30. Volume monthly cost only if supplier truth exists.
+31. JWT refresh / longer local device session.
+32. Collapse composer Web/Tor/Computer radios to status+Advanced.
+33. Pre-migrate SQLite copy.
+34. Uninstall keep/delete data.
+35. Map remaining unmapped error codes.
+36. Advanced diagnostics door.
 
 ## CAN BE AFTER 1.0 (count: 14)
 

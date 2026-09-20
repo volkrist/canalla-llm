@@ -27,12 +27,12 @@ verification, tools, recovery, and UX hide the weakness.
 |---|---|
 | BRANCH | `planning/1.0-product-readiness` |
 | WORKTREE | `C:\Users\Volkr\Documents\Codex\2026-09-13\x20\outputs\alex-llm-product` |
-| BASE HEAD | `b23debdd96a8c009a50e865d7aec65578dfc64f0` (origin/main, **0.9.2**) |
+| BASE HEAD | `80c53ade3756ca8fd10471295f9b29bbe89d17f0` (origin/main, **0.9.3 closeout**) |
 | COMMITS | this tree, `product-readiness/**` only |
 | PUSH | `origin/planning/1.0-product-readiness` only |
 | Merge | **no** |
 | Push main | **no** |
-| Production code modified | **NO** |
+| Production code modified | **NO** (runtime code lives on `feat/product-runtime-foundation`) |
 | Paid resources | **$0** |
 
 Parallel work not touched:
@@ -68,7 +68,7 @@ If none, it is not in 1.0.
 
 ## Current product state
 
-**CURRENT VERIFIED FROM REPO (0.9.2).** Recheck after 0.9.3.
+**CURRENT VERIFIED FROM REPO (0.9.3)** after recheck. See `post-0.9.3-recheck.md`.
 
 Already exists and is real:
 

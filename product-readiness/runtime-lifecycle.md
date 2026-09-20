@@ -5,16 +5,12 @@ RunPod-specific lifecycle is `runpod-lifecycle.md`.
 
 ---
 
-## CURRENT VERIFIED FROM REPO (0.9.2)
+## CURRENT VERIFIED FROM REPO (0.9.3)
 
 ```text
-Human starts backend (PowerShell)
-Human starts desktop (PowerShell or unsigned exe)
-Desktop talks HTTP to 127.0.0.1:8000
-Tauri polls pair + host jobs
-Closing desktop: backend keeps running (good for GPU monitor)
-Closing backend: idle/budget GPU enforcement STOPS (bad)
-JWT dies with the window
+Developer still: scripts/start-backend.ps1 → Alembic → uvicorn :8000
+Desktop on feat/product-runtime-foundation: ensure_backend Job Object sidecar
+JWT for API: .env today; generated file in data root when Desktop owns the process
 ```
 
 There is no Windows service, no sidecar spawn from Tauri, no updater,
