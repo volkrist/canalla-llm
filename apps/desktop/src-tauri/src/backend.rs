@@ -107,6 +107,7 @@ pub fn data_root() -> PathBuf {
     crate::credential::data_dir()
 }
 
+#[allow(dead_code)]
 pub fn redact_secret(text: &str, secret: &str) -> String {
     if secret.is_empty() {
         return text.to_string();
@@ -215,23 +216,33 @@ fn discover_backend_python() -> Result<(PathBuf, PathBuf), String> {
             }
         }
     }
-    let mut dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(Path::to_path_buf));
-    for _ in 0..10 {
-        let Some(current) = dir.clone() else { break };
-        for rel in [
-            "apps/backend/.venv/Scripts/python.exe",
-            "backend/.venv/Scripts/python.exe",
-        ] {
-            let python = current.join(rel);
-            if python.is_file() {
-                if let Some(cwd) = find_backend_cwd(&python) {
-                    return Ok((python, cwd));
+    let mut roots = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            roots.push(parent.to_path_buf());
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.push(cwd);
+    }
+    for mut dir in roots {
+        for _ in 0..10 {
+            for rel in [
+                "apps/backend/.venv/Scripts/python.exe",
+                "backend/.venv/Scripts/python.exe",
+            ] {
+                let python = dir.join(rel);
+                if python.is_file() {
+                    if let Some(cwd) = find_backend_cwd(&python) {
+                        return Ok((python, cwd));
+                    }
                 }
             }
+            match dir.parent() {
+                Some(parent) => dir = parent.to_path_buf(),
+                None => break,
+            }
         }
-        dir = current.parent().map(Path::to_path_buf);
     }
     Err("backend_python_missing".into())
 }
@@ -355,17 +366,32 @@ fn spawn_owned(port: u16, instance: &str, secret: &str) -> Result<Live, String> 
         const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
         command.creation_flags(CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | CREATE_BREAKAWAY_FROM_JOB);
     }
-    let mut child = command.spawn().map_err(|e| e.to_string())?;
-    let job = create_job()?;
-    if assign_job(&job, &child).is_err() {
-        let _ = child.kill();
-        return Err("job_assign_failed".into());
-    }
+    command.env("PYTHONUNBUFFERED", "1");
+    let child = match command.spawn() {
+        Ok(child) => child,
+        Err(_) => {
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                const CREATE_UNICODE_ENVIRONMENT: u32 = 0x0000_0400;
+                command.creation_flags(CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT);
+            }
+            command.spawn().map_err(|e| e.to_string())?
+        }
+    };
+    let job = create_job().ok().and_then(|job| {
+        if assign_job(&job, &child).is_ok() {
+            Some(job)
+        } else {
+            None
+        }
+    });
     let pid = child.id();
     write_lock(&root, pid, port, instance, true);
     Ok(Live {
         child: Some(child),
-        job: Some(job),
+        job,
         pid,
         port,
         instance: instance.to_string(),
@@ -457,10 +483,12 @@ fn spawn_and_wait(sup: &mut Supervisor, port: u16, restarts: u8) -> Result<Backe
             Ok(status)
         }
         Err(_) => {
-            let code = live.child.as_mut().and_then(|child| child.wait().ok()).and_then(|s| s.code());
-            if let Some(mut child) = live.child.take() {
+            let code = if let Some(mut child) = live.child.take() {
                 let _ = child.kill();
-            }
+                child.wait().ok().and_then(|status| status.code())
+            } else {
+                None
+            };
             let code_label = if code == Some(12) {
                 "migration_failed"
             } else {
@@ -522,26 +550,31 @@ fn ensure_locked(sup: &mut Supervisor) -> Result<BackendStatus, String> {
         }
     }
 
-    for port in PREFERRED_PORT..PREFERRED_PORT.saturating_add(PORT_SPAN) {
-        match classify_port(port) {
-            PortKind::Alex => {
-                let body = alex_health(&url_for(port)).unwrap_or(json!({}));
-                let live = connect_existing(port, &body, &root);
-                let status = status_from_live(&live, BackendState::Ready, None);
-                sup.live = Some(live);
-                sup.last = status.clone();
-                return Ok(status);
-            }
-            PortKind::Unrelated => continue,
-            PortKind::Free => return spawn_and_wait(sup, port, restart_from),
+    let port = select_listen_port(PREFERRED_PORT)?;
+    match classify_port(port) {
+        PortKind::Alex => {
+            let body = alex_health(&url_for(port)).unwrap_or(json!({}));
+            let live = connect_existing(port, &body, &root);
+            let status = status_from_live(&live, BackendState::Ready, None);
+            sup.live = Some(live);
+            sup.last = status.clone();
+            Ok(status)
         }
+        PortKind::Unrelated => Err("no_safe_backend_port".into()),
+        PortKind::Free => spawn_and_wait(sup, port, restart_from),
     }
-    Err("no_safe_backend_port".into())
 }
 
 pub fn ensure_backend_blocking() -> Result<BackendStatus, String> {
     let mut sup = supervisor().lock().map_err(|e| e.to_string())?;
-    ensure_locked(&mut sup)
+    match ensure_locked(&mut sup) {
+        Ok(status) => Ok(status),
+        Err(code) => {
+            let status = BackendStatus::error(&code, data_root());
+            sup.last = status.clone();
+            Ok(status)
+        }
+    }
 }
 
 pub fn current_status() -> BackendStatus {

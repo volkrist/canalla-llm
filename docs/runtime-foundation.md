@@ -13,7 +13,7 @@ Desktop did not start, stop, or supervise that process. Persistent SQLite lived 
 2. Probe `127.0.0.1:8000`…`8019`.
    - Healthy Alex (`product=alex-llm` or existing `/health`) → reconnect.
    - Unrelated occupant → skip that port; never kill by name.
-3. If no Alex: spawn `python -m app.runtime_entry` in a Job Object (`KILL_ON_JOB_CLOSE`).
+3. If no Alex: spawn `python -m app.runtime_entry` (Job Object when assign succeeds; Child kill on quit always). Never kill the child just because Job assign failed.
 4. `runtime_entry` ensures `%LOCALAPPDATA%\Alex LLM\` layout, JWT file, Alembic, then uvicorn.
 5. Close Desktop → owned child stops. External developer backend is left running.
 6. UI states: Starting / Ready / Error only.
