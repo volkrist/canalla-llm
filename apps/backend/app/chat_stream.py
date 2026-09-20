@@ -55,22 +55,6 @@ async def stream_response(
 ):
     if chat.id in request.app.state.generating:
         raise HTTPException(409, "В этом диалоге уже идёт генерация")
-    if request.app.state.provider_name == "llamacpp":
-        state = await request.app.state.provider.status()
-        if state != "ready":
-            if resume_task_id:
-                from types import SimpleNamespace
-
-                from .tools.local.task import LocalTaskController
-                from .tools.models import LocalTask
-
-                with SessionLocal() as db:
-                    task = db.get(LocalTask, resume_task_id)
-                    if task and task.user_id == user.id:
-                        LocalTaskController().waiting_llm(
-                            db, SimpleNamespace(task_id=task.id, user_id=user.id, secrets=()), state
-                        )
-            raise LLMError(state)
     target = None
     if target_id:
         rows = ordered_messages(db, chat.id)
@@ -91,7 +75,7 @@ async def stream_response(
     effective_web_mode = web_mode or prefs.default_mode
     effective_computer_mode = computer_mode or prefs.computer_mode
     effective_tor_mode = tor_mode or prefs.tor_mode
-    usage_id = await compute.begin_generation(user.id, chat.id, request.app.state.provider_name)
+    usage_id = None
     request.app.state.generating.add(chat.id)
     mutation_lock.acquire()
     try:
@@ -147,7 +131,6 @@ async def stream_response(
                 snapshot={k: v for k, v in context.items() if k not in {"messages", "memories"}},
             )
         )
-        db.get(GenerationUsage, usage_id).message_id = assistant.id
         db.commit()
         assistant_id, chat_id = assistant.id, chat.id
         meta = {
@@ -158,7 +141,8 @@ async def stream_response(
     except BaseException:
         db.rollback()
         request.app.state.generating.discard(chat.id)
-        compute.finish_generation(usage_id, "error")
+        if usage_id:
+            compute.finish_generation(usage_id, "error")
         raise
     finally:
         mutation_lock.release()
@@ -173,9 +157,33 @@ async def stream_response(
         iterator = None
         tool_task = None
         planner_usage = {}
+        parked = False
+        tool_context = None
         try:
             await request.app.state.presence.publish()
             yield sse("meta", meta)
+            from .compute.demand import production_llm_required, wait_for_production
+
+            wait_state = "ready"
+            if production_llm_required(get_settings()):
+                async for event, payload in wait_for_production(
+                    request, user, chat, user_message, assistant, content, resume_task_id
+                ):
+                    if event == "_done":
+                        wait_state = payload
+                        break
+                    yield sse(event, payload)
+            if wait_state == "parked":
+                parked = True
+                yield sse("done", {"parked": True, "message_id": assistant_id})
+                return
+            usage_id = await compute.begin_generation(user.id, chat.id, request.app.state.provider_name)
+            await request.app.state.presence.publish()
+            with SessionLocal() as link_db:
+                usage = link_db.get(GenerationUsage, usage_id)
+                if usage:
+                    usage.message_id = assistant_id
+                    link_db.commit()
             settings = get_settings()
             from .tools.local.plan import looks_like_autonomous, looks_like_computer
             from .tools.local.public_text import public_assistant_text
@@ -410,7 +418,9 @@ async def stream_response(
             raise
         except Exception as error:
             status = "error"
-            logger.warning("generation_failed type=%s request_id=%s", type(error).__name__, usage_id)
+            logger.warning(
+                "generation_failed type=%s request_id=%s", type(error).__name__, usage_id or assistant_id
+            )
             yield sse(
                 "error",
                 {
@@ -425,6 +435,9 @@ async def stream_response(
             # Shield cleanup so cancellation cannot skip provider closure and persistence.
             import anyio
 
+            if parked:
+                request.app.state.generating.discard(chat_id)
+                return
             with anyio.CancelScope(shield=True):
                 if tool_task and not tool_task.done():
                     tool_task.cancel()
@@ -438,7 +451,9 @@ async def stream_response(
                         from .tools.models import LocalTask
 
                         with SessionLocal() as db:
-                            row = db.get(LocalTask, getattr(tool_context, "task_id", None))
+                            row = db.get(
+                                LocalTask, getattr(tool_context, "task_id", None) if tool_context else None
+                            )
                             if row and row.status not in TERMINAL:
                                 if row.stop_requested:
                                     LocalTaskController().stop(db, tool_context)
@@ -524,7 +539,8 @@ async def stream_response(
                     ):
                         if column in tokens and upstream in planner_usage:
                             tokens[column] += planner_usage[upstream]
-                compute.finish_generation(usage_id, status, assistant_id, tokens)
+                if usage_id:
+                    compute.finish_generation(usage_id, status, assistant_id, tokens)
             finally:
                 request.app.state.generating.discard(chat_id)
                 with anyio.CancelScope(shield=True):

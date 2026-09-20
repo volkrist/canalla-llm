@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from sqlalchemy import select
 
 from ...database import SessionLocal
+from ...models import now
 from ..executor import ExecutionContext
 from ..models import LocalTask
 from ..policy import ToolLimits, preferences
@@ -112,10 +113,39 @@ async def continue_task(task_id: str, orchestrator, provider, *, host_online=Tru
 
 
 async def continue_pending(orchestrator, provider, *, user_id=None, host_online=True, emit=None):
+    from ...compute.demand import finish_simple_chat, provider_ready
+    from . import machine
+
+    if await provider_ready(provider):
+        with SessionLocal() as db:
+            query = select(LocalTask).where(LocalTask.status == machine.WAITING_LLM)
+            if user_id:
+                query = query.where(LocalTask.user_id == user_id)
+            for row in db.scalars(query).all():
+                facts = dict(row.facts or {})
+                if row.status == machine.WAITING_LLM:
+                    machine.transition(row, machine.RECOVERING)
+                    machine.transition(row, machine.READY)
+                facts["auto_continue"] = True
+                facts["waiting_for_compute"] = False
+                facts["task_continuation"] = True
+                row.facts = facts
+                row.updated_at = now()
+            db.commit()
     with SessionLocal() as db:
         ids = claim_pending(db, user_id)
+        simple = []
+        rest = []
+        for task_id in ids:
+            row = db.get(LocalTask, task_id)
+            if row and (row.facts or {}).get("simple_chat"):
+                simple.append(task_id)
+            else:
+                rest.append(task_id)
     results = []
-    for task_id in ids:
+    for task_id in simple:
+        await finish_simple_chat(task_id, provider)
+    for task_id in rest:
         result = await continue_task(task_id, orchestrator, provider, host_online=host_online, emit=emit)
         if result is not None:
             results.append(result)

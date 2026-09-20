@@ -4,7 +4,7 @@ import os
 from contextlib import asynccontextmanager, suppress
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -34,10 +34,32 @@ class RedactTicket(logging.Filter):
     def filter(self, record):
         import re
 
+        patterns = (
+            (re.compile(r"(?i)(bearer\s+)[\w.\-]+"), r"\1[redacted]"),
+            (
+                re.compile(
+                    r"(?i)((?:api[_-]?key|password|passwd|secret|access_token|authorization|jwt)\s*[:=]\s*)[^\s,;&]+"
+                ),
+                r"\1[redacted]",
+            ),
+            (re.compile(r"\?[^\s\"']+"), "?[redacted]"),
+        )
+
         def redact(value):
             if not isinstance(value, str):
                 return value
-            return re.sub(r"\?[^\s\"']+", "?[redacted]", value)
+            for pattern, repl in patterns:
+                value = pattern.sub(repl, value)
+            for secret in (
+                os.environ.get("RUNPOD_API_KEY") or "",
+                os.environ.get("TINYFISH_API_KEY") or "",
+                os.environ.get("JWT_SECRET") or "",
+                os.environ.get("ALEX_RUNTIME_TOKEN") or "",
+                os.environ.get("LLM_API_KEY") or "",
+            ):
+                if secret and secret in value:
+                    value = value.replace(secret, "[redacted]")
+            return value
 
         record.msg = redact(record.msg)
         if isinstance(record.args, tuple):
@@ -67,12 +89,14 @@ async def lifespan(application):
         application.state.provider = compute.llm
 
     async def queue_monitor():
+        from .compute.demand import resume_parked_demand
         from .tools.local.continue_task import continue_pending
         from .tools.registry import make_orchestrator
 
         while True:
             await asyncio.sleep(2)
             try:
+                await resume_parked_demand(application.state.compute)
                 await continue_pending(
                     make_orchestrator(application.state.tools),
                     application.state.provider,
@@ -152,25 +176,30 @@ async def runpod_error(request, error):
 
 @app.get("/llm/status")
 async def llm_status(user=Depends(current_user)):
-    if settings.llm_provider == "mock":
-        return {"provider": "mock", "available": True, "state": "mock"}
-    state = await app.state.provider.status()
-    compute_state = app.state.compute.get_compute_status(user)["state"]
-    if state == "offline" and compute_state in {
-        "creating",
-        "starting_pod",
-        "starting_environment",
-        "mounting_storage",
-        "starting_llm",
-        "connecting",
-    }:
-        state = "starting"
-    return {
-        "provider": settings.llm_provider,
-        "available": state == "ready",
-        "state": state,
-        "model": settings.llm_model,
-    }
+    payload = app.state.compute.llm_public_status(user)
+    if settings.llm_provider == "llamacpp" and settings.llm_connection_mode == "static":
+        from .compute.runtime import LABELS
+
+        state = await app.state.provider.status()
+        payload["state"] = state
+        payload["available"] = state == "ready"
+        payload["ai"] = (
+            "ready" if state == "ready" else "starting" if state == "loading_model" else "unavailable"
+        )
+        payload["ai_label"] = LABELS.get(payload["ai"], payload.get("ai_label"))
+    return payload
+
+
+@app.post("/runtime/shutdown")
+async def runtime_shutdown(request: Request):
+    import hmac
+
+    expected = os.environ.get("ALEX_RUNTIME_TOKEN") or ""
+    got = request.headers.get("X-Alex-Runtime-Token") or ""
+    if not expected or len(expected) != len(got) or not hmac.compare_digest(expected, got):
+        raise HTTPException(403, "Forbidden")
+    result = await request.app.state.compute.shutdown_managed("app_quit")
+    return {"ok": True, "stopped": result.get("stopped"), "managed": result.get("managed")}
 
 
 @app.exception_handler(LLMError)
