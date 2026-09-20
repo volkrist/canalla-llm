@@ -26,6 +26,7 @@ from app.tools.policy import COMPUTER_CORE_TOOLS, ToolLimits, WebSettings, compu
 from app.tools.registry import make_registry
 from app.tools.web_router import select_tinyfish_route
 from tests.fake_host import FakeHost
+from tests.fakes_web import python_org_home_links
 from tests.test_autonomous_tasks import _project
 
 
@@ -285,14 +286,7 @@ def test_browser_prepare_injects_when_planner_surface_empty(setup):
                     "kind": "W",
                     "details": {
                         "retrieval": "browser",
-                        "links": [
-                            {
-                                "id": "L2",
-                                "url": "https://www.python.org/doc/",
-                                "text": "Documentation",
-                                "href": "/doc/",
-                            }
-                        ],
+                        "links": python_org_home_links(),
                     },
                 }
             ]
@@ -312,14 +306,7 @@ def test_browser_prepare_injects_when_planner_surface_empty(setup):
         session_id="s",
         user_id=uid,
         active=True,
-        links=[
-            {
-                "id": "L2",
-                "url": "https://www.python.org/doc/",
-                "text": "Documentation",
-                "href": "/doc/",
-            }
-        ],
+        links=python_org_home_links(),
     )
     orchestrator._run = fake_run
     asyncio.run(orchestrator.prepare(QuietProvider(), [{"role": "user", "content": prompt}], 1, context, {}))

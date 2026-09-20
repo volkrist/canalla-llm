@@ -359,20 +359,35 @@ def from_tool(facts: dict, name: str, output: dict, arguments=None, tool_run_id=
             :200
         ]
         url = str(
-            meta.get("current_url") or source.get("final_url") or source.get("url") or args.get("url") or ""
+            meta.get("current_url")
+            or meta.get("final_url")
+            or source.get("final_url")
+            or source.get("url")
+            or args.get("url")
+            or ""
         )
         if title or url:
-            payload = record(
-                payload,
-                "BROWSER_PAGE",
-                {
-                    "url": url,
-                    "title": title,
-                    "source_id": source.get("label"),
-                },
-                tool=name,
-                tool_run_id=tool_run_id,
-            )
+            existing = [
+                item
+                for item in store(payload)
+                if item.get("kind") == "BROWSER_PAGE"
+                and str(item.get("url") or "").rstrip("/") == url.rstrip("/")
+            ]
+            if not existing:
+                payload = record(
+                    payload,
+                    "BROWSER_PAGE",
+                    {
+                        "url": url,
+                        "title": title,
+                        "source_id": source.get("label"),
+                        "page_index": 1
+                        + len([item for item in store(payload) if item.get("kind") == "BROWSER_PAGE"]),
+                        "verified": True,
+                    },
+                    tool=name,
+                    tool_run_id=tool_run_id,
+                )
     if name in {"read_file", "write_file", "hash_file", "patch_file", "delete_file"} and path:
         from .targets import looks_like_file_path
 

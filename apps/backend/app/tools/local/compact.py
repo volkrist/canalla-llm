@@ -75,6 +75,13 @@ def compact_tool_output(name: str, output: dict, secrets=(), limit: int = 4000) 
             "links",
             "local_controller_stopped",
             "supplier_stop_confirmed",
+            "navigation_method",
+            "requested_url",
+            "final_url",
+            "delete_attempted",
+            "delete_status",
+            "registry_removed",
+            "session_created",
         )
         if key in meta
     }

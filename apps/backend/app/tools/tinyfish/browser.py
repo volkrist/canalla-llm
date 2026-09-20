@@ -17,16 +17,75 @@ from ..models import ToolRun
 from ..security import digest, sanitized, validate_url
 from .client import BROWSER, get_tinyfish_client
 
+UNSAFE_HREF_PREFIXES = ("#", "javascript:", "mailto:", "data:", "file:", "vbscript:")
+DOCS_TEXT = re.compile(r"(?i)^\s*(documentation|docs|python docs|документ(аци[яи])?)\s*$")
+DOCS_HREF = re.compile(r"(?i)(/docs?(/|$|\?)|docs\.python|documentation)")
+
 
 def absolute_http_url(base: str, href: str) -> str:
     raw = (href or "").strip()
-    if not raw or raw.startswith(("#", "javascript:", "mailto:", "data:")):
+    if not raw or raw.lower().startswith(UNSAFE_HREF_PREFIXES):
         return ""
     value = urljoin(base or "", raw)
     parsed = urlsplit(value)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return ""
     return value
+
+
+def looks_like_docs_target(text: str = "", url: str = "", href: str = "") -> bool:
+    if DOCS_TEXT.search(text or ""):
+        return True
+    return bool(DOCS_HREF.search(f"{text or ''} {url or ''} {href or ''}"))
+
+
+def is_docs_page(url: str = "", title: str = "") -> bool:
+    return looks_like_docs_target(title or "", url or "", "")
+
+
+def normalize_browser_link(page_url: str, raw_href: str, text: str, index: int, token: str) -> dict | None:
+    resolved = absolute_http_url(page_url, raw_href)
+    if not resolved:
+        return None
+    parsed = urlsplit(resolved)
+    page = urlsplit(page_url or "")
+    return {
+        "id": token,
+        "text": text or "",
+        "raw_href": (raw_href or "")[:2048],
+        "href": (raw_href or "")[:2048],
+        "resolved_url": resolved[:2048],
+        "url": resolved[:2048],
+        "scheme": parsed.scheme,
+        "same_origin": bool(page.netloc and parsed.netloc.lower() == page.netloc.lower()),
+        "source_page_url": page_url or "",
+        "index": index,
+    }
+
+
+def docs_link_candidates(links, prompt="", current_url=""):
+    exact, hrefs, seen = [], [], set()
+
+    def add(bucket, token, url):
+        target = (url or "").strip()
+        if not target or target in seen:
+            return
+        seen.add(target)
+        bucket.append((str(token or ""), target))
+
+    for link in links or []:
+        token = str(link.get("id") or "")
+        url = link.get("resolved_url") or link.get("url") or ""
+        href = link.get("raw_href") or link.get("href") or ""
+        text = str(link.get("text") or "")
+        if not url:
+            continue
+        if looks_like_docs_target(text, url, href):
+            add(exact if DOCS_TEXT.search(text) else hrefs, token, url)
+    if re.search(r"(?i)doc|документ", prompt or "") and current_url:
+        for rel in ("/doc/", "/docs/", "/documentation/"):
+            add(hrefs, "", urljoin(current_url, rel))
+    return exact + hrefs
 
 
 class BrowserStartArgs(BaseModel):
@@ -261,6 +320,7 @@ class TinyFishBrowserProvider(ToolProvider):
                     "session_id": session_id,
                     "supplier_state": "RUNNING",
                     "started_by_alex": True,
+                    "session_created": True,
                     "max_runtime_seconds": int(seconds),
                     "budget_enforcement": "local_soft",
                 },
@@ -287,7 +347,7 @@ class TinyFishBrowserProvider(ToolProvider):
     async def terminate_supplier(self, session_id):
         if not self.client.settings.tinyfish_browser_delete_supported:
             return False
-        for _ in range(2):
+        for _ in range(3):
             try:
                 value = await self.client.request(
                     "DELETE", BROWSER + "/" + quote(session_id, safe=""), timeout=10
@@ -351,6 +411,10 @@ class TinyFishBrowserProvider(ToolProvider):
             "supplier_state": "TERMINATED" if terminated else "UNKNOWN",
             "cost_estimate": cost,
             "duration_seconds": duration,
+            "session_status": "CLOSED",
+            "delete_attempted": True,
+            "delete_status": "terminated" if terminated else "unknown",
+            "registry_removed": True,
         }
 
     async def action(self, args, context):
@@ -391,26 +455,41 @@ class TinyFishBrowserProvider(ToolProvider):
         text = sanitized(await page.locator("body").inner_text(timeout=5000), (), 6000) if current else ""
         locators = page.locator("a[href]")
         try:
-            count = min(await locators.count(), 40) if current else 0
+            count = min(await locators.count(), 120) if current else 0
         except Exception:
             count = 0
-        links = []
+        docs, other = [], []
         for index in range(count):
             raw = await locators.nth(index).get_attribute("href") or ""
-            href = absolute_http_url(current, raw)
-            if not href:
+            label = sanitized(await locators.nth(index).inner_text(timeout=2000), (), 120)
+            item = normalize_browser_link(current, raw, label, index, "L0")
+            if not item:
                 continue
             try:
-                await validate_url(href, resolver)
+                await validate_url(item["resolved_url"], resolver)
             except ToolError:
                 continue
-            label = sanitized(await locators.nth(index).inner_text(timeout=2000), (), 120)
-            token = f"L{len(links) + 1}"
-            links.append({"id": token, "url": href[:2048], "text": label, "href": raw[:2048], "index": index})
-            if len(links) >= 20:
+            (docs if looks_like_docs_target(item["text"], item["url"], item["raw_href"]) else other).append(
+                item
+            )
+            if len(docs) + len(other) >= 80:
                 break
+        ranked = docs + other[: max(0, 32 - len(docs))]
+        links = []
+        for item in ranked:
+            item = {**item, "id": f"L{len(links) + 1}"}
+            links.append(item)
         session.links = links
         session.last_activity = time.monotonic()
+        session.task_state = BrowserTaskState(
+            session_id=session.session_id,
+            current_url=current,
+            current_title=title,
+            available_links=self._public_links(links),
+            navigation_history=[*(getattr(session.task_state, "navigation_history", None) or []), current]
+            if current
+            else list(getattr(getattr(session, "task_state", None), "navigation_history", None) or []),
+        )
         return title, text, links, current
 
     def _public_links(self, links):
@@ -458,7 +537,7 @@ class TinyFishBrowserProvider(ToolProvider):
                         metadata=self._result_meta(
                             existing,
                             {
-                                "links": self._public_links(links)[:12],
+                                "links": self._public_links(links)[:32],
                                 "current_url": url,
                                 "title": title,
                                 "page_text_excerpt": snapshot[:1500],
@@ -477,7 +556,7 @@ class TinyFishBrowserProvider(ToolProvider):
                     session,
                     {
                         **started.metadata,
-                        "links": self._public_links(links)[:12],
+                        "links": self._public_links(links)[:32],
                         "started_by_alex": True,
                         "current_url": url,
                         "title": title,
@@ -508,12 +587,17 @@ class TinyFishBrowserProvider(ToolProvider):
                 match = next((item for item in session.links or [] if item.get("id") == token), None)
                 if not match:
                     raise ToolError("invalid_arguments")
-                target = match.get("url") or absolute_http_url(session.page.url, match.get("href") or "")
+                target = (
+                    match.get("resolved_url")
+                    or match.get("url")
+                    or absolute_http_url(session.page.url, match.get("raw_href") or match.get("href") or "")
+                )
                 if not target:
                     raise ToolError("invalid_arguments")
                 await validate_url(target, context.resolver)
                 session.allow_write = True
                 session.write_budget = 1
+                method = "click"
                 try:
                     try:
                         await (
@@ -522,26 +606,35 @@ class TinyFishBrowserProvider(ToolProvider):
                             .click(timeout=10000)
                         )
                     except Exception:
+                        method = "goto"
                         await session.page.goto(target, wait_until="domcontentloaded", timeout=20000)
                 finally:
                     session.allow_write = False
                     session.write_budget = 0
             title, snapshot, links, url = await self._snapshot(session, context.resolver)
             text = snapshot if args.operation != "links" else json.dumps(links, ensure_ascii=False)
+            extra = {
+                "links": self._public_links(links)[:32],
+                "current_url": url,
+                "title": title,
+                "page_text_excerpt": snapshot[:1500],
+                "navigation_history": list(
+                    getattr(getattr(session, "task_state", None), "navigation_history", None) or [url]
+                ),
+            }
+            if args.operation == "click":
+                extra.update(
+                    {
+                        "navigation_method": method,
+                        "requested_url": target,
+                        "final_url": url,
+                    }
+                )
             return ToolResult(
                 text=sanitized(text, context.secrets, 6000),
                 sources=[self._source(url, title, snapshot, links, session.session_id)],
                 provider_run_id=session.session_id,
-                metadata=self._result_meta(
-                    session,
-                    {
-                        "links": self._public_links(links)[:12],
-                        "current_url": url,
-                        "title": title,
-                        "page_text_excerpt": snapshot[:1500],
-                        "navigation_history": [url] if url else [],
-                    },
-                ),
+                metadata=self._result_meta(session, extra),
             )
 
 

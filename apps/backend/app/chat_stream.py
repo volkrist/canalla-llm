@@ -339,7 +339,14 @@ async def stream_response(
                         },
                         tool=source.get("provider") or "web_browser",
                     )
-                if (simple_factual(prompt) or looks_like_browser_task(prompt)) and store(grounded):
+                if looks_like_browser_task(prompt):
+                    text = fallback_answer(grounded, prompt)
+                    if not (text or "").strip():
+                        text = "browser navigation failed: no page result"
+                    parts.append(text)
+                    yield sse("delta", {"content": text})
+                    status = "complete"
+                elif simple_factual(prompt) and store(grounded):
                     text = fallback_answer(grounded, prompt)
                     parts.append(text)
                     yield sse("delta", {"content": text})
@@ -364,7 +371,9 @@ async def stream_response(
                         status = "complete"
                     joined = public_assistant_text("".join(parts))
                     issue = issue_for(joined, grounded, prompt)
-                    if (not joined.strip() and store(grounded)) or (issue and status == "complete"):
+                    if (not joined.strip() and (store(grounded) or looks_like_browser_task(prompt))) or (
+                        issue and status == "complete"
+                    ):
                         repaired = ""
                         if joined.strip() and issue:
                             try:
@@ -384,6 +393,8 @@ async def stream_response(
                             if repaired and not issue_for(repaired, grounded, prompt)
                             else fallback_answer(grounded, prompt)
                         )
+                        if looks_like_browser_task(prompt) and not (final or "").strip():
+                            final = "browser navigation failed: no page result"
                         parts = [final]
                         if final != joined:
                             yield sse("delta", {"content": "\n" + final})

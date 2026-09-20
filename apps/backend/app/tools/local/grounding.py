@@ -4,6 +4,13 @@ import re
 
 from .facts import latest, public_block, store
 
+
+def _is_docs_page(item: dict) -> bool:
+    from ..tinyfish.browser import is_docs_page
+
+    return is_docs_page(str(item.get("url") or ""), str(item.get("title") or ""))
+
+
 DENIAL = re.compile(
     r"(?i)("
     r"no (filesystem|file|disk|local) access|don't have (filesystem|file) access|"
@@ -93,22 +100,23 @@ def incomplete(text: str, facts: dict, prompt: str) -> str | None:
         name = str(found.get("path") or "").replace("\\", "/").rsplit("/", 1)[-1]
         if name and name.casefold() not in value.casefold():
             return "missing_search_filename"
-    pages = [item for item in store(facts) if item.get("kind") == "BROWSER_PAGE"]
-    if pages and re.search(r"(?i)браузер|browser|заголовок|title|документ|documentation", asked):
-        needed = pages
-        if re.search(r"(?i)документ|documentation|docs", asked):
-            docs = [
-                item
-                for item in pages
-                if re.search(r"(?i)/doc|document", f"{item.get('url') or ''} {item.get('title') or ''}")
-            ]
-            if docs:
-                needed = docs
-        if any(
-            str(item.get("title") or "").strip() and str(item.get("title") or "").strip()[:16] not in value
-            for item in needed
-        ):
+    if re.search(r"(?i)браузер|browser|заголовок|title|документ|documentation", asked):
+        remaining = browser_goal_remaining(facts, asked)
+        if remaining:
             return "missing_browser_title"
+        pages = [item for item in store(facts) if item.get("kind") == "BROWSER_PAGE"]
+        if pages:
+            needed = pages
+            if re.search(r"(?i)документ|documentation|docs", asked):
+                docs = [item for item in pages if _is_docs_page(item)]
+                if docs:
+                    needed = docs
+            if any(
+                str(item.get("title") or "").strip()
+                and str(item.get("title") or "").strip()[:16] not in value
+                for item in needed
+            ):
+                return "missing_browser_title"
     error = latest(facts, "BROWSER_ERROR")
     if (
         error
@@ -176,26 +184,28 @@ def fallback_answer(facts: dict, prompt: str) -> str:
         lines.append(f"Процесс остановлен, pid={stopped.get('pid')}")
     elif started and re.search(r"(?i)запусти|процесс", asked):
         lines.append(f"Процесс запущен, pid={started.get('pid')}")
-    page = latest(facts, "BROWSER_PAGE")
     pages = [item for item in store(facts) if item.get("kind") == "BROWSER_PAGE"]
+    remaining = browser_goal_remaining(facts, asked)
+    docs_pages = [item for item in pages if _is_docs_page(item)]
     if pages:
         for item in pages:
             title = item.get("title") or ""
             url = item.get("url") or ""
             if title or url:
                 lines.append(f"{title} {url}".strip())
-    elif page:
-        title = page.get("title") or ""
-        url = page.get("url") or ""
-        if title or url:
-            lines.append(f"{title} {url}".strip())
     error = latest(facts, "BROWSER_ERROR")
     if error:
         lines.append(
             f"browser navigation failed: {error.get('error_code') or 'browser_error'} "
             f"status={error.get('session_status') or 'FAILED'}"
         )
+    elif "navigate_documentation" in remaining or (
+        re.search(r"(?i)документ|documentation|docs", asked) and pages and not docs_pages
+    ):
+        lines.append("browser navigation failed: documentation page not loaded")
     if not lines:
+        if re.search(r"(?i)браузер|browser|python\.org", asked):
+            return "browser navigation failed: no page result"
         block = public_block(facts)
         return block or "Инструменты выполнены, но проверяемых фактов нет."
     return "\n".join(line for line in lines if line).strip()
@@ -224,15 +234,12 @@ def goal_met(facts: dict, prompt: str) -> bool:
     if latest(facts, "PROCESS_STOPPED") and re.search(r"(?i)останови процесс|stop (the )?process", asked):
         return True
     pages = [item for item in store(facts) if item.get("kind") == "BROWSER_PAGE"]
-    if pages and re.search(r"(?i)браузер|browser|python\.org", asked):
+    from ..tinyfish.classify import looks_like_browser_task
+
+    if pages and looks_like_browser_task(asked):
         if re.search(r"(?i)документ|documentation|docs", asked):
-            return (
-                any(
-                    re.search(r"(?i)/doc|document", f"{item.get('url') or ''} {item.get('title') or ''}")
-                    for item in pages
-                )
-                and len({str(item.get("url") or "") for item in pages}) >= 2
-            )
+            docs = [item for item in pages if _is_docs_page(item)]
+            return bool(docs) and any(not _is_docs_page(item) for item in pages)
         return True
     return False
 
@@ -246,12 +253,10 @@ def browser_goal_remaining(facts: dict, prompt: str) -> list[str]:
     if not pages:
         remaining.append("open_start")
     if re.search(r"(?i)документ|documentation|docs", asked):
-        if not any(
-            re.search(r"(?i)/doc|document", f"{item.get('url') or ''} {item.get('title') or ''}")
-            for item in pages
-        ):
+        docs = [item for item in pages if _is_docs_page(item)]
+        if not docs:
             remaining.append("navigate_documentation")
-        elif re.search(r"(?i)заголовок|title", asked) and not any(item.get("title") for item in pages[1:]):
+        elif re.search(r"(?i)заголовок|title", asked) and not any(item.get("title") for item in docs):
             remaining.append("read_docs_title")
     return remaining
 

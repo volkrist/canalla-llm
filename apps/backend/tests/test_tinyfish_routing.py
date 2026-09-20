@@ -281,3 +281,25 @@ def test_relative_browser_hrefs_become_http_urls():
     assert absolute_http_url("https://www.python.org/", "data:text/html,hi") == ""
     assert absolute_http_url("https://www.python.org/", "javascript:void(0)") == ""
     assert absolute_http_url("https://www.python.org/", "#top") == ""
+    assert absolute_http_url("https://www.python.org/", "file:///etc/passwd") == ""
+
+
+def test_browser_link_contract_and_docs_candidates():
+    from app.tools.tinyfish.browser import docs_link_candidates, normalize_browser_link
+    from tests.fakes_web import python_org_home_links
+
+    page = "https://www.python.org/"
+    relative = normalize_browser_link(page, "/doc/", "Documentation", 0, "L1")
+    assert relative["resolved_url"] == "https://www.python.org/doc/"
+    assert relative["same_origin"] is True
+    absolute = normalize_browser_link(page, "https://docs.python.org/3/", "Python Docs", 1, "L2")
+    assert absolute["resolved_url"] == "https://docs.python.org/3/"
+    assert absolute["same_origin"] is False
+    assert normalize_browser_link(page, "javascript:alert(1)", "x", 2, "L3") is None
+    links = python_org_home_links()
+    assert links[0]["text"] == "Python"
+    assert any(item["text"] == "Documentation" and item["raw_href"] == "/doc/" for item in links)
+    token, url = docs_link_candidates(links, "перейди в документацию", page)[0]
+    assert token.startswith("L")
+    assert url in {"https://www.python.org/doc/", "https://docs.python.org/3/"}
+    assert docs_link_candidates([], "documentation", page)[0][1] == "https://www.python.org/doc/"

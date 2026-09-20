@@ -4,6 +4,7 @@ import asyncio
 import json
 from dataclasses import replace
 from types import SimpleNamespace
+from urllib.parse import urljoin
 
 from app.providers import MockLLMProvider
 from app.tools.contracts import RiskLevel, ToolError, ToolResult
@@ -104,17 +105,83 @@ class FakeWebProvider:
         )
 
 
+PYTHON_HOME = "https://www.python.org/"
+PYTHON_NAV = (
+    ("Python", "/"),
+    ("PSF", "/psf/"),
+    ("Jobs", "/jobs/"),
+    ("About", "/about/"),
+    ("Downloads", "/downloads/"),
+    ("Community", "/community/"),
+    ("Success Stories", "/success-stories/"),
+    ("News", "/blogs/"),
+    ("Events", "/events/"),
+    ("Contribute", "/dev/"),
+    ("Awards", "/community/awards/"),
+    ("Diversity", "/community/diversity/"),
+    ("Code of Conduct", "/psf/conduct/"),
+    ("Newsletter", "/about/apps/"),
+    ("Socialize", "/community/irc/"),
+    ("Workgroups", "/psf/workgroups/"),
+    ("Sponsors", "/psf/sponsors/"),
+    ("Membership", "/psf/membership/"),
+)
+
+
+def python_org_home_links():
+    links = []
+    for text, href in PYTHON_NAV:
+        resolved = urljoin(PYTHON_HOME, href)
+        links.append(
+            {
+                "id": f"L{len(links) + 1}",
+                "text": text,
+                "raw_href": href,
+                "href": href,
+                "url": resolved,
+                "resolved_url": resolved,
+                "scheme": "https",
+                "same_origin": True,
+                "source_page_url": PYTHON_HOME,
+            }
+        )
+    for text, href in (
+        ("Documentation", "/doc/"),
+        ("Python Docs", "https://docs.python.org/3/"),
+    ):
+        resolved = href if href.startswith("http") else urljoin(PYTHON_HOME, href)
+        links.append(
+            {
+                "id": f"L{len(links) + 1}",
+                "text": text,
+                "raw_href": href,
+                "href": href,
+                "url": resolved,
+                "resolved_url": resolved,
+                "scheme": "https",
+                "same_origin": href.startswith("/"),
+                "source_page_url": PYTHON_HOME,
+            }
+        )
+    return links
+
+
 class FakeBrowser:
     def __init__(self):
         self.sessions = {}
         self.writes = 0
         self.closed = 0
+        self.links = []
+        self.click_fails = False
+        self.nav_fails = False
+        self.raise_on_open = False
 
     async def execute(self, args, context):
         operation = getattr(args, "operation", None)
         if operation:
             if operation == "close":
                 self.sessions.pop("fake-browser", None)
+                self.links = []
                 self.closed += 1
                 return ToolResult(
                     text="Browser session closed.",
@@ -123,29 +190,36 @@ class FakeBrowser:
                         "local_controller_stopped": True,
                         "supplier_stop_confirmed": True,
                         "session_status": "CLOSED",
+                        "delete_attempted": True,
+                        "delete_status": "terminated",
+                        "registry_removed": True,
                         "duration_seconds": 2.5,
                     },
                     cost_estimate=0.002,
                 )
-            self.sessions["fake-browser"] = context.user_id
+            if self.raise_on_open and operation == "open":
+                raise ToolError("backend_exception")
             requested = getattr(args, "url", None) or ""
-            if operation == "click" or "/doc" in requested:
-                url = "https://www.python.org/doc/"
-                title = "Python Docs"
+            if self.nav_fails and (operation == "click" or "/doc" in requested or "docs.python" in requested):
+                raise ToolError("browser_navigation_failed")
+            if operation == "click" and self.click_fails:
+                raise ToolError("browser_click_failed")
+            self.sessions["fake-browser"] = context.user_id
+            if operation == "click" or "/doc" in requested or "docs.python" in requested:
+                url = requested if requested.startswith("http") else "https://www.python.org/doc/"
+                if "docs.python.org" in requested:
+                    url = requested
+                title = "3.13.7 Documentation" if "docs.python.org" in url else "Python Docs"
                 excerpt = "Official Python documentation."
                 links = []
+                method = "goto" if operation == "open" else "click"
             else:
-                url = requested or "https://www.python.org/"
+                url = requested or PYTHON_HOME
                 title = "Welcome to Python.org"
-                excerpt = "Python is a programming language. Documentation."
-                links = [
-                    {
-                        "id": "L1",
-                        "url": "https://www.python.org/doc/",
-                        "text": "Documentation",
-                        "href": "/doc/",
-                    }
-                ]
+                excerpt = "Python is a programming language."
+                links = python_org_home_links()
+                method = "open"
+            self.links = links
             return ToolResult(
                 text=f"{title}\n{excerpt}",
                 sources=[
@@ -157,16 +231,21 @@ class FakeBrowser:
                         "retrieval": "browser",
                         "rendered": True,
                         "links": links,
+                        "label": "W2" if "doc" in url else "W1",
                     }
                 ],
                 provider_run_id="fake-browser",
                 metadata={
                     "session_id": "fake-browser",
                     "started_by_alex": True,
+                    "session_created": True,
                     "supplier_state": "RUNNING",
                     "current_url": url,
                     "title": title,
                     "links": links,
+                    "navigation_method": method,
+                    "requested_url": requested or url,
+                    "final_url": url,
                 },
             )
         self.sessions["fake-browser"] = context.user_id
@@ -185,15 +264,24 @@ class FakeBrowser:
         if self.sessions.get(session_id) != owner:
             raise ToolError("not_found")
         self.sessions.pop(session_id)
-        return {"supplier_stop_confirmed": True, "local_controller_stopped": True}
+        self.links = []
+        return {
+            "supplier_stop_confirmed": True,
+            "local_controller_stopped": True,
+            "delete_attempted": True,
+            "delete_status": "terminated",
+            "registry_removed": True,
+            "session_status": "CLOSED",
+        }
 
     def _owned_session(self, user_id):
         if self.sessions.get("fake-browser") == user_id:
-            return SimpleNamespace(session_id="fake-browser", user_id=user_id, active=True)
+            return SimpleNamespace(session_id="fake-browser", user_id=user_id, active=True, links=self.links)
         return None
 
     async def close_all(self):
         self.sessions.clear()
+        self.links = []
 
 
 class FakeBrowserAction:

@@ -673,13 +673,28 @@ class ToolOrchestrator:
                 )
                 self._append_planning(planning, context, output, "server_web_browser")
             if looks_like_browser_task(prompt):
+                from .local.facts import record
                 from .local.grounding import browser_goal_remaining
+                from .tinyfish.browser import docs_link_candidates
 
-                remaining = browser_goal_remaining(self._task_facts(context), prompt)
-                if "navigate_documentation" in remaining and not getattr(
-                    context, "tinyfish_browser_navigated", False
-                ):
-                    link_id, target = self._browser_docs_target(context, prompt)
+                attempts = 0
+                while attempts < 3:
+                    remaining = browser_goal_remaining(self._task_facts(context), prompt)
+                    if "navigate_documentation" not in remaining:
+                        context.tinyfish_browser_navigated = True
+                        break
+                    current = self._browser_source_url(getattr(context, "sources", None))
+                    candidates = docs_link_candidates(
+                        self._session_browser_links(context)
+                        + self._collect_browser_links(getattr(context, "sources", None)),
+                        prompt,
+                        current,
+                    )
+                    if not candidates:
+                        break
+                    link_id, target = candidates[min(attempts, len(candidates) - 1)]
+                    attempts += 1
+                    output = None
                     if str(link_id or "").upper().startswith("L"):
                         output = await self._run(
                             "web_browser",
@@ -689,15 +704,38 @@ class ToolOrchestrator:
                             origin="server_policy",
                         )
                         self._append_planning(planning, context, output, "server_web_browser_click")
-                    elif target:
-                        output = await self._run(
-                            "web_browser",
-                            json.dumps({"operation": "open", "url": target}, ensure_ascii=False),
-                            context,
-                            notes,
-                            origin="server_policy",
-                        )
-                        self._append_planning(planning, context, output, "server_web_browser_open")
+                    if (output or {}).get("error") or not str(link_id or "").upper().startswith("L"):
+                        if target:
+                            output = await self._run(
+                                "web_browser",
+                                json.dumps({"operation": "open", "url": target}, ensure_ascii=False),
+                                context,
+                                notes,
+                                origin="server_policy",
+                            )
+                            self._append_planning(planning, context, output, "server_web_browser_open")
+                remaining = browser_goal_remaining(self._task_facts(context), prompt)
+                if "navigate_documentation" in remaining:
+                    try:
+                        from ..database import SessionLocal
+                        from .local.task import LocalTaskController
+
+                        with SessionLocal() as db:
+                            row = LocalTaskController()._row(db, context)
+                            if row:
+                                row.facts = record(
+                                    row.facts,
+                                    "BROWSER_ERROR",
+                                    {
+                                        "error_code": "documentation_page_not_loaded",
+                                        "session_status": "FAILED",
+                                        "missing": remaining,
+                                    },
+                                    tool="web_browser",
+                                )
+                                db.commit()
+                    except Exception:
+                        pass
             return
         if (
             decision.paid == "agent"
@@ -774,9 +812,13 @@ class ToolOrchestrator:
         except Exception:
             return
         owned = None
-        if hasattr(provider, "_owned_session"):
-            owned = provider._owned_session(getattr(context, "user_id", "") if context is not None else "")
-        if context is not None and notes is not None and owned:
+        if hasattr(provider, "_owned_session") and context is not None:
+            try:
+                owned = provider._owned_session(getattr(context, "user_id", "") or "")
+            except Exception:
+                owned = None
+        should_close = bool(owned) or getattr(context, "tinyfish_browser_done", False)
+        if context is not None and notes is not None and should_close:
             try:
                 await self._run(
                     "web_browser",
@@ -826,12 +868,12 @@ class ToolOrchestrator:
             links = (item.get("details") or {}).get("links") or item.get("links") or []
             for link in links:
                 token = str(link.get("id") or "").upper()
-                url = link.get("url") or ""
+                url = link.get("resolved_url") or link.get("url") or ""
                 key = token or url
                 if not url or key in seen:
                     continue
                 seen.add(key)
-                found.append({**link, "id": token})
+                found.append({**link, "id": token, "url": url})
         return found
 
     def _session_browser_links(self, context):
@@ -851,35 +893,21 @@ class ToolOrchestrator:
         return self._browser_docs_target_from_links(links, prompt)
 
     def _browser_docs_target_from_links(self, links, prompt=""):
-        exact, hrefs, other = [], [], []
-        for link in links or []:
-            token = str(link.get("id") or "").upper()
-            url = link.get("url") or ""
-            if not url:
-                continue
-            from .tinyfish.browser import absolute_http_url
-            from .tor.router import blocked_link
+        from .tinyfish.browser import docs_link_candidates
+        from .tor.router import blocked_link
 
-            if blocked_link(url) or str(url).lower().startswith(("javascript:", "data:")):
+        current = ""
+        cleaned = []
+        for link in links or []:
+            url = link.get("resolved_url") or link.get("url") or ""
+            if not url or blocked_link(url):
                 continue
-            blob = f"{link.get('text') or ''} {url}"
-            resolved = url if re.match(r"(?i)^https?://", url) else absolute_http_url("", url)
-            target = (token, resolved or url)
-            if re.search(r"(?i)^\s*(documentation|docs|документ(аци[яи])?)\s*$", str(link.get("text") or "")):
-                exact.append(target)
-            elif re.search(r"(?i)/doc(/|$)|docs\.python|documentation", blob):
-                hrefs.append(target)
-            else:
-                other.append(target)
-        ordered = (
-            exact + hrefs + other
-            if re.search(r"(?i)doc|документ|install|установ", prompt or "")
-            else (other + exact + hrefs)
-        )
+            current = link.get("source_page_url") or current
+            cleaned.append({**link, "url": url})
+        ordered = docs_link_candidates(cleaned, prompt, current)
         if not ordered:
             return "", ""
-        token, url = ordered[0]
-        return token, url
+        return ordered[0]
 
     async def _maybe_tor_browser(self, context, notes, tor_intent, prompt):
         from .tor.browser import (
@@ -1102,9 +1130,21 @@ class ToolOrchestrator:
                 except Exception:
                     operation = ""
                 if operation in {"click", "open"}:
-                    context.tinyfish_browser_navigated = (
-                        operation == "click" or context.tinyfish_browser_navigated
-                    )
+                    from .tinyfish.browser import is_docs_page
+
+                    current = ""
+                    title = ""
+                    if result.metadata:
+                        current = str(
+                            result.metadata.get("current_url") or result.metadata.get("final_url") or ""
+                        )
+                        title = str(result.metadata.get("title") or "")
+                    if not current:
+                        source = (result.sources or [{}])[0] if result.sources else {}
+                        current = str(source.get("final_url") or source.get("url") or "")
+                        title = title or str(source.get("title") or "")
+                    if is_docs_page(current, title):
+                        context.tinyfish_browser_navigated = True
             output = {
                 "sources": result.sources,
                 "text": result.text,
@@ -1162,6 +1202,13 @@ class ToolOrchestrator:
                     "links",
                     "local_controller_stopped",
                     "supplier_stop_confirmed",
+                    "navigation_method",
+                    "requested_url",
+                    "final_url",
+                    "delete_attempted",
+                    "delete_status",
+                    "registry_removed",
+                    "session_created",
                 )
                 if result.metadata and key in result.metadata
             }

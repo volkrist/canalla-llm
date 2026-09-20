@@ -941,7 +941,7 @@ class ToolExecutor:
             "parent_source": source.get("parent_source"),
             "depth": int(source.get("depth") or (0 if kind == "search" else 1)),
             "search_query": source.get("search_query"),
-            "links": links[:20],
+            "links": links[:40] if source.get("retrieval") == "browser" else links[:20],
             "needs_browser": bool(source.get("needs_browser")),
             "retrieval": source.get("retrieval") or ("http" if channel == "tor" else "direct"),
             "rendered": bool(source.get("rendered")),
