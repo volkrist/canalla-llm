@@ -272,5 +272,12 @@ def test_relative_browser_hrefs_become_http_urls():
     assert absolute_http_url("https://www.python.org/", "https://docs.python.org/3/") == (
         "https://docs.python.org/3/"
     )
+    assert absolute_http_url("https://www.python.org/doc/", "../") == "https://www.python.org/"
+    assert absolute_http_url("https://www.python.org/", "./doc/") == "https://www.python.org/doc/"
+    assert (
+        absolute_http_url("https://www.python.org/doc/", "/doc/?q=1#frag")
+        == "https://www.python.org/doc/?q=1#frag"
+    )
+    assert absolute_http_url("https://www.python.org/", "data:text/html,hi") == ""
     assert absolute_http_url("https://www.python.org/", "javascript:void(0)") == ""
     assert absolute_http_url("https://www.python.org/", "#top") == ""

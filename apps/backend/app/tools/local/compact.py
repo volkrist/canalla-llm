@@ -68,6 +68,13 @@ def compact_tool_output(name: str, output: dict, secrets=(), limit: int = 4000) 
             "desktop",
             "documents",
             "downloads",
+            "title",
+            "current_url",
+            "session_id",
+            "session_status",
+            "links",
+            "local_controller_stopped",
+            "supplier_stop_confirmed",
         )
         if key in meta
     }

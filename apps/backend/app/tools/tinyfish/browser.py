@@ -3,7 +3,7 @@ import json
 import re
 import time
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 from urllib.parse import quote, urljoin, urlsplit
 
@@ -81,6 +81,17 @@ class BrowserSession:
     started_by_alex: bool = True
     last_activity: float = 0.0
     links: list | None = None
+
+
+@dataclass
+class BrowserTaskState:
+    session_id: str = ""
+    current_url: str = ""
+    current_title: str = ""
+    available_links: list = field(default_factory=list)
+    navigation_history: list = field(default_factory=list)
+    goal_remaining: list = field(default_factory=list)
+    source_ids: list = field(default_factory=list)
 
 
 class BrowserController:
@@ -385,7 +396,8 @@ class TinyFishBrowserProvider(ToolProvider):
             count = 0
         links = []
         for index in range(count):
-            href = absolute_http_url(current, await locators.nth(index).get_attribute("href") or "")
+            raw = await locators.nth(index).get_attribute("href") or ""
+            href = absolute_http_url(current, raw)
             if not href:
                 continue
             try:
@@ -394,7 +406,7 @@ class TinyFishBrowserProvider(ToolProvider):
                 continue
             label = sanitized(await locators.nth(index).inner_text(timeout=2000), (), 120)
             token = f"L{len(links) + 1}"
-            links.append({"id": token, "url": href[:2048], "text": label, "index": index})
+            links.append({"id": token, "url": href[:2048], "text": label, "href": raw[:2048], "index": index})
             if len(links) >= 20:
                 break
         session.links = links
@@ -496,11 +508,21 @@ class TinyFishBrowserProvider(ToolProvider):
                 match = next((item for item in session.links or [] if item.get("id") == token), None)
                 if not match:
                     raise ToolError("invalid_arguments")
-                await validate_url(match["url"], context.resolver)
+                target = match.get("url") or absolute_http_url(session.page.url, match.get("href") or "")
+                if not target:
+                    raise ToolError("invalid_arguments")
+                await validate_url(target, context.resolver)
                 session.allow_write = True
                 session.write_budget = 1
                 try:
-                    await session.page.locator("a[href]").nth(int(match.get("index", 0))).click(timeout=10000)
+                    try:
+                        await (
+                            session.page.locator("a[href]")
+                            .nth(int(match.get("index", 0)))
+                            .click(timeout=10000)
+                        )
+                    except Exception:
+                        await session.page.goto(target, wait_until="domcontentloaded", timeout=20000)
                 finally:
                     session.allow_write = False
                     session.write_budget = 0

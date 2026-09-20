@@ -122,15 +122,30 @@ class FakeBrowser:
                         "session_id": "fake-browser",
                         "local_controller_stopped": True,
                         "supplier_stop_confirmed": True,
+                        "session_status": "CLOSED",
                         "duration_seconds": 2.5,
                     },
                     cost_estimate=0.002,
                 )
             self.sessions["fake-browser"] = context.user_id
-            url = getattr(args, "url", None) or "https://www.python.org/"
-            links = [{"id": "L1", "url": "https://docs.python.org/3/", "text": "Documentation"}]
-            title = "Welcome to Python.org"
-            excerpt = "Python is a programming language. Documentation."
+            requested = getattr(args, "url", None) or ""
+            if operation == "click" or "/doc" in requested:
+                url = "https://www.python.org/doc/"
+                title = "Python Docs"
+                excerpt = "Official Python documentation."
+                links = []
+            else:
+                url = requested or "https://www.python.org/"
+                title = "Welcome to Python.org"
+                excerpt = "Python is a programming language. Documentation."
+                links = [
+                    {
+                        "id": "L1",
+                        "url": "https://www.python.org/doc/",
+                        "text": "Documentation",
+                        "href": "/doc/",
+                    }
+                ]
             return ToolResult(
                 text=f"{title}\n{excerpt}",
                 sources=[
@@ -149,6 +164,8 @@ class FakeBrowser:
                     "session_id": "fake-browser",
                     "started_by_alex": True,
                     "supplier_state": "RUNNING",
+                    "current_url": url,
+                    "title": title,
                     "links": links,
                 },
             )

@@ -261,10 +261,8 @@ class ToolOrchestrator:
         try:
             await self._maybe_tinyfish_paid(context, notes, prompt, tor_intent, planning)
             await self._maybe_local_intent(context, notes, prompt, planning)
-            await self._close_tinyfish_browser(context, notes)
             skip_planner = (
                 self._goal_satisfied(context, prompt)
-                or getattr(context, "tinyfish_browser_done", False)
                 or getattr(context, "tinyfish_agent_done", False)
                 or not tools
             )
@@ -674,11 +672,15 @@ class ToolOrchestrator:
                     origin="server_policy",
                 )
                 self._append_planning(planning, context, output, "server_web_browser")
-                if looks_like_browser_task(prompt) and not getattr(
+            if looks_like_browser_task(prompt):
+                from .local.grounding import browser_goal_remaining
+
+                remaining = browser_goal_remaining(self._task_facts(context), prompt)
+                if "navigate_documentation" in remaining and not getattr(
                     context, "tinyfish_browser_navigated", False
                 ):
-                    link_id = self._browser_link_id(context.sources, prompt)
-                    if link_id:
+                    link_id, target = self._browser_docs_target(context, prompt)
+                    if str(link_id or "").upper().startswith("L"):
                         output = await self._run(
                             "web_browser",
                             json.dumps({"operation": "click", "link_id": link_id}, ensure_ascii=False),
@@ -687,6 +689,15 @@ class ToolOrchestrator:
                             origin="server_policy",
                         )
                         self._append_planning(planning, context, output, "server_web_browser_click")
+                    elif target:
+                        output = await self._run(
+                            "web_browser",
+                            json.dumps({"operation": "open", "url": target}, ensure_ascii=False),
+                            context,
+                            notes,
+                            origin="server_policy",
+                        )
+                        self._append_planning(planning, context, output, "server_web_browser_open")
             return
         if (
             decision.paid == "agent"
@@ -711,8 +722,18 @@ class ToolOrchestrator:
             return
         if getattr(context, "local_intent_done", False):
             return
+        from ..database import SessionLocal
         from .local.intent import select_local_route
+        from .local.targets import last_file_target
+        from .local.task import LocalTaskController
 
+        with SessionLocal() as db:
+            row = LocalTaskController()._row(db, context)
+            if row:
+                context.verified_facts = row.facts
+                context.last_file_target = last_file_target(row.facts) or getattr(
+                    context, "last_file_target", None
+                )
         decision = select_local_route(prompt, context)
         if not decision.action:
             return
@@ -730,6 +751,14 @@ class ToolOrchestrator:
                 break
         context.local_intent_done = True
 
+    def _task_facts(self, context) -> dict:
+        from ..database import SessionLocal
+        from .local.task import LocalTaskController
+
+        with SessionLocal() as db:
+            row = LocalTaskController()._row(db, context)
+            return dict((row.facts if row else None) or {})
+
     def _goal_satisfied(self, context, prompt) -> bool:
         from ..database import SessionLocal
         from .local.grounding import goal_met
@@ -744,20 +773,20 @@ class ToolOrchestrator:
             _definition, provider = self.registry.get("browser_start")
         except Exception:
             return
-        if (
-            context is not None
-            and notes is not None
-            and hasattr(provider, "_owned_session")
-            and provider._owned_session(getattr(context, "user_id", ""))
-        ):
-            await self._run(
-                "web_browser",
-                json.dumps({"operation": "close"}),
-                context,
-                notes,
-                origin="server_policy",
-            )
-            return
+        owned = None
+        if hasattr(provider, "_owned_session"):
+            owned = provider._owned_session(getattr(context, "user_id", "") if context is not None else "")
+        if context is not None and notes is not None and owned:
+            try:
+                await self._run(
+                    "web_browser",
+                    json.dumps({"operation": "close"}),
+                    context,
+                    notes,
+                    origin="server_policy",
+                )
+            except Exception:
+                pass
         if hasattr(provider, "close_all"):
             await provider.close_all()
 
@@ -787,26 +816,70 @@ class ToolOrchestrator:
         return ""
 
     def _browser_link_id(self, items, prompt=""):
-        docs, other = [], []
+        link_id, _url = self._browser_docs_target_from_links(self._collect_browser_links(items), prompt)
+        return link_id
+
+    def _collect_browser_links(self, items):
+        found = []
+        seen = set()
         for item in reversed(items or []):
             links = (item.get("details") or {}).get("links") or item.get("links") or []
             for link in links:
                 token = str(link.get("id") or "").upper()
                 url = link.get("url") or ""
-                if not token.startswith("L") or not url:
+                key = token or url
+                if not url or key in seen:
                     continue
-                from .tor.router import blocked_link
+                seen.add(key)
+                found.append({**link, "id": token})
+        return found
 
-                if blocked_link(url):
-                    continue
-                blob = f"{link.get('text') or ''} {url}"
-                if re.search(r"(?i)doc|guide|tutorial|install|документ|установ", blob):
-                    docs.append(token)
-                else:
-                    other.append(token)
-        if re.search(r"(?i)doc|документ|install|установ", prompt or ""):
-            return (docs or other or [""])[0]
-        return (other or docs or [""])[0]
+    def _session_browser_links(self, context):
+        try:
+            _definition, provider = self.registry.get("browser_start")
+            session = provider._owned_session(getattr(context, "user_id", ""))
+        except Exception:
+            return []
+        if not session:
+            return []
+        return list(getattr(session, "links", None) or [])
+
+    def _browser_docs_target(self, context, prompt=""):
+        links = self._session_browser_links(context) + self._collect_browser_links(
+            getattr(context, "sources", None)
+        )
+        return self._browser_docs_target_from_links(links, prompt)
+
+    def _browser_docs_target_from_links(self, links, prompt=""):
+        exact, hrefs, other = [], [], []
+        for link in links or []:
+            token = str(link.get("id") or "").upper()
+            url = link.get("url") or ""
+            if not url:
+                continue
+            from .tinyfish.browser import absolute_http_url
+            from .tor.router import blocked_link
+
+            if blocked_link(url) or str(url).lower().startswith(("javascript:", "data:")):
+                continue
+            blob = f"{link.get('text') or ''} {url}"
+            resolved = url if re.match(r"(?i)^https?://", url) else absolute_http_url("", url)
+            target = (token, resolved or url)
+            if re.search(r"(?i)^\s*(documentation|docs|документ(аци[яи])?)\s*$", str(link.get("text") or "")):
+                exact.append(target)
+            elif re.search(r"(?i)/doc(/|$)|docs\.python|documentation", blob):
+                hrefs.append(target)
+            else:
+                other.append(target)
+        ordered = (
+            exact + hrefs + other
+            if re.search(r"(?i)doc|документ|install|установ", prompt or "")
+            else (other + exact + hrefs)
+        )
+        if not ordered:
+            return "", ""
+        token, url = ordered[0]
+        return token, url
 
     async def _maybe_tor_browser(self, context, notes, tor_intent, prompt):
         from .tor.browser import (
@@ -911,6 +984,36 @@ class ToolOrchestrator:
                     parsed = {}
             elif isinstance(arguments, dict):
                 parsed = arguments
+            if name in {"read_file", "write_file", "hash_file", "patch_file", "delete_file"} and parsed.get(
+                "path"
+            ):
+                from .local.targets import coerce_file_argument, last_file_target
+
+                roots = list(getattr(getattr(context, "settings", None), "workspace_roots", None) or [])
+                previous = last_file_target(getattr(context, "verified_facts", None)) or getattr(
+                    context, "last_file_target", None
+                )
+                try:
+                    parsed["path"] = coerce_file_argument(
+                        name,
+                        parsed.get("path") or "",
+                        getattr(context, "user_prompt", "") or "",
+                        workspace_root=roots[0] if roots else "",
+                        roots=roots,
+                        previous_file=previous,
+                    )
+                    arguments = json.dumps(parsed, ensure_ascii=False)
+                except ToolError as error:
+                    packed = {
+                        "error": error.code,
+                        "tool": name,
+                        "status": error.code,
+                        "recommended_next_action": "inspect_verified_facts",
+                        "text": f"tool={name} status={error.code} recommended_next_action=inspect_verified_facts",
+                        "origin": origin,
+                    }
+                    notes.append(packed["text"])
+                    return packed
             with SessionLocal() as db:
                 row = LocalTaskController()._row(db, context)
                 if row:
@@ -1052,6 +1155,13 @@ class ToolOrchestrator:
                     "documents",
                     "downloads",
                     "tool_run_id",
+                    "title",
+                    "current_url",
+                    "session_id",
+                    "session_status",
+                    "links",
+                    "local_controller_stopped",
+                    "supplier_stop_confirmed",
                 )
                 if result.metadata and key in result.metadata
             }
