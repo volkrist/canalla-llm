@@ -199,6 +199,10 @@ class LocalTaskController:
         append_event(
             db, row.id, "PLAN_CREATED", {"revision": row.plan_revision, "steps": len(steps)}, secrets
         )
+        if write and not queued:
+            append_event(db, row.id, "WORKSPACE_LOCK_ACQUIRED", {"workspace": lock_key}, secrets)
+        if queued:
+            append_event(db, row.id, "WAITING_WORKSPACE", {"workspace": lock_key}, secrets)
         db.commit()
         context.task_id = row.id
         context.autonomous = autonomous
@@ -574,11 +578,29 @@ class LocalTaskController:
                 db, row.id, "FILE_CHANGED", {"tool": name, "path": str(meta.get("path") or "")[:200]}, secrets
             )
         if error == "conflict":
-            machine.transition(row, machine.CONFLICT)
+            facts = dict(row.facts or {})
+            retries = int(facts.get("conflict_retries") or 0) + 1
+            facts["conflict_retries"] = retries
+            facts["conflict_path"] = str((arguments or {}).get("path") or meta.get("path") or "")
+            row.facts = facts
             row.last_error = "conflict"
-            append_event(db, row.id, "CONFLICT", {"tool": name}, secrets)
+            append_event(db, row.id, "CONFLICT", {"tool": name, "retries": retries}, secrets)
             self._advance_step(db, row, name, failed=True, summary="conflict: re-read before patching")
+            if retries <= 3 and facts.get("conflict_path"):
+                machine.transition(row, machine.INSPECTING)
+            else:
+                machine.transition(row, machine.CONFLICT)
         elif error:
+            if name == "web_browser":
+                from .facts import from_tool as facts_from_tool
+
+                row.facts = facts_from_tool(
+                    row.facts or {},
+                    name,
+                    {"error": error, "metadata": meta, "text": ""},
+                    arguments or {},
+                    getattr(context, "run_id", None),
+                )
             append_event(db, row.id, "TOOL_COMPLETED", {"tool": name, "error": error}, secrets)
             if error in RETRYABLE:
                 row.retry_count += 1
@@ -631,9 +653,26 @@ class LocalTaskController:
         )
         meta = (output or {}).get("metadata") or {}
         text = str((output or {}).get("text") or "")
-        if meta.get("exit_code") is not None and name in {"run_python", "run_process", "run_powershell"}:
+        args = arguments if isinstance(arguments, dict) else {}
+        purpose = str(args.get("purpose") or "")
+        argv = " ".join(str(item) for item in (args.get("argv") or []))
+        testish = bool(
+            re.search(
+                r"(?i)(pytest|unittest|cargo test|npm test|go test|verify project tests)",
+                f"{purpose} {argv}",
+            )
+            or "-m pytest" in argv
+        )
+        if (
+            meta.get("exit_code") is not None
+            and name in {"run_python", "run_process", "run_powershell"}
+            and testish
+        ):
             facts["last_exit_code"] = meta.get("exit_code")
             facts["tests_passed"] = meta.get("exit_code") == 0
+            if facts.get("baseline_tests") is None:
+                facts["baseline_tests"] = facts["tests_passed"]
+            facts["verification_stale"] = False
         failures = (output or {}).get("failures") or []
         if failures:
             facts["last_failures"] = failures[:8]
@@ -668,10 +707,17 @@ class LocalTaskController:
             row.checkpoint = checkpoint
             if context is not None:
                 context.owned_process = owned[-1]
+        if name in WRITE_TOOLS:
+            facts["tests_passed"] = False
+            facts["verification_stale"] = True
+            facts.pop("conflict_path", None)
+        row.facts = facts
         verification = dict(row.verification or {})
-        if facts.get("tests_passed"):
+        if facts.get("verification_stale"):
+            verification["tests"] = "stale"
+        elif facts.get("tests_passed"):
             verification["tests"] = "passed"
-        elif facts.get("last_exit_code") not in (None, 0):
+        elif facts.get("last_exit_code") not in (None, 0) and testish:
             verification["tests"] = "failed"
         if facts.get("git_diff_seen"):
             verification["git_reviewed"] = True
@@ -753,7 +799,13 @@ class LocalTaskController:
             commands = (row.checkpoint or {}).get("commands") or []
             last_tool = commands[-1]["tool"] if commands else ""
             write_tools = {"write_file", "patch_file", "create_directory"}
-            tests_ok = facts.get("tests_passed") is True or (row.verification or {}).get("tests") == "passed"
+            conflict_path = (facts or {}).get("conflict_path")
+            if conflict_path and int(facts.get("conflict_retries") or 0) <= 3 and last_tool != "read_file":
+                return (
+                    "read_file",
+                    {"path": conflict_path, "purpose": "reread current file after stale patch"},
+                )
+            tests_ok = facts.get("tests_passed") is True and (row.verification or {}).get("tests") == "passed"
             if context.coding_task and not tests_ok:
                 if last_tool in {"run_python", "run_process"}:
                     return None
@@ -1002,7 +1054,8 @@ class LocalTaskController:
             return
         if row.status in machine.TERMINAL:
             return
-        if not getattr(context, "autonomous", False):
+        coding = looks_like_coding(row.original_user_request) or bool(getattr(context, "coding_task", False))
+        if not getattr(context, "autonomous", False) and not coding:
             machine.transition(row, machine.COMPLETED)
             append_event(db, row.id, "COMPLETED", {})
             release(db, row.id)
@@ -1059,7 +1112,21 @@ class LocalTaskController:
         if row.original_user_request and not (row.tool_calls_used or facts):
             missing.append("no_actions")
         if looks_like_coding(row.original_user_request) and verification.get("tests") != "passed":
-            missing.append("tests_not_verified")
+            missing.append(
+                "verification_required"
+                if (facts.get("verification_stale") or verification.get("tests") == "stale")
+                else "tests_not_verified"
+            )
+        if looks_like_coding(row.original_user_request) and facts.get("verification_stale"):
+            if "verification_required" not in missing:
+                missing.append("verification_required")
+        if looks_like_coding(row.original_user_request):
+            commands = (row.checkpoint or {}).get("commands") or []
+            changed = any(item.get("tool") in WRITE_TOOLS for item in commands) or bool(
+                facts.get("file_hashes")
+            )
+            if facts.get("baseline_tests") is False and not changed:
+                missing.append("no_effective_change")
         if looks_like_coding(row.original_user_request) and not verification.get("git_reviewed"):
             missing.append("git_not_reviewed")
         if needs_research(row.original_user_request) and not (

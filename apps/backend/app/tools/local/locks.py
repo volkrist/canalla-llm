@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from ...models import now
 from ..contracts import ToolError
 from ..models import LocalTask, WorkspaceLock, WorkspaceWaiter
+from .journal import append_event
 from .machine import PAUSED, READY, RECOVERING, TERMINAL, WAITING_WORKSPACE, can_transition, transition
 
 
@@ -132,6 +133,7 @@ def promote(db, workspace: str):
                 if can_transition(task.status, RECOVERING):
                     transition(task, RECOVERING)
                 transition(task, READY)
+        append_event(db, task.id, "WORKSPACE_PROMOTED", {"workspace": key})
         db.commit()
         return task
     db.commit()
