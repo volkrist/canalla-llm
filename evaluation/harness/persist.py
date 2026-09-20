@@ -49,11 +49,18 @@ def load_payload(run_dir: Path) -> dict | None:
         return None
 
 
+def is_fail_fast_skip(row: dict) -> bool:
+    reason = str(row.get("reason") or "").lower()
+    return row.get("status") == "SKIPPED" and "fail-fast" in reason
+
+
 def terminal_ids(payload: dict, *, rerun_failed: bool = False) -> set[str]:
     out = set()
     for row in payload.get("cases") or []:
         status = row.get("status")
         if status not in TERMINAL:
+            continue
+        if is_fail_fast_skip(row):
             continue
         if rerun_failed and status in {"FAIL", "PARTIAL"}:
             continue
@@ -77,6 +84,7 @@ __all__ = [
     "atomic_write_text",
     "persist_payload",
     "load_payload",
+    "is_fail_fast_skip",
     "terminal_ids",
     "merge_case",
     "write_json",

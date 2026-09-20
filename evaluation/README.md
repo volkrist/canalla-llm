@@ -67,6 +67,7 @@ Timestamped report directories are gitignored. Committed baselines live at:
 
 - `evaluation/reports/BASELINE.md`
 - `evaluation/reports/FOUND_ISSUES.md`
+- `evaluation/reports/REAL-093-FOUND-ISSUES.md`
 
 ## Modes
 

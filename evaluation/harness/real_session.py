@@ -92,11 +92,65 @@ def sqlite_url(path: Path) -> str:
 def list_runpod_pods(api_key: str) -> list[dict]:
     if not api_key:
         raise RuntimeError("runpod_key_missing")
-    client = Client(RUNPOD_BASE, token=api_key, timeout=30)
-    data = client.get("pods")
-    if isinstance(data, dict) and isinstance(data.get("pods"), list):
-        return data["pods"]
+    python = venv_python()
+    script = (
+        "import json,os,sys\n"
+        "import httpx\n"
+        "key=os.environ.get('RUNPOD_API_KEY','')\n"
+        "response=httpx.get('https://api.runpod.io/v2/pods', headers={'Authorization':'Bearer '+key}, timeout=30.0, follow_redirects=False)\n"
+        "sys.stdout.write(json.dumps({'status': response.status_code, 'body': response.json() if 'json' in response.headers.get('content-type','') else response.text[:300]}))\n"
+    )
+    env = os.environ.copy()
+    env["RUNPOD_API_KEY"] = api_key
+    proc = subprocess.run([str(python), "-c", script], env=env, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"runpod_list_failed:{proc.stderr[-200:]}")
+    try:
+        payload = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as error:
+        raise RuntimeError("runpod_list_malformed") from error
+    if payload.get("status") != 200:
+        raise RuntimeError(f"runpod_list_http_{payload.get('status')}")
+    body = payload.get("body") or {}
+    if isinstance(body, dict) and isinstance(body.get("pods"), list):
+        return body["pods"]
     raise RuntimeError("runpod_list_malformed")
+
+
+def terminate_pod(api_key: str, pod_id: str) -> dict:
+    """Terminate one GPU pod. Never accepts the network volume id."""
+    if not api_key:
+        raise RuntimeError("runpod_key_missing")
+    if not pod_id or pod_id == VOLUME_ID:
+        raise RuntimeError("refusing_volume_or_empty_pod")
+    python = venv_python()
+    script = (
+        "import json,os,sys,httpx\n"
+        "pod=sys.argv[1]\n"
+        "key=os.environ['RUNPOD_API_KEY']\n"
+        "r=httpx.post('https://api.runpod.io/v2/pods/'+pod+'/action', headers={'Authorization':'Bearer '+key}, json={'action':'terminate'}, timeout=30.0)\n"
+        "sys.stdout.write(json.dumps({'status': r.status_code, 'text': r.text[:300]}))\n"
+    )
+    env = os.environ.copy()
+    env["RUNPOD_API_KEY"] = api_key
+    proc = subprocess.run([str(python), "-c", script, pod_id], env=env, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"runpod_terminate_failed:{proc.stderr[-200:]}")
+    try:
+        return json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        return {"raw": (proc.stdout or "")[:200]}
+
+
+def wait_gpu_zero(api_key: str, timeout: float = 90) -> int:
+    deadline = time.time() + timeout
+    running = -1
+    while time.time() < deadline:
+        running = running_gpu_count(list_runpod_pods(api_key))
+        if running == 0:
+            return 0
+        time.sleep(3)
+    return running
 
 
 def running_gpu_count(pods: list[dict]) -> int:
@@ -154,15 +208,34 @@ class RealSession:
         pods = list_runpod_pods(self.env_values["RUNPOD_API_KEY"])
         running = running_gpu_count(pods)
         self.info["runpod_running_before"] = running
+        managed = [item for item in (self.info.get("managed_pod_ids") or []) if item and item != VOLUME_ID]
         if running:
-            raise RuntimeError(f"existing_gpu_must_not_start_second_pod:{running}")
+            leftover = [pod for pod in pods if pod.get("id") in managed]
+            leftover_running = running_gpu_count(leftover)
+            if leftover and leftover_running == running and running <= 1:
+                print("eval stopping leftover managed pod %s" % leftover[0].get("id"), flush=True)
+                terminate_pod(self.env_values["RUNPOD_API_KEY"], leftover[0]["id"])
+                remaining = wait_gpu_zero(self.env_values["RUNPOD_API_KEY"])
+                if remaining:
+                    raise RuntimeError(f"leftover_gpu_did_not_stop:{remaining}")
+                running = 0
+                self.info["runpod_running_before"] = 0
+            else:
+                raise RuntimeError(f"existing_gpu_must_not_start_second_pod:{running}")
+        print("eval backend starting", flush=True)
         self._start_backend()
+        print("eval backend health wait", flush=True)
         self._wait_health()
+        print("eval register synthetic user", flush=True)
         self._register()
         self._baseline_prefs()
+        print("eval native host starting", flush=True)
         self._start_host()
+        print("eval GPU starting", flush=True)
         self._start_gpu()
+        print("eval orcarouter sanity", flush=True)
         self._sanity()
+        print("eval runtime ready pod=%s" % self.pod_id, flush=True)
         return self.info
 
     def _start_backend(self) -> None:
@@ -525,6 +598,7 @@ class RealSession:
                 except Exception:
                     pass
             cleanup[key] = "stopped"
+        time.sleep(1.5)
         return cleanup
 
 

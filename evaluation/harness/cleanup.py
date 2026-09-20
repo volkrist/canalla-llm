@@ -96,4 +96,4 @@ def cleanup_task(task: dict, state: dict, *, keep_workspace: bool = False) -> di
 def cleanup_run(run_id: str) -> None:
     path = WORK / run_id
     if path.exists() and _under(path, WORK):
-        shutil.rmtree(path, ignore_errors=False)
+        shutil.rmtree(path, ignore_errors=True)

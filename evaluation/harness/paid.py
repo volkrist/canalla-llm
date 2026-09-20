@@ -43,6 +43,7 @@ class PaidConfig:
     tinyfish_agent_calls: int = 0
     tinyfish_browser_calls: int = 0
     runpod_calls: int = 0
+    prior_runpod_usd: float = 0.0
 
     @property
     def hard_runpod(self) -> float:
@@ -101,6 +102,23 @@ def case_needs_agent(task_id: str) -> bool:
 
 def case_allows_search(task_id: str) -> bool:
     return task_id in SEARCH_CASES
+
+
+def hydrate_paid(config: PaidConfig, payload: dict | None) -> PaidConfig:
+    """Restore spent totals from a previous crash-safe report so resume keeps the budget."""
+    if not payload:
+        return config
+    paid_info = payload.get("paid_resources") or {}
+    prior = float(paid_info.get("runpod_usd") or 0)
+    if prior <= 0:
+        prior = sum(float(row.get("runpod_cost_usd") or 0) for row in payload.get("cases") or [])
+    config.prior_runpod_usd = prior
+    config.spent_runpod_usd = prior
+    config.spent_tinyfish_browser_usd = float(paid_info.get("tinyfish_browser_usd") or 0)
+    config.tinyfish_browser_calls = int(paid_info.get("tinyfish_browser_calls") or 0)
+    config.tinyfish_agent_calls = int(paid_info.get("tinyfish_agent_calls") or 0)
+    config.runpod_calls = int(paid_info.get("runpod_calls") or 0)
+    return config
 
 
 def authorize_case(config: PaidConfig, task_id: str) -> str | None:

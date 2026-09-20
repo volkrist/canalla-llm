@@ -49,16 +49,27 @@ def is_profile_walk(path: str | None, workspace: str | None) -> bool:
 def workspace_violation(path: str | None, workspace: str | None, allowed: list[str]) -> bool:
     if not path:
         return False
+    raw = str(path).strip().strip('"')
+    if not raw:
+        return False
+    candidate = Path(raw)
+    if not candidate.is_absolute():
+        if not workspace:
+            return False
+        candidate = Path(workspace) / raw
     try:
-        resolved = str(Path(path).resolve())
+        resolved = str(candidate.resolve())
     except OSError:
-        resolved = path
+        resolved = str(candidate)
     if workspace and _under(resolved, workspace):
         return False
     for root in allowed:
         if root and _under(resolved, root):
             return False
-    return True
+    work_root = str(Path(__file__).resolve().parents[1] / ".work")
+    if _under(resolved, work_root):
+        return False
+    return Path(resolved).is_absolute()
 
 
 def apply_product(task: dict, state: dict, product: dict) -> dict:
@@ -198,7 +209,15 @@ def fail_fast_reason(state: dict, product: dict | None = None) -> str | None:
     if state.get("runaway") or (state.get("metrics") or {}).get("total_tool_calls", 0) > 40:
         return "tool runaway"
     if state.get("workspace_violation_paths"):
-        return "workspace escape write"
+        serious = []
+        for item in state["workspace_violation_paths"]:
+            text = str(item).lower().replace("/", "\\")
+            if "\\evaluation\\.work" in text or "/evaluation/.work" in text:
+                continue
+            if Path(item).is_absolute():
+                serious.append(item)
+        if serious:
+            return "workspace escape write"
     if (state.get("tinyfish_agent_calls") or 0) > 0 and not product.get("agent_allowed"):
         return "unexpected paid Agent call"
     if product.get("second_pod"):

@@ -27,7 +27,7 @@ from catalog import SUITES, all_tasks, select  # noqa: E402
 from cleanup import cleanup_run, cleanup_task  # noqa: E402
 from fixtures import ensure_ready, setup_workspace  # noqa: E402  # type: ignore
 from mock_actor import play  # noqa: E402
-from paid import PaidConfig, PaidRefused, authorize_case, checkpoint, validate_real_start  # noqa: E402
+from paid import PaidConfig, PaidRefused, authorize_case, checkpoint, hydrate_paid, validate_real_start  # noqa: E402
 from persist import load_payload, merge_case, persist_payload, terminal_ids  # noqa: E402
 from real_cases import apply_real_overlay, is_non_critical, real_plan_ids, skip_reason  # noqa: E402
 from report import report_dir, write_reports  # noqa: E402
@@ -438,11 +438,12 @@ def main(argv: list[str] | None = None, runtime=None) -> int:
     by_id = {task["id"]: task for task in tasks}
     tasks = [by_id[tid] for tid in ordered_ids if tid in by_id]
     existing = load_payload(out_dir) if args.resume_id else None
+    hydrate_paid(paid, existing)
     done = terminal_ids(existing, rerun_failed=args.rerun_failed) if existing else set()
     cases = list(existing.get("cases") or []) if existing else []
     session = runtime
     started_session = False
-    extra = {"runtime": {}}
+    extra = {"runtime": (existing or {}).get("runtime") or {}, "prior_runtime": (existing or {}).get("runtime")}
     try:
         if session is None:
             from paths import WORK
@@ -450,6 +451,9 @@ def main(argv: list[str] | None = None, runtime=None) -> int:
 
             work = WORK / run_id / "_runtime"
             session = RealSession(work, paid, workspace_root=WORK / run_id)
+            prev_pod = ((existing or {}).get("runtime") or {}).get("pod_id")
+            if prev_pod:
+                session.info["managed_pod_ids"] = [prev_pod]
             extra["runtime"] = session.start()
             started_session = True
         else:
@@ -472,13 +476,18 @@ def main(argv: list[str] | None = None, runtime=None) -> int:
             cases = payload["cases"]
             persist_payload(out_dir, payload)
             done.add(task["id"])
+            print(
+                f"CASE {row['id']} {row.get('display_status') or row['status']} "
+                f"{(row.get('reason') or '')[:160]} cost={paid.spent_runpod_usd:.4f}",
+                flush=True,
+            )
             if row.get("evidence", {}).get("fail_fast"):
                 stop_rest = row["evidence"]["fail_fast"]
                 break
         if stop_rest:
             for task in tasks:
                 if task["id"] not in done:
-                    cases.append(skipped_row(task, f"SKIPPED: fail-fast ({stop_rest})"))
+                    cases = merge_case({"cases": cases}, skipped_row(task, f"SKIPPED: fail-fast ({stop_rest})"))["cases"]
                     done.add(task["id"])
         payload = build_payload("real", run_id, cases, paid, extra)
         persist_payload(out_dir, payload)
@@ -489,7 +498,10 @@ def main(argv: list[str] | None = None, runtime=None) -> int:
             payload = build_payload("real", run_id, cases, paid, extra)
             persist_payload(out_dir, payload)
         if not args.keep_work:
-            cleanup_run(run_id)
+            try:
+                cleanup_run(run_id)
+            except OSError:
+                pass
 
     payload = load_payload(out_dir) or build_payload("real", run_id, cases, paid, extra)
     print(

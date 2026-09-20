@@ -2,6 +2,7 @@
 reports/*/
 !reports/BASELINE.md
 !reports/FOUND_ISSUES.md
+!reports/REAL-093-FOUND-ISSUES.md
 __pycache__/
 *.pyc
 .pytest_cache/

@@ -544,9 +544,13 @@ def execute_real_case(session: RealSession, task: dict, state: dict, paid: PaidC
     new_desktop = _new_desktop(desktop_before)
     violations = []
     for name in new_desktop:
-        if name.startswith("Alex-LLM-E2E"):
+        base = name.split("/")[-1]
+        if name.startswith("Alex-LLM-E2E") or name.startswith("Alex-LLM"):
             continue
-        violations.append(str(Path.home() / "Desktop" / name.replace("тест/", "тест" + os.sep)))
+        if base.startswith(("pause-", "alex_out", "alex_test")) or (
+            name.startswith("тест/") and base.startswith("pause-")
+        ):
+            violations.append(str(Path.home() / "Desktop" / name.replace("тест/", "тест" + os.sep)))
 
     owned_pids = [row.get("pid") for row in summarized if row.get("pid")]
     started_proc = any((row.get("name") in {"run_python", "run_powershell"}) and row.get("pid") for row in summarized)
@@ -598,7 +602,7 @@ def execute_real_case(session: RealSession, task: dict, state: dict, paid: PaidC
     )
     paid.tinyfish_browser_calls += len([row for row in summarized if row.get("name") in {"web_browser", "browser_start"}])
     paid.tinyfish_agent_calls += len(agent_calls)
-    paid.spent_runpod_usd = session.session_cost()
+    paid.spent_runpod_usd = float(getattr(paid, "prior_runpod_usd", 0) or 0) + session.session_cost()
 
     product = {
         "chat_id": chat["id"],

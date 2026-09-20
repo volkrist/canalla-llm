@@ -21,11 +21,11 @@ if str(HARNESS) not in sys.path:
 from catalog import select  # noqa: E402
 from cleanup import cleanup_run, cleanup_task, stop_owned_processes  # noqa: E402
 from fixtures import new_state  # noqa: E402
-from paid import HARD_RUNPOD_USD, PaidConfig, PaidRefused, authorize_case, checkpoint, validate_real_start  # noqa: E402
+from paid import HARD_RUNPOD_USD, PaidConfig, PaidRefused, authorize_case, checkpoint, hydrate_paid, validate_real_start  # noqa: E402
 from persist import load_payload, persist_payload, terminal_ids  # noqa: E402
 from real_actor import _close_browser_sessions  # noqa: E402
 from real_cases import apply_real_overlay, real_plan_ids, skip_reason  # noqa: E402
-from real_observe import apply_product, fail_fast_reason  # noqa: E402
+from real_observe import apply_product, fail_fast_reason, workspace_violation  # noqa: E402
 from report import report_dir  # noqa: E402
 from run_eval import display_status, main, run_case  # noqa: E402
 
@@ -196,6 +196,29 @@ class PersistResumeTests(unittest.TestCase):
         self.assertEqual(terminal_ids(loaded), {"LC-01", "LC-02"})
         self.assertEqual(terminal_ids(loaded, rerun_failed=True), {"LC-01"})
 
+    def test_fail_fast_skip_is_not_terminal(self):
+        payload = {
+            "cases": [
+                {"id": "WM-01", "status": "FAIL", "reason": "workspace/safety violation"},
+                {"id": "WM-02", "status": "SKIPPED", "reason": "SKIPPED: fail-fast (workspace escape write)"},
+                {"id": "LC-08", "status": "SKIPPED", "reason": "jq already installed"},
+            ]
+        }
+        self.assertEqual(terminal_ids(payload), {"WM-01", "LC-08"})
+        self.assertEqual(terminal_ids(payload, rerun_failed=True), {"LC-08"})
+
+    def test_hydrate_paid_restores_prior_cost(self):
+        paid = PaidConfig(allow_runpod=True, runpod_budget_usd=1.20)
+        hydrate_paid(
+            paid,
+            {
+                "paid_resources": {"runpod_usd": 0.11, "tinyfish_browser_usd": 0.0, "runpod_calls": 1},
+                "cases": [{"id": "WM-01", "runpod_cost_usd": 0.11}],
+            },
+        )
+        self.assertAlmostEqual(paid.prior_runpod_usd, 0.11)
+        self.assertAlmostEqual(paid.spent_runpod_usd, 0.11)
+
     def test_crash_keeps_prior_cases(self):
         run_id = "test-crash-harness"
         out = report_dir(run_id)
@@ -267,12 +290,31 @@ class FailFastAndTimeoutTests(unittest.TestCase):
         state = {"runaway": True, "metrics": {"total_tool_calls": 41}, "workspace_violation_paths": []}
         self.assertEqual(fail_fast_reason(state), "tool runaway")
 
+    def test_relative_write_is_not_workspace_escape(self):
+        workspace = tempfile.mkdtemp(prefix="eval-ws-")
+        self.assertFalse(workspace_violation("notes.txt", workspace, [workspace]))
+        self.assertIsNone(
+            fail_fast_reason({"metrics": {"total_tool_calls": 2}, "workspace_violation_paths": ["notes.txt"]})
+        )
+        work_path = str(Path(__file__).resolve().parents[1] / ".work" / "run" / "notes.txt")
+        self.assertIsNone(
+            fail_fast_reason({"metrics": {"total_tool_calls": 2}, "workspace_violation_paths": [work_path]})
+        )
+
+    def test_desktop_escape_still_fail_fast(self):
+        path = str(Path.home() / "Desktop" / "pause-a.txt")
+        self.assertEqual(
+            fail_fast_reason({"metrics": {"total_tool_calls": 1}, "workspace_violation_paths": [path]}),
+            "workspace escape write",
+        )
+
     def test_cli_real_without_flag_exits_2(self):
         code = main(["--mode", "real", "--task", "LC-01"])
         self.assertEqual(code, 2)
 
     def test_injected_runtime_real_pass_label(self):
         fake = FakeRuntime(provider="llamacpp", mock=False)
+        run_id = f"test-real-pass-label-{int(time.time() * 1000)}"
         code = main(
             [
                 "--mode",
@@ -283,6 +325,8 @@ class FailFastAndTimeoutTests(unittest.TestCase):
                 "--runpod-budget-usd",
                 "1.20",
                 "--keep-work",
+                "--resume",
+                run_id,
             ],
             runtime=fake,
         )
