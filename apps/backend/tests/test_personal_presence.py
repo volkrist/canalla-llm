@@ -392,19 +392,28 @@ def test_cancel_before_first_token_persists_honest_telemetry(client, auth, monke
     asyncio.run(scenario())
 
 
-def test_relevant_memory_survives_rag_and_supersedes_older_fact(client, auth, monkeypatch):
-    a = auth()
-    project = client.post("/projects", headers=a, json={"name": "Eval city"}).json()["id"]
-    chat = client.post("/chats", headers=a, json={}).json()["id"]
-    client.patch("/chats/" + chat, headers=a, json={"project_id": project})
-    old = make_memory(client, a, content="Test city is Oldtown", project_id=project)
+RECALL_PROMPTS = [
+    "Какой сейчас тестовый город?",
+    "Где я живу для тестов?",
+    "Какой город я указывал?",
+    "Где моё тестовое местоположение?",
+    "Where do I live for this test?",
+    "What test city did I specify?",
+]
+
+
+def _seed_city_memories(client, headers):
+    project = client.post("/projects", headers=headers, json={"name": "Eval city"}).json()["id"]
+    chat = client.post("/chats", headers=headers, json={}).json()["id"]
+    client.patch("/chats/" + chat, headers=headers, json={"project_id": project})
+    old = make_memory(client, headers, content="Test city is Oldtown", project_id=project)
     new = make_memory(
-        client, a, content="Test city is Newhaven. This supersedes Oldtown.", project_id=project
+        client, headers, content="Test city is Newhaven. This supersedes Oldtown.", project_id=project
     )
-    other = client.post("/projects", headers=a, json={"name": "Other"}).json()["id"]
-    wrong = make_memory(client, a, content="Test city is Wrongville", project_id=other)
+    other = client.post("/projects", headers=headers, json={"name": "Other"}).json()["id"]
+    wrong = make_memory(client, headers, content="Test city is Wrongville", project_id=other)
     disabled = make_memory(
-        client, a, content="Test city is Disabledtown", project_id=project, is_active=False
+        client, headers, content="Test city is Disabledtown", project_id=project, is_active=False
     )
     with SessionLocal() as db:
         from app.models import Memory
@@ -412,7 +421,18 @@ def test_relevant_memory_survives_rag_and_supersedes_older_fact(client, auth, mo
         db.get(Memory, old["id"]).updated_at = now() - timedelta(days=3)
         db.get(Memory, new["id"]).updated_at = now()
         db.commit()
+    return {
+        "chat": chat,
+        "project": project,
+        "old": old,
+        "new": new,
+        "wrong": wrong,
+        "disabled": disabled,
+        "other": other,
+    }
 
+
+def _lantern_retrieve(monkeypatch):
     def fake_retrieve(db, user, chat, prompt):
         return (
             [
@@ -436,24 +456,66 @@ def test_relevant_memory_survives_rag_and_supersedes_older_fact(client, auth, mo
         )
 
     monkeypatch.setattr("app.documents.retrieval.retrieve", fake_retrieve)
+
+
+@pytest.mark.parametrize("prompt", RECALL_PROMPTS)
+def test_personal_fact_recall_paraphrases(client, auth, monkeypatch, prompt):
+    a = auth()
+    seeded = _seed_city_memories(client, a)
+    _lantern_retrieve(monkeypatch)
     preview = client.get(
-        "/chats/" + chat + "/context-preview",
+        "/chats/" + seeded["chat"] + "/context-preview",
         headers=a,
-        params={"prompt": "Какой сейчас тестовый город?"},
+        params={"prompt": prompt},
     ).json()
     assert preview["memory_count"] >= 1
-    assert new["id"] in preview["memory_ids"]
-    assert old["id"] not in preview["memory_ids"]
-    assert wrong["id"] not in preview["memory_ids"]
-    assert disabled["id"] not in preview["memory_ids"]
+    assert seeded["new"]["id"] in preview["memory_ids"]
+    assert seeded["old"]["id"] not in preview["memory_ids"]
+    assert seeded["wrong"]["id"] not in preview["memory_ids"]
+    assert seeded["disabled"]["id"] not in preview["memory_ids"]
     assert preview["document_count"] >= 1
     joined = "\n".join(message["content"] for message in preview["messages"])
     assert "Newhaven" in joined
     assert "current Oldtown" not in joined.lower()
+
+
+def test_relevant_memory_survives_rag_and_supersedes_older_fact(client, auth, monkeypatch):
+    a = auth()
+    seeded = _seed_city_memories(client, a)
+    _lantern_retrieve(monkeypatch)
+    preview = client.get(
+        "/chats/" + seeded["chat"] + "/context-preview",
+        headers=a,
+        params={"prompt": "Где я живу для тестов?"},
+    ).json()
+    assert preview["memory_count"] >= 1
+    assert seeded["new"]["id"] in preview["memory_ids"]
+    assert seeded["old"]["id"] not in preview["memory_ids"]
+    assert seeded["wrong"]["id"] not in preview["memory_ids"]
+    assert seeded["disabled"]["id"] not in preview["memory_ids"]
+    assert preview["document_count"] >= 1
+    assert preview["budgets"]["memory_budget"] >= 1
+    assert preview["budgets"]["rag_budget"] >= 1
+    joined = "\n".join(message["content"] for message in preview["messages"])
+    assert "Newhaven" in joined
     client.patch("/profile", headers=a, json={"use_memory": False, "display_name": "Alex"})
     empty = client.get(
-        "/chats/" + chat + "/context-preview",
+        "/chats/" + seeded["chat"] + "/context-preview",
         headers=a,
-        params={"prompt": "Какой сейчас тестовый город?"},
+        params={"prompt": "Где я живу для тестов?"},
     ).json()
     assert empty["memory_ids"] == []
+
+
+def test_pinned_memory_survives_supersession(client, auth, monkeypatch):
+    a = auth()
+    seeded = _seed_city_memories(client, a)
+    client.patch("/memory/" + seeded["old"]["id"], headers=a, json={"is_pinned": True})
+    _lantern_retrieve(monkeypatch)
+    preview = client.get(
+        "/chats/" + seeded["chat"] + "/context-preview",
+        headers=a,
+        params={"prompt": "Where do I live for this test?"},
+    ).json()
+    assert seeded["new"]["id"] in preview["memory_ids"]
+    assert seeded["old"]["id"] in preview["memory_ids"]

@@ -34,22 +34,58 @@ def words(text):
     return set(re.findall(r"[^\W_]{3,}", text.casefold())) - {"как", "что", "это", "для", "the", "and", "you"}
 
 
-PERSONAL_RECALL = re.compile(
+PERSONAL_FACT_RECALL = re.compile(
     r"(?i)("
-    r"какой сейчас|какая сейчас|what('?s| is) (the |my |our )?(current )|"
-    r"тестов\w* город|test city|помнишь|remember (my|the)|как меня зовут|my name"
+    r"где я живу|where do i live|где мо[еёя]|"
+    r"какой (сейчас |мой |наш )?(тестов\w* )?(город|city)|"
+    r"какая? (сейчас )?(локаци\w*|город)|"
+    r"what('?s| is) (the |my |our )?(current |test )?(city|location)|"
+    r"what (test )?(city|location)|"
+    r"(город|location|место) .{0,24}(указа|specify|specified)|"
+    r"location did i|did i specify|"
+    r"тестов\w* (город|местоположен|место)|test (city|location|place)|"
+    r"помнишь|remember (my|the)|как меня зовут|my name"
     r")"
 )
+PERSONAL_RECALL = PERSONAL_FACT_RECALL
+LOCATION_FAMILY = frozenset(
+    {
+        "живу",
+        "live",
+        "жить",
+        "lived",
+        "город",
+        "города",
+        "city",
+        "town",
+        "location",
+        "место",
+        "местоположение",
+        "локация",
+    }
+)
+TEST_FAMILY = frozenset(
+    {"test", "тест", "тестов", "тестовый", "тестовое", "тестовом", "тестовая", "тестовое"}
+)
 TOKEN_ALIASES = {
-    "город": {"city", "town"},
-    "города": {"city", "town"},
-    "city": {"город", "town"},
-    "town": {"город", "city"},
+    "город": {"city", "town", "location", "место"},
+    "города": {"city", "town", "location"},
+    "city": {"город", "town", "location", "место"},
+    "town": {"город", "city", "location"},
+    "живу": {"live", "location", "город", "city"},
+    "live": {"живу", "location", "city", "город"},
+    "место": {"location", "city", "город"},
+    "местоположение": {"location", "city", "город"},
+    "location": {"место", "city", "город", "живу", "live"},
     "тестовый": {"test"},
+    "тестовое": {"test"},
     "тестовом": {"test"},
-    "test": {"тестовый"},
+    "тестов": {"test"},
+    "test": {"тестовый", "тест", "тестов"},
     "сейчас": {"current", "now"},
     "current": {"сейчас"},
+    "где": {"where"},
+    "where": {"где"},
 }
 
 
@@ -57,18 +93,35 @@ def expand_tokens(tokens):
     extra = set(tokens)
     for token in tokens:
         extra.update(TOKEN_ALIASES.get(token, ()))
+    if extra & LOCATION_FAMILY:
+        extra.update(LOCATION_FAMILY)
+    if extra & TEST_FAMILY:
+        extra.update(TEST_FAMILY)
     return extra
+
+
+def personal_fact_recall(prompt: str) -> bool:
+    text = prompt or ""
+    if PERSONAL_FACT_RECALL.search(text):
+        return True
+    tokens = expand_tokens(words(text))
+    return bool(tokens & LOCATION_FAMILY) and bool(
+        re.search(r"(?i)\b(я|мне|мой|моя|моё|мое|мои|my|our|where|где)\b", text) or tokens & {"живу", "live"}
+    )
 
 
 def _drop_superseded(scored):
     newest_first = sorted(scored, key=lambda pair: pair[0].updated_at, reverse=True)
-    kept, seen = [], []
+    kept, winners = [], []
     for row, score in newest_first:
         tokens = expand_tokens(words(row.content))
-        overlapped = any(len(tokens & expand_tokens(words(other.content))) >= 2 for other, _score in seen)
-        seen.append((row, score))
-        if overlapped and not row.is_pinned:
+        superseded = any(
+            len(tokens & expand_tokens(words(other.content))) >= 2 and not other.is_pinned
+            for other, _score in winners
+        )
+        if superseded and not row.is_pinned:
             continue
+        winners.append((row, score))
         kept.append((row, score))
     order = {row.id: index for index, (row, _score) in enumerate(scored)}
     kept.sort(key=lambda pair: order.get(pair[0].id, 0))
@@ -90,10 +143,12 @@ class MemoryRetriever:
             .limit(1000)
         ).all()
         query = expand_tokens(words(prompt))
-        recall = bool(PERSONAL_RECALL.search(prompt or ""))
+        recall = personal_fact_recall(prompt)
         scored = []
         for row in rows:
-            overlap = len(query & expand_tokens(words(row.content)))
+            content_tokens = expand_tokens(words(row.content))
+            overlap = len(query & content_tokens)
+            subject_hit = bool(content_tokens & query & (LOCATION_FAMILY | TEST_FAMILY))
             project_match = bool(chat.project_id and row.project_id == chat.project_id)
             eligible = row.is_pinned or not user.relevant_memory or overlap or project_match
             if not eligible and recall and user.relevant_memory:
@@ -105,9 +160,10 @@ class MemoryRetriever:
                 100 * row.is_pinned
                 + 40 * project_match
                 + 10 * overlap
+                + 8 * subject_hit
+                + (6 if recall else 0)
                 + row.importance
                 + 1 / (1 + age)
-                + (4 if recall and overlap else 0)
             )
             scored.append((row, score))
         scored.sort(key=lambda pair: (-pair[1], pair[0].id))
@@ -277,10 +333,12 @@ class ContextBuilder:
                 "system": len(self.settings.global_system_prompt),
                 "profile_max": 2081,
                 "memory_max": self.settings.memory_max_chars,
+                "memory_budget": self.settings.memory_max_chars,
                 "project_max": self.settings.context_project_chars,
                 "history_max": self.settings.context_history_chars,
                 "current_max": 32000,
                 "rag_max": self.settings.rag_max_chars,
+                "rag_budget": self.settings.rag_max_chars,
             },
             "total_chars": sum(len(m["content"]) for m in messages),
         }
