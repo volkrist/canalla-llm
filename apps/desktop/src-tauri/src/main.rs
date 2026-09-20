@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod backend;
 mod credential;
 mod fs_guard;
 mod git;
@@ -19,8 +20,18 @@ fn main() {
             host::rotate_device_credential,
             host::store_user_credential,
             host::list_user_credentials,
-            host::delete_user_credential
+            host::delete_user_credential,
+            backend::ensure_backend,
+            backend::backend_status
         ])
-        .run(tauri::generate_context!())
-        .expect("Unable to start Alex LLM");
+        .build(tauri::generate_context!())
+        .expect("Unable to start Alex LLM")
+        .run(|_app, event| {
+            if matches!(
+                event,
+                tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
+            ) {
+                backend::on_desktop_exit();
+            }
+        });
 }

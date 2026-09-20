@@ -384,6 +384,28 @@ p {
 .mobile-only {
   display: none;
 }
+.runtime-banner {
+  position: relative;
+  z-index: 20;
+  padding: 10px 16px;
+  text-align: center;
+  font-size: 13px;
+  background: #24342b;
+  color: #d5e6d8;
+  border-bottom: 1px solid #3a4d42;
+}
+.runtime-banner.error {
+  background: #3a2422;
+  color: #f2b4ac;
+  border-bottom-color: #5a3532;
+}
+.runtime-wait {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  color: #a7b6ad;
+  letter-spacing: 0.04em;
+}
 .auth-page {
   display: grid;
   grid-template-columns: 1.05fr 1fr;

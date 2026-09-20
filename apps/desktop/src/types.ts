@@ -26,6 +26,8 @@ export interface Health {
   status: string;
   provider: string;
   llm_ready: boolean;
+  product?: string;
+  instance?: string | null;
 }
 export interface LLMStatus {
   provider: "mock" | "llamacpp";

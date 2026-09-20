@@ -150,6 +150,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security(self):
+        if self.alex_llm_data_dir:
+            from .data_paths import sqlite_url
+
+            root = Path(self.alex_llm_data_dir).expanduser().resolve()
+            if self.database_url in {"sqlite:///./alex.db", "sqlite:///alex.db"}:
+                self.database_url = sqlite_url(root / "data" / "alex.db")
+            if self.document_storage_dir in {".data/documents", ""}:
+                self.document_storage_dir = str(root / "documents")
         if self.jwt_secret.startswith("replace-"):
             raise ValueError("Generate JWT_SECRET; the example placeholder is not a secret")
         if any("*" in origin for origin in self.cors_origins):

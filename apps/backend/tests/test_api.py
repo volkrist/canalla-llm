@@ -174,5 +174,11 @@ def test_provider_failure_preserves_partial_output(client, auth):
 
 
 def test_health_and_mock_chat(client):
-    assert client.get("/health").json() == {"status": "ok", "provider": "mock", "llm_ready": True}
+    assert client.get("/health").json() == {
+        "status": "ok",
+        "provider": "mock",
+        "llm_ready": True,
+        "product": "alex-llm",
+        "instance": None,
+    }
     assert "demo" in asyncio.run(MockLLMProvider(0).chat([{"role": "user", "content": "demo"}]))

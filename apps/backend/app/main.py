@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager, suppress
 from uuid import uuid4
 
@@ -181,4 +182,10 @@ async def llm_error(request, error):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "provider": settings.llm_provider, "llm_ready": await app.state.provider.health()}
+    return {
+        "status": "ok",
+        "provider": settings.llm_provider,
+        "llm_ready": await app.state.provider.health(),
+        "product": "alex-llm",
+        "instance": os.environ.get("ALEX_BACKEND_INSTANCE") or None,
+    }
