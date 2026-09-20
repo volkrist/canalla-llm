@@ -182,6 +182,10 @@ export function useChat(api: Api, onExpired: () => void) {
         abort.signal,
         (event) => {
           if (!active.current) return;
+          if (event.event === "progress") {
+            setPhase(String(event.data.state || "waiting"));
+            if (event.data.text) setWebState(String(event.data.text));
+          }
           if (event.event === "web_status") {
             setWebState(String(event.data.state));
             if (event.data.code) setWebError(String(event.data.code));

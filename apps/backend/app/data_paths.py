@@ -45,6 +45,7 @@ def ensure_layout(root: Path | None = None) -> dict[str, Path]:
         "db": base / "data" / "alex.db",
         "jwt": base / "runtime" / "jwt.secret",
         "lock": base / "runtime" / "backend.lock",
+        "shutdown": base / "runtime" / "shutdown.token",
     }
     for key in ("data", "documents", "models", "logs", "runtime"):
         layout[key].mkdir(parents=True, exist_ok=True)
@@ -65,3 +66,19 @@ def load_or_create_jwt(path: Path | None = None) -> str:
     except OSError:
         pass
     return secret
+
+
+def load_or_create_runtime_token(path: Path | None = None) -> str:
+    target = path or (default_root() / "runtime" / "shutdown.token")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.is_file():
+        token = target.read_text(encoding="utf-8").strip()
+        if len(token) >= 32:
+            return token
+    token = secrets.token_urlsafe(32)
+    target.write_text(token, encoding="utf-8")
+    try:
+        os.chmod(target, 0o600)
+    except OSError:
+        pass
+    return token

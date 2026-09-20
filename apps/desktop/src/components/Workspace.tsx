@@ -197,6 +197,11 @@ export default function Workspace({
             <span className="tiny-dot" />
             {health ? "Connected" : "Offline"}
           </div>
+          {llm?.ai_label ? (
+            <div className={`ai-chip ai-${llm.ai || "off"}`} role="status">
+              {llm.ai_label}
+            </div>
+          ) : null}
         </header>
         <PersonalPanel
           api={api}
@@ -279,7 +284,9 @@ export default function Workspace({
         )}
         {chat.busy && !chat.streaming && (
           <div className="loading" role="status">
-            Загрузка…
+            {chat.phase === "starting_ai" || llm?.ai === "starting"
+              ? "Запускаю AI…"
+              : "Загрузка…"}
           </div>
         )}
         {chat.error && (
@@ -311,7 +318,7 @@ export default function Workspace({
           phase={chat.phase}
           busy={chat.busy}
           streaming={chat.streaming}
-          connected={!!health && !!llm?.available}
+          connected={!!health}
           onSend={(text, mode) => chat.send(text, undefined, mode)}
           onStop={chat.stop}
           draft={draft}

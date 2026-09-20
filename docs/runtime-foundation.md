@@ -55,8 +55,14 @@ How FastAPI will ship with Tauri is still open. Options vs this repo:
 
 Recommendation: **sidecar from `runtime_entry`** after this slice is proven. Do not migrate packaging before Desktop ownership works on a developer machine. FastEmbed ONNX and future Browser deps dominate size; GPU weights stay on the Network Volume.
 
-Next slice after this PASSes: on-demand RunPod lifecycle (only when Desktop/backend stay alive).
+Next slice after this PASSed: on-demand RunPod lifecycle — see [on-demand-ai.md](on-demand-ai.md).
+
+## Quit vs window
+
+Full application Quit (`RunEvent::Exit` / `ExitRequested`) stops the owned local backend.
+On-demand GPU adds a managed-Pod shutdown on that same Quit path.
+Ordinary in-app navigation does not stop the backend or GPU.
 
 ## Not in this slice
 
-Installer UX, session restore, five-chip status, GPU on-demand, LoRA, WM-07, CD-08 harness.
+Installer UX, session restore, five-chip status, LoRA, WM-07, CD-08 harness.

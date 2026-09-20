@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 def prepare() -> dict:
-    from .data_paths import ensure_layout, load_or_create_jwt, sqlite_url
+    from .data_paths import ensure_layout, load_or_create_jwt, load_or_create_runtime_token, sqlite_url
 
     raw = (os.environ.get("ALEX_LLM_DATA_DIR") or "").strip()
     layout = ensure_layout(Path(raw).expanduser() if raw else None)
@@ -21,6 +21,8 @@ def prepare() -> dict:
     os.environ.setdefault("DOCUMENT_STORAGE_DIR", str(layout["documents"]))
     if not (os.environ.get("JWT_SECRET") or "").strip():
         os.environ["JWT_SECRET"] = load_or_create_jwt(layout["jwt"])
+    if not (os.environ.get("ALEX_RUNTIME_TOKEN") or "").strip():
+        os.environ["ALEX_RUNTIME_TOKEN"] = load_or_create_runtime_token(layout["shutdown"])
     return layout
 
 

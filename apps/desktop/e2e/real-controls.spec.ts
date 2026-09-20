@@ -154,9 +154,10 @@ test("real-provider controls: offline, loading, ready, generating and stop-after
   await expect(panel.getByText("Загрузка модели", { exact: true })).toBeVisible(
     { timeout: 10000 },
   );
+  await page.getByRole("textbox", { name: "Сообщение" }).fill("Нужен AI");
   await expect(
     page.getByRole("button", { name: "Send", exact: true }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   state = "ready";
   available = true;
   await expect(panel.getByText("AI готов", { exact: true })).toBeVisible({

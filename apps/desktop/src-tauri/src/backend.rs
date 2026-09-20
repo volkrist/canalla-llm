@@ -203,6 +203,36 @@ pub fn load_or_create_jwt(root: &Path) -> Result<String, String> {
     Ok(secret)
 }
 
+pub fn load_or_create_runtime_token(root: &Path) -> Result<String, String> {
+    let path = root.join("runtime").join("shutdown.token");
+    if let Ok(existing) = fs::read_to_string(&path) {
+        let trimmed = existing.trim();
+        if trimmed.len() >= 32 {
+            return Ok(trimmed.to_string());
+        }
+    }
+    let token = UuidLite::secret();
+    fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
+    fs::write(&path, &token).map_err(|e| e.to_string())?;
+    Ok(token)
+}
+
+fn request_managed_shutdown(port: u16, token: &str) {
+    if port == 0 || token.is_empty() {
+        return;
+    }
+    let Ok(client) = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(12))
+        .build()
+    else {
+        return;
+    };
+    let _ = client
+        .post(format!("http://127.0.0.1:{port}/runtime/shutdown"))
+        .header("X-Alex-Runtime-Token", token)
+        .send();
+}
+
 fn sqlite_url(db: &Path) -> String {
     format!("sqlite:///{}", db.to_string_lossy().replace('\\', "/"))
 }
@@ -342,6 +372,7 @@ fn spawn_owned(port: u16, instance: &str, secret: &str) -> Result<Live, String> 
     let log = fs::File::create(&log_path).map_err(|e| e.to_string())?;
     let err = log.try_clone().map_err(|e| e.to_string())?;
     let db = data.join("alex.db");
+    let token = load_or_create_runtime_token(&root).unwrap_or_default();
     let mut command = Command::new(&python);
     command
         .args(["-m", "app.runtime_entry"])
@@ -350,6 +381,7 @@ fn spawn_owned(port: u16, instance: &str, secret: &str) -> Result<Live, String> 
         .env("DATABASE_URL", sqlite_url(&db))
         .env("DOCUMENT_STORAGE_DIR", &documents)
         .env("JWT_SECRET", secret)
+        .env("ALEX_RUNTIME_TOKEN", &token)
         .env("ALEX_BACKEND_PORT", port.to_string())
         .env("ALEX_BACKEND_HOST", "127.0.0.1")
         .env("ALEX_BACKEND_INSTANCE", instance)
@@ -585,6 +617,8 @@ pub fn current_status() -> BackendStatus {
 }
 
 pub fn on_desktop_exit() {
+    // Full application Quit only (Tauri Exit / ExitRequested). In-app window
+    // navigation does not run this. External backends are left running.
     let Ok(mut sup) = supervisor().lock() else {
         return;
     };
@@ -592,6 +626,9 @@ pub fn on_desktop_exit() {
         if live.ownership != Ownership::Owned {
             return;
         }
+        let token = fs::read_to_string(data_root().join("runtime").join("shutdown.token"))
+            .unwrap_or_default();
+        request_managed_shutdown(live.port, token.trim());
         if let Some(mut child) = live.child.take() {
             let _ = child.kill();
             let _ = child.wait();

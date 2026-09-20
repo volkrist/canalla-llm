@@ -34,6 +34,20 @@ export interface LLMStatus {
   available: boolean;
   state: string;
   model?: string;
+  ai?: "off" | "starting" | "ready" | "waiting" | "unavailable" | "error";
+  ai_label?: string;
+  diagnostic?: {
+    pod_id?: string | null;
+    gpu?: string | null;
+    datacenter?: string | null;
+    price_per_hour?: number | string | null;
+    estimated_spend?: number | string | null;
+    started_at?: string | null;
+    idle_deadline?: string | null;
+    managed?: boolean | null;
+    last_error?: string | null;
+    compute_state?: string | null;
+  };
 }
 export interface Settings {
   backendUrl: string;

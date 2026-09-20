@@ -703,6 +703,32 @@ p {
   background: #1c2920;
   border-color: #2c3a2e;
 }
+.ai-chip {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  padding: 6px 9px;
+  border-radius: 20px;
+  border: 1px solid #3b3429;
+  color: #c5c0b5;
+  background: #262522;
+}
+.ai-chip.ai-ready {
+  color: #9fc499;
+  background: #1c2920;
+  border-color: #2c3a2e;
+}
+.ai-chip.ai-starting,
+.ai-chip.ai-waiting {
+  color: #d6c48a;
+  background: #2a261c;
+  border-color: #433b2a;
+}
+.ai-chip.ai-error,
+.ai-chip.ai-unavailable {
+  color: #f2b4ac;
+  background: #3a2422;
+  border-color: #5a3532;
+}
 .mode-line {
   display: flex;
   align-items: center;
