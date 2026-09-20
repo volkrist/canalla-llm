@@ -199,6 +199,8 @@ async def wait_for_production(request, user, chat, user_message, assistant, cont
             yield ("progress", {"state": "waiting", "text": result.get("prompt") or "Подтвердите запуск AI"})
             await asyncio.sleep(1)
             continue
+        if result.get("kind") == "denied":
+            raise LLMError("confirmation_denied")
         if result.get("kind") in {"unavailable", "error", "multiple_compute"}:
             park_waiting_llm(
                 user=user,
@@ -210,9 +212,24 @@ async def wait_for_production(request, user, chat, user_message, assistant, cont
                 compute_session_id=_active_session_id(compute),
                 task_id=task_id,
             )
-            raise LLMError(result.get("code") or result["kind"])
-        if result.get("kind") == "denied":
-            raise LLMError("confirmation_denied")
+            if result.get("kind") == "multiple_compute" or result.get("code") in {
+                "not_configured",
+                "multiple_compute",
+                "COMPUTE_BUDGET_REACHED",
+            }:
+                yield (
+                    "progress",
+                    {
+                        "state": "error",
+                        "text": "AI Unavailable",
+                        "code": result.get("code") or result["kind"],
+                    },
+                )
+                yield ("_done", "parked")
+                return
+            yield ("progress", {"state": "starting_ai", "text": "Запускаю AI…"})
+            await asyncio.sleep(3)
+            continue
         yield ("progress", {"state": "starting_ai", "text": "Запускаю AI…"})
         if result.get("kind") in {"ready", "starting", "create_unknown", "external_compute"}:
             await compute.tick()

@@ -263,6 +263,14 @@ def stream_message(api: Api, chat_id: str, content: str, timeout=900):
                         "terminal": event,
                         "payload": payload if isinstance(payload, dict) else {},
                     }
+    except httpx.HTTPError as error:
+        return {
+            "text": "".join(parts),
+            "events": events,
+            "progress": progress,
+            "terminal": "http_error",
+            "payload": {"error": type(error).__name__},
+        }
     finally:
         client.close()
     return {
@@ -376,6 +384,26 @@ def main():
         report["ai_before"] = {"ai": before.get("ai"), "available": before.get("available")}
         if before.get("ai") == "ready" and before.get("provider") == "mock":
             raise RuntimeError("mock_ready")
+        compute_status = api.client.get("/compute/status", headers=api.headers()).json()
+        options = api.client.get("/compute/options", headers=api.headers())
+        option_body = options.json() if options.status_code == 200 else {"detail": options.text[:240]}
+        report["compute_probe"] = {
+            "configured": compute_status.get("configured"),
+            "state": compute_status.get("state"),
+            "error": compute_status.get("error_code"),
+            "options_http": options.status_code,
+            "selectable": [g.get("id") for g in (option_body.get("options") or []) if g.get("selectable")],
+            "reasons": [
+                {"id": g.get("id"), "reason": g.get("reason")}
+                for g in (option_body.get("options") or [])
+                if not g.get("selectable") and g.get("compatible")
+            ][:8],
+        }
+        log("compute configured=%s state=%s selectable=%s" % (
+            report["compute_probe"]["configured"],
+            report["compute_probe"]["state"],
+            report["compute_probe"]["selectable"],
+        ))
         chat = api.client.post("/chats", headers=api.headers(), json={"title": "on-demand"}).json()
         report["chat_id"] = chat["id"]
         approver = Approver(api)

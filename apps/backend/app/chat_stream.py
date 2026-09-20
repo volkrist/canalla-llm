@@ -159,6 +159,10 @@ async def stream_response(
         planner_usage = {}
         parked = False
         tool_context = None
+        usage_id = None
+        from .tools.local.plan import looks_like_autonomous, looks_like_computer
+        from .tools.local.public_text import public_assistant_text
+        from .tools.local.workspace import looks_like_coding
         try:
             await request.app.state.presence.publish()
             yield sse("meta", meta)
@@ -185,10 +189,6 @@ async def stream_response(
                     usage.message_id = assistant_id
                     link_db.commit()
             settings = get_settings()
-            from .tools.local.plan import looks_like_autonomous, looks_like_computer
-            from .tools.local.public_text import public_assistant_text
-            from .tools.local.workspace import looks_like_coding
-
             prompt = content if action in {"send", "resume"} else user_message.content
             coding = effective_computer_mode != "off"
             autonomous = (
