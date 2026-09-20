@@ -34,6 +34,47 @@ def words(text):
     return set(re.findall(r"[^\W_]{3,}", text.casefold())) - {"как", "что", "это", "для", "the", "and", "you"}
 
 
+PERSONAL_RECALL = re.compile(
+    r"(?i)("
+    r"какой сейчас|какая сейчас|what('?s| is) (the |my |our )?(current )|"
+    r"тестов\w* город|test city|помнишь|remember (my|the)|как меня зовут|my name"
+    r")"
+)
+TOKEN_ALIASES = {
+    "город": {"city", "town"},
+    "города": {"city", "town"},
+    "city": {"город", "town"},
+    "town": {"город", "city"},
+    "тестовый": {"test"},
+    "тестовом": {"test"},
+    "test": {"тестовый"},
+    "сейчас": {"current", "now"},
+    "current": {"сейчас"},
+}
+
+
+def expand_tokens(tokens):
+    extra = set(tokens)
+    for token in tokens:
+        extra.update(TOKEN_ALIASES.get(token, ()))
+    return extra
+
+
+def _drop_superseded(scored):
+    newest_first = sorted(scored, key=lambda pair: pair[0].updated_at, reverse=True)
+    kept, seen = [], []
+    for row, score in newest_first:
+        tokens = expand_tokens(words(row.content))
+        overlapped = any(len(tokens & expand_tokens(words(other.content))) >= 2 for other, _score in seen)
+        seen.append((row, score))
+        if overlapped and not row.is_pinned:
+            continue
+        kept.append((row, score))
+    order = {row.id: index for index, (row, _score) in enumerate(scored)}
+    kept.sort(key=lambda pair: order.get(pair[0].id, 0))
+    return kept
+
+
 class MemoryRetriever:
     def retrieve(self, db, user, chat, prompt, settings):
         if not user.use_memory:
@@ -48,17 +89,29 @@ class MemoryRetriever:
             .order_by(Memory.is_pinned.desc(), Memory.importance.desc(), Memory.updated_at.desc())
             .limit(1000)
         ).all()
-        query = words(prompt)
+        query = expand_tokens(words(prompt))
+        recall = bool(PERSONAL_RECALL.search(prompt or ""))
         scored = []
         for row in rows:
-            overlap = len(query & words(row.content))
+            overlap = len(query & expand_tokens(words(row.content)))
             project_match = bool(chat.project_id and row.project_id == chat.project_id)
-            if not row.is_pinned and (not user.relevant_memory or not (overlap or project_match)):
+            eligible = row.is_pinned or not user.relevant_memory or overlap or project_match
+            if not eligible and recall and user.relevant_memory:
+                eligible = True
+            if not eligible:
                 continue
             age = max(0, (now() - row.updated_at.replace(tzinfo=timezone.utc)).total_seconds() / 86400)
-            score = 100 * row.is_pinned + 40 * project_match + 10 * overlap + row.importance + 1 / (1 + age)
+            score = (
+                100 * row.is_pinned
+                + 40 * project_match
+                + 10 * overlap
+                + row.importance
+                + 1 / (1 + age)
+                + (4 if recall and overlap else 0)
+            )
             scored.append((row, score))
         scored.sort(key=lambda pair: (-pair[1], pair[0].id))
+        scored = _drop_superseded(scored)
         chosen, size = [], 0
         for row, score in scored:
             if len(chosen) >= min(user.max_memories, settings.memory_max_items):

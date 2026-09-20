@@ -390,3 +390,70 @@ def test_cancel_before_first_token_persists_honest_telemetry(client, auth, monke
             assert answer.cancellation["upstream_cancel_confirmed"] is None
 
     asyncio.run(scenario())
+
+
+def test_relevant_memory_survives_rag_and_supersedes_older_fact(client, auth, monkeypatch):
+    a = auth()
+    project = client.post("/projects", headers=a, json={"name": "Eval city"}).json()["id"]
+    chat = client.post("/chats", headers=a, json={}).json()["id"]
+    client.patch("/chats/" + chat, headers=a, json={"project_id": project})
+    old = make_memory(client, a, content="Test city is Oldtown", project_id=project)
+    new = make_memory(
+        client, a, content="Test city is Newhaven. This supersedes Oldtown.", project_id=project
+    )
+    other = client.post("/projects", headers=a, json={"name": "Other"}).json()["id"]
+    wrong = make_memory(client, a, content="Test city is Wrongville", project_id=other)
+    disabled = make_memory(
+        client, a, content="Test city is Disabledtown", project_id=project, is_active=False
+    )
+    with SessionLocal() as db:
+        from app.models import Memory
+
+        db.get(Memory, old["id"]).updated_at = now() - timedelta(days=3)
+        db.get(Memory, new["id"]).updated_at = now()
+        db.commit()
+
+    def fake_retrieve(db, user, chat, prompt):
+        return (
+            [
+                {
+                    "document_id": "lantern",
+                    "display_name": "lantern.txt",
+                    "chunk_id": "c1",
+                    "page_number": 1,
+                    "section_title": None,
+                    "project_id": None,
+                    "project_name": None,
+                    "uploaded_at": now().isoformat(),
+                    "rank": 1,
+                    "similarity": 0.99,
+                    "label": "D1",
+                    "excerpt": "The lantern hangs in the hall.",
+                    "deleted": False,
+                }
+            ],
+            None,
+        )
+
+    monkeypatch.setattr("app.documents.retrieval.retrieve", fake_retrieve)
+    preview = client.get(
+        "/chats/" + chat + "/context-preview",
+        headers=a,
+        params={"prompt": "Какой сейчас тестовый город?"},
+    ).json()
+    assert preview["memory_count"] >= 1
+    assert new["id"] in preview["memory_ids"]
+    assert old["id"] not in preview["memory_ids"]
+    assert wrong["id"] not in preview["memory_ids"]
+    assert disabled["id"] not in preview["memory_ids"]
+    assert preview["document_count"] >= 1
+    joined = "\n".join(message["content"] for message in preview["messages"])
+    assert "Newhaven" in joined
+    assert "current Oldtown" not in joined.lower()
+    client.patch("/profile", headers=a, json={"use_memory": False, "display_name": "Alex"})
+    empty = client.get(
+        "/chats/" + chat + "/context-preview",
+        headers=a,
+        params={"prompt": "Какой сейчас тестовый город?"},
+    ).json()
+    assert empty["memory_ids"] == []
