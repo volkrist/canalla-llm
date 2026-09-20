@@ -232,7 +232,9 @@ def wait_health(timeout=90):
 
 def stream_message(api: Api, chat_id: str, content: str, timeout=900):
     parts, events, progress = [], [], []
-    client = httpx.Client(base_url=api.base, timeout=httpx.Timeout(connect=10.0, read=timeout, write=10.0))
+    client = httpx.Client(
+        base_url=api.base, timeout=httpx.Timeout(connect=10.0, read=timeout, write=10.0, pool=10.0)
+    )
     try:
         with client.stream(
             "POST",
