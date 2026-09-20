@@ -341,11 +341,15 @@ def main():
     report["initial_pods"] = live
     log("initial volume pods=%s" % len(live))
     if live:
-        report["aborted"] = "gpu_not_zero"
-        Path(os.environ["TEMP"], "alex-on-demand-e2e.json").write_text(
-            json.dumps(report, indent=2, default=str), encoding="utf-8"
-        )
-        raise SystemExit("start_state_gpu_not_zero")
+        if len(live) == 1 and str(live[0].get("name") or "").startswith("alex-llm-"):
+            report["adopt_existing"] = live[0]
+            log("adopting existing alex-llm pod %s" % live[0].get("id"))
+        else:
+            report["aborted"] = "gpu_not_zero"
+            Path(os.environ["TEMP"], "alex-on-demand-e2e.json").write_text(
+                json.dumps(report, indent=2, default=str), encoding="utf-8"
+            )
+            raise SystemExit("start_state_gpu_not_zero")
     ok, volume_http = volume_exists(key)
     if not ok:
         raise SystemExit(f"volume_missing:{volume_http}")

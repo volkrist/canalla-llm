@@ -34,6 +34,23 @@ def test_compact_ai_mock_is_honest_in_production():
     assert ai == "ready"
 
 
+def test_sse_encodes_tool_payload():
+    from datetime import datetime, timezone
+
+    from app.chat_stream import sse
+
+    text = sse(
+        "tool",
+        {
+            "tool_name": "compute.start",
+            "cost_estimate": Decimal("1.09"),
+            "started_at": datetime(2026, 9, 20, tzinfo=timezone.utc),
+        },
+    )
+    assert "compute.start" in text
+    assert "1.09" in text
+
+
 def test_app_open_does_not_start_gpu(compute):
     controller, supplier, user = compute
     controller.get_compute_status(user)

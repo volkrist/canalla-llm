@@ -37,7 +37,7 @@ def after(message):
 
 
 def sse(event, data):
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+    return f"event: {event}\ndata: {json.dumps(jsonable_encoder(data), ensure_ascii=False)}\n\n"
 
 
 async def stream_response(
