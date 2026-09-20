@@ -222,7 +222,7 @@ Parallel: this spec; eval harness; installer spike (not on `main`).
 
 | Class | Count | Where listed |
 |---|---|---|
-| MUST before 1.0 | **28** | `roadmap-to-1.0.md` |
+| MUST before 1.0 | **24** | `roadmap-to-1.0.md` |
 | SHOULD before 1.0 | **12** | same |
 | AFTER 1.0 | **14** | same |
 
