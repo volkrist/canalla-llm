@@ -9,8 +9,10 @@ contract, so the chat pipeline is unchanged: only the transport moves behind the
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
@@ -60,19 +62,49 @@ class GatewayProvider(LLMProvider):
 
     supports_tools = False
 
+    # `/health` is the desktop's liveness contract (the runtime probe allows 400 ms) and the
+    # UI polls it, so readiness is cached: at most one upstream probe per TTL and never a
+    # Gateway round trip on every call. Probing per request made the local server answer
+    # `/health` slower than the desktop's budget (the app then never became ready) and turned
+    # the fingerprint of a healthy client into a hot loop against the shared Gateway.
+    READY_TTL_SECONDS = 8.0
+
     def __init__(self, settings: Settings, client: GatewayClient | None = None):
         self.settings = settings
         self.client = client or GatewayClient(settings)
+        self._ready_value = False
+        self._ready_at: float | None = None
+        self._probe = None
 
     async def health(self) -> bool:
+        """Cheap, honest readiness: cached, refreshed in the background (single flight)."""
+        if self._ready_at is not None and time.monotonic() - self._ready_at < self.READY_TTL_SECONDS:
+            return self._ready_value
+        if self._probe is None:
+            self._probe = asyncio.create_task(self._probe_ready())
+        if self._ready_at is None:
+            # Nothing is known yet, so the very first caller waits for the real answer.
+            return await asyncio.shield(self._probe)
+        # A stale answer is better than a slow `/health`: the refresh runs in the background.
+        return self._ready_value
+
+    async def _probe_ready(self) -> bool:
+        ready = False
         try:
             payload = await self.client.models()
+            ready = any(
+                isinstance(item, dict) and item.get("id") == self.settings.llm_model
+                for item in payload.get("data", [])
+            )
         except CloudError:
-            return False
-        return any(
-            isinstance(item, dict) and item.get("id") == self.settings.llm_model
-            for item in payload.get("data", [])
-        )
+            ready = False
+        except Exception:  # pragma: no cover - a probe must never break the caller
+            ready = False
+        finally:
+            self._ready_value = ready
+            self._ready_at = time.monotonic()
+            self._probe = None
+        return ready
 
     async def stream_chat(self, messages):
         iterator = self.stream_with_usage(messages, {})

@@ -52,9 +52,11 @@ class FakeGateway:
         self.token_calls = 0
         self.compute_calls = 0
         self.balance_calls = 0
+        self.models_calls = 0
         self.chat_calls = 0
         self.rejects_token = False
         self.fail_status = None
+        self.models_status = None
         self.time = datetime(2026, 9, 21, tzinfo=timezone.utc)
         self.token_ttl = 900
         self.stream_closed = False
@@ -115,6 +117,9 @@ class FakeGateway:
                 },
             )
         if path == "/v1/models":
+            self.models_calls += 1
+            if self.models_status is not None:
+                return httpx.Response(self.models_status, json={"detail": "upstream", "code": "gateway_busy"})
             return httpx.Response(200, json={"data": [{"id": "orcarouter-qwen38-27b-q5km"}]})
         if path == "/v1/chat/completions":
             self.chat_calls += 1
@@ -385,6 +390,47 @@ def test_no_provider_credential_is_needed_on_the_client(gateway):
     assert settings.runpod_api_key.get_secret_value() == ""
     provider = GatewayProvider(settings, client_for(gateway))
     assert run(provider.health()) is True
+
+
+def test_provider_health_is_cached_instead_of_hot_looping(gateway):
+    """`/health` is the desktop's liveness contract (400 ms) and the UI polls it.
+
+    Probing the Gateway on every call made the local server answer slower than that
+    budget, so the installed app never became ready and the Gateway saw a hot loop.
+    Readiness is therefore cached, and a stale answer is served instead of waiting.
+    """
+    provider = GatewayProvider(shared_settings(), client_for(gateway))
+
+    async def scenario() -> bool:
+        assert await provider.health() is True  # the first caller waits for the real answer
+        probes = gateway.models_calls
+        for _ in range(20):
+            assert await provider.health() is True
+        cached = gateway.models_calls == probes
+
+        # A Gateway that starts failing does not make `/health` slow: the stale answer is
+        # served immediately and the background probe corrects it on the next call.
+        gateway.models_status = 500
+        provider.READY_TTL_SECONDS = 0.0
+        assert await provider.health() is True
+        await asyncio.sleep(0.2)
+        assert await provider.health() is False
+        gateway.models_status = None
+        assert await provider.health() is False
+        await asyncio.sleep(0.2)
+        assert await provider.health() is True
+        return cached
+
+    assert run(scenario()) is True
+
+
+def test_provider_health_never_raises_into_the_health_endpoint(gateway):
+    """`/health` must stay a liveness signal even when every Gateway call fails."""
+    provider = GatewayProvider(shared_settings(), client_for(gateway))
+    gateway.rejects_token = True
+    gateway.fail_status = 503
+    assert run(provider.health()) is False
+    assert run(provider.health()) is False
 
 
 # ---------------------------------------------------------------------------- status/chip
