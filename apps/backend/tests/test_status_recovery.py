@@ -171,15 +171,43 @@ def test_web_chip_reports_configuration_state():
     from app.tools.policy import WebSettings
 
     settings = WebSettings()
-    assert snap.web_status(base, settings)["state"] == "not_configured"
-    assert snap.web_status(configured, settings)["state"] == "ready"
+    missing = snap.web_status(base, settings)
+    assert missing["state"] == "not_configured"
+    assert missing["action"] == "configure"
+    only_configured = snap.web_status(configured, settings)
+    # A configured provider is not a healthy provider: no request has been made.
+    assert only_configured["state"] == "configured"
+    assert only_configured["state"] != "ready"
+    assert only_configured["recoverable"] is False
+    assert only_configured["action"] is None
+    assert "настроен" in only_configured["message"].lower()
+    assert only_configured["details"]["probe"] == "configuration"
     disabled = WebSettings.model_validate(
         {"search_enabled": False, "fetch_enabled": False, "agent_mode": "off", "browser_mode": "off"}
     )
     assert snap.web_status(configured, disabled)["state"] == "off"
 
 
-@pytest.mark.parametrize("mode, listening, expected", [("off", True, "off"), ("auto", True, "ready")])
+@pytest.mark.parametrize("mode, listening", [("auto", True), ("on", True), ("auto", False), ("on", False)])
+def test_tor_chip_never_claims_ready_without_a_verified_chain(monkeypatch, mode, listening):
+    """An open SOCKS port is not a verified Tor route, and no proof store exists."""
+    from app.tools.policy import WebSettings
+
+    monkeypatch.setattr(snap, "socks_listening", lambda *args, **kwargs: listening)
+    result = snap.tor_status(get_settings(), WebSettings.model_validate({"tor_mode": mode}))
+    assert result["state"] != "ready"
+    assert result["details"]["verified_chain"] is False
+    assert result["details"]["proof_store"] == "none"
+    assert result["details"]["fallback"] == "none"
+    if listening:
+        assert result["state"] == "configured"
+        assert "цепь ещё не проверена" in result["message"]
+    else:
+        assert result["state"] == "unavailable"
+        assert result["action"] == "retry"
+
+
+@pytest.mark.parametrize("mode, listening, expected", [("off", True, "off"), ("auto", True, "configured")])
 def test_tor_chip_is_fail_closed(monkeypatch, mode, listening, expected):
     from app.tools.policy import WebSettings
 

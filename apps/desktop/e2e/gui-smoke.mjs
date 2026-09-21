@@ -250,6 +250,12 @@ async function scenarioFreshInstall(page) {
   );
   await waitForStatus(page);
   const settled = await page.locator(".status-chip").allInnerTexts();
+  const webTor = settled.filter((row) => /^(WEB|TOR)/i.test(row.trim()));
+  check(
+    "A14 Web/Tor never claim ready without a verified proof",
+    webTor.length === 2 && webTor.every((row) => !/Готово/.test(row)),
+    webTor.join(" | ").replace(/\n/g, " "),
+  );
   check(
     "A9 five status chips with readable text (no colour-only status)",
     settled.length === 5 &&

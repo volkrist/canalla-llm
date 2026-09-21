@@ -171,6 +171,57 @@ test("an AI failure explains itself and retries the authoritative snapshot", asy
   await expect(page.getByRole("button", { name: "AI: Готово" })).toBeVisible();
 });
 
+test("a configured provider is never shown as ready", async ({ page }) => {
+  await page.route(
+    (url) => url.pathname === "/status",
+    async (route) => {
+      await route.fulfill({
+        json: payload({
+          chips: {
+            ai: chip("configured", { details: { provider: "llamacpp" } }),
+            computer: chip("configured"),
+            web: chip("configured", {
+              message:
+                "Web настроен. Доступность провайдера проверяется при использовании.",
+              details: { provider: "TinyFish", probe: "configuration" },
+            }),
+            tor: chip("configured", {
+              message:
+                "Tor доступен, цепь ещё не проверена. Откат в clearnet не выполняется.",
+              details: {
+                mode: "auto",
+                proxy_port: 9050,
+                socks_listening: true,
+                verified_chain: false,
+                proof_store: "none",
+                fallback: "none",
+              },
+            }),
+            memory: chip("configured"),
+          },
+        }),
+      });
+    },
+  );
+  await page.goto("/");
+  await register(page, `configured-${Date.now()}@example.com`);
+
+  await expect(
+    page.getByRole("button", { name: "Web: Настроено" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Tor: Настроено" }),
+  ).toBeVisible();
+  // Nothing in the bar may claim operational readiness from configuration alone.
+  expect(await page.locator(".status-bar").innerText()).not.toContain("Готово");
+
+  await page.locator(".status-chip", { hasText: "tor" }).click();
+  const detail = page.getByTestId("status-detail");
+  await expect(detail).toContainText("Tor доступен, цепь ещё не проверена");
+  await expect(detail).toContainText(/Цепь проверена\s*нет/);
+  expect(await detail.innerText()).not.toContain("Готово");
+});
+
 test("chip details are available without a diagnostics dashboard", async ({
   page,
 }) => {

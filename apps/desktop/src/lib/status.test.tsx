@@ -11,6 +11,7 @@ import {
   lowBalanceWarning,
   sessionSpendLine,
   statusDelaySeconds,
+  STATE_TEXT,
   type BalanceStatus,
   type ChipKey,
   type StatusSnapshot,
@@ -99,7 +100,7 @@ describe("five-chip status", () => {
     expect(chipState(null, "ai")).toBe("starting");
   });
 
-  it("distinguishes ready, starting, off, not configured, unavailable and error", () => {
+  it("distinguishes ready, starting, configured, off, not configured, unavailable and error", () => {
     const html = render(
       snapshot(
         {},
@@ -117,6 +118,62 @@ describe("five-chip status", () => {
     expect(html).toContain("Выключено");
     expect(html).toContain("Недоступно");
     expect(html).toContain("Проверяем…");
+  });
+
+  it("never renders a configured subsystem as ready", () => {
+    const html = render(
+      snapshot(
+        {},
+        {
+          web: chip("configured", {
+            message:
+              "Web настроен. Доступность провайдера проверяется при использовании.",
+            details: { provider: "TinyFish", probe: "configuration" },
+          }),
+          tor: chip("configured", {
+            message:
+              "Tor доступен, цепь ещё не проверена. Откат в clearnet не выполняется.",
+            details: {
+              mode: "auto",
+              socks_listening: true,
+              verified_chain: false,
+              fallback: "none",
+            },
+          }),
+        },
+      ),
+    );
+    expect((html.match(/>Настроено<\/span>/g) || []).length).toBe(2);
+    expect(html).toContain("state-configured");
+    // The three mock-ready chips still say ready; the configured two must not.
+    expect((html.match(/>Готово<\/span>/g) || []).length).toBe(3);
+    expect(html).not.toContain("status-recovery");
+    expect(STATE_TEXT.configured).toBe("Настроено");
+  });
+
+  it("renders no ready chip at all when every subsystem is only configured", () => {
+    const html = render(
+      snapshot(
+        {},
+        {
+          ai: chip("configured"),
+          computer: chip("configured"),
+          web: chip("configured"),
+          tor: chip("configured"),
+          memory: chip("configured"),
+        },
+      ),
+    );
+    expect(html).not.toContain("Готово");
+    expect((html.match(/>Настроено<\/span>/g) || []).length).toBe(5);
+  });
+
+  it("treats configured as informational, not as something to recover from", () => {
+    const html = render(
+      snapshot({}, { web: chip("configured"), tor: chip("configured") }),
+    );
+    expect(html).not.toContain("status-recovery");
+    expect(html).not.toContain("Повторить");
   });
 
   it("shows a recovery card with the existing action for a recoverable failure", () => {
@@ -319,12 +376,13 @@ describe("chip details", () => {
   it("explains that Tor readiness is not a verified circuit", () => {
     const rows = detailRows(
       "tor",
-      chip("ready", {
+      chip("configured", {
         details: {
           mode: "auto",
           proxy_port: 9050,
           socks_listening: true,
           verified_chain: false,
+          proof_store: "none",
           fallback: "none",
         },
       }),
