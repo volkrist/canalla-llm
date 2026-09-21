@@ -27,6 +27,8 @@ Reliability stage: **CLOSED**. Do not reopen a broad reliability rewrite unless 
 - Five-chip status + error/recovery UX + shared RunPod balance
 - Central RunPod Gateway / Cloud Control Plane v2 (implemented, **deployed** at
   `https://gateway.12testers.store`, merged into `main`)
+- Upgrade / backup / data preservation (local verified backups, pre-upgrade backup,
+  transactional restore, Gateway snapshot tooling)
 
 ## Production package
 
@@ -82,6 +84,21 @@ Developer `tauri dev` may still use `apps/backend/.venv\Scripts\python.exe`.
   the frontend, never deleted by logout, removed only by an explicit delete in Settings
 - Status and balance are READ ONLY: they never start, adopt or stop compute, and never spend
 - A status chip must not claim more than its subsystem proved (configured ≠ healthy)
+- **No migration without a verified backup.** A pending alembic revision is migrated only after a
+  verified `pre_upgrade` snapshot exists; if the backup cannot be created the upgrade is refused
+  (exit 15) and the database is left untouched. A failed migration keeps the database and the
+  backup, records `runtime/migration.json`, and never creates an empty database in its place.
+- **A backup never contains a secret and never carries machine identity**: `runtime/jwt.secret`,
+  `runtime/install.id`, `runtime/session.id`, `device.json`, embedding caches and logs stay out of
+  the archive, and Credential Manager entries (`Alex LLM/session/…`, `provider/runpod`,
+  `gateway/installation`) are never exported. Restoring on another PC restores user data only;
+  identity and enrollment are re-established, never cloned.
+- **Restore never runs against a running backend.** It is a Desktop-owned operation: stop the owned
+  backend → one-shot sidecar restore (verify → safety backup → stage → swap → validate, with
+  rollback) → start again. An external backend is refused (`backend_external`), not stopped.
+- **Backup and restore never start the GPU** and never stop shared compute.
+- Backup retention is bounded (3 automatic / 10 manual, newest and last verified never pruned) and
+the backups live under the data root, never in the install directory.
 - In production shared mode `GET /health` is a **local** liveness answer: readiness is cached
   (`GatewayProvider.READY_TTL_SECONDS`, single-flight background refresh) and must never perform a
   Gateway round trip. The Desktop's runtime probe allows 400 ms, and probing per request both broke
@@ -121,7 +138,7 @@ Do not start LoRA yet. Before future LoRA: baseline + censorship/refusal + codin
 
 ## Next product slice (not this checkout)
 
-UPGRADE / BACKUP / DATA PRESERVATION — do not implement unless explicitly tasked.
+RC / 1.0 FINAL GATES — do not implement unless explicitly tasked.
 
 Then: RC / 1.0 gates.
 
