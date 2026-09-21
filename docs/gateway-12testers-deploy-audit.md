@@ -170,7 +170,30 @@ no enrollment: **13/13 PASS**
 * AI chip `not_configured` with the message «Alex Cloud не подключён…», never Ready;
 * five chips render, RunPod API key field absent in shared mode, AI / Compute note present.
 
-## 10. Remaining blocker: DNS
+## 10. Production Gateway core acceptance (two installations, real account)
+
+Run against the deployed Gateway over loopback (the public hostname does not exist yet),
+with two server-generated one-time codes. No value of any code, token or secret is printed.
+
+| Check | Result |
+|---|---|
+| two enrollment codes issued (32 chars each, values hidden) | PASS |
+| different installation ids | **PASS** |
+| different installation secrets, length ≥ 43 (256-bit) | **PASS** |
+| both installations mint a short-lived token | **PASS** |
+| the same shared account balance for both | **PASS** |
+| same cached snapshot (`fetched_at` equal → one upstream read for two installations) | **PASS** |
+| balance (UI rounded) from the **real** RunPod account | **$0.85** |
+| `shared_account` / `read_only` flags | PASS |
+| revoke installation B | 200; B's token → **403**; B cannot mint a new token → **403** |
+| installation A keeps working after B is revoked | **200** |
+| compute state / session | `offline` / none (no Pod, no GPU) |
+| installations stored / rows with a non-digest secret | 2 / **0** |
+
+This is the multi-installation and shared-balance evidence; the *client* hop over public
+HTTPS (and therefore the real enrollment of this desktop) still waits for the DNS record below.
+
+## 11. Remaining blocker: DNS
 
 `gateway.12testers.store` does not exist. The zone is on Cloudflare, and no authorized
 programmatic mechanism was found anywhere:
@@ -195,7 +218,7 @@ In the Cloudflare dashboard for `12testers.store` add:
 Do not modify the existing `12testers.store` or `www` records. Nothing else is needed: after the
 record exists, one command finishes the deployment.
 
-## 11. Post-DNS automation (pre-staged, idempotent)
+## 12. Post-DNS automation (pre-staged, idempotent)
 
 `/usr/local/sbin/alex-gateway-https.sh` (root, 0750) — already installed:
 
@@ -212,7 +235,7 @@ record exists, one command finishes the deployment.
    401 unauthenticated, `/runpod/*` and `/provider/raw` 404), the activation code, the client
    enrollment and the shared-balance check follow.
 
-## 12. Rollback
+## 13. Rollback
 
 * Gateway only: `systemctl disable --now alex-gateway.service` (and, if needed,
   `rm -f /etc/nginx/sites-enabled/alex-gateway.conf && nginx -t && systemctl reload nginx`).
@@ -221,7 +244,7 @@ record exists, one command finishes the deployment.
 * Nothing is deleted automatically: `releases/`, the database and the two environment files
   stay in place for inspection.
 
-## 13. Not done in this step (deliberately)
+## 14. Not done in this step (deliberately)
 
 * Public HTTPS routing, the public security acceptance, the activation code, the client
   enrollment, the second (throwaway) installation and the shared-balance verification all
