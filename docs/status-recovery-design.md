@@ -14,7 +14,7 @@ per hour, and what to do when something fails. A status read must never start co
 
 ## 2. One vocabulary
 
-`ready | starting | off | not_configured | unavailable | error | degraded`
+`ready | starting | configured | off | not_configured | unavailable | error | degraded`
 
 `app/status/snapshot.py` owns it. Every chip is a small object:
 
@@ -44,8 +44,8 @@ per hour, and what to do when something fails. A status read must never start co
 |---|---|---|
 | **AI** | `RunPodController.llm_public_status()` → existing `compact_ai()` mapping | the production alias is healthy (`ready`/`generating`) |
 | **Computer** | `app/tools/local/devices.py` `active_device()` (heartbeat inside 45 s) | a non-revoked paired device answered recently |
-| **Web** | TinyFish configuration + per-user `WebSettings` | configured **and** enabled by the user |
-| **Tor** | `socks_listening()` — the same SOCKS5 endpoint the executor requires | the SOCKS5 endpoint accepts a connection |
+| **Web** | TinyFish configuration + per-user `WebSettings` | never: a configured provider reports `configured` |
+| **Tor** | `socks_listening()` — the same SOCKS5 endpoint the executor requires | never: an open port reports `configured` |
 | **Memory** | `User.use_memory` + a live count query on `memories` | enabled and the subsystem answered |
 
 No subsystem state machine was duplicated: AI is refined from `compact_ai()` output (three explicit
@@ -54,12 +54,16 @@ branches), and every other chip reads the module that already owns it.
 Honesty rules that are enforced in code and covered by tests:
 
 - GPU running ≠ AI ready. Only the compact mapping decides, and `create_unknown` never becomes Ready.
-- Web `ready` is explicitly a **configuration** verdict (`details.probe = "configuration"`); provider
-  health is confirmed per request, not by this chip.
-- Tor is **fail-closed**: `ready` requires the SOCKS endpoint, `details.verified_chain` stays `false`
-  (the chip does not claim a proven circuit), `details.fallback` is `none`, and an unconfirmed Tor with
-  `tor_mode=on` reports `unavailable` with `required: true`. The chip never performs the expensive
-  `prove_socks5()` handshake.
+- **Web configured ≠ verified healthy.** No TinyFish request is made for a chip, so a configured provider
+  is `configured` ("Web настроен. Доступность провайдера проверяется при использовании."), never `ready`.
+  `ready` for Web would require a real health proof the architecture does not store.
+- **Tor socket reachable ≠ verified Tor route.** `socks_listening()` is a TCP accept, not a circuit, and
+  `prove_socks5()` runs only inside `TorBrowserController.start_session` where its result stays on that
+  connection (`Socks5hConnector.last_handshake`); nothing persists an authoritative "last verified"
+  proof and this path must not poll for one. Therefore a listening endpoint is `configured`
+  ("Tor доступен, цепь ещё не проверена") and **Tor never reports `ready`** — `details.verified_chain`
+  stays `false`, `details.proof_store` is `none`, `details.fallback` is `none`, and an unconfirmed Tor
+  with `tor_mode=on` reports `unavailable` with `required: true`. Fail-closed routing is unchanged.
 - Memory never triggers an embedding download. Retrieval is lexical (`details.retrieval = "lexical"`),
   so the chip stays free.
 - `multiple_compute` never gets a destructive action; `create_unknown` offers a retry that only re-reads
@@ -124,6 +128,29 @@ Failure semantics (fail closed, never a fake zero):
 `low` / `low_threshold_usd` are presentation-only (`LOW_BALANCE_USD = $5.00`, a module constant). They
 do **not** gate compute: the `$1.20/h` cap and `$3` session budget stay the only compute rules.
 
+`BALANCE_BACKGROUND_ENABLED` (default true) starts the optional background refresher; disabling it makes
+the cache purely request-driven, which is what the live acceptance below uses for an exact call count.
+
+### Live read-only acceptance
+
+`scripts/acceptance-runpod-balance.py` runs the real backend in-process against an isolated database and
+the **real** `api.runpod.io/graphql` endpoint, using the credential the product's own settings resolve.
+It blocks every mutating supplier surface (`create_pod`, `terminate_pod`, `start_compute`, `stop_compute`,
+`search_gpu`, `_ensure_on_demand_locked`) before running, and performs exactly TWO read-only balance
+queries in the passing run:
+
+1. User A's first `/status` → one upstream snapshot: `configured=true`, `available=true`, `balance_usd`
+   present and parsed as `Decimal`, no key in the payload;
+2. User B's `/status` → the **same** shared balance with no extra upstream call (cache reuse);
+3. after the cache TTL, one more authoritative read → a second upstream snapshot replaces the first
+   (still `Decimal`, still available), and the next read adds no further call;
+4. compute safety: no `compute_sessions` row, no adopted session, state stays `offline`;
+5. secret hygiene: no credential material on disk under the isolated data root.
+
+The provider schema (`myself { clientBalance currentSpendPerHr }`) was accepted as-is; no scraping and no
+mutation were needed. The installed app was separately observed refreshing the balance on its own
+cadence (≈15 s while idle) while a credential was present.
+
 ## 6. Billing UI
 
 From the same payload, so nothing is invented and nothing is hardcoded:
@@ -155,6 +182,7 @@ Every action reuses machinery that already exists:
 | `stop`, `cancel_search` | opens the existing compute panel, which keeps its own confirmation and lifecycle |
 
 No button is rendered when the backend cannot safely perform the action (for example `multiple_compute`).
+`configured` is informational: it is neither a failure nor something to recover from.
 
 **Same-task recovery** is unchanged: this slice adds no task, no message and no retry of a user request.
 `WAITING_LLM`, the parked SSE stream and the existing task identity are untouched; `create_unknown` only

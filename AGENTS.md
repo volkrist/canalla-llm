@@ -66,7 +66,8 @@ Developer `tauri dev` may still use `apps/backend/.venv\Scripts\python.exe`.
 - CD-08 REAL stale-SHA coverage debt
 - REAL backend restart with a live Pod is not yet live-tested
 - No production code signing yet
-- Live RunPod balance acceptance not run in this checkout (no RunPod credential configured); mocked-GraphQL + cache paths covered by tests
+- Live RunPod balance was accepted read-only, but the credential came from the developer settings path; a normal installation must still set the key in Settings → provider secret (Credential Manager `Alex LLM/provider/runpod` was not written during acceptance)
+- Web and Tor chips report `configured`, not `ready`: a real provider health probe and a stored verified-Tor-chain proof do not exist yet
 
 Do not start LoRA yet. Before future LoRA: baseline + censorship/refusal + coding/tools/security + catastrophic-forgetting regression.
 

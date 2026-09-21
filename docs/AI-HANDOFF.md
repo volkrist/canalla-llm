@@ -18,7 +18,7 @@ After this document lands, `git rev-parse origin/main` is the live source of tru
 Merge history kept as branches:
 
 - Session restore / first-run slice — fast-forward of `feat/session-first-run` (`e1f90d0`)
-- Status / recovery / balance slice — `feat/status-recovery-ux` (this document lives on it)
+- Status / recovery / balance slice — `feat/status-recovery-ux`, merged into `main` as a fast-forward after the Web/Tor truthfulness and live-balance gate
 
 (When the two hashes above no longer match `origin/main`, trust `git rev-parse origin/main`.)
 
@@ -77,15 +77,25 @@ Health identity: `product=alex-llm`, `version=0.9.3`, `runtime_protocol_version=
 
 **Status / recovery / balance (0.9.3):** `GET /status` (authenticated, read-only) returns the five
 user-facing chips `ai | computer | web | tor | memory` plus the **shared** RunPod account balance.
-Vocabulary: `ready | starting | off | not_configured | unavailable | error | degraded`. Each chip
-carries `message`, `detail_code`, `recoverable`, `action`, `details`. Chips read the subsystem that
+Vocabulary: `ready | starting | configured | off | not_configured | unavailable | error | degraded`. Each
+chip carries `message`, `detail_code`, `recoverable`, `action`, `details`. Chips read the subsystem that
 already owns the state (compute `compact_ai`, device heartbeat, TinyFish config, Tor SOCKS5 endpoint,
-`use_memory`). RunPod has **no REST balance**: `RunPodAPI.account_balance()` is a read-only GraphQL
-call to `RUNPOD_GRAPHQL_URL` `myself.clientBalance`, cached process-wide (5 s while compute is billable,
-15 s otherwise) with single-flight refresh; money stays `Decimal` and is serialized as a string. A failed
-read keeps the last value and marks it stale — never a fake `$0`. Recovery actions reuse existing paths
-(settings, device loop, compute panel with its confirmation). UI polls through one owner (`useStatus`).
-Details: [status-recovery-design.md](status-recovery-design.md).
+`use_memory`). Two semantics are permanent and must not be weakened:
+
+- **Web configured ≠ verified healthy** — a configured provider reports `configured` ("Настроено"), never
+  `ready`; no TinyFish request is made for a chip.
+- **Tor socket reachable ≠ verified Tor route** — an open SOCKS5 port reports `configured`, and Tor
+  **never** reports `ready` because no authoritative verified-chain proof is stored
+  (`details.verified_chain = false`, `details.proof_store = none`, `details.fallback = none`); routing
+  stays fail-closed with no clearnet fallback.
+
+RunPod has **no REST balance**: `RunPodAPI.account_balance()` is a read-only GraphQL call to
+`RUNPOD_GRAPHQL_URL` `myself.clientBalance`, cached process-wide (5 s while compute is billable, 15 s
+otherwise) with single-flight refresh; money stays `Decimal` and is serialized as a string. A failed read
+keeps the last value and marks it stale — never a fake `$0`. `BALANCE_BACKGROUND_ENABLED` (default true)
+starts the optional background refresher. Recovery actions reuse existing paths (settings, device loop,
+compute panel with its confirmation). UI polls through one owner (`useStatus`). Live read-only acceptance:
+`scripts/acceptance-runpod-balance.py`. Details: [status-recovery-design.md](status-recovery-design.md).
 
 ## 6. RunPod lifecycle
 
@@ -126,9 +136,11 @@ Do not “fix” these as a reliability rewrite:
 - REAL backend restart with a live Pod not live-tested (FakeRunPod covered)
 - No production code signing / SmartScreen publisher yet
 - Access JWT stays valid until its short expiry after logout (copied-token note, [security.md](security.md))
-- Live RunPod **balance** acceptance not performed in this checkout: no RunPod credential is configured
-  (mocked GraphQL + cache paths covered by tests, and the installed GUI shows the honest
-  "RunPod не настроен" state)
+- Live RunPod **balance** was accepted read-only for real (`scripts/acceptance-runpod-balance.py`: real
+  `myself.clientBalance`, shared cache reuse across two users, second refresh after the TTL, no Pod, no GPU)
+  and the installed app displayed and refreshed it. The credential used came from the developer settings
+  path; a normal installation must still set the key in Settings → provider secret (Credential Manager
+  `Alex LLM/provider/runpod`, which was **not** written during acceptance)
 
 ## 10. Useful branches / worktrees
 
@@ -137,7 +149,7 @@ Primary checkout: `C:\Users\Volkr\Documents\Codex\2026-09-13\x20\outputs\alex-ll
 | Branch | Worktree | Role |
 |---|---|---|
 | `main` | this repo | product |
-| `feat/status-recovery-ux` | (same) | status/recovery/balance slice; merge pending |
+| `feat/status-recovery-ux` | (same) | merged; keep |
 | `feat/session-first-run` | (same) | merged; keep |
 | `feat/backend-sidecar-installer` | (same) | merged; keep |
 | `feat/on-demand-ai-runtime` | — | merged; keep |
@@ -152,20 +164,21 @@ Local leftover: `docs/screenshots/0.4/*.png` — do not commit or delete.
 
 ## 11. Current local test counts
 
-Recorded 21 Sep 2026, no GPU, no TinyFish (status/recovery/balance slice):
+Recorded 21 Sep 2026, no GPU, no TinyFish (status/recovery/balance merge gate):
 
 | Suite | Result |
 |---|---|
-| backend pytest | **476 passed**, 1 skipped |
+| backend pytest | **480 passed**, 1 skipped |
 | Ruff check / format | PASS |
 | Alembic check (fresh temp SQLite → 0014) | PASS |
-| Vitest | **50 passed** |
+| Vitest | **53 passed** |
 | TypeScript / Prettier / Vite | PASS |
-| Playwright | **18 passed** |
+| Playwright | **19 passed** |
 | cargo test | host **17**, desktop **30** |
 | npm audit --omit=dev | **0** |
 | pip-audit | **0** (local package skipped) |
-| Installed GUI smoke (real Tauri app, CDP-driven) | **31/31 PASS** (`apps/desktop/e2e/gui-smoke.mjs`) |
+| Installed GUI smoke (real Tauri app, CDP-driven) | **PASS** (`apps/desktop/e2e/gui-smoke.mjs`) |
+| Live read-only RunPod balance acceptance | **PASS** (`scripts/acceptance-runpod-balance.py`) |
 
 A leftover `apps/backend/alex.db` at an old revision is **not** the product data root. Prefer a fresh `DATABASE_URL` for `alembic check`.
 
@@ -207,7 +220,13 @@ cargo test
 cd ..\..\..
 
 # pip-audit (from apps\backend)
-.\.venv\Scripts\python.exe -m pip_audit
+.\venv\Scripts\python.exe -m pip_audit
+
+# Live read-only RunPod shared-balance acceptance (2 read-only GraphQL queries; $0, no GPU).
+# Run it from apps\backend so the product's settings/.env credential is resolved.
+cd apps\backend
+..\..\apps\backend\.venv\Scripts\python.exe ..\..\scripts\acceptance-runpod-balance.py
+cd ..\..
 
 # Packaged artifacts (slow; needs .venv + Rust)
 .\scripts\build-backend-sidecar.ps1
