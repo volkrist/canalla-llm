@@ -6,7 +6,7 @@ export default function Brand({ large = false }: { large?: boolean }) {
         <AudioLines size={large ? 30 : 22} />
       </span>
       <span>
-        Alex <b>LLM</b>
+        Canalla <b>LLM</b>
       </span>
     </div>
   );
