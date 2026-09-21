@@ -87,6 +87,7 @@ class EnsureRequest(BaseModel):
     session_budget: float | None = Field(default=None, gt=0, le=10000)
     auto_stop_minutes: int | None = Field(default=None, ge=0, le=240)
     min_vram_gb: int | None = Field(default=None, ge=1, le=1024)
+    selection: Literal["automatic", "manual"] | None = Field(default=None)
     gpu_id: str | None = Field(default=None, max_length=160)
 
 
@@ -228,6 +229,7 @@ async def compute_ensure(request: Request, payload: EnsureRequest, installation:
         "session_budget": payload.session_budget,
         "auto_stop_minutes": payload.auto_stop_minutes,
         "min_vram_gb": payload.min_vram_gb,
+        "selection": payload.selection,
         "gpu_id": payload.gpu_id,
     }
     return await request.app.state.authority.ensure(

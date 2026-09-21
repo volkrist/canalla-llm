@@ -33,7 +33,11 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from .balance import SharedBalance
-from .config import MAX_HOURLY_PRICE, MAX_SESSION_BUDGET, GatewaySettings
+from .config import (
+    ABSOLUTE_MAX_HOURLY_PRICE,
+    ABSOLUTE_MAX_SESSION_BUDGET,
+    GatewaySettings,
+)
 from .errors import GatewayError
 from .models import AuditEvent, GatewayCompute, GatewayOperation, GatewaySession, now
 from .provider import compact_ai, compute_preferences, provider_api, provider_error_messages
@@ -269,20 +273,36 @@ class ComputeAuthority:
         db.commit()
 
     def _caps(self, caps: dict | None) -> dict:
-        """Server ceilings win. A client can only ask for something stricter."""
+        """Honour the caller's own policy; enforce only technical validity.
+
+        A user owns their money policy: an authenticated installation that asks for a higher
+        maximum is not clamped to a product ceiling any more. Malformed or out-of-range values
+        are rejected explicitly instead of being silently replaced (that silent replacement is
+        exactly what used to hide a user's own setting).
+        """
         caps = caps or {}
-        hourly = decimal_or_none(caps.get("max_hourly_price")) or MAX_HOURLY_PRICE
-        budget = decimal_or_none(caps.get("session_budget")) or MAX_SESSION_BUDGET
-        hourly = min(hourly, MAX_HOURLY_PRICE)
-        budget = min(budget, MAX_SESSION_BUDGET)
-        if hourly <= 0:
-            hourly = MAX_HOURLY_PRICE
-        if budget <= 0:
-            budget = MAX_SESSION_BUDGET
+        hourly = decimal_or_none(caps.get("max_hourly_price"))
+        if hourly is None:
+            hourly = self.settings.max_hourly_price
+        if not hourly.is_finite() or hourly <= 0 or hourly > ABSOLUTE_MAX_HOURLY_PRICE:
+            raise GatewayError(
+                "compute_policy_invalid",
+                detail=f"Максимум $/час должен быть больше 0 и не больше {ABSOLUTE_MAX_HOURLY_PRICE}.",
+            )
+        budget = decimal_or_none(caps.get("session_budget"))
+        if budget is None:
+            budget = self.settings.max_session_budget
+        if not budget.is_finite() or budget <= 0 or budget > ABSOLUTE_MAX_SESSION_BUDGET:
+            raise GatewayError(
+                "compute_policy_invalid",
+                detail=f"Бюджет сессии должен быть больше 0 и не больше {ABSOLUTE_MAX_SESSION_BUDGET}.",
+            )
         idle = caps.get("auto_stop_minutes")
         idle = idle if idle in ALLOWED_AUTO_STOP else self.settings.compute_idle_minutes
         vram = caps.get("min_vram_gb")
         vram = int(vram) if isinstance(vram, int) and 1 <= vram <= 1024 else self.settings.runpod_min_vram_gb
+        selection = caps.get("selection")
+        selection = selection if selection in {"automatic", "manual"} else "automatic"
         selected = caps.get("gpu_id")
         selected = selected if isinstance(selected, str) and 1 <= len(selected) <= 160 else None
         return {
@@ -290,7 +310,8 @@ class ComputeAuthority:
             "session_budget": budget,
             "auto_stop_minutes": idle,
             "min_vram_gb": max(vram, self.settings.runpod_min_vram_gb),
-            "gpu_id": selected,
+            "selection": selection,
+            "gpu_id": selected if selection == "manual" else None,
         }
 
     def _operation(self, db, operation_id: str, installation_id: str, kind: str) -> dict | None:
@@ -721,7 +742,7 @@ class ComputeAuthority:
             return self.status_payload()
 
         prefs = compute_preferences(
-            selection="automatic",
+            selection=caps["selection"],
             min_vram_gb=caps["min_vram_gb"],
             max_hourly_price=caps["max_hourly_price"],
             session_budget=caps["session_budget"],

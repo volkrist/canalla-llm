@@ -122,8 +122,6 @@ class RunPodController:
             if not row:
                 return ComputePreferences.defaults(self.settings)
             values = dict(row.values or {})
-            if "gpu_id" not in values:
-                values["gpu_id"] = "NVIDIA L40S"
             return ComputePreferences.model_validate(values)
 
     def save_preferences(self, user_id, preferences):
@@ -143,11 +141,8 @@ class RunPodController:
             with self.sessions() as db:
                 control = db.get(ComputeControl, 1)
                 row = db.get(ComputeSession, control.active_session_id) if control.active_session_id else None
-                if row and row.managed and row.started_by_user_id != user.id and user.role != "admin":
-                    raise HTTPException(
-                        403, "Настройки активной сессии может менять инициатор или администратор"
-                    )
-                if row and row.managed:
+                if row and row.managed and (row.started_by_user_id == user.id or user.role == "admin"):
+                    # Saving your own policy never rewrites somebody else's running session.
                     row.session_budget = preferences.session_budget
                     row.max_hourly_price = preferences.max_hourly_price
                     row.auto_stop_minutes = preferences.auto_stop_minutes
@@ -553,6 +548,10 @@ class RunPodController:
         fresh = await self.api.gpu_options(prefs)
         selected = next((gpu for gpu in fresh if gpu.id == approved.id and gpu.selectable), None)
         if selected and selected.hourly_rate > approved.hourly_rate:
+            raise RunPodError("price_changed", 409)
+        if not selected and any(gpu.id == approved.id for gpu in fresh):
+            # The GPU still exists but no longer fits the user's own policy: say so instead of
+            # silently going back to searching (no silent price escalation either way).
             raise RunPodError("price_changed", 409)
         candidates = [selected] if selected else []
         if not candidates:

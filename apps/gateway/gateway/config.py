@@ -1,8 +1,9 @@
 """Central Alex Gateway configuration.
 
 The Gateway is the only place a RunPod master credential exists in production shared
-mode. Everything money- or provider-related is configured server-side here; clients can
-never widen a limit.
+mode. Everything provider-related is configured server-side here; clients can never widen
+*a technical* limit, but a money policy (maximum $/hour, session budget) belongs to the
+user who pays attention to it: see ``DEFAULT_*`` and ``ABSOLUTE_*`` below.
 """
 
 from __future__ import annotations
@@ -14,10 +15,15 @@ from typing import Literal
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Product-wide ceilings. These are the existing Alex money rules and the client can only
-# ask for something stricter.
-MAX_HOURLY_PRICE = Decimal("1.20")
-MAX_SESSION_BUDGET = Decimal("3.00")
+# Default policy for a request that carries none (new users start here). These are defaults,
+# NOT product ceilings: an authenticated installation enforces the value it sent.
+DEFAULT_MAX_HOURLY_PRICE = Decimal("0.52")
+DEFAULT_SESSION_BUDGET = Decimal("3.00")
+
+# Technical validity bounds only. They exist to reject nonsense (negative, zero, NaN,
+# Infinity, parser overflow) and absurd abuse, not to cap a legitimate user's own policy.
+ABSOLUTE_MAX_HOURLY_PRICE = Decimal("100")
+ABSOLUTE_MAX_SESSION_BUDGET = Decimal("1000")
 
 
 class GatewaySettings(BaseSettings):
@@ -60,9 +66,9 @@ class GatewaySettings(BaseSettings):
     llm_model: str = "orcarouter-qwen38-27b-q5km"
     llm_api_key: str = ""
 
-    # Money ceilings enforced by the Gateway, whatever a client sends.
-    max_hourly_price: Decimal = Field(default=MAX_HOURLY_PRICE, gt=0, le=100)
-    max_session_budget: Decimal = Field(default=MAX_SESSION_BUDGET, gt=0, le=1000)
+    # Policy defaults for a request without caps (NOT ceilings; see the module docstring).
+    max_hourly_price: Decimal = Field(default=DEFAULT_MAX_HOURLY_PRICE, gt=0, le=100)
+    max_session_budget: Decimal = Field(default=DEFAULT_SESSION_BUDGET, gt=0, le=1000)
     compute_idle_minutes: int = Field(default=10, ge=1, le=240)
     compute_poll_seconds: float = Field(default=5, ge=1, le=60)
     balance_active_seconds: float = Field(default=5, ge=1, le=300)
@@ -81,10 +87,10 @@ class GatewaySettings(BaseSettings):
                 raise ValueError("Production JWT_SECRET must be at least 48 characters")
             if self.jwt_secret.startswith("replace-"):
                 raise ValueError("Generate JWT_SECRET; the placeholder is not a secret")
-        if self.max_hourly_price > MAX_HOURLY_PRICE:
-            raise ValueError("MAX_HOURLY_PRICE cannot exceed the product ceiling")
-        if self.max_session_budget > MAX_SESSION_BUDGET:
-            raise ValueError("MAX_SESSION_BUDGET cannot exceed the product ceiling")
+        if self.max_hourly_price > ABSOLUTE_MAX_HOURLY_PRICE:
+            raise ValueError("MAX_HOURLY_PRICE above the technical bound")
+        if self.max_session_budget > ABSOLUTE_MAX_SESSION_BUDGET:
+            raise ValueError("MAX_SESSION_BUDGET above the technical bound")
         return self
 
     @property

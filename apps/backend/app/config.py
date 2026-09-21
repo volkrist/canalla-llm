@@ -149,8 +149,10 @@ class Settings(BaseSettings):
     runpod_network_volume_id: str = "uwgeaie5b0"
     runpod_datacenter: str = "US-TX-3"
     runpod_min_vram_gb: int = Field(default=48, ge=1, le=1024)
-    runpod_max_hourly_price: Decimal = Field(default=Decimal("1.20"), gt=0, le=100)
-    runpod_max_session_budget: Decimal = Field(default=Decimal("3.00"), gt=0, le=1000)
+    # Defaults a new user starts with. They are NOT caps: each user owns their own
+    # Compute Preferences and may raise or lower both values (docs/release-1.0.md).
+    runpod_default_hourly_price: Decimal = Field(default=Decimal("0.52"), gt=0, le=100)
+    runpod_default_session_budget: Decimal = Field(default=Decimal("3.00"), gt=0, le=1000)
     runpod_auto_stop_minutes: Literal[0, 5, 10, 15, 30] = 10
     runpod_search_interval: int = Field(default=30, ge=15, le=300)
     runpod_image: str = "runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404"

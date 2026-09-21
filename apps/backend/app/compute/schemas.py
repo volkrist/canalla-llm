@@ -8,15 +8,24 @@ from ..config import Settings
 
 
 class ComputePreferences(BaseModel):
+    """One local user's own compute policy.
+
+    These are **preferences, not product caps**: every authenticated user may raise or lower
+    ``max_hourly_price`` and ``session_budget`` for themselves. The Gateway enforces the
+    value the caller sent (within technical bounds only) and never silently clamps it to a
+    product ceiling. Defaults (docs/release-1.0.md): automatic cheapest compatible GPU,
+    48 GB VRAM floor, $0.52/hour and $3.00 per session.
+    """
+
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     selection: Literal["automatic", "manual"] = "automatic"
     min_vram_gb: int = Field(default=48, ge=1, le=1024)
-    max_hourly_price: Decimal = Field(default=Decimal("1.20"), gt=0, le=100, max_digits=8, decimal_places=4)
+    max_hourly_price: Decimal = Field(default=Decimal("0.52"), gt=0, le=100, max_digits=8, decimal_places=4)
     session_budget: Decimal = Field(default=Decimal("3.00"), gt=0, le=1000, max_digits=9, decimal_places=4)
     auto_stop_minutes: Literal[0, 5, 10, 15, 30] = 10
     gpu_id: str | None = Field(default=None, min_length=1, max_length=160)
     auto_connect: bool = False
-    auto_search: bool = False
+    auto_search: bool = True
     search_interval: int = Field(default=30, ge=15, le=300)
 
     def enforce(self, settings: Settings):
@@ -28,12 +37,15 @@ class ComputePreferences(BaseModel):
 
     @classmethod
     def defaults(cls, settings: Settings):
+        """New users start on the cheap automatic policy; they own it from then on."""
         return cls(
-            gpu_id="NVIDIA L40S",
+            selection="automatic",
+            gpu_id=None,
             min_vram_gb=settings.runpod_min_vram_gb,
-            max_hourly_price=Decimal("1.20"),
-            session_budget=Decimal("3.00"),
+            max_hourly_price=settings.runpod_default_hourly_price,
+            session_budget=settings.runpod_default_session_budget,
             auto_stop_minutes=settings.runpod_auto_stop_minutes,
+            auto_search=True,
             search_interval=settings.runpod_search_interval,
         )
 

@@ -155,16 +155,124 @@ def test_two_authorities_still_create_one_pod(gateway, client):
     assert len(gateway.sessions_rows) == 1
 
 
-def test_server_caps_win_over_greedy_client_limits(gateway, client):
+def ensure_error(client, headers, **body):
+    return client.post("/compute/ensure", json=ensure_body(**body), headers=headers)
+
+
+def test_a_user_policy_is_honoured_instead_of_clamped(gateway, client):
+    """Money policy belongs to the user: no hidden $1.20 / $3 product ceiling."""
     installation = enroll(gateway, client)
     headers = auth_header(client, installation)
-    body = ensure(client, headers, operation_id="op-caps-0000001", max_hourly_price=999, session_budget=999)
+    gateway.runpod.price = 1.50
+    body = ensure(
+        client,
+        headers,
+        operation_id="op-policy-000001",
+        max_hourly_price=2.00,
+        session_budget=10.00,
+    )
     rows = gateway.sessions_rows
     assert len(rows) == 1
+    assert float(body["session"]["budget_usd"]) == 10.00
+    assert float(rows[0].session_budget) == 10.00
+    # Whatever the user allowed, the session never records more than the GPU actually costs.
+    assert float(rows[0].max_hourly_price) <= 2.00
+    assert float(rows[0].hourly_rate) <= 2.00
+
+
+def test_a_user_may_lower_their_policy_below_the_default(gateway, client):
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    gateway.runpod.price = 0.40
+    body = ensure(
+        client,
+        headers,
+        operation_id="op-policy-000002",
+        max_hourly_price=0.40,
+        session_budget=1.00,
+    )
+    rows = gateway.sessions_rows
+    assert float(body["session"]["budget_usd"]) == 1.00
+    assert float(rows[0].hourly_rate) == 0.40
+    assert float(rows[0].max_hourly_price) <= 0.40
+
+
+def test_invalid_policy_is_rejected_never_silently_replaced(gateway, client):
+    """Structural nonsense is refused by the schema; policy bounds by the money layer."""
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    for index, caps in enumerate([{"max_hourly_price": 999}, {"session_budget": 5000}]):
+        response = ensure_error(client, headers, operation_id=f"op-badpolicy-{index:04d}", **caps)
+        assert response.status_code == 422, (caps, response.text)
+        assert response.json()["code"] == "compute_policy_invalid"
+        assert "больше 0" in response.json()["detail"]
+    for index, caps in enumerate(
+        [{"max_hourly_price": -1}, {"max_hourly_price": 0}, {"session_budget": -3}]
+    ):
+        response = ensure_error(client, headers, operation_id=f"op-badshape-{index:04d}", **caps)
+        assert response.status_code == 422, (caps, response.text)
+    assert gateway.runpod.creates == []
+    assert gateway.runpod.actions == []
+
+
+def test_defaults_apply_when_a_client_sends_no_policy(gateway, client):
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    gateway.runpod.price = 0.48
+    body = ensure(client, headers, operation_id="op-default-000001")
     assert float(body["session"]["budget_usd"]) == 3.00
+    assert float(body["session"]["max_hourly_price_usd"]) <= 0.52
+
+
+def test_cheapest_compatible_gpu_wins_even_when_the_max_allows_more(gateway, client):
+    """A higher maximum must not make the Gateway pick a more expensive GPU."""
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    gateway.runpod.price = 0.48  # gpu-48 becomes the cheapest selectable option
+    body = ensure(
+        client,
+        headers,
+        operation_id="op-cheap-000001",
+        max_hourly_price=1.20,
+        session_budget=3.00,
+        # A stray exact-GPU hint must not pin automatic selection to a pricier card.
+        gpu_id="NVIDIA L40S",
+    )
+    assert gateway.runpod.creates[0]["gpu"]["id"] == "gpu-48"
+    assert float(body["session"]["max_hourly_price_usd"]) <= 0.48
+
+
+def test_manual_selection_pins_the_named_gpu(gateway, client):
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    gateway.runpod.price = 0.48
+    body = ensure(
+        client,
+        headers,
+        operation_id="op-manual-000001",
+        max_hourly_price=1.20,
+        session_budget=3.00,
+        selection="manual",
+        gpu_id="NVIDIA L40S",
+    )
+    assert gateway.runpod.creates[0]["gpu"]["id"] == "NVIDIA L40S"
     assert float(body["session"]["max_hourly_price_usd"]) <= 1.20
-    assert float(rows[0].session_budget) == 3.00
-    assert float(rows[0].max_hourly_price) <= 1.20
+
+
+def test_a_policy_below_every_quote_never_creates_compute(gateway, client):
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    gateway.runpod.price = 0.79
+    body = ensure(
+        client,
+        headers,
+        operation_id="op-cheap-000002",
+        max_hourly_price=0.52,
+        session_budget=3.00,
+    )
+    assert body["state"] == "searching"
+    assert body["error_code"] == "price_limit"
+    assert gateway.runpod.creates == []
 
 
 def test_stricter_client_limits_are_accepted(gateway, client):
@@ -178,6 +286,7 @@ def test_stricter_client_limits_are_accepted(gateway, client):
 def test_limits_that_pick_no_gpu_never_create_a_pod(gateway, client):
     installation = enroll(gateway, client)
     headers = auth_header(client, installation)
+    gateway.runpod.price = 0.60
     body = ensure(
         client,
         headers,

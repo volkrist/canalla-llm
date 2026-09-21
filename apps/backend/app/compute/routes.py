@@ -47,9 +47,13 @@ def preferences(request: Request, user: User = Depends(current_user)):
 async def update_preferences(
     body: ComputePreferences,
     request: Request,
-    user: User = Depends(compute_user),
-    _: None = Depends(local_compute_required),
+    user: User = Depends(current_user),
 ):
+    """Every authenticated user owns their own compute policy, in both provider modes.
+
+    Deliberately NOT gated by ``compute_user`` or ``local_compute_required``: a money policy
+    is not a compute lifecycle action. The owner gate stays on start/stop/search.
+    """
     try:
         return await controller(request).update_preferences(user, body)
     except ValueError as error:

@@ -83,7 +83,7 @@ def test_existing_compatible_pod_is_adopted(compute):
             "id": "pod-test",
             "name": "alex-llm-existing",
             "status": "RUNNING",
-            "cost": 0.8,
+            "cost": 0.48,
             "startedAt": supplier.time.isoformat(),
             "gpu": {"id": "gpu-48", "memory": 256},
             "mounts": {"network": [{"volumeId": "uwgeaie5b0", "path": "/workspace"}]},
@@ -106,7 +106,7 @@ def test_multiple_pods_do_not_create_or_destroy(compute):
             "id": "pod-a",
             "name": "alex-llm-a",
             "status": "RUNNING",
-            "cost": 0.8,
+            "cost": 0.48,
             "gpu": {"id": "gpu-48"},
             "mounts": {"network": [{"volumeId": "uwgeaie5b0", "path": "/workspace"}]},
         },
@@ -114,7 +114,7 @@ def test_multiple_pods_do_not_create_or_destroy(compute):
             "id": "pod-b",
             "name": "alex-llm-b",
             "status": "RUNNING",
-            "cost": 0.8,
+            "cost": 0.48,
             "gpu": {"id": "gpu-48"},
             "mounts": {"network": [{"volumeId": "uwgeaie5b0", "path": "/workspace"}]},
         },
@@ -338,7 +338,7 @@ def test_quit_stops_managed_not_external(compute):
             "id": "pod-test",
             "name": "existing",
             "status": "RUNNING",
-            "cost": 0.8,
+            "cost": 0.48,
             "startedAt": supplier.time.isoformat(),
             "gpu": {"id": "gpu-48"},
             "mounts": {"network": [{"volumeId": "uwgeaie5b0", "path": "/workspace"}]},
@@ -443,8 +443,23 @@ def test_llm_status_exposes_compact_ai(client, auth):
     assert body["provider"] == "mock"
 
 
-def test_on_demand_prefers_l40s(compute):
+def test_on_demand_picks_the_cheapest_compatible_gpu(compute):
+    """Automatic mode follows the user's policy to the cheapest compatible GPU."""
     controller, supplier, user = compute
+    result = asyncio.run(controller.ensure_on_demand(user, confirm=True))
+    assert result["kind"] in {"starting", "ready"}
+    assert supplier.creates[0]["gpu"]["id"] == "gpu-48"
+
+
+def test_an_exact_gpu_preference_is_honoured(compute):
+    """A user who pins an exact GPU gets it; nobody else is forced into it."""
+    from app.compute.schemas import ComputePreferences as Prefs
+
+    controller, supplier, user = compute
+    controller.save_preferences(
+        user.id,
+        Prefs(selection="manual", gpu_id="NVIDIA L40S", max_hourly_price="1.20"),
+    )
     result = asyncio.run(controller.ensure_on_demand(user, confirm=True))
     assert result["kind"] in {"starting", "ready"}
     assert supplier.creates[0]["gpu"]["id"] == "NVIDIA L40S"

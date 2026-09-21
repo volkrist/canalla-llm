@@ -42,7 +42,9 @@ def run(coro):
 class FakeRunPod:
     """Minimal RunPod REST v2 + read-only GraphQL double, shaped like the real responses."""
 
-    def __init__(self, *, balance="12.34", price=0.79):
+    def __init__(self, *, balance="12.34", price=0.48):
+        # The cheapest selectable fake GPU must fit the product's default policy ($0.52/h),
+        # otherwise every automatic-mode test would legitimately stop at "searching".
         self.time = datetime(2026, 9, 21, tzinfo=timezone.utc)
         self.balance = balance
         self.price = price

@@ -27,7 +27,10 @@ class Supplier:
         self.creates = []
         self.actions = []
         self.failure = None
-        self.price = 0.8
+        # The cheapest selectable fictional GPU must fit the product's default policy
+        # ($0.52/h), otherwise every default-policy test would stop at "searching".
+        self.price = 0.48
+        self.hidden = set()  # GPUs that vanish from the catalogue between quote and start
         self.phase = "ready"
 
     def handle(self, request):
@@ -62,6 +65,7 @@ class Supplier:
                             ),
                             ("gpu-80", "NVIDIA", 80, 1.6, "HIGH"),
                         ]
+                        if gid not in self.hidden
                     ]
                 },
             )
@@ -137,12 +141,20 @@ async def start(controller, user, preferences=None):
 
 def test_catalog_filters_and_price_cap(compute):
     controller, supplier, _ = compute
-    options = asyncio.run(controller.api.gpu_options(ComputePreferences()))
+    # An explicit policy is what filters the catalogue; the default policy is $0.52/h.
+    options = asyncio.run(controller.api.gpu_options(ComputePreferences(max_hourly_price=Decimal("1.20"))))
     assert [g.id for g in options if g.selectable] == ["gpu-48", "NVIDIA L40S"]
     assert "amd" not in [g.id for g in options]
     assert next(g for g in options if g.id == "gpu-80").reason == "price_limit"
     assert next(g for g in options if g.id == "small").reason == "insufficient_vram"
     assert supplier.creates == []
+
+
+def test_the_default_policy_only_offers_what_it_can_pay_for(compute):
+    controller, _, _ = compute
+    options = asyncio.run(controller.api.gpu_options(ComputePreferences()))
+    assert [g.id for g in options if g.selectable] == ["gpu-48"]
+    assert next(g for g in options if g.id == "NVIDIA L40S").reason == "price_limit"
 
 
 def test_duplicate_and_restart_never_create_twice(compute):
@@ -227,7 +239,7 @@ def test_budget_stops_even_during_generation(compute):
     with SessionLocal() as db:
         row = db.scalar(select(ComputeSession))
         assert row.stop_reason == "session_budget"
-        assert estimate(row, supplier.time)[1] == Decimal("0.013333")
+        assert estimate(row, supplier.time)[1] == Decimal("0.008000")
 
 
 def test_idle_stop_preserves_volume(compute):
@@ -425,7 +437,7 @@ def test_auto_search_repeats_without_restart_and_never_creates(compute):
         supplier.time += timedelta(seconds=30)
         await controller.tick()
         assert controller.get_compute_status(user)["state"] == "searching"
-        supplier.price = 0.8
+        supplier.price = 0.48
         supplier.time += timedelta(seconds=30)
         await controller.tick()
         assert controller.get_compute_status(user)["state"] == "gpu_found"
@@ -443,7 +455,7 @@ def test_disappeared_gpu_resumes_search_without_create(compute):
 
     async def scenario():
         quote = await controller.search_gpu(user, ComputePreferences())
-        supplier.price = 2
+        supplier.hidden = {"gpu-48"}  # the GPU disappears between quote and start
         result = await controller.start_compute(
             user,
             StartRequest(
@@ -571,7 +583,7 @@ def test_explicit_null_gpu_id_is_not_repinned(compute):
     assert loaded.selection == "automatic"
 
 
-def test_missing_gpu_id_key_keeps_l40s_default(compute):
+def test_missing_gpu_id_key_stays_automatic(compute):
     from app.compute.models import ComputePreference
 
     controller, _, user = compute
@@ -592,13 +604,14 @@ def test_missing_gpu_id_key_keeps_l40s_default(compute):
             )
         )
         db.commit()
-    assert controller.preferences(user.id).gpu_id == "NVIDIA L40S"
+    assert controller.preferences(user.id).gpu_id is None
 
 
 def test_live_preferences_ignore_legacy_env_cap_and_survive_restart(compute):
     controller, supplier, user = compute
-    controller.settings.runpod_max_session_budget = Decimal("0.82")
-    controller.settings.runpod_max_hourly_price = Decimal("1.09")
+    # Legacy deployment defaults must never act as a cap on this user's own policy.
+    controller.settings.runpod_default_session_budget = Decimal("0.82")
+    controller.settings.runpod_default_hourly_price = Decimal("1.09")
 
     async def scenario():
         await start(controller, user)
@@ -649,10 +662,14 @@ def test_live_search_preferences_restrict_next_attempt(compute):
     asyncio.run(scenario())
 
 
-def test_preferences_route_requires_compute_permission(client, auth):
+def test_preferences_are_editable_by_any_user_but_the_lifecycle_is_not(client, auth):
+    """A money policy is the user's own; starting compute still needs the owner role."""
     auth()
     other = auth("bob@example.com")
-    assert client.put("/compute/preferences", headers=other, json={"session_budget": 5}).status_code == 403
+    saved = client.put("/compute/preferences", headers=other, json={"session_budget": 5})
+    assert saved.status_code == 200, saved.text
+    assert Decimal(str(client.get("/compute/preferences", headers=other).json()["session_budget"])) == Decimal("5")
+    assert client.post("/compute/search", headers=other, json={}).status_code == 403
 
 
 def test_auto_manual_requires_exact_gpu():
