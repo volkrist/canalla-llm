@@ -184,7 +184,7 @@ Primary checkout: `C:\Users\Volkr\Documents\Codex\2026-09-13\x20\outputs\alex-ll
 |---|---|---|
 | `main` | this repo | product |
 | `feat/canalla-llm-context-meter` | (same) | merged into `main` (brand + context meter); keep |
-| `feat/upgrade-backup-data` | (same) | **pushed, not merged** — upgrade/backup slice awaiting the owner's decision |
+| `feat/upgrade-backup-data` | (same) | **merged** (upgrade / backup / data preservation slice); keep |
 | `feat/central-runpod-gateway` | (same) | **merged** (production deployment slice); keep |
 | `feat/status-recovery-ux` | (same) | merged; keep |
 | `feat/session-first-run` | (same) | merged; keep |
@@ -230,8 +230,6 @@ Recorded 22 Sep 2026, no GPU, no TinyFish (Canalla LLM brand, composer context m
 A leftover `apps/backend/alex.db` at an old revision is **not** the product data root. Prefer a fresh `DATABASE_URL` for `alembic check`.
 
 ## 12. Next slice
-
-**RC / 1.0 FINAL GATES**
 
 **RC / 1.0 FINAL GATES**
 

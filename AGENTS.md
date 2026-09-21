@@ -168,8 +168,6 @@ Do not start LoRA yet. Before future LoRA: baseline + censorship/refusal + codin
 
 RC / 1.0 FINAL GATES — do not implement unless explicitly tasked.
 
-Then: RC / 1.0 gates.
-
 (Code signing and the WM-07/CD-08 limitations stay closed until separately tasked.)
 
 ## Git safety
