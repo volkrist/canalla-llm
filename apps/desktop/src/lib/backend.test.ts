@@ -25,8 +25,16 @@ describe("backend runtime copy", () => {
         ...ready,
         state: "error",
         ownership: "none",
-        error: "migration_failed",
+        error: "MIGRATION_FAILED",
       }),
     ).toContain("данные не удалены");
+    expect(
+      backendMessage({
+        ...ready,
+        state: "error",
+        ownership: "none",
+        error: "BACKEND_SIDECAR_MISSING",
+      }),
+    ).toContain("Переустановите");
   });
 });

@@ -27,6 +27,8 @@ export interface Health {
   provider: string;
   llm_ready: boolean;
   product?: string;
+  version?: string;
+  runtime_protocol_version?: number;
   instance?: string | null;
 }
 export interface LLMStatus {

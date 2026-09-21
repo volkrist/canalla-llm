@@ -35,6 +35,17 @@ pub enum Ownership {
     External,
 }
 
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeMode {
+    None,
+    Packaged,
+    DevOwned,
+    DevExternal,
+}
+
+const EXPECTED_PROTOCOL: u64 = 1;
+
 #[derive(Clone, Debug, Serialize)]
 pub struct BackendStatus {
     pub state: BackendState,
@@ -44,6 +55,8 @@ pub struct BackendStatus {
     pub pid: Option<u32>,
     pub error: Option<String>,
     pub data_dir: String,
+    pub runtime_mode: RuntimeMode,
+    pub diagnostic: Option<String>,
 }
 
 impl BackendStatus {
@@ -56,6 +69,8 @@ impl BackendStatus {
             pid: None,
             error: Some(code.into()),
             data_dir: data_dir.to_string_lossy().into_owned(),
+            runtime_mode: RuntimeMode::None,
+            diagnostic: None,
         }
     }
 }
@@ -69,6 +84,7 @@ struct Live {
     #[allow(dead_code)]
     instance: String,
     ownership: Ownership,
+    mode: RuntimeMode,
     restarts: u8,
 }
 
@@ -92,6 +108,8 @@ fn supervisor() -> &'static Mutex<Supervisor> {
                 pid: None,
                 error: None,
                 data_dir: data_root().to_string_lossy().into_owned(),
+                runtime_mode: RuntimeMode::None,
+                diagnostic: None,
             },
         })
     })
@@ -174,19 +192,19 @@ pub fn select_listen_port(preferred: u16) -> Result<u16, String> {
             PortKind::Unrelated => continue,
         }
     }
-    Err("no_safe_backend_port".into())
+    Err("NO_SAFE_BACKEND_PORT".into())
 }
 
-fn layout(root: &Path) -> (PathBuf, PathBuf, PathBuf, PathBuf, PathBuf) {
+fn layout(root: &Path) -> Result<(PathBuf, PathBuf, PathBuf, PathBuf, PathBuf), String> {
     let data = root.join("data");
     let documents = root.join("documents");
     let logs = root.join("logs");
     let runtime = root.join("runtime");
     let models = root.join("models").join("embeddings");
     for dir in [&data, &documents, &logs, &runtime, &models] {
-        let _ = fs::create_dir_all(dir);
+        fs::create_dir_all(dir).map_err(|_| "DATA_ROOT_UNAVAILABLE".to_string())?;
     }
-    (data, documents, logs, runtime, models)
+    Ok((data, documents, logs, runtime, models))
 }
 
 pub fn load_or_create_jwt(root: &Path) -> Result<String, String> {
@@ -198,8 +216,8 @@ pub fn load_or_create_jwt(root: &Path) -> Result<String, String> {
         }
     }
     let secret = UuidLite::secret();
-    fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-    fs::write(&path, &secret).map_err(|e| e.to_string())?;
+    fs::create_dir_all(path.parent().unwrap()).map_err(|_| "JWT_SECRET_FAILED".to_string())?;
+    fs::write(&path, &secret).map_err(|_| "JWT_SECRET_FAILED".to_string())?;
     Ok(secret)
 }
 
@@ -235,6 +253,73 @@ fn request_managed_shutdown(port: u16, token: &str) {
 
 fn sqlite_url(db: &Path) -> String {
     format!("sqlite:///{}", db.to_string_lossy().replace('\\', "/"))
+}
+
+fn packaged_required() -> bool {
+    match std::env::var("ALEX_RUNTIME_MODE") {
+        Ok(value) if value.eq_ignore_ascii_case("packaged") => true,
+        Ok(value) if value.eq_ignore_ascii_case("dev_owned") => false,
+        Ok(value) if value.eq_ignore_ascii_case("dev_external") => false,
+        _ => cfg!(not(debug_assertions)),
+    }
+}
+
+fn sidecar_candidates() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Ok(raw) = std::env::var("ALEX_BACKEND_SIDECAR") {
+        if !raw.trim().is_empty() {
+            out.push(PathBuf::from(raw));
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            out.push(dir.join("alex-backend").join("alex-backend.exe"));
+            out.push(dir.join("sidecar").join("alex-backend").join("alex-backend.exe"));
+            out.push(dir.join("resources").join("alex-backend").join("alex-backend.exe"));
+            out.push(
+                dir.join("resources")
+                    .join("sidecar")
+                    .join("alex-backend")
+                    .join("alex-backend.exe"),
+            );
+            out.push(dir.join("alex-backend.exe"));
+        }
+    }
+    out
+}
+
+fn find_sidecar_exe() -> Option<PathBuf> {
+    sidecar_candidates().into_iter().find(|path| path.is_file())
+}
+
+#[allow(dead_code)]
+fn native_host_candidates() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            out.push(dir.join("alex-host-loop.exe"));
+            out.push(dir.join("sidecar").join("alex-host-loop.exe"));
+            out.push(dir.join("resources").join("alex-host-loop.exe"));
+        }
+    }
+    out
+}
+
+#[allow(dead_code)]
+pub fn find_native_host() -> Option<PathBuf> {
+    native_host_candidates().into_iter().find(|path| path.is_file())
+}
+
+fn discover_backend_launch() -> Result<(PathBuf, PathBuf, RuntimeMode), String> {
+    if let Some(exe) = find_sidecar_exe() {
+        let cwd = exe.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
+        return Ok((exe, cwd, RuntimeMode::Packaged));
+    }
+    if packaged_required() {
+        return Err("BACKEND_SIDECAR_MISSING".into());
+    }
+    let (python, cwd) = discover_backend_python()?;
+    Ok((python, cwd, RuntimeMode::DevOwned))
 }
 
 fn discover_backend_python() -> Result<(PathBuf, PathBuf), String> {
@@ -274,7 +359,7 @@ fn discover_backend_python() -> Result<(PathBuf, PathBuf), String> {
             }
         }
     }
-    Err("backend_python_missing".into())
+    Err("BACKEND_START_FAILED".into())
 }
 
 fn find_backend_cwd(python: &Path) -> Option<PathBuf> {
@@ -366,16 +451,22 @@ fn read_lock(root: &Path) -> Option<Value> {
 
 fn spawn_owned(port: u16, instance: &str, secret: &str) -> Result<Live, String> {
     let root = data_root();
-    let (data, documents, logs, _runtime, _models) = layout(&root);
-    let (python, cwd) = discover_backend_python()?;
+    let (data, documents, logs, _runtime, _models) = layout(&root)?;
+    let (program, cwd, mode) = discover_backend_launch()?;
     let log_path = logs.join("backend.log");
-    let log = fs::File::create(&log_path).map_err(|e| e.to_string())?;
-    let err = log.try_clone().map_err(|e| e.to_string())?;
+    let log = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|_| "DATA_ROOT_UNAVAILABLE".to_string())?;
+    let err = log.try_clone().map_err(|_| "DATA_ROOT_UNAVAILABLE".to_string())?;
     let db = data.join("alex.db");
     let token = load_or_create_runtime_token(&root).unwrap_or_default();
-    let mut command = Command::new(&python);
+    let mut command = Command::new(&program);
+    if mode != RuntimeMode::Packaged {
+        command.args(["-m", "app.runtime_entry"]);
+    }
     command
-        .args(["-m", "app.runtime_entry"])
         .current_dir(&cwd)
         .env("ALEX_LLM_DATA_DIR", &root)
         .env("DATABASE_URL", sqlite_url(&db))
@@ -386,10 +477,26 @@ fn spawn_owned(port: u16, instance: &str, secret: &str) -> Result<Live, String> 
         .env("ALEX_BACKEND_HOST", "127.0.0.1")
         .env("ALEX_BACKEND_INSTANCE", instance)
         .env("ALEX_BACKEND_OWNED", "1")
-        .env("APP_ENV", "development")
+        .env(
+            "APP_ENV",
+            if mode == RuntimeMode::Packaged {
+                "production"
+            } else {
+                "development"
+            },
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(err));
+    if mode == RuntimeMode::Packaged {
+        command.env("ALEX_PACKAGED", "1");
+        command.env("CORS_ORIGINS", r#"["https://tauri.localhost","tauri://localhost"]"#);
+        command.env("ALEX_RUNTIME_MODE", "packaged");
+        command.env("LLM_PROVIDER", "llamacpp");
+        command.env("LLM_CONNECTION_MODE", "runpod");
+    } else {
+        command.env("ALEX_RUNTIME_MODE", "dev_owned");
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -409,7 +516,9 @@ fn spawn_owned(port: u16, instance: &str, secret: &str) -> Result<Live, String> 
                 const CREATE_UNICODE_ENVIRONMENT: u32 = 0x0000_0400;
                 command.creation_flags(CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT);
             }
-            command.spawn().map_err(|e| e.to_string())?
+            command
+                .spawn()
+                .map_err(|_| "BACKEND_START_FAILED".to_string())?
         }
     };
     let job = create_job().ok().and_then(|job| {
@@ -428,14 +537,21 @@ fn spawn_owned(port: u16, instance: &str, secret: &str) -> Result<Live, String> 
         port,
         instance: instance.to_string(),
         ownership: Ownership::Owned,
+        mode,
         restarts: 0,
     })
 }
 
-fn wait_ready(port: u16, instance: &str) -> Result<Value, String> {
+fn protocol_compatible(body: &Value) -> bool {
+    match body.get("runtime_protocol_version").and_then(Value::as_u64) {
+        None => true,
+        Some(value) => value == EXPECTED_PROTOCOL,
+    }
+}
+
+fn wait_ready(port: u16, instance: &str, timeout: Duration) -> Result<Value, String> {
     let url = url_for(port);
-    let deadline = Instant::now() + STARTUP_TIMEOUT;
-    let mut last = "starting".to_string();
+    let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         if let Some(body) = alex_health(&url) {
             if body.get("instance").and_then(Value::as_str) == Some(instance)
@@ -444,10 +560,9 @@ fn wait_ready(port: u16, instance: &str) -> Result<Value, String> {
                 return Ok(body);
             }
         }
-        last = "waiting_health".into();
         std::thread::sleep(Duration::from_millis(200));
     }
-    Err(last)
+    Err("BACKEND_HEALTH_TIMEOUT".into())
 }
 
 fn status_from_live(live: &Live, state: BackendState, error: Option<String>) -> BackendStatus {
@@ -459,6 +574,8 @@ fn status_from_live(live: &Live, state: BackendState, error: Option<String>) -> 
         pid: Some(live.pid),
         error,
         data_dir: data_root().to_string_lossy().into_owned(),
+        runtime_mode: live.mode.clone(),
+        diagnostic: None,
     }
 }
 
@@ -494,6 +611,7 @@ fn connect_existing(port: u16, body: &Value, root: &Path) -> Live {
         } else {
             Ownership::External
         },
+        mode: RuntimeMode::DevExternal,
         restarts: 0,
     }
 }
@@ -503,40 +621,59 @@ fn spawn_and_wait(sup: &mut Supervisor, port: u16, restarts: u8) -> Result<Backe
     let instance = UuidLite::instance();
     let secret = load_or_create_jwt(&root)?;
     if secret.contains('\n') || secret.len() < 48 {
-        return Err("jwt_invalid".into());
+        return Err("JWT_SECRET_FAILED".into());
     }
     let mut live = spawn_owned(port, &instance, &secret)?;
     live.restarts = restarts;
-    match wait_ready(port, &instance) {
-        Ok(_) => {
+    let timeout = if live.mode == RuntimeMode::Packaged {
+        Duration::from_secs(90)
+    } else {
+        STARTUP_TIMEOUT
+    };
+    match wait_ready(port, &instance, timeout) {
+        Ok(body) => {
+            if live.mode == RuntimeMode::Packaged && !protocol_compatible(&body) {
+                if let Some(mut child) = live.child.take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                return Err("BACKEND_VERSION_MISMATCH".into());
+            }
             let status = status_from_live(&live, BackendState::Ready, None);
             sup.live = Some(live);
             sup.last = status.clone();
             Ok(status)
         }
-        Err(_) => {
-            let code = if let Some(mut child) = live.child.take() {
+        Err(code) => {
+            if let Some(mut child) = live.child.take() {
                 let _ = child.kill();
-                child.wait().ok().and_then(|status| status.code())
+                let wait = child.wait().ok().and_then(|status| status.code());
+                let mapped = if wait == Some(12) {
+                    "MIGRATION_FAILED"
+                } else if wait == Some(13) {
+                    "JWT_SECRET_FAILED"
+                } else if wait == Some(14) {
+                    "DATA_ROOT_UNAVAILABLE"
+                } else {
+                    &code
+                };
+                let status = BackendStatus::error(mapped, root);
+                sup.live = None;
+                sup.last = status.clone();
+                Ok(status)
             } else {
-                None
-            };
-            let code_label = if code == Some(12) {
-                "migration_failed"
-            } else {
-                "backend_start_timeout"
-            };
-            let status = BackendStatus::error(code_label, root);
-            sup.live = None;
-            sup.last = status.clone();
-            Ok(status)
+                let status = BackendStatus::error(&code, root);
+                sup.live = None;
+                sup.last = status.clone();
+                Ok(status)
+            }
         }
     }
 }
 
 fn ensure_locked(sup: &mut Supervisor) -> Result<BackendStatus, String> {
     let root = data_root();
-    layout(&root);
+    layout(&root)?;
     let mut restart_from = 0u8;
     if let Some(live) = sup.live.as_mut() {
         if live.ownership == Ownership::Owned {
@@ -552,10 +689,9 @@ fn ensure_locked(sup: &mut Supervisor) -> Result<BackendStatus, String> {
                         sup.last = status.clone();
                         return Ok(status);
                     }
-                    Ok(Some(code)) => {
+                    Ok(Some(_)) => {
                         if live.restarts >= 1 {
-                            let mut failed = BackendStatus::error("backend_exited", root.clone());
-                            failed.error = Some(format!("backend_exited:{code}"));
+                            let failed = BackendStatus::error("BACKEND_START_FAILED", root.clone());
                             sup.live = None;
                             sup.last = failed.clone();
                             return Ok(failed);
@@ -587,12 +723,15 @@ fn ensure_locked(sup: &mut Supervisor) -> Result<BackendStatus, String> {
         PortKind::Alex => {
             let body = alex_health(&url_for(port)).unwrap_or(json!({}));
             let live = connect_existing(port, &body, &root);
-            let status = status_from_live(&live, BackendState::Ready, None);
+            let mut status = status_from_live(&live, BackendState::Ready, None);
+            if !protocol_compatible(&body) {
+                status.diagnostic = Some("BACKEND_VERSION_MISMATCH".into());
+            }
             sup.live = Some(live);
             sup.last = status.clone();
             Ok(status)
         }
-        PortKind::Unrelated => Err("no_safe_backend_port".into()),
+        PortKind::Unrelated => Err("NO_SAFE_BACKEND_PORT".into()),
         PortKind::Free => spawn_and_wait(sup, port, restart_from),
     }
 }
@@ -776,6 +915,7 @@ mod tests {
                 port: 1,
                 instance: "owned".into(),
                 ownership: Ownership::Owned,
+                mode: RuntimeMode::DevOwned,
                 restarts: 0,
             });
         }
@@ -797,6 +937,7 @@ mod tests {
                 port: 1,
                 instance: "ext".into(),
                 ownership: Ownership::External,
+                mode: RuntimeMode::DevExternal,
                 restarts: 0,
             });
         }
@@ -805,5 +946,38 @@ mod tests {
         assert!(process_alive(external_pid));
         let _ = external.kill();
         let _ = external.wait();
+    }
+
+    #[test]
+    fn packaged_mode_does_not_search_python() {
+        let mode = std::env::var("ALEX_RUNTIME_MODE").ok();
+        let sidecar = std::env::var("ALEX_BACKEND_SIDECAR").ok();
+        std::env::set_var("ALEX_RUNTIME_MODE", "packaged");
+        std::env::set_var("ALEX_BACKEND_SIDECAR", "");
+        let result = discover_backend_launch();
+        match mode {
+            Some(value) => std::env::set_var("ALEX_RUNTIME_MODE", value),
+            None => std::env::remove_var("ALEX_RUNTIME_MODE"),
+        }
+        match sidecar {
+            Some(value) => std::env::set_var("ALEX_BACKEND_SIDECAR", value),
+            None => std::env::remove_var("ALEX_BACKEND_SIDECAR"),
+        }
+        assert_eq!(result.unwrap_err(), "BACKEND_SIDECAR_MISSING");
+    }
+
+    #[test]
+    fn protocol_accepts_missing_or_matching() {
+        assert!(protocol_compatible(&json!({"product": "alex-llm"})));
+        assert!(protocol_compatible(&json!({"runtime_protocol_version": 1})));
+        assert!(!protocol_compatible(&json!({"runtime_protocol_version": 99})));
+    }
+
+    #[test]
+    fn native_host_search_does_not_require_repo() {
+        let found = find_native_host();
+        if let Some(path) = found {
+            assert!(path.ends_with("alex-host-loop.exe"));
+        }
     }
 }
