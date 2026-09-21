@@ -13,6 +13,8 @@ small chat-template overhead every message carries. They are estimates, not a
 tokenizer, and the UI says so (docs/context-usage.md).
 """
 
+from datetime import datetime, timezone
+
 ASCII_CHARS_PER_TOKEN = 4
 WIDE_CHARS_PER_TOKEN = 2
 MESSAGE_OVERHEAD_TOKENS = 4
@@ -82,7 +84,12 @@ def summarize(
     model: str,
     measured: dict | None = None,
 ) -> dict:
-    """Fold the labelled parts into the payload the composer renders."""
+    """Fold the labelled parts into the payload the composer renders.
+
+    ``count_type`` is the contract field: a live snapshot is an estimate (only the inference
+    server knows the exact count), so the UI shows it with a ``~``. ``measured`` carries the
+    provider's own count for the newest completed generation, which is exact.
+    """
     limit = max(1, int(limit_tokens or 0))
     used = sum(int(item.get("tokens") or 0) for item in parts)
     return {
@@ -91,8 +98,10 @@ def summarize(
         "used_tokens": used,
         "remaining_tokens": max(0, limit - used),
         "percent": round(used / limit * 100, 1),
+        "count_type": "estimated",
         "estimated": True,
         "method": "chars_per_token",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
         "parts": [item for item in parts if item["chars"]],
         "measured": measured,
     }

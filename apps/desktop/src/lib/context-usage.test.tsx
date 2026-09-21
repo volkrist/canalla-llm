@@ -16,8 +16,10 @@ import {
   contextSentence,
   formatPercent,
   formatTokens,
+  isEstimated,
   measuredLine,
   ringDash,
+  usedLabel,
   type ContextUsage,
 } from "./context-usage";
 
@@ -95,8 +97,20 @@ describe("formatting", () => {
 
   it("describes the meter in one accessible sentence", () => {
     expect(contextSentence(usage)).toBe(
+      "Context: ~12 480 из 32 768 токенов, 38%",
+    );
+    expect(contextSentence({ ...usage, count_type: "exact" })).toBe(
       "Context: 12 480 из 32 768 токенов, 38%",
     );
+  });
+
+  it("marks an estimate with a tilde and leaves an exact count clean", () => {
+    expect(usedLabel(usage)).toBe("~12 480 / 32 768");
+    expect(usedLabel({ ...usage, count_type: "exact" })).toBe(
+      "12 480 / 32 768",
+    );
+    expect(isEstimated(usage)).toBe(true);
+    expect(isEstimated({ ...usage, count_type: "exact" })).toBe(false);
   });
 
   it("only names a measured prompt when the backend measured one", () => {
@@ -153,11 +167,11 @@ describe("context meter rendering", () => {
   it("shows label, used/limit and percentage", () => {
     const html = renderToStaticMarkup(<ContextUsageMeter usage={usage} />);
     expect(html).toContain("Context");
-    expect(html).toContain("12 480 / 32 768");
+    expect(html).toContain("~12 480 / 32 768");
     expect(html).toContain("38%");
     expect(html).toContain('data-level="ok"');
     expect(html).toContain(
-      'aria-label="Context: 12 480 из 32 768 токенов, 38%"',
+      'aria-label="Context: ~12 480 из 32 768 токенов, 38%"',
     );
     expect(html).toContain("context-ring-value");
   });

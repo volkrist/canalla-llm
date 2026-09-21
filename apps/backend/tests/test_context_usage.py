@@ -187,11 +187,14 @@ def test_context_usage_payload_has_no_secret_or_internal_fields(client, auth):
         "used_tokens",
         "remaining_tokens",
         "percent",
+        "count_type",
         "estimated",
         "method",
+        "updated_at",
         "parts",
         "measured",
     }
+    assert body["count_type"] == "estimated"
     for part in body["parts"]:
         assert set(part) == {"key", "label", "chars", "tokens"}
     assert "JWT" not in str(body) and "secret" not in str(body).lower()

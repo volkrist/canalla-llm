@@ -27,8 +27,10 @@ export type ContextUsage = {
   used_tokens: number;
   remaining_tokens: number;
   percent: number;
+  count_type?: "exact" | "estimated";
   estimated: boolean;
   method: string;
+  updated_at?: string;
   parts: ContextPart[];
   measured: MeasuredPrompt | null;
 };
@@ -77,9 +79,24 @@ export function contextHint(level: ContextLevel): string | null {
 }
 
 export function contextSentence(usage: ContextUsage): string {
-  return `Context: ${formatTokens(usage.used_tokens)} из ${formatTokens(
-    usage.limit_tokens,
-  )} токенов, ${formatPercent(usage.percent)}`;
+  return `Context: ${isEstimated(usage) ? "~" : ""}${formatTokens(
+    usage.used_tokens,
+  )} из ${formatTokens(usage.limit_tokens)} токенов, ${formatPercent(
+    usage.percent,
+  )}`;
+}
+
+/** A live snapshot is an estimate unless the backend says otherwise. */
+export function isEstimated(usage: ContextUsage): boolean {
+  return (
+    (usage.count_type ?? (usage.estimated ? "estimated" : "exact")) !== "exact"
+  );
+}
+
+/** `~12 480 / 32 768` while estimated, `12 480 / 32 768` when exact. */
+export function usedLabel(usage: ContextUsage): string {
+  const used = `${isEstimated(usage) ? "~" : ""}${formatTokens(usage.used_tokens)}`;
+  return `${used} / ${formatTokens(usage.limit_tokens)}`;
 }
 
 export function measuredLine(measured: MeasuredPrompt | null): string | null {

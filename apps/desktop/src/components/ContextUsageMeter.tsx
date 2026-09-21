@@ -9,8 +9,10 @@ import {
   contextSentence,
   formatPercent,
   formatTokens,
+  isEstimated,
   measuredLine,
   ringDash,
+  usedLabel,
   type ContextUsage,
 } from "../lib/context-usage";
 
@@ -43,12 +45,14 @@ export function ContextBreakdown({
       </ul>
       <p className="context-total">
         <span>Total</span>
-        <span>
-          {formatTokens(usage.used_tokens)} / {formatTokens(usage.limit_tokens)}
-        </span>
+        <span>{usedLabel(usage)}</span>
       </p>
       {hint && <p className="context-note">{hint}</p>}
-      <p className="context-note">Оценка по активному контексту</p>
+      <p className="context-note">
+        {isEstimated(usage)
+          ? "Оценка по активному контексту"
+          : "Точный размер из ответа модели"}
+      </p>
       {measured && <p className="context-note">{measured}</p>}
     </div>
   );
@@ -105,9 +109,7 @@ export default function ContextUsageMeter({
           />
         </svg>
         <span className="context-label">Context</span>
-        <span className="context-numbers">
-          {formatTokens(usage.used_tokens)} / {formatTokens(usage.limit_tokens)}
-        </span>
+        <span className="context-numbers">{usedLabel(usage)}</span>
         <span className="context-percent">{formatPercent(usage.percent)}</span>
       </button>
       {level === "danger" && hint && (
