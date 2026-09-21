@@ -277,9 +277,18 @@ fn provider_name(name: &str) -> Result<(), String> {
     }
 }
 
+/// Target of an installation-global provider credential. It carries no user
+/// component on purpose: one saved RunPod key serves every local Alex user, and
+/// it survives logout, restart and reinstall with the data root.
+pub fn provider_target(name: &str) -> Result<String, String> {
+    provider_name(name)?;
+    crate::credential::scoped_target("provider", name)
+}
+
 #[tauri::command]
 pub fn provider_secret_configured(name: String) -> Result<Value, String> {
-    provider_name(&name)?;
+    // Validates the provider and pins the installation-global target.
+    provider_target(&name)?;
     Ok(json!({
         "configured": crate::credential::load_scoped("provider", &name)
             .map(|value| !value.is_empty())
@@ -289,7 +298,7 @@ pub fn provider_secret_configured(name: String) -> Result<Value, String> {
 
 #[tauri::command]
 pub fn set_provider_secret(name: String, secret: String) -> Result<Value, String> {
-    provider_name(&name)?;
+    provider_target(&name)?;
     let value = secret.trim();
     if value.is_empty() || value.len() > 512 {
         return Err("invalid_secret".into());
@@ -300,7 +309,7 @@ pub fn set_provider_secret(name: String, secret: String) -> Result<Value, String
 
 #[tauri::command]
 pub fn delete_provider_secret(name: String) -> Result<Value, String> {
-    provider_name(&name)?;
+    provider_target(&name)?;
     crate::credential::delete_scoped("provider", &name)?;
     Ok(json!({"configured": false}))
 }
@@ -372,6 +381,76 @@ mod tests {
         assert!(provider_name("tinyfish").is_err());
         assert!(provider_name("").is_err());
         assert!(provider_name("RUNPOD").is_err());
+    }
+
+    #[test]
+    fn provider_credential_target_is_installation_global() {
+        // One target for the whole installation: no user id, no session id, no
+        // per-user scope. Every local Alex user shares this credential.
+        let target = provider_target("runpod").unwrap();
+        assert_eq!(target, "Alex LLM/provider/runpod");
+        assert!(!target.contains("user"));
+        assert!(!target.contains("session"));
+        assert!(provider_target("tinyfish").is_err());
+    }
+
+    #[test]
+    fn logout_keeps_provider_credentials() {
+        // Logout clears the device session only. Provider credentials are
+        // installation-global and must survive it untouched.
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let (temp, previous) = isolated_root();
+        let _ = fs::create_dir_all(runtime_dir());
+        let session_id = format!("logout-test-{}", UuidLite::instance());
+        fs::write(session_id_path(), &session_id).unwrap();
+        crate::credential::store_scoped("session", &session_id, "session-secret").unwrap();
+        let provider_before = crate::credential::load_scoped("provider", "runpod");
+        let env_before = provider_env();
+
+        clear_local_session();
+
+        assert!(current_session_id().is_none());
+        assert!(crate::credential::load_scoped("session", &session_id).is_none());
+        assert_eq!(crate::credential::load_scoped("provider", "runpod"), provider_before);
+        assert_eq!(provider_env(), env_before);
+        assert!(provider_env().iter().all(|(name, _)| name == "RUNPOD_API_KEY"));
+        restore_root(previous);
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn provider_status_never_returns_the_secret() {
+        // The UI contract is one boolean: `configured`. The raw value only ever
+        // travels to the owned backend environment.
+        let status = provider_secret_configured("runpod".into()).unwrap();
+        let object = status.as_object().unwrap();
+        assert_eq!(object.len(), 1);
+        assert!(object.get("configured").and_then(Value::as_bool).is_some());
+        assert!(status.get("secret").is_none());
+        assert!(status.get("value").is_none());
+        assert!(provider_secret_configured("nope".into()).is_err());
+    }
+
+    #[test]
+    fn provider_secret_roundtrip_uses_the_scoped_store() {
+        // Mechanism check with a unique name: tests never write the real
+        // `provider/runpod` credential.
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let (temp, previous) = isolated_root();
+        let name = format!("unit-global-{}", UuidLite::instance());
+        assert!(crate::credential::store_scoped("provider", &name, "secret-value").is_ok());
+        assert_eq!(
+            crate::credential::load_scoped("provider", &name).as_deref(),
+            Some("secret-value")
+        );
+        assert_eq!(
+            crate::credential::scoped_target("provider", "runpod").unwrap(),
+            "Alex LLM/provider/runpod"
+        );
+        crate::credential::delete_scoped("provider", &name).unwrap();
+        assert!(crate::credential::load_scoped("provider", &name).is_none());
+        restore_root(previous);
+        let _ = fs::remove_dir_all(&temp);
     }
 
     #[test]

@@ -75,7 +75,7 @@ fn valid_reference(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn scoped_target(scope: &str, name: &str) -> Result<String, String> {
+pub fn scoped_target(scope: &str, name: &str) -> Result<String, String> {
     if scope.is_empty()
         || scope.len() > 32
         || !scope
