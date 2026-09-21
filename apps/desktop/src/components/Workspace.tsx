@@ -16,6 +16,10 @@ import MessageList from "./MessageList";
 import Composer from "./Composer";
 import { draftPrefix, readDraft, writeDraft } from "../lib/drafts";
 import ComputePanel from "./ComputePanel";
+import StatusChips from "./StatusChips";
+import { useStatus } from "../hooks/useStatus";
+import type { RecoveryAction } from "../lib/status";
+import { recoveryPlan } from "../lib/errors";
 import { exportChats } from "../lib/files";
 import UsageDialog from "./UsageDialog";
 import PersonalPanel from "./PersonalPanel";
@@ -49,6 +53,7 @@ export default function Workspace({
   onSettings: () => void;
 }) {
   const chat = useChat(api, onLogout);
+  const status = useStatus(api, true);
   const [sidebar, setSidebar] = useState(false);
   const [browser, setBrowser] = useState(false);
   const [device, setDevice] = useState<DeviceStatus>({
@@ -135,6 +140,15 @@ export default function Workspace({
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [exportError, setExportError] = useState("");
   const [usage, setUsage] = useState<"mine" | "admin" | null>(null);
+  function statusAction(action: RecoveryAction) {
+    // Each branch reuses machinery that already exists: the settings dialog, the device
+    // loop, the compute panel with its own confirmation, or a plain re-read of the
+    // authoritative snapshot. Nothing here starts compute.
+    const plan = recoveryPlan(action);
+    if (plan.kind === "settings") onSettings();
+    if (plan.event) window.dispatchEvent(new Event(plan.event));
+    void status.refresh();
+  }
   const title =
     chat.chats.find((item) => item.id === chat.selected)?.title ||
     "Новое начало";
@@ -197,12 +211,13 @@ export default function Workspace({
             <span className="tiny-dot" />
             {health ? "Connected" : "Offline"}
           </div>
-          {llm?.ai_label ? (
-            <div className={`ai-chip ai-${llm.ai || "off"}`} role="status">
-              {llm.ai_label}
-            </div>
-          ) : null}
         </header>
+        <StatusChips
+          snapshot={status.snapshot}
+          error={status.error}
+          refreshing={status.refreshing}
+          onAction={statusAction}
+        />
         <PersonalPanel
           api={api}
           onLogout={onLogout}
