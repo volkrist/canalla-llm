@@ -1,0 +1,145 @@
+# Central Alex Gateway — EXAMPLE Docker Compose stack.
+#
+# ============================== READ THIS FIRST ==============================
+# This file is an EXAMPLE. It must NOT be deployed as-is: it has no public CA, no certificate
+# renewal, no off-host backups, no monitoring and no secret manager, and the passwords in the
+# `.env` it reads are placeholders. It exists so an operator has a correct, reviewable
+# starting point and so the local production-like acceptance run can be reproduced.
+# See docs/gateway-deployment.md for the full runbook.
+# ============================================================================
+#
+# Usage (the build context is the repository root, because the image also contains the reused
+# local-backend provider core):
+#
+#   cd apps/gateway
+#   cp .env.example .env            # then edit: JWT_SECRET, RUNPOD_API_KEY, POSTGRES_PASSWORD
+#   chmod 600 .env
+#   docker compose -f docker-compose.example.yml build
+#   docker compose -f docker-compose.example.yml up -d
+#   docker compose -f docker-compose.example.yml ps
+#
+# `docker compose` reads `.env` from this directory for ${...} interpolation, and the gateway
+# service also receives it as its container environment. The gateway is published on loopback
+# only: a reverse proxy terminating TLS talks to 127.0.0.1:9000.
+
+name: alex-gateway
+
+services:
+  gateway:
+    image: alex-gateway:0.9.3
+    build:
+      # Repository root. `apps/gateway/Dockerfile` copies both apps/gateway and apps/backend/app.
+      context: ../..
+      dockerfile: apps/gateway/Dockerfile
+    restart: unless-stopped
+
+    # The application environment: JWT_SECRET, RUNPOD_API_KEY (master credential), the money
+    # ceilings, RunPod/pod settings, limits. Only this service gets it — the database container
+    # never sees the provider key or the signing key.
+    env_file:
+      - .env
+
+    environment:
+      # Container-network database host instead of localhost. Keep the rest of DATABASE_URL in
+      # sync with the `postgres` service below.
+      DATABASE_URL: postgresql+psycopg://alex_gateway:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in apps/gateway/.env}@postgres:5432/alex_gateway
+      # production enforces the stricter configuration validation (JWT_SECRET >= 48 chars).
+      APP_ENV: production
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    ports:
+      # LOOPBACK ONLY. Publishing "9000:9000" would expose installation enrollment and the
+      # model proxy over plaintext HTTP, and the client refuses plaintext HTTP for any
+      # non-loopback host. TLS terminates at the reverse proxy in front of this port.
+      - "127.0.0.1:9000:9000"
+
+    # Kept in sync with the image's own HEALTHCHECK (slim images have no curl).
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9000/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    # uvicorn is PID 1 through the entrypoint, so SIGTERM reaches it and in-flight SSE streams
+    # can finish their current frame before the container stops.
+    stop_grace_period: 30s
+
+    # Container logs are rotated here by the Docker daemon instead of by logrotate
+    # (see deploy/logrotate.example.conf). The Gateway never logs credentials: it redacts them.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: alex_gateway
+      POSTGRES_USER: alex_gateway
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in apps/gateway/.env}
+      # scram-sha-256 for every TCP connection.
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - gateway-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alex_gateway -d alex_gateway"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    # No host port mapping on purpose: PostgreSQL is reachable only on the compose network.
+    # Operations that need psql run inside the container, e.g.
+    #   docker compose -f docker-compose.example.yml exec postgres \
+    #     psql -U alex_gateway -d alex_gateway -c "select count(*) from installations;"
+
+  # ---------------------------------------------------------------------------------------
+  # Reverse proxy with TLS — EXAMPLE, deliberately commented out.
+  #
+  # Prefer terminating TLS on the HOST (Nginx/Caddy + certbot) and letting this proxy talk to
+  # the loopback port above; deploy/nginx.example.conf is the Nginx template. Running the proxy
+  # as a container is equivalent, but then it must reach the gateway on this network instead of
+  # 127.0.0.1, and the loopback publish above becomes unnecessary.
+  #
+  # Whatever you choose, the Gateway itself stays on plaintext HTTP behind the proxy, and the
+  # proxy is the only thing reachable from the internet.
+  #
+  #   caddy:
+  #     image: caddy:2-alpine
+  #     restart: unless-stopped
+  #     depends_on:
+  #       - gateway
+  #     ports:
+  #       - "80:80"
+  #       - "443:443"
+  #     volumes:
+  #       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+  #       - caddy-data:/data
+  #       - caddy-config:/config
+  #
+  # Minimal Caddyfile (Caddy requests and renews the certificate itself; renewal is NOT
+  # configured by this example file and must be verified by the operator):
+  #
+  #   gateway.example.com {
+  #     encode identity
+  #     reverse_proxy gateway:9000 {
+  #       flush_interval -1        # stream SSE tokens immediately, no response buffering
+  #     }
+  #   }
+  #
+  # Note on /enroll: it accepts a one-time activation code without a token, so rate limit it at
+  # the proxy as well as in the Gateway. Nginx does that natively (deploy/nginx.example.conf);
+  # Caddy needs an extra rate-limit module, so Nginx is the safer default here.
+  # ---------------------------------------------------------------------------------------
+
+volumes:
+  # PostgreSQL data. A named volume is NOT a backup: schedule `pg_dump` off-host and rehearse a
+  # restore (docs/gateway-deployment.md).
+  gateway-pgdata:
+  # caddy-data:
+  # caddy-config:

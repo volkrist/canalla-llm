@@ -1,0 +1,28 @@
+# Central Alex Gateway — standalone runtime dependencies (Python 3.12).
+#
+# The Gateway is a separate service: it does NOT install the local backend's full dependency
+# set (no fastembed, no Playwright, no pypdf, no pwdlib). It reuses only the backend provider
+# core as *source* (imported through ALEX_BACKEND_LIB_DIR), which needs httpx + pydantic only.
+#
+# Ranges track apps/backend/pyproject.toml so the reused provider core stays compatible with
+# the version the local backend is tested against.
+#
+# psycopg[binary] ships manylinux wheels, so the production image needs no compiler and no
+# build tools are left behind in the final layer.
+# uvicorn[standard] brings uvloop/httptools/watchfiles and python-dotenv, which is what makes
+# an optional `.env` file in the working directory work through pydantic-settings.
+
+fastapi>=0.115,<1
+uvicorn[standard]>=0.34,<1
+pydantic-settings>=2.7,<3
+sqlalchemy>=2.0.36,<3
+alembic>=1.14,<2
+httpx>=0.28,<1
+psycopg[binary]>=3.2,<4
+PyJWT>=2.10,<3
+
+# Dev/test extras are intentionally NOT installed in the runtime image. Install them in a
+# local virtualenv to run apps/gateway/tests:
+#   python -m venv .venv && .venv/bin/pip install -r requirements.txt
+#   pytest>=8,<10
+#   ruff>=0.9,<1
