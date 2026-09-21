@@ -26,6 +26,29 @@ class UserOut(BaseModel):
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    session_id: str | None = None
+    refresh_secret: str | None = None
+    expires_at: datetime | None = None
+    user: UserOut | None = None
+
+
+class BootstrapRequest(Credentials):
+    display_name: str | None = Field(default=None, max_length=80)
+
+
+class RefreshRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=64)
+    refresh_secret: str = Field(min_length=1, max_length=256)
+
+
+class RevokeRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=64)
+    refresh_secret: str = Field(min_length=1, max_length=256)
+
+
+class AuthStateOut(BaseModel):
+    users_exist: bool
+    state: Literal["first_run", "auth_required"]
 
 
 class ChatCreate(BaseModel):

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import jwt
 from fastapi import Depends, HTTPException
@@ -26,6 +27,7 @@ def create_token(user_id: str):
             "exp": now + timedelta(minutes=settings.jwt_expire_minutes),
             "iss": "alex-llm",
             "aud": "alex-desktop",
+            "jti": str(uuid4()),
         },
         settings.jwt_secret,
         algorithm="HS256",
@@ -72,7 +74,9 @@ def admin_user(user: User = Depends(current_user)):
 
 
 def is_first_owner(user: User, db: Session | None = None) -> bool:
-    """Oldest registered local user is the desktop product owner."""
+    """Persisted bootstrap owner; legacy DBs fall back to the oldest local user."""
+    if user.is_owner:
+        return True
     close = db is None
     session = db or SessionLocal()
     try:

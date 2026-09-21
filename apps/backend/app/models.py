@@ -29,7 +29,33 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(16), default="user", server_default="user")
+    is_owner: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class AuthSession(Base):
+    """Persistent device session. Only the hash of the refresh secret is stored."""
+
+    __tablename__ = "auth_sessions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    device_id: Mapped[str | None] = mapped_column(String(64))
+    token_hash: Mapped[str] = mapped_column(String(64), index=True)
+    rotated_from: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    replaced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class BootstrapClaim(Base):
+    """Singleton row: exactly one first-owner bootstrap claim (id is always 1)."""
+
+    __tablename__ = "bootstrap_claim"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    claimed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
 class Chat(Base):

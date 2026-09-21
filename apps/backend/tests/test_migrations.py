@@ -33,9 +33,10 @@ def test_upgrade_preserves_existing_history(tmp_path):
         )
         assert db.execute("SELECT title,pinned FROM chats").fetchone() == ("Keep me", 0)
         assert db.execute("SELECT role FROM users").fetchone() == ("user",)
+        assert db.execute("SELECT is_owner FROM users").fetchone() == (1,)
         assert db.execute("SELECT search_state FROM compute_control WHERE id=1").fetchone() == ("offline",)
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0013",)
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0014",)
         for table in (
             "tool_runs",
             "web_source_snapshots",
@@ -47,6 +48,8 @@ def test_upgrade_preserves_existing_history(tmp_path):
             "task_checkpoints",
             "workspace_locks",
             "workspace_waiters",
+            "auth_sessions",
+            "bootstrap_claim",
         ):
             assert db.execute(f"PRAGMA foreign_key_list({table})").fetchall()
     subprocess.run([sys.executable, "-m", "alembic", "check"], env=env, check=True, capture_output=True)

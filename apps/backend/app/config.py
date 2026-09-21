@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./alex.db"
     jwt_secret: str = Field(min_length=32)
     jwt_expire_minutes: int = Field(default=60, ge=1, le=1440)
+    auth_session_days: int = Field(default=30, ge=1, le=365)
     cors_origins: list[str] = [
         "http://localhost:1420",
         "http://127.0.0.1:1420",
