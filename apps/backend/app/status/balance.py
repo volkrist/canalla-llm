@@ -139,8 +139,9 @@ class RunPodBalanceService:
             data = await self.api.account_balance()
         except RunPodError as error:
             self._failure(error.code)
-        except Exception:
-            self._failure("runpod_unavailable")
+        except Exception as error:  # noqa: BLE001 - the source may be Alex Cloud or RunPod
+            code = getattr(error, "code", None)
+            self._failure(code if isinstance(code, str) and code else "runpod_unavailable")
         else:
             self._balance = data["balance"]
             self._spend = data.get("current_spend_per_hr")

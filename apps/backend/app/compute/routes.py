@@ -4,11 +4,13 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 
+from ..config import get_settings
 from ..database import SessionLocal
 from ..models import User
 from ..security import admin_user, compute_user, current_user
 from .controller import utc
 from .models import ComputeEvent, ComputeSession, GenerationUsage
+from .runpod_api import ERROR_MESSAGES
 from .schemas import ComputePreferences, StartRequest, StopRequest
 
 router = APIRouter(prefix="/compute", tags=["compute"])
@@ -17,6 +19,18 @@ admin = APIRouter(prefix="/admin", tags=["admin"])
 
 def controller(request: Request):
     return request.app.state.compute
+
+
+def local_compute_required(request: Request) -> None:
+    """Shared mode owns compute on the Gateway, so the local lifecycle is refused.
+
+    The provider credential and the global lease are server-side in that mode: letting a
+    local route start or stop provider compute would bypass the account-wide limits.
+    Inference, status and balance keep working through Alex Cloud.
+    """
+    settings = getattr(request.app.state, "settings", None) or get_settings()
+    if getattr(settings, "alex_ai_mode", "direct") == "shared":
+        raise HTTPException(409, ERROR_MESSAGES["gateway_managed_compute"])
 
 
 @router.get("/status")
@@ -30,7 +44,12 @@ def preferences(request: Request, user: User = Depends(current_user)):
 
 
 @router.put("/preferences")
-async def update_preferences(body: ComputePreferences, request: Request, user: User = Depends(compute_user)):
+async def update_preferences(
+    body: ComputePreferences,
+    request: Request,
+    user: User = Depends(compute_user),
+    _: None = Depends(local_compute_required),
+):
     try:
         return await controller(request).update_preferences(user, body)
     except ValueError as error:
@@ -43,7 +62,12 @@ async def options(request: Request, user: User = Depends(current_user)):
 
 
 @router.post("/search")
-async def search(body: ComputePreferences, request: Request, user: User = Depends(compute_user)):
+async def search(
+    body: ComputePreferences,
+    request: Request,
+    user: User = Depends(compute_user),
+    _: None = Depends(local_compute_required),
+):
     try:
         return await controller(request).search_gpu(user, body)
     except ValueError as error:
@@ -56,7 +80,12 @@ def quote(quote_id: str, request: Request, user: User = Depends(current_user)):
 
 
 @router.post("/start")
-async def start(body: StartRequest, request: Request, user: User = Depends(compute_user)):
+async def start(
+    body: StartRequest,
+    request: Request,
+    user: User = Depends(compute_user),
+    _: None = Depends(local_compute_required),
+):
     try:
         return await controller(request).start_compute(user, body)
     except ValueError as error:
@@ -64,12 +93,21 @@ async def start(body: StartRequest, request: Request, user: User = Depends(compu
 
 
 @router.post("/stop")
-async def stop(body: StopRequest, request: Request, user: User = Depends(compute_user)):
+async def stop(
+    body: StopRequest,
+    request: Request,
+    user: User = Depends(compute_user),
+    _: None = Depends(local_compute_required),
+):
     return await controller(request).stop_compute(user, body)
 
 
 @router.post("/search/cancel")
-async def cancel(request: Request, user: User = Depends(compute_user)):
+async def cancel(
+    request: Request,
+    user: User = Depends(compute_user),
+    _: None = Depends(local_compute_required),
+):
     return await controller(request).cancel_gpu_search(user)
 
 

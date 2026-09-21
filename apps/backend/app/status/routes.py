@@ -24,6 +24,11 @@ def balance_service(request: Request) -> RunPodBalanceService:
     return service
 
 
+def ai_source(request: Request):
+    """Direct mode: the RunPod controller. Shared mode: the Alex Cloud adapter."""
+    return getattr(request.app.state, "ai_status_source", None) or request.app.state.compute
+
+
 @router.get("")
 async def status(
     request: Request,
@@ -32,8 +37,13 @@ async def status(
 ):
     """Five subsystems plus the shared RunPod account balance for any authenticated user."""
     settings = get_settings()
+    cloud = getattr(request.app.state, "cloud", None)
+    if cloud is not None and cloud.shared:
+        # Read-only refresh so the chips describe the last known Gateway state, and never
+        # make the user wait for a provider round trip on every poll.
+        await cloud.refresh()
     return {
         "generated_at": now().isoformat(),
-        "subsystems": subsystem_status(db, user, request.app.state.compute, settings),
+        "subsystems": subsystem_status(db, user, ai_source(request), settings),
         "balance": await balance_service(request).snapshot(),
     }

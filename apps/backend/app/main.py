@@ -11,6 +11,10 @@ from fastapi.responses import JSONResponse
 from . import context_builder  # noqa: F401
 from .auth import router as auth_router
 from .chats import router as chats_router
+from .cloud.client import CloudError
+from .cloud.provider import GatewayBalanceSource, GatewayProvider
+from .cloud.routes import router as cloud_router
+from .cloud.state import CloudAi, CloudState
 from .compute.controller import RunPodController
 from .compute.routes import admin as admin_router
 from .compute.routes import router as compute_router
@@ -51,9 +55,22 @@ async def lifespan(application):
     application.state.compute = compute
     if compute.llm:
         application.state.provider = compute.llm
-    application.state.balance = getattr(application.state, "balance_override", None) or RunPodBalanceService(
-        compute.api, compute.gpu_active, compute.active_session
-    )
+    cloud = getattr(application.state, "cloud_override", None) or CloudState(settings)
+    application.state.cloud = cloud
+    if cloud.shared:
+        # Production shared mode: inference and balance come from Alex Cloud, and the local
+        # RunPod credential is deliberately ignored (it stays as the private/direct path).
+        application.state.provider = GatewayProvider(settings, cloud.client)
+        application.state.ai_status_source = CloudAi(cloud)
+        application.state.balance = getattr(
+            application.state, "balance_override", None
+        ) or RunPodBalanceService(GatewayBalanceSource(cloud.client), cloud.active, lambda: None)
+        await cloud.start()
+    else:
+        application.state.ai_status_source = compute
+        application.state.balance = getattr(
+            application.state, "balance_override", None
+        ) or RunPodBalanceService(compute.api, compute.gpu_active, compute.active_session)
     if settings.balance_background_enabled:
         await application.state.balance.start()
 
@@ -96,6 +113,9 @@ async def lifespan(application):
         presence_task.cancel()
         with suppress(asyncio.CancelledError):
             await presence_task
+        cloud = getattr(application.state, "cloud", None)
+        if cloud is not None:
+            await cloud.stop()
         if queue_task:
             queue_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -132,9 +152,15 @@ app.include_router(admin_router)
 app.include_router(personal_router)
 app.include_router(presence_router)
 app.include_router(status_router)
+app.include_router(cloud_router)
 app.include_router(documents_router)
 app.include_router(tools_router)
 app.include_router(tasks_router)
+
+
+def ai_status_source():
+    """The owner of AI status: the local controller in direct mode, Alex Cloud in shared."""
+    return getattr(app.state, "ai_status_source", None) or app.state.compute
 
 
 @app.exception_handler(RunPodError)
@@ -145,9 +171,27 @@ async def runpod_error(request, error):
     )
 
 
+@app.exception_handler(CloudError)
+async def cloud_error(request, error):
+    status_code = {
+        "gateway_not_connected": 503,
+        "gateway_unavailable": 503,
+        "gateway_busy": 429,
+        "gateway_queue_full": 429,
+        "installation_revoked": 409,
+        "gateway_auth_failed": 409,
+        "gateway_protocol_mismatch": 409,
+        "gateway_budget_denied": 409,
+    }.get(error.code, 502)
+    return JSONResponse(
+        status_code=status_code,
+        content={"detail": str(error) or error.code, "code": error.code, "request_id": str(uuid4())},
+    )
+
+
 @app.get("/llm/status")
 async def llm_status(user=Depends(current_user)):
-    payload = app.state.compute.llm_public_status(user)
+    payload = ai_status_source().llm_public_status(user)
     if settings.llm_provider == "llamacpp" and settings.llm_connection_mode == "static":
         from .compute.runtime import LABELS
 
@@ -169,6 +213,10 @@ async def runtime_shutdown(request: Request):
     got = request.headers.get("X-Alex-Runtime-Token") or ""
     if not expected or len(expected) != len(got) or not hmac.compare_digest(expected, got):
         raise HTTPException(403, "Forbidden")
+    if settings.alex_ai_mode == "shared":
+        # Shared compute is owned by Alex Cloud: one installation quitting never stops a
+        # Pod other installations may be using. The Gateway applies the global idle rule.
+        return {"ok": True, "stopped": False, "managed": "gateway"}
     result = await request.app.state.compute.shutdown_managed("app_quit")
     return {"ok": True, "stopped": result.get("stopped"), "managed": result.get("managed")}
 

@@ -37,6 +37,19 @@ STATES = (READY, STARTING, CONFIGURED, OFF, NOT_CONFIGURED, UNAVAILABLE, ERROR, 
 # and lets the existing controller reconciliation continue. Nothing here starts compute.
 AI_ERRORS = {
     "not_configured": (NOT_CONFIGURED, "configure", True),
+    # Alex Cloud (shared mode). An unreachable Gateway is recoverable; a rejected or
+    # revoked installation needs the user to reconnect, not a retry.
+    "gateway_not_connected": (NOT_CONFIGURED, "configure", True),
+    "gateway_unavailable": (UNAVAILABLE, "retry", True),
+    "gateway_busy": (UNAVAILABLE, "retry", True),
+    "gateway_queue_full": (UNAVAILABLE, "retry", True),
+    "gateway_request_in_flight": (UNAVAILABLE, "retry", True),
+    "gateway_request_completed": (UNAVAILABLE, "retry", True),
+    "gateway_protocol_mismatch": (ERROR, "configure", False),
+    "gateway_auth_failed": (ERROR, "configure", False),
+    "installation_revoked": (ERROR, "configure", False),
+    "gateway_budget_denied": (ERROR, "configure", False),
+    "gateway_managed_compute": (ERROR, "configure", False),
     "create_unknown": (DEGRADED, "retry", True),
     "external_compute": (DEGRADED, "retry", True),
     "multiple_compute": (ERROR, None, False),
@@ -73,6 +86,14 @@ AI_DEFAULTS = {
     NOT_CONFIGURED: ("RunPod не настроен. Добавьте API key в настройках Alex.", "configure", True),
 }
 
+# Shared mode has no local RunPod credential to configure: the same states are explained
+# in terms of Alex Cloud instead of a provider key.
+CLOUD_DEFAULTS = {
+    **AI_DEFAULTS,
+    NOT_CONFIGURED: ("Alex Cloud не подключён. Подключите его в настройках Alex.", "configure", True),
+    UNAVAILABLE: ("Alex Cloud сейчас недоступен.", "retry", True),
+}
+
 ACTION_KEYS = (None, "retry", "configure", "reconnect", "stop", "cancel_search")
 
 
@@ -94,7 +115,12 @@ def preferences(db: Session, user_id: str) -> WebSettings:
 
 
 def ai_status(controller, user: User):
-    """AI readiness. `compact_ai` stays the single owner of the raw state machine."""
+    """AI readiness. `compact_ai` stays the single owner of the raw state machine.
+
+    In shared mode ``controller`` is the Alex Cloud adapter, which answers with the
+    Gateway's own compact state, so both modes render through this one mapping.
+    """
+    defaults = CLOUD_DEFAULTS if getattr(controller, "shared", False) else AI_DEFAULTS
     payload = controller.llm_public_status(user)
     diagnostic = payload.get("diagnostic") or {}
     compute_state = diagnostic.get("compute_state")
@@ -116,7 +142,7 @@ def ai_status(controller, user: User):
             state, action, recoverable = UNAVAILABLE, "retry", True
     else:
         state, action, recoverable = ERROR, "retry", True
-    message = (ERROR_MESSAGES.get(error_code) if error_code else None) or AI_DEFAULTS[state][0]
+    message = (ERROR_MESSAGES.get(error_code) if error_code else None) or defaults[state][0]
     details = {
         "provider": payload.get("provider"),
         "model": payload.get("model"),

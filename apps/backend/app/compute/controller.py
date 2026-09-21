@@ -479,6 +479,8 @@ class RunPodController:
             db.commit()
 
     async def start_compute(self, user, request: StartRequest):
+        if self.settings.alex_ai_mode == "shared":
+            raise RunPodError("gateway_managed_compute", 409)
         async with self.operation():
             return await self._start_compute_locked(user, request)
 
@@ -676,6 +678,8 @@ class RunPodController:
             db.commit()
 
     async def stop_compute(self, user, request: StopRequest):
+        if self.settings.alex_ai_mode == "shared":
+            raise RunPodError("gateway_managed_compute", 409)
         async with self.operation():
             self.rate_limit(user.id, "stop")
             with self.sessions() as db:
@@ -1065,6 +1069,11 @@ class RunPodController:
 
     async def ensure_on_demand(self, user, *, chat_id=None, task_id=None, confirm=False):
         """Single locked coordinator: one Pod, optional paid confirmation, adopt or create."""
+        if self.settings.alex_ai_mode == "shared":
+            # Shared mode: compute is owned by Alex Cloud. This installation must never
+            # create a provider Pod of its own, so the local demand path reports the
+            # Gateway as the owner instead of spending money outside the global lease.
+            return self._demand_result(user, "unavailable", "gateway_managed_compute")
         if not can_start_compute(user):
             raise HTTPException(403, "Запуск GPU доступен владельцу этого компьютера")
         if not self.api.configured:

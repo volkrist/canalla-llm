@@ -150,10 +150,35 @@ class Settings(BaseSettings):
     runpod_startup_timeout: int = Field(default=900, ge=60, le=3600)
     compute_poll_seconds: float = Field(default=5, ge=1, le=60)
     compute_background_enabled: bool = True
+    # Central Alex Gateway (production shared mode). The mode is chosen by build/runtime
+    # configuration, never by a user-facing setting, and the RunPod master key never
+    # reaches this process in shared mode: only the installation credential does.
+    alex_ai_mode: Literal["direct", "shared"] = "direct"
+    alex_gateway_url: str = ""
+    alex_gateway_installation_id: str = ""
+    alex_gateway_installation_secret: SecretStr = SecretStr("")
+    alex_gateway_protocol_version: int = 1
+    alex_gateway_timeout_seconds: float = Field(default=30, ge=1, le=300)
+    gateway_status_active_seconds: float = Field(default=5, ge=1, le=300)
+    gateway_status_idle_seconds: float = Field(default=15, ge=1, le=600)
     balance_background_enabled: bool = True
 
     @model_validator(mode="after")
     def validate_security(self):
+        if self.alex_gateway_url and not self.alex_gateway_url.startswith(("http://", "https://")):
+            raise ValueError("ALEX_GATEWAY_URL must be an HTTP(S) URL")
+        if self.alex_ai_mode == "shared":
+            if not self.alex_gateway_url:
+                raise ValueError("Shared AI mode requires ALEX_GATEWAY_URL")
+            target = urlparse(self.alex_gateway_url)
+            if target.username or target.password or target.query or target.fragment:
+                raise ValueError("ALEX_GATEWAY_URL must not contain credentials, a query or a fragment")
+            # Fail closed: plaintext is acceptable only through a loopback tunnel. A remote
+            # Gateway must be HTTPS, because the installation secret is a bearer credential.
+            if target.scheme != "https" and target.hostname not in {"localhost", "127.0.0.1", "::1"}:
+                raise ValueError(
+                    "Remote Alex Cloud requires HTTPS; HTTP is permitted only for a loopback Gateway"
+                )
         if self.alex_llm_data_dir:
             from .data_paths import sqlite_url
 
