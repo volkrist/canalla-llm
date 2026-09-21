@@ -163,6 +163,7 @@ async def stream_response(
         from .tools.local.plan import looks_like_autonomous, looks_like_computer
         from .tools.local.public_text import public_assistant_text
         from .tools.local.workspace import looks_like_coding
+
         try:
             await request.app.state.presence.publish()
             yield sse("meta", meta)

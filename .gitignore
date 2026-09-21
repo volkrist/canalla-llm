@@ -25,3 +25,7 @@ playwright-report/
 test-results/
 .DS_Store
 .data/
+apps/desktop/src-tauri/sidecar/alex-backend/
+apps/desktop/src-tauri/sidecar/*.exe
+apps/desktop/src-tauri/sidecar/SHA256SUMS.txt
+apps/backend/build/

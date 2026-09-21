@@ -12,9 +12,7 @@ depends_on = None
 
 def upgrade():
     with op.batch_alter_table("compute_sessions") as batch:
-        batch.add_column(
-            sa.Column("created_by_alex", sa.Boolean(), nullable=False, server_default=sa.true())
-        )
+        batch.add_column(sa.Column("created_by_alex", sa.Boolean(), nullable=False, server_default=sa.true()))
         batch.add_column(
             sa.Column("adopted_by_alex", sa.Boolean(), nullable=False, server_default=sa.false())
         )

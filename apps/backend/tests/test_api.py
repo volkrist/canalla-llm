@@ -179,6 +179,8 @@ def test_health_and_mock_chat(client):
         "provider": "mock",
         "llm_ready": True,
         "product": "alex-llm",
+        "version": "0.9.3",
+        "runtime_protocol_version": 1,
         "instance": None,
     }
     assert "demo" in asyncio.run(MockLLMProvider(0).chat([{"role": "user", "content": "demo"}]))

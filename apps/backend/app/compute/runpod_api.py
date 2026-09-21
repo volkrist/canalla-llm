@@ -7,7 +7,6 @@ import re
 import shlex
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
 from urllib.parse import quote
 
 import httpx
@@ -227,9 +226,11 @@ class RunPodAPI:
         args = startup_command(self.settings.runpod_llm_port, self.settings.runpod_startup_timeout)
         environment = {}
         if real:
-            runtime = base64.b64encode(Path(__file__).with_name("remote_runtime.py").read_bytes()).decode(
-                "ascii"
-            )
+            from ..packaging import package_file
+
+            runtime = base64.b64encode(
+                package_file("app", "compute", "remote_runtime.py").read_bytes()
+            ).decode("ascii")
             args = "python3 -u -c " + shlex.quote(
                 "import base64; exec(compile(base64.b64decode('" + runtime + "'), 'alex-runtime', 'exec'))"
             )

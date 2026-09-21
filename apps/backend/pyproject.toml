@@ -19,6 +19,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "ruff>=0.9,<1"]
+pack = ["pyinstaller>=6,<7"]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

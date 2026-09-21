@@ -17,8 +17,8 @@ from app.compute.models import ComputeSession
 from app.compute.runtime import compact_ai
 from app.config import get_settings
 from app.database import SessionLocal
-from app.main import RedactTicket
 from app.models import Chat, Message
+from app.runtime_log import RedactTicket
 from app.tools.local import machine
 from app.tools.models import LocalTask
 
