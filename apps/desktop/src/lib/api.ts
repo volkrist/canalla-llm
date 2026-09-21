@@ -27,22 +27,52 @@ export class Api {
   constructor(
     public base: string,
     private token: string | null,
+    private refresh?: () => Promise<string | null>,
   ) {}
   authToken() {
     return this.token;
   }
+  setToken(token: string | null) {
+    this.token = token;
+  }
+  /** Single-flight refresh: parallel 401s share one refresh attempt. */
+  private refreshPromise: Promise<string | null> | null = null;
+  private refreshOnce(): Promise<string | null> {
+    if (!this.refresh) return Promise.resolve(null);
+    if (!this.refreshPromise) {
+      this.refreshPromise = Promise.resolve()
+        .then(() => this.refresh!())
+        .catch(() => null)
+        .finally(() => {
+          this.refreshPromise = null;
+        });
+    }
+    return this.refreshPromise;
+  }
   private async response(path: string, init: RequestInit = {}) {
-    const headers = new Headers(init.headers);
-    if (init.body && !(init.body instanceof FormData))
-      headers.set("Content-Type", "application/json");
-    if (this.token) headers.set("Authorization", `Bearer ${this.token}`);
-    const response = await fetch(this.base + path, {
-      ...init,
-      headers,
-      signal: init.signal ?? AbortSignal.timeout(15000),
-      credentials: "omit",
-      redirect: "error",
-    });
+    const attempt = async () => {
+      const headers = new Headers(init.headers);
+      if (init.body && !(init.body instanceof FormData))
+        headers.set("Content-Type", "application/json");
+      if (this.token) headers.set("Authorization", `Bearer ${this.token}`);
+      return fetch(this.base + path, {
+        ...init,
+        headers,
+        signal: init.signal ?? AbortSignal.timeout(15000),
+        credentials: "omit",
+        redirect: "error",
+      });
+    };
+    let response = await attempt();
+    if (response.status === 401 && !path.startsWith("/auth/") && this.refresh) {
+      // One refresh attempt, then one safe retry. The original request was
+      // rejected at authentication, so retrying cannot double-apply it.
+      const fresh = await this.refreshOnce();
+      if (fresh) {
+        this.token = fresh;
+        response = await attempt();
+      }
+    }
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       throw new ApiError(

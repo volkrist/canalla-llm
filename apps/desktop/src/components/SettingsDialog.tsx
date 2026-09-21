@@ -7,6 +7,7 @@ import { exportChats } from "../lib/files";
 import { clearDrafts, draftPrefix } from "../lib/drafts";
 import EmbeddingModelStatus from "./EmbeddingModelStatus";
 import WebToolsSettings from "./WebToolsSettings";
+import ProviderSecretPanel from "./ProviderSecretPanel";
 import { version } from "../../package.json";
 
 export default function SettingsDialog({
@@ -105,6 +106,7 @@ export default function SettingsDialog({
         {section === "AI / Compute" && (
           <>
             <p>Выбор GPU, лимит цены, бюджет сессии и автоостановка.</p>
+            <ProviderSecretPanel />
             <button
               type="button"
               disabled={!api}

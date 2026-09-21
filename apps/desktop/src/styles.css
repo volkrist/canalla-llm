@@ -512,6 +512,22 @@ p {
   color: #78867c;
   margin-top: 23px;
 }
+
+.auth-note-link {
+  display: block;
+  margin: 8px auto 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  color: #78867c;
+  text-decoration: underline;
+  padding: 2px 6px;
+}
+
+.auth-note-link:hover {
+  color: var(--text);
+}
 .app-shell {
   display: flex;
   height: 100dvh;

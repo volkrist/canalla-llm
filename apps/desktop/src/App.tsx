@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Api } from "./lib/api";
 import {
+  authErrorMessage,
+  authState,
+  logoutSession,
+  refreshAccessToken,
+  restoreSession,
+  type AuthPhase,
+} from "./lib/auth";
+import {
   backendMessage,
   ensureBackend,
   isTauriRuntime,
@@ -17,18 +25,47 @@ export default function App() {
   const [session, setSession] = useState<{ token: string; user: User } | null>(
     null,
   );
+  const [phase, setPhase] = useState<AuthPhase>("unknown");
+  const [authError, setAuthError] = useState("");
   const [health, setHealth] = useState<Health | null>(null);
   const [llm, setLlm] = useState<LLMStatus | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [runtime, setRuntime] = useState<BackendRuntime | null>(null);
   const api = useMemo(
-    () => new Api(settings.backendUrl, session?.token || null),
+    () =>
+      new Api(settings.backendUrl, session?.token || null, () =>
+        refreshAccessToken(settings.backendUrl),
+      ),
     [settings.backendUrl, session?.token],
   );
-  const logout = useCallback(() => setSession(null), []);
+  const startAuth = useCallback(async (url: string) => {
+    setPhase("restoring");
+    try {
+      const restored = await restoreSession(url);
+      if (restored) {
+        setSession({ token: restored.access_token, user: restored.user });
+        setPhase("authenticated");
+        return;
+      }
+      const state = await authState(url);
+      setPhase(state === "first_run" ? "first_run" : "anonymous");
+    } catch (error) {
+      setAuthError(authErrorMessage(error));
+      setPhase("error");
+    }
+  }, []);
+  const logout = useCallback(() => {
+    void logoutSession(settings.backendUrl);
+    setSession(null);
+    setPhase("anonymous");
+  }, [settings.backendUrl]);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      if (!isTauriRuntime()) {
+        setPhase("anonymous");
+        return;
+      }
       try {
         const next = await ensureBackend();
         if (cancelled || !next) return;
@@ -38,6 +75,7 @@ export default function App() {
           setSettings((prev) =>
             prev.backendUrl === url ? prev : { ...prev, backendUrl: url },
           );
+          if (!cancelled) await startAuth(url);
         }
       } catch {
         if (!cancelled) {
@@ -47,13 +85,14 @@ export default function App() {
             error: "backend_error",
             data_dir: "",
           });
+          setPhase("error");
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [startAuth]);
   useEffect(() => {
     let cancelled = false;
     setLlm(null);
@@ -103,6 +142,7 @@ export default function App() {
   }
   const banner = backendMessage(runtime);
   const tauriBlocked = isTauriRuntime() && runtime?.state !== "ready";
+  const retry = () => void startAuth(settings.backendUrl);
   return (
     <>
       {banner ? (
@@ -121,7 +161,7 @@ export default function App() {
         runtime?.state === "error" ? null : (
           <div className="runtime-wait">Запуск Alex…</div>
         )
-      ) : session ? (
+      ) : phase === "authenticated" && session ? (
         <Workspace
           key={session.token}
           api={api}
@@ -132,11 +172,30 @@ export default function App() {
           onLogout={logout}
           onSettings={() => setShowSettings(true)}
         />
+      ) : phase === "restoring" ? (
+        <div className="runtime-wait">Восстанавливаем сеанс…</div>
+      ) : phase === "error" ? (
+        <div className="auth-page">
+          <div className="auth-panel">
+            <form className="auth-form" onSubmit={retry}>
+              <span className="eyebrow">ALEX LLM</span>
+              <h2>Не удалось войти</h2>
+              <p>{authError || "Локальный сервер не ответил."}</p>
+              <button className="primary auth-submit" type="submit">
+                Повторить
+              </button>
+            </form>
+          </div>
+        </div>
       ) : (
         <AuthScreen
-          key={settings.backendUrl}
+          key={settings.backendUrl + (phase === "first_run" ? "-first" : "")}
           base={settings.backendUrl}
-          onLogin={(token, user) => setSession({ token, user })}
+          firstRun={phase === "first_run"}
+          onLogin={(token, user) => {
+            setSession({ token, user });
+            setPhase("authenticated");
+          }}
           onSettings={() => setShowSettings(true)}
         />
       )}
