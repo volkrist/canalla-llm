@@ -182,10 +182,12 @@ async function readCloud(): Promise<CloudSnapshot> {
   return snapshot;
 }
 
-/** One read at a time: the dialog and the panel share the same request. */
+/** One read at a time: the dialog and the panel share the same request. The read is
+ *  settled, because a freshly restarted backend still answers `connecting` for a moment
+ *  and the panel must not keep that transient label. */
 export function refreshCloud(): Promise<CloudSnapshot> {
   if (!read) {
-    read = readCloud().finally(() => {
+    read = settleCloud().finally(() => {
       read = null;
     });
   }
@@ -202,15 +204,34 @@ export async function enrollGateway(
   await invokeCommand("gateway_enroll", { url, activationCode });
   const restart = await restartBackend();
   // An authoritative read: an answer that was in flight is now stale.
-  await readCloud();
+  await settleCloud();
   return restart;
+}
+
+/** The restarted backend talks to the Gateway a moment later, so a read can still say
+ *  `connecting`. Waiting (bounded) for the first settled answer keeps the panel from showing
+ *  a transient label; a read that failed outright is reported as it is. */
+async function settleCloud(
+  attempts = 12,
+  delayMs = 750,
+): Promise<CloudSnapshot> {
+  let result = await readCloud();
+  for (
+    let attempt = 0;
+    attempt < attempts && result.status?.state === "connecting";
+    attempt += 1
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    result = await readCloud();
+  }
+  return result;
 }
 
 /** Disconnect this installation from the shared Gateway. */
 export async function disconnectGateway(): Promise<RestartOutcome> {
   await invokeCommand("gateway_disconnect");
   const restart = await restartBackend();
-  await readCloud();
+  await settleCloud();
   return restart;
 }
 

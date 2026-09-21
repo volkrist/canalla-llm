@@ -204,6 +204,29 @@ describe("cloud status read", () => {
     expect(html).toContain("доступно после входа в аккаунт");
     expect(html).not.toContain("Подключено");
   });
+
+  it("settles the mount read instead of keeping a transient «Подключаемся…»", async () => {
+    // Right after the backend starts, the first authoritative answer is not in yet: the
+    // backend reports `connecting`. The panel reads once on mount, so that read waits.
+    let reads = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      reads += 1;
+      return jsonResponse(
+        200,
+        reads === 1
+          ? cloudStatus({ state: "connecting", enrolled: true })
+          : cloudStatus({
+              state: "connected",
+              enrolled: true,
+              reachable: true,
+            }),
+      );
+    });
+    setCloudClient(api);
+    await refreshCloud();
+    expect(reads).toBeGreaterThan(1);
+    expect(renderPanel()).toContain("Подключено");
+  });
 });
 
 describe("Alex Cloud panel", () => {
@@ -332,6 +355,35 @@ describe("enrollment and disconnect", () => {
     // not in the markup.
     expect(JSON.stringify(cloudSnapshot())).not.toContain("code-abc");
     expect(renderPanel()).not.toContain("code-abc");
+  });
+
+  it("settles on the real state instead of keeping a transient «Подключаемся…»", async () => {
+    // The backend is restarted by the enrollment and reaches the Gateway a moment
+    // later, so the first read after the restart can still be `connecting`.
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "gateway_enroll") return { configured: true };
+      if (command === "restart_backend") return { state: "ready" };
+      return gatewayStatus();
+    });
+    let reads = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      reads += 1;
+      return jsonResponse(
+        200,
+        reads === 1
+          ? cloudStatus({ state: "connecting", enrolled: true })
+          : cloudStatus({ state: "connected", enrolled: true }),
+      );
+    });
+    setCloudClient(api);
+    await expect(
+      enrollGateway("https://gateway.example", "code-abc"),
+    ).resolves.toBe("ok");
+    expect(reads).toBeGreaterThan(1);
+    expect(cloudSnapshot().status?.state).toBe("connected");
+    expect(cloudLabel(cloudSnapshot().status?.state ?? "not_connected")).toBe(
+      "Подключено",
+    );
   });
 
   it("does not claim a restart it could not perform on an external backend", async () => {
