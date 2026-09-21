@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod auth;
 mod backend;
 mod credential;
 mod fs_guard;
@@ -22,7 +23,17 @@ fn main() {
             host::list_user_credentials,
             host::delete_user_credential,
             backend::ensure_backend,
-            backend::backend_status
+            backend::backend_status,
+            backend::restart_backend,
+            auth::auth_login,
+            auth::auth_register,
+            auth::auth_bootstrap,
+            auth::auth_restore,
+            auth::auth_logout,
+            auth::session_status,
+            auth::provider_secret_configured,
+            auth::set_provider_secret,
+            auth::delete_provider_secret
         ])
         .build(tauri::generate_context!())
         .expect("Unable to start Alex LLM")

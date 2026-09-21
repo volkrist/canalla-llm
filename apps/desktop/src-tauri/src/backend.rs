@@ -497,6 +497,11 @@ fn spawn_owned(port: u16, instance: &str, secret: &str) -> Result<Live, String> 
     } else {
         command.env("ALEX_RUNTIME_MODE", "dev_owned");
     }
+    // User-configured provider secrets (Credential Manager) win over stale
+    // .env entries; absent credentials leave the developer .env untouched.
+    for (name, value) in crate::auth::provider_env() {
+        command.env(name, value);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -755,6 +760,38 @@ pub fn current_status() -> BackendStatus {
         .unwrap_or_else(|_| BackendStatus::error("supervisor_lock", data_root()))
 }
 
+pub fn restart_backend_blocking() -> Result<BackendStatus, String> {
+    let mut sup = supervisor().lock().map_err(|e| e.to_string())?;
+    let root = data_root();
+    if let Some(mut live) = sup.live.take() {
+        if live.ownership != Ownership::Owned {
+            // An external developer backend is not ours to restart.
+            sup.live = Some(live);
+            return Ok(sup.last.clone());
+        }
+        // Same managed-compute stop as full Quit: never leave a billed Pod
+        // running while the supervising backend is replaced.
+        let token = fs::read_to_string(root.join("runtime").join("shutdown.token"))
+            .unwrap_or_default();
+        request_managed_shutdown(live.port, token.trim());
+        if let Some(mut child) = live.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        } else if live.pid != 0 {
+            terminate_pid(live.pid);
+        }
+    }
+    let _ = fs::remove_file(root.join("runtime").join("backend.lock"));
+    match ensure_locked(&mut sup) {
+        Ok(status) => Ok(status),
+        Err(code) => {
+            let status = BackendStatus::error(&code, root);
+            sup.last = status.clone();
+            Ok(status)
+        }
+    }
+}
+
 pub fn on_desktop_exit() {
     // Full application Quit only (Tauri Exit / ExitRequested). In-app window
     // navigation does not run this. External backends are left running.
@@ -791,7 +828,14 @@ pub fn backend_status() -> BackendStatus {
     current_status()
 }
 
-mod uuid_lite {
+#[tauri::command]
+pub async fn restart_backend() -> Result<BackendStatus, String> {
+    tauri::async_runtime::spawn_blocking(restart_backend_blocking)
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+pub(crate) mod uuid_lite {
     use sha2::{Digest, Sha256};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -826,6 +870,7 @@ mod tests {
 
     #[test]
     fn data_root_ignores_cwd() {
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
         let previous = std::env::var("ALEX_LLM_DATA_DIR").ok();
         let temp = std::env::temp_dir().join(format!("alex-runtime-{}", UuidLite::instance()));
         std::env::set_var("ALEX_LLM_DATA_DIR", &temp);
@@ -950,6 +995,7 @@ mod tests {
 
     #[test]
     fn packaged_mode_does_not_search_python() {
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
         let mode = std::env::var("ALEX_RUNTIME_MODE").ok();
         let sidecar = std::env::var("ALEX_BACKEND_SIDECAR").ok();
         std::env::set_var("ALEX_RUNTIME_MODE", "packaged");

@@ -301,6 +301,7 @@ fn run_elevated(exe: &str, args: &[String], cwd: Option<&str>) -> LocalOutcome {
 mod tests {
     #[test]
     fn sanitized_env_omits_application_secrets() {
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var("RUNPOD_API_KEY", "secret");
         std::env::set_var("TINYFISH_API_KEY", "secret");
         std::env::set_var("LLM_API_KEY", "secret");
