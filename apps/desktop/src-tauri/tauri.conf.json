@@ -7,6 +7,7 @@
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
     "beforeBuildCommand": "npm run build",
+    "beforeBundleCommand": "stage-native-runtime.cmd",
     "frontendDist": "../dist"
   },
   "app": {
@@ -31,6 +32,16 @@
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
     "shortDescription": "Alex LLM desktop chat",
-    "windows": { "nsis": { "installMode": "currentUser" } }
+    "resources": [
+      "sidecar/README.txt",
+      "sidecar/alex-backend",
+      "sidecar/alex-host-loop.exe"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "nsis/hooks.nsh"
+      }
+    }
   }
 }
