@@ -48,9 +48,8 @@ Overview (partially stale on mock vs packaged llama.cpp defaults): [architecture
 | Session restore / first-run foundation | [session-first-run-audit.md](session-first-run-audit.md), [session-first-run-design.md](session-first-run-design.md) |
 | Five-chip status + error/recovery UX + shared RunPod balance | [status-recovery-audit.md](status-recovery-audit.md), [status-recovery-design.md](status-recovery-design.md) |
 | Central RunPod Gateway / Cloud Control Plane v2 (**deployed** at `https://gateway.12testers.store`, merged) | [central-runpod-gateway-audit.md](central-runpod-gateway-audit.md), [central-runpod-gateway-design.md](central-runpod-gateway-design.md), [gateway-deployment.md](gateway-deployment.md), [gateway-12testers-deploy-audit.md](gateway-12testers-deploy-audit.md) |
-| Canalla LLM brand + composer context meter | [context-usage.md](context-usage.md) |
-| Upgrade / backup / data preservation (**COMPLETED**, merged) | [upgrade-backup-audit.md](upgrade-backup-audit.md), [upgrade-backup-design.md](upgrade-backup-design.md), [backup-format.md](backup-format.md) |
-| RC / 1.0 final gates | [release-1.0.md](release-1.0.md), [compute-preferences.md](compute-preferences.md), [../CHANGELOG.md](../CHANGELOG.md) |
+| Canalla LLM user-facing brand + composer context meter | [context-usage.md](context-usage.md) |
+| RC / 1.0 final gates (**branch `release/canalla-1.0-rc`, not merged, version still 0.9.3**) | [release-1.0.md](release-1.0.md), [compute-preferences.md](compute-preferences.md), [../CHANGELOG.md](../CHANGELOG.md) |
 
 Security invariants: [security.md](security.md).
 
@@ -233,6 +232,19 @@ A leftover `apps/backend/alex.db` at an old revision is **not** the product data
 ## 12. Next slice
 
 **RC / 1.0 FINAL GATES**
+
+Status on the branch `release/canalla-1.0-rc` (22 Sep 2026):
+
+- **Done and verified**: per-user Compute Preferences (defaults $0.52/h, $3.00/session, no product
+  ceilings, `compute_policy_invalid` instead of silent replacement, cheapest-compatible selection),
+  deployed to the production Gateway with a verified pre-deploy snapshot; Canalla Cloud user-facing
+  rename; composer context meter with `count_type`; the public compute-policy acceptance
+  (`scripts/acceptance-compute-policy.py`) PASSed on the deployed Gateway without spending anything.
+- **Open gate**: the live paid acceptance (`scripts/acceptance-live-compute.py`) could not run —
+  four attempts at $0.52/$0.79/$1.20 per hour produced `state=searching` and no Pod because every
+  48 GB+ NVIDIA GPU in US-TX-3 reported `stock=NONE` (read-only catalogue probe). Re-run that script
+  when provider capacity returns; it needs no other change. Because of this the version was **not**
+  bumped to 1.0.0, nothing was tagged and nothing was merged to `main`.
 
 The upgrade / backup / data preservation slice is **complete and merged into `main`**; do not reopen
 it. Do not start RC either unless explicitly tasked. (Code signing, WM-07 and CD-08 stay closed until
