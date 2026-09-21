@@ -24,6 +24,7 @@ Reliability stage: **CLOSED**. Do not reopen a broad reliability rewrite unless 
 - On-demand RunPod lifecycle
 - Backend Sidecar / Installer Foundation
 - Session Restore / First-Run Foundation
+- Five-chip status + error/recovery UX + shared RunPod balance
 
 ## Production package
 
@@ -56,6 +57,8 @@ Developer `tauri dev` may still use `apps/backend/.venv\Scripts\python.exe`.
 - TinyFish Agent is READ_ONLY
 - Tor intent is fail-closed to Tor
 - Production mock must not masquerade as real AI
+- Status and balance are READ ONLY: they never start, adopt or stop compute, and never spend
+- A status chip must not claim more than its subsystem proved (configured ≠ healthy)
 
 ## Known focused limitations
 
@@ -63,14 +66,17 @@ Developer `tauri dev` may still use `apps/backend/.venv\Scripts\python.exe`.
 - CD-08 REAL stale-SHA coverage debt
 - REAL backend restart with a live Pod is not yet live-tested
 - No production code signing yet
+- Live RunPod balance acceptance not run in this checkout (no RunPod credential configured); mocked-GraphQL + cache paths covered by tests
 
 Do not start LoRA yet. Before future LoRA: baseline + censorship/refusal + coding/tools/security + catastrophic-forgetting regression.
 
 ## Next product slice (not this checkout)
 
-FIVE-CHIP STATUS + ERROR / RECOVERY UX — do not implement unless explicitly tasked.
+UPGRADE / BACKUP / DATA PRESERVATION — do not implement unless explicitly tasked.
 
-Then: upgrade/backup → RC / 1.0.
+Then: RC / 1.0 gates.
+
+(Code signing and the WM-07/CD-08 limitations stay closed until separately tasked.)
 
 ## Git safety
 

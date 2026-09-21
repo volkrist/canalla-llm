@@ -8,15 +8,19 @@ Canonical starting point for a new IDE/agent session. This is not a historical d
 
 ## 2. Main HEAD
 
-Recorded at handoff (fast-forward of sidecar installer, then this document):
+Recorded at handoff (sidecar installer, session restore, then this document):
 
-- `origin/main` before sidecar merge: `c6070b5460948dc865b29dd639d8b5297ac41f77`
+- `origin/main` before the sidecar merge: `c6070b5460948dc865b29dd639d8b5297ac41f77`
 - `feat/backend-sidecar-installer`: `b52be3d3ea13463e0adf0ecd19e2d75ea51f6667`
 
-After this file lands, `git rev-parse origin/main` is the live source of truth.
+After this document lands, `git rev-parse origin/main` is the live source of truth.
 
-Session restore / first-run slice was merged into `main` as a fast-forward of
-`feat/session-first-run` (`e1f90d0`); the branch is kept.
+Merge history kept as branches:
+
+- Session restore / first-run slice — fast-forward of `feat/session-first-run` (`e1f90d0`)
+- Status / recovery / balance slice — `feat/status-recovery-ux` (this document lives on it)
+
+(When the two hashes above no longer match `origin/main`, trust `git rev-parse origin/main`.)
 
 ## 3. Architecture
 
@@ -38,6 +42,7 @@ Overview (partially stale on mock vs packaged llama.cpp defaults): [architecture
 | On-demand RunPod lifecycle | [on-demand-ai.md](on-demand-ai.md), [runpod-controller.md](runpod-controller.md) |
 | Backend sidecar / installer foundation | [backend-sidecar-audit.md](backend-sidecar-audit.md), [backend-sidecar-decision.md](backend-sidecar-decision.md), [installer-data-layout.md](installer-data-layout.md) |
 | Session restore / first-run foundation | [session-first-run-audit.md](session-first-run-audit.md), [session-first-run-design.md](session-first-run-design.md) |
+| Five-chip status + error/recovery UX + shared RunPod balance | [status-recovery-audit.md](status-recovery-audit.md), [status-recovery-design.md](status-recovery-design.md) |
 
 Security invariants: [security.md](security.md).
 
@@ -69,6 +74,18 @@ owned backend via env; set/delete restarts the owned backend. Details:
 **Developer (`tauri dev` / debug):** venv Python `python -m app.runtime_entry` is allowed when the sidecar artifact is absent. An already-healthy Alex API on 8000–8019 is reused as `DEV_EXTERNAL` and is not owned/killed.
 
 Health identity: `product=alex-llm`, `version=0.9.3`, `runtime_protocol_version=1`.
+
+**Status / recovery / balance (0.9.3):** `GET /status` (authenticated, read-only) returns the five
+user-facing chips `ai | computer | web | tor | memory` plus the **shared** RunPod account balance.
+Vocabulary: `ready | starting | off | not_configured | unavailable | error | degraded`. Each chip
+carries `message`, `detail_code`, `recoverable`, `action`, `details`. Chips read the subsystem that
+already owns the state (compute `compact_ai`, device heartbeat, TinyFish config, Tor SOCKS5 endpoint,
+`use_memory`). RunPod has **no REST balance**: `RunPodAPI.account_balance()` is a read-only GraphQL
+call to `RUNPOD_GRAPHQL_URL` `myself.clientBalance`, cached process-wide (5 s while compute is billable,
+15 s otherwise) with single-flight refresh; money stays `Decimal` and is serialized as a string. A failed
+read keeps the last value and marks it stale — never a fake `$0`. Recovery actions reuse existing paths
+(settings, device loop, compute panel with its confirmation). UI polls through one owner (`useStatus`).
+Details: [status-recovery-design.md](status-recovery-design.md).
 
 ## 6. RunPod lifecycle
 
@@ -109,6 +126,9 @@ Do not “fix” these as a reliability rewrite:
 - REAL backend restart with a live Pod not live-tested (FakeRunPod covered)
 - No production code signing / SmartScreen publisher yet
 - Access JWT stays valid until its short expiry after logout (copied-token note, [security.md](security.md))
+- Live RunPod **balance** acceptance not performed in this checkout: no RunPod credential is configured
+  (mocked GraphQL + cache paths covered by tests, and the installed GUI shows the honest
+  "RunPod не настроен" state)
 
 ## 10. Useful branches / worktrees
 
@@ -117,6 +137,8 @@ Primary checkout: `C:\Users\Volkr\Documents\Codex\2026-09-13\x20\outputs\alex-ll
 | Branch | Worktree | Role |
 |---|---|---|
 | `main` | this repo | product |
+| `feat/status-recovery-ux` | (same) | status/recovery/balance slice; merge pending |
+| `feat/session-first-run` | (same) | merged; keep |
 | `feat/backend-sidecar-installer` | (same) | merged; keep |
 | `feat/on-demand-ai-runtime` | — | merged; keep |
 | `feat/product-runtime-foundation` | — | merged; keep |
@@ -130,29 +152,29 @@ Local leftover: `docs/screenshots/0.4/*.png` — do not commit or delete.
 
 ## 11. Current local test counts
 
-Recorded 21 Sep 2026, no GPU, no TinyFish (session-first-run merge gate):
+Recorded 21 Sep 2026, no GPU, no TinyFish (status/recovery/balance slice):
 
 | Suite | Result |
 |---|---|
-| backend pytest | **424 passed**, 1 skipped |
+| backend pytest | **476 passed**, 1 skipped |
 | Ruff check / format | PASS |
 | Alembic check (fresh temp SQLite → 0014) | PASS |
-| Vitest | **31 passed** |
+| Vitest | **50 passed** |
 | TypeScript / Prettier / Vite | PASS |
-| Playwright | **15 passed** |
+| Playwright | **18 passed** |
 | cargo test | host **17**, desktop **30** |
 | npm audit --omit=dev | **0** |
 | pip-audit | **0** (local package skipped) |
-| Headless acceptance (packaged sidecar, isolated root) | **29/29 PASS** (`scripts/acceptance-session-first-run.py`) |
-| Installed GUI smoke (real Tauri app, CDP-driven) | **25/25 PASS** (`apps/desktop/e2e/gui-smoke.mjs`) |
+| Installed GUI smoke (real Tauri app, CDP-driven) | **31/31 PASS** (`apps/desktop/e2e/gui-smoke.mjs`) |
 
 A leftover `apps/backend/alex.db` at an old revision is **not** the product data root. Prefer a fresh `DATABASE_URL` for `alembic check`.
 
 ## 12. Next slice
 
-**FIVE-CHIP STATUS + ERROR / RECOVERY UX**
+**UPGRADE / BACKUP / DATA PRESERVATION**
 
-Do not start this unless explicitly tasked. After that: upgrade/backup → RC / 1.0.
+Do not start this unless explicitly tasked. After that: RC / 1.0 gates.
+(Code signing, WM-07 and CD-08 stay closed until separately tasked.)
 
 ## 13. Normal test / build commands
 
@@ -204,8 +226,9 @@ Dev loop: `.\scripts\setup-backend.ps1`, `.\scripts\start-desktop.ps1` (`tauri d
 6. [on-demand-ai.md](on-demand-ai.md)
 7. [runpod-controller.md](runpod-controller.md)
 8. [security.md](security.md)
-9. `apps/desktop/src-tauri/src/backend.rs`
-10. `apps/backend/app/runtime_entry.py`, `app/packaging.py`
+9. [status-recovery-design.md](status-recovery-design.md)
+10. `apps/desktop/src-tauri/src/backend.rs`
+11. `apps/backend/app/runtime_entry.py`, `app/packaging.py`
 
 ## 15. Permanent prohibitions / invariants
 
@@ -224,3 +247,5 @@ Dev loop: `.\scripts\setup-backend.ps1`, `.\scripts\start-desktop.ps1` (`tauri d
 - Confirmations remain bound to an immutable payload
 - TinyFish Agent stays READ_ONLY; Tor intent is fail-closed to Tor
 - Production mock must not masquerade as Ready/real AI
+- Status and balance endpoints stay READ ONLY: they must never start, adopt or stop compute or spend
+- Money stays `Decimal` server-side; a failed provider read keeps the last value and is marked stale
