@@ -60,7 +60,8 @@ Chosen layout (isolated from `/var/www/12-testers`):
 /usr/local/sbin/alex-gateway-https.sh                                post-DNS HTTPS enablement (0750 root)
 ```
 
-Service user `alex-gateway` (uid 999, system, `nologin`, no home). The Gateway never lives
+Service user `alex-gateway` (system, `nologin`, no home, **uid/gid 988/987** — deliberately not 999,
+which an unrelated long-running `redis-server` on this host already uses). The Gateway never lives
 under `/var/www/12-testers` and never shares the 12Testers database.
 
 **Database choice:** SQLite (`/var/lib/alex-gateway/gateway.db`) with a single worker. Reason:
@@ -122,8 +123,27 @@ GET http://127.0.0.1:9011/health
 
 * HTTP 200, `ready=true`, `database=ok`, protocol 1, `provider_configured=true`.
 * No secret, path or credential material in the payload.
-* Service `active (running)`, **RSS ≈ 79 MB** (MemoryCurrent ≈ 59 MB), well inside the cap.
+* Service `active (running)`, **RSS ≈ 77 MB** (memory peak 62 MB), well inside the cap.
 * Journal contains only normal uvicorn lines.
+
+### Nginx → Gateway path, proven before DNS exists
+
+The public hostname does not resolve yet, so the proxy path was proven on a **temporary**
+loopback vhost (`127.0.0.1:9477`, throwaway self-signed certificate, same `proxy_pass` and
+streaming settings as the final block), then removed and nginx reloaded:
+
+| Request through nginx (HTTPS) | Result |
+|---|---|
+| `GET /health` | **200** with `ready=true`, `provider_configured=true` |
+| `GET /balance` unauthenticated | **401** |
+| `GET /compute/status` unauthenticated | **401** |
+| `POST /v1/chat/completions` unauthenticated | **401** |
+| `POST /runpod/graphql` | **404** |
+| `POST /runpod/request` | **404** |
+| `POST /provider/raw` | **404** |
+
+After cleanup only `12-testers` and the inert `alex-gateway.conf` (ACME `:80` stub) remain
+enabled, no temporary port is listening, and the site/API are still 200/200.
 
 ## 8. 12Testers regression checkpoints
 
