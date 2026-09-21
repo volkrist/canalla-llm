@@ -42,20 +42,11 @@ Developers can still run `scripts/start-backend.ps1`. Desktop then connects as `
 | RunPod / TinyFish keys | still `.env` / OS env (not this slice) |
 | Backend URL | automatic; Advanced settings remain |
 
-## Packaging (not implemented here)
+## Packaging
 
-How FastAPI will ship with Tauri is still open. Options vs this repo:
+PyInstaller **onedir** sidecar `alex-backend.exe` + `_internal/`, bundled as a Tauri resource. Desktop supervisor still owns the PID/Job Object. Production packaged builds never search `python.exe`. `tauri dev` may still use `apps/backend/.venv`. See [backend-sidecar-decision.md](backend-sidecar-decision.md) and [installer-data-layout.md](installer-data-layout.md).
 
-| Approach | Fit | Risk |
-|---|---|---|
-| Keep venv + discover `apps/backend/.venv` | Current developer path | Not an installer |
-| PyInstaller/Nuitka on `app.runtime_entry` | One exe sidecar, Tauri `externalBin` | Size (FastEmbed/native), Playwright not bundled here |
-| Embedded CPython | Updateable runtime | Complex on Windows |
-| Full embed in `alex-llm.exe` | Single file | Rebuild cost, antivirus |
-
-Recommendation: **sidecar from `runtime_entry`** after this slice is proven. Do not migrate packaging before Desktop ownership works on a developer machine. FastEmbed ONNX and future Browser deps dominate size; GPU weights stay on the Network Volume.
-
-Next slice after this PASSed: on-demand RunPod lifecycle — see [on-demand-ai.md](on-demand-ai.md).
+GPU weights stay on Network Volume `uwgeaie5b0`. Embedding weights stay in `%LOCALAPPDATA%\Alex LLM\models\embeddings\`.
 
 ## Quit vs window
 
