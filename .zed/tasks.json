@@ -1,0 +1,79 @@
+[
+  {
+    "label": "backend tests",
+    "command": ".\\.venv\\Scripts\\python.exe -m pytest -q",
+    "cwd": "apps/backend",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always"
+  },
+  {
+    "label": "Ruff",
+    "command": ".\\.venv\\Scripts\\python.exe -m ruff check app tests alembic; if ($LASTEXITCODE) { exit $LASTEXITCODE }; .\\.venv\\Scripts\\python.exe -m ruff format --check app tests alembic",
+    "cwd": "apps/backend",
+    "shell": {
+      "with_arguments": {
+        "program": "powershell.exe",
+        "args": ["-NoProfile", "-NonInteractive", "-Command"]
+      }
+    },
+    "reveal": "always"
+  },
+  {
+    "label": "frontend unit",
+    "command": "npm test",
+    "cwd": "apps/desktop",
+    "reveal": "always"
+  },
+  {
+    "label": "TypeScript",
+    "command": "npx tsc -b --pretty false",
+    "cwd": "apps/desktop",
+    "reveal": "always"
+  },
+  {
+    "label": "Playwright",
+    "command": "npm run test:e2e",
+    "cwd": "apps/desktop",
+    "reveal": "always"
+  },
+  {
+    "label": "cargo tests",
+    "command": "$env:PATH = \"$env:USERPROFILE\\.cargo\\bin;$env:PATH\"; cargo test",
+    "cwd": "apps/desktop/src-tauri",
+    "shell": {
+      "with_arguments": {
+        "program": "powershell.exe",
+        "args": ["-NoProfile", "-NonInteractive", "-Command"]
+      }
+    },
+    "reveal": "always"
+  },
+  {
+    "label": "full local validation",
+    "command": "$ErrorActionPreference = 'Stop'; $env:PATH = \"$env:USERPROFILE\\.cargo\\bin;$env:PATH\"; Set-Location apps\\backend; .\\.venv\\Scripts\\python.exe -m pytest -q; if ($LASTEXITCODE) { exit $LASTEXITCODE }; .\\.venv\\Scripts\\python.exe -m ruff check app tests alembic; if ($LASTEXITCODE) { exit $LASTEXITCODE }; .\\.venv\\Scripts\\python.exe -m ruff format --check app tests alembic; if ($LASTEXITCODE) { exit $LASTEXITCODE }; $tmp = Join-Path $env:TEMP ('alex-alembic-check-' + [guid]::NewGuid().ToString() + '.db'); $env:DATABASE_URL = 'sqlite:///' + ($tmp -replace '\\\\','/'); try { .\\.venv\\Scripts\\python.exe -m alembic upgrade head; if ($LASTEXITCODE) { exit $LASTEXITCODE }; .\\.venv\\Scripts\\python.exe -m alembic check; if ($LASTEXITCODE) { exit $LASTEXITCODE } } finally { Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue; Remove-Item $tmp, \"$tmp-wal\", \"$tmp-shm\" -ErrorAction SilentlyContinue }; .\\.venv\\Scripts\\python.exe -m pip_audit; Set-Location ..\\desktop; npm test; if ($LASTEXITCODE) { exit $LASTEXITCODE }; npm run format:check; if ($LASTEXITCODE) { exit $LASTEXITCODE }; npx tsc -b --pretty false; if ($LASTEXITCODE) { exit $LASTEXITCODE }; npx vite build; if ($LASTEXITCODE) { exit $LASTEXITCODE }; npm run test:e2e; if ($LASTEXITCODE) { exit $LASTEXITCODE }; npm audit --omit=dev; if ($LASTEXITCODE) { exit $LASTEXITCODE }; Set-Location src-tauri; cargo check; if ($LASTEXITCODE) { exit $LASTEXITCODE }; cargo test; if ($LASTEXITCODE) { exit $LASTEXITCODE }; Write-Host 'LOCAL_VALIDATION_OK'",
+    "cwd": ".",
+    "shell": {
+      "with_arguments": {
+        "program": "powershell.exe",
+        "args": ["-NoProfile", "-NonInteractive", "-Command"]
+      }
+    },
+    "reveal": "always",
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "backend sidecar build",
+    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\build-backend-sidecar.ps1",
+    "cwd": ".",
+    "reveal": "always",
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "Desktop/installer build",
+    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\build-desktop.ps1",
+    "cwd": ".",
+    "reveal": "always",
+    "allow_concurrent_runs": false
+  }
+]
