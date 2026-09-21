@@ -26,6 +26,8 @@ from .product import PRODUCT, RUNTIME_PROTOCOL_VERSION, VERSION
 from .providers import LLMError, make_provider
 from .runtime_log import RedactTicket
 from .security import current_user
+from .status.balance import RunPodBalanceService
+from .status.routes import router as status_router
 from .tools.executor import reconcile_tools
 from .tools.registry import make_registry
 from .tools.routes import router as tools_router
@@ -49,6 +51,10 @@ async def lifespan(application):
     application.state.compute = compute
     if compute.llm:
         application.state.provider = compute.llm
+    application.state.balance = getattr(application.state, "balance_override", None) or RunPodBalanceService(
+        compute.api, compute.gpu_active, compute.active_session
+    )
+    await application.state.balance.start()
 
     async def queue_monitor():
         from .compute.demand import resume_parked_demand
@@ -97,6 +103,7 @@ async def lifespan(application):
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+        await application.state.balance.stop()
 
 
 app = FastAPI(
@@ -123,6 +130,7 @@ app.include_router(compute_router)
 app.include_router(admin_router)
 app.include_router(personal_router)
 app.include_router(presence_router)
+app.include_router(status_router)
 app.include_router(documents_router)
 app.include_router(tools_router)
 app.include_router(tasks_router)
