@@ -43,7 +43,7 @@ Overview (partially stale on mock vs packaged llama.cpp defaults): [architecture
 | Backend sidecar / installer foundation | [backend-sidecar-audit.md](backend-sidecar-audit.md), [backend-sidecar-decision.md](backend-sidecar-decision.md), [installer-data-layout.md](installer-data-layout.md) |
 | Session restore / first-run foundation | [session-first-run-audit.md](session-first-run-audit.md), [session-first-run-design.md](session-first-run-design.md) |
 | Five-chip status + error/recovery UX + shared RunPod balance | [status-recovery-audit.md](status-recovery-audit.md), [status-recovery-design.md](status-recovery-design.md) |
-| Central RunPod Gateway / Cloud Control Plane v2 (**not deployed, not merged**) | [central-runpod-gateway-audit.md](central-runpod-gateway-audit.md), [central-runpod-gateway-design.md](central-runpod-gateway-design.md), [gateway-deployment.md](gateway-deployment.md) |
+| Central RunPod Gateway / Cloud Control Plane v2 (**deployed** at `https://gateway.12testers.store`, merged) | [central-runpod-gateway-audit.md](central-runpod-gateway-audit.md), [central-runpod-gateway-design.md](central-runpod-gateway-design.md), [gateway-deployment.md](gateway-deployment.md), [gateway-12testers-deploy-audit.md](gateway-12testers-deploy-audit.md) |
 
 Security invariants: [security.md](security.md).
 
@@ -107,21 +107,28 @@ GPU does **not** start on app open, settings, or health. A real model-needed tas
 
 Details: [on-demand-ai.md](on-demand-ai.md), [runpod-controller.md](runpod-controller.md).
 
-### Two provider modes (Central RunPod Gateway, implemented not deployed)
+### Two provider modes (Central RunPod Gateway, deployed)
 
 | | Production shared | Dev / private direct |
 |---|---|---|
 | Provider credential | Gateway only (`RUNPOD_API_KEY` in server env) | local `Alex LLM/provider/runpod` |
 | Compute authority | Gateway (`gateway_compute` singleton + database lease) | local `RunPodController` |
 | Inference | client → Gateway `/v1/chat/completions` → Pod | client → Pod directly |
-| Selected by | enrollment + `ALEX_AI_MODE=shared` from the Desktop spawn env | default when no enrollment exists |
+| Gateway | `https://gateway.12testers.store` (12Testers VPS, loopback `127.0.0.1:9011`) | not used |
+| Selected by | packaged Desktop default (enrollment or not) + `ALEX_AI_MODE=shared` from the Desktop spawn env | explicit `ALEX_AI_MODE=direct` |
 
-The Desktop decides the mode when it spawns its backend (`apps/desktop/src-tauri/src/gateway.rs`): an
-installation credential means shared. The local backend defaults to `direct`, so an un-enrolled install
-behaves exactly as before. In shared mode the local compute lifecycle refuses with
-`gateway_managed_compute`, `POST /runtime/shutdown` never stops shared compute, and the balance plus the AI
-chip come from the Gateway. Typed Gateway operations only: no `/runpod/*` or `/provider/raw` passthrough.
-Client-side code: `apps/backend/app/cloud/*`. Service: `apps/gateway/gateway/*`.
+The Desktop decides the mode when it spawns its backend (`apps/desktop/src-tauri/src/gateway.rs`): a
+packaged install is **shared by default**, so without an enrollment it reports `gateway_not_connected`
+instead of silently falling back to a local provider credential; an explicit `ALEX_AI_MODE=direct` keeps
+the dev/private path. In shared mode the local compute lifecycle refuses with `gateway_managed_compute`,
+`POST /runtime/shutdown` never stops shared compute, and the balance plus the AI chip come from the
+Gateway. Typed Gateway operations only: no `/runpod/*` or `/provider/raw` passthrough. Client-side code:
+`apps/backend/app/cloud/*`. Service: `apps/gateway/gateway/*`.
+
+Shared-mode readiness is a **local** answer: `GatewayProvider.health()` is cached (`READY_TTL_SECONDS`,
+single-flight background refresh), because `/health` is the Desktop's 400 ms liveness probe — probing the
+Gateway per request made an enrolled app fail to start and hammered the shared service (see the deploy
+audit §17.1).
 
 ## 7. Sidecar / installer architecture
 
@@ -170,7 +177,7 @@ Primary checkout: `C:\Users\Volkr\Documents\Codex\2026-09-13\x20\outputs\alex-ll
 | Branch | Worktree | Role |
 |---|---|---|
 | `main` | this repo | product |
-| `feat/central-runpod-gateway` | (same) | implemented, pushed, **not merged**; keep |
+| `feat/central-runpod-gateway` | (same) | **merged** (production deployment slice); keep |
 | `feat/status-recovery-ux` | (same) | merged; keep |
 | `feat/session-first-run` | (same) | merged; keep |
 | `feat/backend-sidecar-installer` | (same) | merged; keep |
@@ -186,24 +193,27 @@ Local leftover: `docs/screenshots/0.4/*.png` — do not commit or delete.
 
 ## 11. Current local test counts
 
-Recorded 21 Sep 2026, no GPU, no TinyFish (Central RunPod Gateway slice):
+Recorded 21 Sep 2026, no GPU, no TinyFish (Central RunPod Gateway → production deployment):
 
 | Suite | Result |
 |---|---|
 | gateway pytest | **95 passed** |
 | gateway Ruff check / format | PASS |
 | gateway Alembic (fresh temp SQLite → `0001_gateway_core`, `alembic check` clean) | PASS |
-| backend pytest | **512 passed**, 1 skipped |
+| backend pytest | **514 passed**, 1 skipped |
 | Ruff check / format | PASS |
 | Alembic check (fresh temp SQLite → 0014) | PASS |
-| Vitest | **74 passed** |
+| Vitest | **76 passed** |
 | TypeScript / Prettier / Vite | PASS |
 | Playwright | **19 passed** |
-| cargo test | host **17**, desktop **42** |
+| cargo check / test | host **17**, desktop **43** |
 | npm audit --omit=dev | **0** |
 | pip-audit | **0** (local package skipped) |
 | Installed GUI smoke (real Tauri app, CDP-driven) | **PASS** (`apps/desktop/e2e/gui-smoke.mjs`) |
 | Installed cloud GUI smoke (enroll → balance → user switch → restart → reinstall) | **PASS** (`apps/desktop/e2e/cloud-smoke.mjs`) |
+| Installed production-default check (shared, no silent direct fallback) | **13/13 PASS** (`apps/desktop/e2e/cloud-default-check.mjs`) |
+| **Public Gateway acceptance** (deployed HTTPS, two installations, shared balance, revoke) | **PASS** (`scripts/acceptance-public-gateway.py`) |
+| **Installed app against the public Gateway** (disconnect → restart → enroll → balance → leaks) | **PASS** (`apps/desktop/e2e/cloud-prod-enroll.mjs`) |
 | Local production-like Gateway acceptance (real read-only shared balance) | **PASS** (`scripts/acceptance-central-gateway.py`) |
 | Live read-only RunPod balance acceptance (direct mode) | **PASS** (`scripts/acceptance-runpod-balance.py`) |
 
@@ -215,7 +225,9 @@ A leftover `apps/backend/alex.db` at an old revision is **not** the product data
 
 Do not start this unless explicitly tasked. After that: RC / 1.0 gates.
 (Code signing, WM-07 and CD-08 stay closed until separately tasked; the Central RunPod Gateway is
-implemented but not deployed, and it is not merged into `main` until that is decided.)
+**deployed** at `https://gateway.12testers.store` and merged into `main` — its compute path
+(`/compute/ensure`, the inference proxy) is still unproven against a real Pod, which is the next
+verification step when a Pod is first started deliberately.)
 
 ## 13. Normal test / build commands
 
@@ -247,7 +259,9 @@ cargo check
 cargo test
 cd ..\..\..
 
-# Gateway (its own service, own database, own Alembic history)
+# Gateway (its own service, own database, own Alembic history).
+# Deployed instance: https://gateway.12testers.store on the 12Testers VPS
+# (see gateway-12testers-deploy-audit.md; operator CLI runs on the server, not here).
 cd apps\gateway
 ..\backend\.venv\Scripts\python.exe -m pytest -q
 ..\backend\.venv\Scripts\python.exe -m ruff check .
@@ -262,6 +276,16 @@ cd ..\..
 
 # REAL read-only Gateway acceptance (two installations, shared balance, no compute action).
 apps\backend\.venv\Scripts\python.exe scripts\acceptance-central-gateway.py
+
+# REAL PUBLIC acceptance against the deployed Gateway (creates codes on the VPS over SSH,
+# read-only balance, revokes its own throwaway installations; no secret is printed).
+apps\backend\.venv\Scripts\python.exe scripts\acceptance-public-gateway.py
+
+# Installed app against the deployed Gateway (real data root + real credentials):
+# disconnect -> restart -> enroll -> shared balance -> leak checks. No Pod, no GPU.
+cd apps\desktop
+node e2e/cloud-prod-enroll.mjs
+cd ..\..
 
 # pip-audit (from apps\backend)
 .\venv\Scripts\python.exe -m pip_audit

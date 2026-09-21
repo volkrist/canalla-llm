@@ -193,6 +193,24 @@ installation quitting must not end a Pod that others use. Starting and stopping 
 is done through the typed Gateway operations exposed at `/cloud/compute/ensure|stop` and in the
 Settings → Alex Cloud panel.
 
+### 9.1 Readiness is local, and the panel settles (production fix)
+
+The Desktop's runtime readiness probe gives `GET /health` **400 ms** and the UI polls
+`/health` and `/llm/status` while it runs. In shared mode readiness must therefore never be a
+Gateway round trip: `GatewayProvider.health()` answers from a cached value
+(`READY_TTL_SECONDS = 8`, single-flight background refresh). The first caller still waits for
+the real answer, a stale answer is served instead of a slow `/health`, and a failed probe is
+cached too. Probing per request is what made an enrolled install fail to become ready and turned
+a healthy client into a hot loop against the shared service (the deployed limiter answered
+**429**), so this is a permanent invariant rather than a tuning detail — see AGENTS.md.
+
+On the client UI side the panel reads the cloud snapshot when it mounts and after
+enroll/disconnect. A backend that was just restarted still answers `connecting` for a moment, so
+the read is **settled**: `refreshCloud()` and the enroll/disconnect paths wait (bounded,
+12 × 750 ms) for the first answer that is not the transient `connecting`, and publish nothing
+else. The activation code, the installation secret and the access token are never part of that
+snapshot.
+
 ## 10. Gateway database
 
 Its own database and its **own Alembic history** (`apps/gateway/alembic`, revision
@@ -242,11 +260,24 @@ deploy byte-identical Pod runtimes with the same image, mounts, model and flags.
   shared mode → logout → different local user → still connected → full Quit + relaunch → still
   connected with the balance restored → reinstall over the installation → still connected and the
   data root unchanged. No «Запустить AI», no `ensure`/`stop` call, no Pod, GPU 0.
+* `scripts/acceptance-public-gateway.py` — **PASS** against the **deployed** Gateway over public
+  HTTPS: health, 401/404 surface, two installations with server-created codes, digest-only
+  storage, short-lived tokens, one shared balance from one cached snapshot (`$0.85`), a controlled
+  cache refresh, protocol mismatch 409, revocation isolation, and the master key absent from the
+  journal, the nginx logs and a database dump. Both throwaway installations were revoked.
+* `apps/desktop/e2e/cloud-prod-enroll.mjs` — **PASS** on the real installed app against the public
+  Gateway: explicit disconnect (local credential removed, server revoked, dev credential kept) →
+  restart → enroll through the real UI → «Alex Cloud · Подключено» → real balance `$0.84` → master
+  key absent from the DOM, browser storage, the local database, the logs, the installer and the
+  installed binaries → no direct provider traffic → no hot loop (2 model probes/min, no 429).
 
 ## 13. Known limitations
 
-* **No public deployment.** Deployment artifacts and a runbook exist; no host, DNS or TLS was
-  provisioned and no 12Testers infrastructure was touched.
+* **The Gateway is deployed** at `https://gateway.12testers.store` (12Testers VPS, separate
+  service/database/user, Let's Encrypt) and merged into `main`. Its **compute path is still
+  unproven against a real Pod**: `POST /compute/ensure` and the inference proxy have never been
+  exercised end to end against RunPod — money caps, the single-Pod lease and the create-unknown
+  path are covered by the FakeRunPod suite only.
 * **No central Alex account.** Enrollment uses one-time activation codes delivered by an
   operator. A future account service can replace the code without moving the RunPod trust
   boundary.

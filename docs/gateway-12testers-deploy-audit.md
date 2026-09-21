@@ -1,7 +1,8 @@
 # Alex Cloud Gateway — production deployment audit (12Testers VPS)
 
-Date: 21 September 2026. Slicе: `feat/central-runpod-gateway`, release HEAD
-`e0987a9d3ff0df07dd6aa9828a15ed05ec59b0e3` (branch HEAD after the production-default fix).
+Date: 21 September 2026. Slice: `feat/central-runpod-gateway`, releases
+`e0987a9d3ff0df07dd6aa9828a15ed05ec59b0e3` (first deployment) and later branch HEAD §17.1
+(client fix). **This deployment is live at `https://gateway.12testers.store`** — see Part 2.
 
 This document records the read-only baseline, the production identification evidence, the
 deployment layout and the acceptance results. It contains **no secrets**: the RunPod master
@@ -193,10 +194,10 @@ with two server-generated one-time codes. No value of any code, token or secret 
 This is the multi-installation and shared-balance evidence; the *client* hop over public
 HTTPS (and therefore the real enrollment of this desktop) still waits for the DNS record below.
 
-## 11. Remaining blocker: DNS
+## 11. DNS (resolved in Part 2)
 
-`gateway.12testers.store` does not exist. The zone is on Cloudflare, and no authorized
-programmatic mechanism was found anywhere:
+`gateway.12testers.store` did not exist when the Gateway was first deployed. The zone is on
+Cloudflare, and no authorized programmatic mechanism was found anywhere:
 
 * Windows: no `CLOUDFLARE_*` env vars, no `cloudflared`, no `wrangler`, no Cloudflare entry in
   the Credential Manager, no token in the 12Testers project copy or its `env/` files;
@@ -207,7 +208,7 @@ programmatic mechanism was found anywhere:
   Cloudflare credential (`SERVER_NEXT_PUBLIC_API_URL`, `SSH_HOST`, `SSH_PRIVATE_KEY` only) and
   its workflows reference neither Cloudflare nor DNS.
 
-### DNS_ACTION_REQUIRED — the one human action
+### DNS_ACTION_REQUIRED — the one human action (done)
 
 In the Cloudflare dashboard for `12testers.store` add:
 
@@ -253,3 +254,128 @@ record exists, one command finishes the deployment.
   pass first.
 * No compute: `/compute/ensure`, `/compute/stop`, Pod creation, GPU — never called. Provider
   traffic so far is read-only.
+
+---
+
+# Part 2 — public HTTPS, client enrollment and the shared balance (same day)
+
+The Cloudflare record was added by the operator (`A gateway → 162.0.216.58`, proxied). Every
+step below was then executed by the agent; the only human action in the whole deployment was
+that DNS record.
+
+## 15. DNS and TLS
+
+| Check | Result |
+|---|---|
+| `gateway.12testers.store` from 1.1.1.1 / 8.8.8.8 | resolves to Cloudflare edge (`104.21.72.181`, `172.67.153.215`, both IPv6 addresses) — proxied, as intended |
+| ACME challenge through the proxy | `http://gateway.12testers.store/.well-known/acme-challenge/<probe>` → **200** with the probe body (checked *before* requesting the certificate) |
+| Certificate | Let's Encrypt via the pre-staged `/usr/local/sbin/alex-gateway-https.sh`; `gateway.12testers.store`, valid 89 days, `fullchain.pem` at `/etc/letsencrypt/live/gateway.12testers.store/` |
+| Public vhost | `/etc/nginx/sites-available/alex-gateway.conf`: `:80` ACME + redirect, `:443` → `proxy_pass http://127.0.0.1:9011`, `TLSv1.2 TLSv1.3`, HSTS, `proxy_http_version 1.1`, `proxy_buffering off`, `proxy_cache off`, `proxy_request_buffering off`, `proxy_read_timeout 900s` |
+| Validation | `nginx -t` before every reload; the 12Testers server block was not touched |
+| TLS verification | `curl` reports `ssl_verify_result=0` over HTTP/1.1; HTTP → **301** to HTTPS (ACME path stays on `:80`) |
+
+## 16. Public acceptance
+
+`GET https://gateway.12testers.store/health` → **200**: `product=alex-llm-gateway`,
+`version=0.9.3`, `gateway_protocol_version=1`, `ready=true`, `database=ok`,
+`provider_configured=true` — no secret, path or credential field in the payload.
+
+Unauthenticated surface: `/balance` **401**, `/compute/status` **401**,
+`POST /v1/chat/completions` **401**; `/runpod/graphql`, `/runpod/request`, `/provider/raw`
+**404**. The Gateway is a public hostname, so internet scanners do reach it (a few `404`
+probes for `/`, `/favicon.ico`, `/functions/.env` were observed and refused).
+
+`scripts/acceptance-public-gateway.py` (new) then ran the full public acceptance against the
+deployed service — **PASS on every check**:
+
+* two one-time activation codes created on the server with the operator CLI (values never
+  printed), both single-use (a second redemption → **409**);
+* different installation ids, different secrets ≥ 256 bits, digest-only rows, no raw secret,
+  code or master key anywhere in the database;
+* short-lived tokens for both installations, a wrong secret → 401/403, an unknown
+  installation id → 401/403;
+* the **same shared account balance for both** (`$0.85`, UI rounded) from **one cached
+  upstream snapshot** (identical `fetched_at`), `shared_account`/`read_only` flags set;
+* a controlled refresh after the cache TTL replaced the snapshot (read-only provider call);
+* protocol mismatch → **409**;
+* revoking B → B refused (**403**, no new token) while A keeps working;
+* the master key, the activation codes and the installation secrets are absent from the
+  journal, the nginx logs and a database dump, with a non-trivial scan corpus as control;
+* both throwaway installations were revoked at the end (2/2).
+
+## 17. Client: the real installed Alex
+
+`apps/desktop/e2e/cloud-prod-enroll.mjs` (new) drives the real installation — real data root,
+real credential entries, no isolated fixtures — through the real UI. Every check passed:
+
+| Phase | Evidence |
+|---|---|
+| explicit Disconnect | panel → «Не подключено», `Alex LLM/gateway/installation` removed, the separate `Alex LLM/provider/runpod` untouched, server-side revoke (1 live → 0 live) |
+| full restart | the app starts again (ready in 6–15 s) and stays honestly disconnected: five chips, AI chip `Не настроено`, no balance, RunPod key field absent, shared-mode note present |
+| enrollment | one-time code from the server, filled in Settings → Alex Cloud → «Подключить»; the panel settles on «Alex Cloud · Подключено», the owned backend is restarted with the shared environment, the installation id and the Gateway URL are shown, and the activation code never appears in the DOM |
+| shared balance | the app shows the **real** account balance `$0.84` seconds after the enrollment; the public access log records the `/balance 200` that served it |
+| secrets | master key absent from the DOM, browser storage, the local SQLite database, the backend log, the installer, the installed binaries and the sidecar (positive controls included); the installation credential is a different secret |
+| no direct provider traffic | the backend log of the run never mentions `api.runpod.io`; no passthrough route was used |
+
+### 17.1 Production defect found and fixed by this acceptance
+
+The first enrollment exposed a real defect that only a live Gateway could reveal:
+
+* in shared mode `GET /health` awaited `provider.health()`, which probed the Gateway
+  (`/v1/models`); the Desktop's runtime readiness probe allows **400 ms**, so the local server
+  never looked ready — after enrolling, a relaunch of the installed app sat on «Запуск Alex…»
+  and then failed with «Локальный сервер не ответил вовремя»;
+* the same probe ran on every `/health`/`/llm/status` call, which turned a healthy client into
+  a hot loop (2–5 requests/second) against the shared Gateway and tripped its rate limiter
+  (**429**).
+
+Fix (minimal, no redesign): shared-mode readiness is now **cached** in `GatewayProvider`
+(`READY_TTL_SECONDS = 8`, single-flight background refresh; the first caller still waits for
+the real answer, a stale answer is served instead of a slow `/health`). After the fix the
+installed app starts in 6–15 s, exercises **2 model probes per minute**, and the Gateway never
+rate-limits it. Two deterministic tests pin this (`test_provider_health_is_cached_instead_of_hot_looping`,
+`test_provider_health_never_raises_into_the_health_endpoint`), and a third covers the client
+UI settling: the Alex Cloud panel used to be able to keep the transient «Подключаемся…» after
+an enrollment because it reads the cloud state once on mount (`refreshCloud` now waits, bounded,
+for the first settled answer).
+
+## 18. Resource impact
+
+| Metric | Baseline (before the Gateway) | Final |
+|---|---|---|
+| Gateway RSS | — | **60–76 MB** (peak 80 MB, caps 280 MB high / 384 MB max) |
+| Host MemAvailable | ≈ 420 MB | **365 MB** |
+| Load average | 0.27 | 0.25 |
+| Disk free | 6.2 GB | 6.1 GB |
+| Gateway restarts | — | **0** (`NRestarts=0`, active since 09:46:56 UTC) |
+| Gateway CPU share | — | `CPUQuota=50%` of 1 vCPU |
+
+## 19. 12Testers regression checkpoints (continued)
+
+| Checkpoint | site | API | backend | nginx | PM2 | host |
+|---|---|---|---|---|---|---|
+| 5. after TLS/public routing | 200 | 200 | active | active | online | 379 MB avail |
+| 6. after client enrollment | 200 | 200 | active | active | online | 375–406 MB avail |
+| 7. final | 200 | 200 | active | active | online | load 0.25, 365 MB avail, 6.1 GB free |
+
+Regressions caused by the Gateway: **none**. UFW unchanged (22/80/443/8443 public only; the
+Gateway port stays loopback), Fail2Ban jails unchanged, the 12Testers vhost/service/PM2/database
+untouched.
+
+## 20. Server state after the acceptance
+
+The Gateway database holds **8 installations (1 live — the operator's installed Alex)**, 9
+enrollment codes (all redeemed or expired) and 15 audit events; compute is `offline`, sessions
+**0**. Every throwaway installation created by the two acceptance harnesses was revoked. The
+master key is still only in `/etc/alex-gateway/runpod.env` (`root:alex-gateway 0640`) and in the
+service environment at runtime.
+
+## 21. Rollback and backup
+
+* Gateway only: `systemctl disable --now alex-gateway`; to also remove the public entry point,
+  `rm -f /etc/nginx/sites-enabled/alex-gateway.conf && nginx -t && systemctl reload nginx`.
+* The 12Testers deployment is not involved in either operation.
+* Backup: `/var/lib/alex-gateway/gateway.db` (installations, compute lease, audit events — no
+  chats, prompts or documents) plus `/etc/alex-gateway/*.env`. A certificate renewal is handled
+  by the existing Certbot timer.
+* Nothing is deleted automatically: releases, database and environment files stay in place.

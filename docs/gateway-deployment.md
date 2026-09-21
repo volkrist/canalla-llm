@@ -10,11 +10,41 @@ public use. The contract and the threat model are in
 [central-runpod-gateway-audit.md](central-runpod-gateway-audit.md); the local provider behaviour it
 reuses is in [runpod-controller.md](runpod-controller.md) and [on-demand-ai.md](on-demand-ai.md).
 
-**No deployment was performed while writing this runbook.** No server was provisioned, no DNS
-record was created, no certificate was issued, and no existing infrastructure — including the
-12Testers VPS used for unrelated work — is part of this path and must not be reused for the
-Gateway. This slice ships the artifacts below; its acceptance target is a local, production-like
-run on a developer machine (Docker on one host, example configuration files), never a public one.
+**The Gateway is deployed.** This runbook was written before the deployment and its generic paths
+(Docker, PostgreSQL, other hosts) remain valid, but there is now a **live instance** — see the next
+section and [gateway-12testers-deploy-audit.md](gateway-12testers-deploy-audit.md) for the exact
+facts, acceptance results, rollback and resource impact.
+
+## Deployed instance (12Testers VPS)
+
+| | |
+|---|---|
+| Public URL | **`https://gateway.12testers.store`** (Cloudflare proxied, Let's Encrypt via Certbot) |
+| Host | the existing 12Testers production VPS (`162.0.216.58`, Ubuntu 24.04, 1 vCPU / 961 MB) — the Gateway runs **beside** the site, in its own directories, user, database and service |
+| Release | `/opt/alex-gateway/releases/<sha>` + `current` symlink, venv `/opt/alex-gateway/venv` |
+| Service | `alex-gateway.service` (user `alex-gateway`, uid 988), `127.0.0.1:9011`, one worker, `Restart=on-failure` |
+| Database | SQLite `/var/lib/alex-gateway/gateway.db` (revision `0001_gateway_core`); `DATABASE_URL` moves it to PostgreSQL unchanged |
+| Secrets | `/etc/alex-gateway/alex-gateway.env` (JWT + pod key) and `/etc/alex-gateway/runpod.env` (master RunPod key), both `root:alex-gateway 0640`, loaded with two `EnvironmentFile=` lines |
+| Nginx | `/etc/nginx/sites-available/alex-gateway.conf`: `:80` ACME + redirect, `:443` proxy to loopback with SSE-friendly settings; `nginx -t` before every reload |
+| Post-DNS script | `/usr/local/sbin/alex-gateway-https.sh` (root, 0750) — idempotent certificate + public vhost |
+| Resource guards | `CPUQuota=50%`, `MemoryHigh=280M`, `MemoryMax=384M`; measured RSS 60–76 MB |
+
+Operator commands on the server (run as the service user; the release directory is `root:alex-gateway 0750`,
+so the CLI needs the unit's environment):
+
+```bash
+sudo -u alex-gateway bash -c 'set -a; . /etc/alex-gateway/alex-gateway.env; set +a; \
+  export HOME=/var/lib/alex-gateway PYTHONPATH=/opt/alex-gateway/current/gateway:/opt/alex-gateway/current/backend; \
+  export ALEX_BACKEND_LIB_DIR=/opt/alex-gateway/current/backend; cd /opt/alex-gateway/current; \
+  /opt/alex-gateway/venv/bin/python -m gateway.cli installations'
+# the same prefix runs: create-code --label "PC A", revoke --installation-id <id>, audit, health
+```
+
+Day-2 notes specific to this host: certificate renewal is the existing Certbot timer (the ACME path
+stays on `:80` behind the proxy); the 12Testers site, service, PM2 app and database are never touched;
+the Gateway is the only process allowed to read `/etc/alex-gateway/runpod.env`; a rollback is
+`systemctl disable --now alex-gateway` plus removing `/etc/nginx/sites-enabled/alex-gateway.conf`
+(`nginx -t` first), and it needs no 12Testers change at all.
 
 ## What the Gateway owns
 
@@ -557,42 +587,50 @@ Rollback:
   the audit table, host metrics and the proxy log.
 - **No backup automation.** The compose example has no scheduled `pg_dump`, and no restore has been
   rehearsed in this slice.
-- **No public deployment was performed in this slice.** The artifacts were reviewed and validated
-  as far as a developer machine allows (configuration parity with `config.py`, shell syntax, a real
-  image build, in-container import checks, `nginx -t`, a logrotate parse, a compose render), and the
-  acceptance target is a local, production-like stack. Nothing was provisioned, no DNS record or
-  certificate exists, and no real host was touched.
+- **No public deployment was performed when this runbook was written.** It has since been
+deployed (see «Deployed instance» above and the deploy audit): the reachable instance is
+the 12Testers VPS one, and the remaining gaps are listed in that audit (no backup automation,
+no metrics, the compute path unproven against a real Pod).
 - **No production code signing and no installer integration** for the client side of enrollment;
   the enclosing 0.9.3 limitations (WM-07, CD-08, restart with a live Pod) are unchanged.
 
 ## Verification checklist before announcing the Gateway
 
-- [ ] Public `https://<host>/health` returns 200 with `ready=true` and a healthy `database`.
+State on the deployed 12Testers instance (21 Sep 2026, per the deploy audit):
+
+- [x] Public `https://gateway.12testers.store/health` returns 200 with `ready=true`,
+      `database=ok`, `provider_configured=true` and no secret in the payload.
 - [ ] Port 9000 is not reachable from outside the host; PostgreSQL is not reachable from outside.
-- [ ] TLS certificate is valid for the hostname, and renewal is scheduled and monitored.
-- [ ] `APP_ENV=production` with a generated `JWT_SECRET`; no placeholder value remains in the
-      environment file.
-- [ ] `RUNPOD_API_KEY` exists only in the service environment; it appears nowhere in the repo, the
-      image, the database or the logs.
-- [ ] Environment file is mode `0600`, owned root, and not readable by the service's non-root user
-      through any other path (no copy in a home directory, no `docker inspect` exposure in a
-      shared shell).
-- [ ] First real enrollment completed end to end on a test PC: activation code → `/enroll` → token
-      → one chat completion, and the same task resumes after the model is ready.
-- [ ] Revocation tested on that test installation; the client stops working and is re-enrollable
-      only with a new code.
-- [ ] Money rules verified: a client-supplied limit wider than `$1.20/h` or `$3.00/session` is
-      rejected, and the server-side value wins.
-- [ ] `installations` contains exactly the PCs you expect; anything else is revoked.
+      (On this host the Gateway port is loopback `127.0.0.1:9011` and the checks below apply to the
+      documented PostgreSQL path instead; UFW is unchanged.)
+- [x] TLS certificate is valid for the hostname (Let's Encrypt, 89 days) and the existing Certbot
+      timer handles renewal; no external monitoring is wired up yet.
+- [x] `JWT_SECRET` is server-generated; no placeholder value remains in the environment file.
+- [x] `RUNPOD_API_KEY` exists only in the service environment
+      (`/etc/alex-gateway/runpod.env`); verified absent from the repository, the release archive,
+      the database, the journal and the proxy logs (positive controls included).
+- [ ] Environment file is mode `0600`, owned root … — on this host the files are `0640
+      root:alex-gateway`, which is the minimum the service needs and is readable only by the
+      service user.
+- [~] First real enrollment completed end to end on a real PC: activation code → `/enroll` → token
+      → balance. The final step of the chain — **one chat completion through the deployed proxy** —
+      has not been exercised, because it requires starting a real Pod (deliberately out of scope).
+- [x] Revocation tested (both throwaway installations and the operator's own disconnect): the client
+      is refused and re-enrollable only with a new code.
+- [ ] Money rules verified against a real Pod: the `$1.20/h` and `$3.00/session` ceilings are proven
+      by the FakeRunPod suite only; no Pod has been created through the deployed Gateway.
+- [x] `installations` contains exactly the expected PC (one live installation; every throwaway one
+      is revoked).
 - [ ] Backup ran, the dump is non-empty, and a restore into a scratch database succeeded.
-- [ ] Log inspection: no `Authorization` header value, connection string or provider key appears in
+- [x] Log inspection: no `Authorization` header value, connection string or provider key appears in
       journald or the proxy log.
 - [ ] Rotation is in place for whichever log path you use; disk usage alarms are configured.
 - [ ] Alerting configured for the signals in the table above and tested by stopping the service
       once.
-- [ ] RunPod account shows no unexpected Pods; the Network Volume `uwgeaie5b0` is intact; the
-      operator knows that nothing in this stack deletes it.
-- [ ] Rollback rehearsed: the previous image/release is still available and its tag is recorded.
+- [x] RunPod account shows no unexpected Pods; the Network Volume `uwgeaie5b0` is intact.
+- [~] Rollback rehearsed: the release, database and environment files stay in place and the
+      documented `systemctl disable --now` path was never needed; it has not been executed on this
+      host.
 - [ ] Users were told what to expect: the Gateway is required for AI features, local
       Computer/Web/Tor/Memory/data keep working while it is down, and their chats never leave their PC.
 
