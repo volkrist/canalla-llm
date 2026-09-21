@@ -99,19 +99,27 @@ untouched.
 
 ## RunPod secret (smallest secure path)
 
-- `POST /auth/…`-style secrets API is not used; the Desktop owns the key:
-  Tauri commands `provider_secret_configured` / `set_provider_secret` /
-  `delete_provider_secret` (whitelist: `runpod`), stored in
-  `Alex LLM/provider/runpod`. The key is **never returned**; status is
+- **Scope: INSTALLATION GLOBAL.** One saved key serves every local Alex user; it is never per-user.
+  Target: Windows Credential Manager `Alex LLM/provider/runpod` (`CRED_PERSIST_LOCAL_MACHINE`, DPAPI file
+  fallback `runtime/cred-provider-runpod.dpapi` in the data root). No user id and no session id are part of
+  the target (`auth::provider_target`).
+- The Desktop owns the key: Tauri commands `provider_secret_configured` / `set_provider_secret` /
+  `delete_provider_secret` (whitelist: `runpod`), reachable in the installed app through
+  **Settings → AI / Compute → RunPod API key**. The key is **never returned**; the UI only ever receives
   `configured: true/false`.
-- The owned backend receives `RUNPOD_API_KEY` in its spawn environment; an
-  absent credential leaves developer `.env` untouched, a present one wins
-  (it was explicitly configured through the product).
+- The owned backend receives `RUNPOD_API_KEY` in its spawn environment; a stored credential **wins over a
+  stale developer `.env`** entry, and an absent credential leaves the environment untouched. Nothing copies
+  a `.env` value into the secure store automatically — saving the key is an explicit user action.
 - After set/delete the Desktop restarts the owned backend
   (`restart_backend`): managed Pods are stopped first (same path as Quit),
   the port is awaited to free, then a fresh sidecar picks up the new env.
   Setting a key is not itself a paid action; GPU start confirmation is
   unchanged and separate.
+- **Logout never touches provider credentials.** `auth_logout` clears only the device session
+  (`session/{id}` + `runtime/session.id`); the installation-global provider credential survives logout,
+  restart and reinstall (the data root is preserved). Only an explicit delete in Settings removes it.
+- A normal installed product does not need any `.env`; the developer `.env` remains supported for
+  `tauri dev` only.
 
 ## Desktop quit/restart hardening
 

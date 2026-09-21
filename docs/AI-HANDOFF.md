@@ -67,9 +67,12 @@ Raw refresh secret lives only in Windows Credential Manager
 `/auth/bootstrap` (first owner, runtime-token proof, singleton `bootstrap_claim`,
 closes permanently), `/auth/login|register|refresh|revoke|state`. First-run UI
 states: `first_run | auth_required | restoring | authenticated | error`.
-RunPod key: `Alex LLM/provider/runpod` (Credential Manager), passed to the
-owned backend via env; set/delete restarts the owned backend. Details:
-[session-first-run-design.md](session-first-run-design.md).
+RunPod key: **one installation-global credential** — `Alex LLM/provider/runpod` (Credential Manager,
+`CRED_PERSIST_LOCAL_MACHINE`, DPAPI fallback in the data root), saved through the installed
+Settings → AI / Compute → RunPod API key. It is never per-user, never returned to the UI
+(`configured: true/false` only), never deleted by logout, is passed to the owned backend via env (a stored
+credential wins over a stale developer `.env`), and set/delete restarts the owned backend.
+Details: [session-first-run-design.md](session-first-run-design.md).
 
 **Developer (`tauri dev` / debug):** venv Python `python -m app.runtime_entry` is allowed when the sidecar artifact is absent. An already-healthy Alex API on 8000–8019 is reused as `DEV_EXTERNAL` and is not owned/killed.
 
@@ -136,11 +139,12 @@ Do not “fix” these as a reliability rewrite:
 - REAL backend restart with a live Pod not live-tested (FakeRunPod covered)
 - No production code signing / SmartScreen publisher yet
 - Access JWT stays valid until its short expiry after logout (copied-token note, [security.md](security.md))
-- Live RunPod **balance** was accepted read-only for real (`scripts/acceptance-runpod-balance.py`: real
-  `myself.clientBalance`, shared cache reuse across two users, second refresh after the TTL, no Pod, no GPU)
-  and the installed app displayed and refreshed it. The credential used came from the developer settings
-  path; a normal installation must still set the key in Settings → provider secret (Credential Manager
-  `Alex LLM/provider/runpod`, which was **not** written during acceptance)
+- Live RunPod **balance** was accepted read-only through the **production credential path**
+  (`scripts/acceptance-runpod-balance.py` for the two-user/shared-cache check, and the installed UI for the
+  real display): the key was saved in the installed app, stored in Credential Manager
+  `Alex LLM/provider/runpod`, survived logout, full restart and reinstall, served two users with the same
+  shared balance, and was removed only by an explicit delete in Settings. No `.env` is involved in the
+  installed product.
 
 ## 10. Useful branches / worktrees
 
@@ -168,13 +172,13 @@ Recorded 21 Sep 2026, no GPU, no TinyFish (status/recovery/balance merge gate):
 
 | Suite | Result |
 |---|---|
-| backend pytest | **480 passed**, 1 skipped |
+| backend pytest | **482 passed**, 1 skipped |
 | Ruff check / format | PASS |
 | Alembic check (fresh temp SQLite → 0014) | PASS |
 | Vitest | **53 passed** |
 | TypeScript / Prettier / Vite | PASS |
 | Playwright | **19 passed** |
-| cargo test | host **17**, desktop **30** |
+| cargo test | host **17**, desktop **34** |
 | npm audit --omit=dev | **0** |
 | pip-audit | **0** (local package skipped) |
 | Installed GUI smoke (real Tauri app, CDP-driven) | **PASS** (`apps/desktop/e2e/gui-smoke.mjs`) |

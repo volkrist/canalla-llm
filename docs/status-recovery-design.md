@@ -134,7 +134,9 @@ the cache purely request-driven, which is what the live acceptance below uses fo
 ### Live read-only acceptance
 
 `scripts/acceptance-runpod-balance.py` runs the real backend in-process against an isolated database and
-the **real** `api.runpod.io/graphql` endpoint, using the credential the product's own settings resolve.
+the **real** `api.runpod.io/graphql` endpoint, using the credential the product's own settings resolve
+(the installed product gets that value from the installation-global Credential Manager credential
+`Alex LLM/provider/runpod`, which the Desktop passes into the owned backend environment).
 It blocks every mutating supplier surface (`create_pod`, `terminate_pod`, `start_compute`, `stop_compute`,
 `search_gpu`, `_ensure_on_demand_locked`) before running, and performs exactly TWO read-only balance
 queries in the passing run:

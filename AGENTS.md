@@ -53,10 +53,12 @@ Developer `tauri dev` may still use `apps/backend/.venv\Scripts\python.exe`.
 
 - No provider secrets in code, UI, or logs
 - No kill-by-name; do not kill unrelated processes
-- Confirmations stay bound to an immutable payload
+- Confirmations remain bound to an immutable payload
 - TinyFish Agent is READ_ONLY
 - Tor intent is fail-closed to Tor
 - Production mock must not masquerade as real AI
+- **RunPod key is ONE installation-global credential** (`Alex LLM/provider/runpod`): never per-user, never in
+  the frontend, never deleted by logout, removed only by an explicit delete in Settings
 - Status and balance are READ ONLY: they never start, adopt or stop compute, and never spend
 - A status chip must not claim more than its subsystem proved (configured ≠ healthy)
 
@@ -66,7 +68,10 @@ Developer `tauri dev` may still use `apps/backend/.venv\Scripts\python.exe`.
 - CD-08 REAL stale-SHA coverage debt
 - REAL backend restart with a live Pod is not yet live-tested
 - No production code signing yet
-- Live RunPod balance was accepted read-only, but the credential came from the developer settings path; a normal installation must still set the key in Settings → provider secret (Credential Manager `Alex LLM/provider/runpod` was not written during acceptance)
+- Live RunPod balance was accepted read-only **through the production credential path**: the key was saved
+  in the installed app (Settings → AI / Compute → RunPod API key), landed in Credential Manager
+  `Alex LLM/provider/runpod`, survived logout, full restart and reinstall, and served two users with the same
+  shared balance; an explicit delete removed it for everyone. No `.env` is involved in the installed product.
 - Web and Tor chips report `configured`, not `ready`: a real provider health probe and a stored verified-Tor-chain proof do not exist yet
 
 Do not start LoRA yet. Before future LoRA: baseline + censorship/refusal + coding/tools/security + catastrophic-forgetting regression.
