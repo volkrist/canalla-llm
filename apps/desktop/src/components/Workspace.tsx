@@ -15,6 +15,7 @@ import Sidebar from "./Sidebar";
 import MessageList from "./MessageList";
 import Composer from "./Composer";
 import { draftPrefix, readDraft, writeDraft } from "../lib/drafts";
+import { useContextUsage } from "../lib/context-usage";
 import ComputePanel from "./ComputePanel";
 import StatusChips from "./StatusChips";
 import { useStatus } from "../hooks/useStatus";
@@ -112,6 +113,11 @@ export default function Workspace({
     window.addEventListener("alex-drafts-cleared", clear);
     return () => window.removeEventListener("alex-drafts-cleared", clear);
   }, [prefix, chat.selected]);
+  // The meter follows the live context: the draft, the open chat and every new message.
+  const contextUsage = useContextUsage(api, chat.selected, draft, {
+    enabled: !!health,
+    refreshKey: chat.messages.length,
+  });
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
       if (event.ctrlKey || event.metaKey) {
@@ -249,7 +255,9 @@ export default function Workspace({
           </p>
         )}
         <div className="mode-line">
-          <span>{health?.provider === "mock" ? "MOCK MODE" : "ALEX LLM"}</span>
+          <span>
+            {health?.provider === "mock" ? "MOCK MODE" : "CANALLA LLM"}
+          </span>
           <span>
             {health?.provider === "mock"
               ? "Демонстрационный режим · без GPU"
@@ -339,6 +347,7 @@ export default function Workspace({
           draft={draft}
           setDraft={setDraft}
           enterSends={settings.enterSends}
+          contextUsage={contextUsage.usage}
         />
         <TaskPanel
           task={chat.task}

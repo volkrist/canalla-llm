@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ArrowUp, Square } from "lucide-react";
 import type { ComputerMode, TorMode, WebMode } from "../lib/tools";
+import type { ContextUsage } from "../lib/context-usage";
+import ContextUsageMeter from "./ContextUsageMeter";
 
 export default function Composer({
   busy,
@@ -20,6 +22,7 @@ export default function Composer({
   setComputerMode,
   deviceLabel = "Not paired",
   deviceOnline = false,
+  contextUsage = null,
 }: {
   busy: boolean;
   streaming: boolean;
@@ -38,6 +41,7 @@ export default function Composer({
   setComputerMode?: (mode: ComputerMode) => void;
   deviceLabel?: string;
   deviceOnline?: boolean;
+  contextUsage?: ContextUsage | null;
 }) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -81,11 +85,12 @@ export default function Composer({
   }
   return (
     <div className="composer-wrap">
+      <ContextUsageMeter usage={contextUsage} />
       <div className="composer">
         <textarea
           ref={textarea}
           aria-label="Сообщение"
-          placeholder="Напишите сообщение Alex…"
+          placeholder="Напишите сообщение Canalla…"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={keyDown}
