@@ -502,6 +502,12 @@ fn spawn_owned(port: u16, instance: &str, secret: &str) -> Result<Live, String> 
     for (name, value) in crate::auth::provider_env() {
         command.env(name, value);
     }
+    // Alex Cloud: when the installation is enrolled, the backend runs in production
+    // shared mode. The installation credential is a client credential (it authorizes
+    // this installation), while the RunPod master key stays server-side.
+    for (name, value) in crate::gateway::gateway_env() {
+        command.env(name, value);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

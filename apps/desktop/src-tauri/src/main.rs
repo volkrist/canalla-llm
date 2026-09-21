@@ -4,6 +4,7 @@ mod auth;
 mod backend;
 mod credential;
 mod fs_guard;
+mod gateway;
 mod git;
 mod host;
 mod process;
@@ -33,7 +34,10 @@ fn main() {
             auth::session_status,
             auth::provider_secret_configured,
             auth::set_provider_secret,
-            auth::delete_provider_secret
+            auth::delete_provider_secret,
+            gateway::gateway_status,
+            gateway::gateway_enroll,
+            gateway::gateway_disconnect
         ])
         .build(tauri::generate_context!())
         .expect("Unable to start Alex LLM")
