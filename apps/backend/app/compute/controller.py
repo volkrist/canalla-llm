@@ -242,6 +242,19 @@ class RunPodController:
             )
         return data
 
+    def active_session(self):
+        """Read-only: the tracked compute session, if any. Never starts, adopts or stops anything."""
+        with self.sessions() as db:
+            control = db.get(ComputeControl, 1)
+            if not control or not control.active_session_id:
+                return None
+            return db.get(ComputeSession, control.active_session_id)
+
+    def gpu_active(self):
+        """Read-only: is tracked compute currently billable? Used to pick the balance refresh interval."""
+        session = self.active_session()
+        return bool(session and session.started_at and not session.stopped_at)
+
     def get_compute_status(self, user: User):
         self.initialize()
         with self.sessions() as db:

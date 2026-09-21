@@ -136,6 +136,7 @@ class Settings(BaseSettings):
     admin_emails: list[str] = []
     allow_user_compute_start: bool = False
     runpod_api_key: SecretStr = SecretStr("")
+    runpod_graphql_url: str = "https://api.runpod.io/graphql"
     runpod_network_volume_id: str = "uwgeaie5b0"
     runpod_datacenter: str = "US-TX-3"
     runpod_min_vram_gb: int = Field(default=48, ge=1, le=1024)

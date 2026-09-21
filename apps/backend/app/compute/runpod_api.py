@@ -79,8 +79,12 @@ done"""
     return "bash -lc " + shlex.quote(script)
 
 
+ACCOUNT_QUERY = """query AlexAccount { myself { id clientBalance currentSpendPerHr } }"""
+
+
 class RunPodAPI:
     BASE = "https://api.runpod.io/v2"
+    GRAPHQL_TIMEOUT = 6
 
     def __init__(self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None):
         self.settings = settings
@@ -130,6 +134,66 @@ class RunPodAPI:
             return data
         except (ValueError, TypeError):
             raise RunPodError("malformed_response") from None
+
+    async def graphql(self, query: str):
+        """Read-only GraphQL. The account balance is not exposed by REST v2 or v1."""
+        if not self.configured:
+            raise RunPodError("not_configured", 503)
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.GRAPHQL_TIMEOUT,
+                follow_redirects=False,
+                headers={"Authorization": "Bearer " + self.settings.runpod_api_key.get_secret_value()},
+                transport=self.transport,
+            ) as client:
+                response = await client.post(self.settings.runpod_graphql_url, json={"query": query})
+        except httpx.TimeoutException:
+            raise RunPodError("runpod_timeout", 504) from None
+        except httpx.HTTPError:
+            raise RunPodError("runpod_unavailable") from None
+        if response.status_code >= 400:
+            codes = {
+                401: "runpod_auth",
+                402: "runpod_balance",
+                403: "runpod_auth",
+                404: "not_found",
+                422: "runpod_invalid_request",
+                429: "runpod_rate_limit",
+            }
+            raise RunPodError(codes.get(response.status_code, "runpod_unavailable"), response.status_code)
+        try:
+            data = response.json()
+        except (ValueError, TypeError):
+            raise RunPodError("malformed_response") from None
+        if not isinstance(data, dict):
+            raise RunPodError("malformed_response")
+        if data.get("errors") and not data.get("data"):
+            raise RunPodError("malformed_response")
+        return data
+
+    def parse_balance(self, payload):
+        try:
+            data = payload["data"]
+            myself = data["myself"] if isinstance(data, dict) else None
+            if not isinstance(myself, dict):
+                raise ValueError()
+            balance = Decimal(str(myself["clientBalance"]))
+            if not balance.is_finite():
+                raise ValueError()
+        except (KeyError, TypeError, ValueError, InvalidOperation):
+            raise RunPodError("malformed_response") from None
+        spend = myself.get("currentSpendPerHr")
+        try:
+            spend = None if spend is None else Decimal(str(spend))
+            if spend is not None and not spend.is_finite():
+                spend = None
+        except (TypeError, ValueError, InvalidOperation):
+            spend = None
+        return {"balance": balance, "current_spend_per_hr": spend}
+
+    async def account_balance(self):
+        """READ-ONLY account balance. Never creates, resumes or stops compute."""
+        return self.parse_balance(await self.graphql(ACCOUNT_QUERY))
 
     async def volume(self):
         data = await self.request(
