@@ -771,17 +771,36 @@ pub fn restart_backend_blocking() -> Result<BackendStatus, String> {
         }
         // Same managed-compute stop as full Quit: never leave a billed Pod
         // running while the supervising backend is replaced.
+        let port = live.port;
+        let pid = live.pid;
+        let had_job = live.job.is_some();
         let token = fs::read_to_string(root.join("runtime").join("shutdown.token"))
             .unwrap_or_default();
-        request_managed_shutdown(live.port, token.trim());
+        request_managed_shutdown(port, token.trim());
         if let Some(mut child) = live.child.take() {
             let _ = child.kill();
             let _ = child.wait();
-        } else if live.pid != 0 {
-            terminate_pid(live.pid);
+        } else if pid != 0 {
+            terminate_pid(pid);
+        }
+        // Dropping the Job Object stops the sidecar tree (KILL_ON_JOB_CLOSE).
+        drop(live);
+        if !had_job && pid != 0 {
+            terminate_tree(pid);
+        }
+        let _ = fs::remove_file(root.join("runtime").join("backend.lock"));
+        // Wait for the port to free so ensure_locked spawns a fresh backend
+        // instead of adopting the dying one as external.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline && port_connectable(port) {
+            std::thread::sleep(Duration::from_millis(150));
+        }
+        if port_connectable(port) {
+            let status = BackendStatus::error("BACKEND_STOP_TIMEOUT", root);
+            sup.last = status.clone();
+            return Ok(status);
         }
     }
-    let _ = fs::remove_file(root.join("runtime").join("backend.lock"));
     match ensure_locked(&mut sup) {
         Ok(status) => Ok(status),
         Err(code) => {
@@ -791,6 +810,20 @@ pub fn restart_backend_blocking() -> Result<BackendStatus, String> {
         }
     }
 }
+
+#[cfg(windows)]
+fn terminate_tree(pid: u32) {
+    // Terminates only the process tree rooted at our own spawned PID.
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
+#[cfg(not(windows))]
+fn terminate_tree(_pid: u32) {}
 
 pub fn on_desktop_exit() {
     // Full application Quit only (Tauri Exit / ExitRequested). In-app window
@@ -805,12 +838,19 @@ pub fn on_desktop_exit() {
         let token = fs::read_to_string(data_root().join("runtime").join("shutdown.token"))
             .unwrap_or_default();
         request_managed_shutdown(live.port, token.trim());
+        let had_job = live.job.is_some();
         if let Some(mut child) = live.child.take() {
             let _ = child.kill();
             let _ = child.wait();
         } else if live.pid != 0 {
             terminate_pid(live.pid);
         }
+        if !had_job && live.pid != 0 {
+            // Without a Job Object the PyInstaller sidecar tree must be
+            // stopped explicitly, or the grandchild would leak.
+            terminate_tree(live.pid);
+        }
+        drop(live);
         let lock = data_root().join("runtime").join("backend.lock");
         let _ = fs::remove_file(lock);
     }
