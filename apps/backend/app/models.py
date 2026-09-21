@@ -125,6 +125,24 @@ class MessageContext(Base):
     snapshot: Mapped[dict | None] = mapped_column(JSON)
 
 
+class BackupEvent(Base):
+    """Audit of local backup operations. It never holds a path outside the backups root
+    and never holds secret material — only counts, revisions and stable codes."""
+
+    __tablename__ = "backup_events"
+    __table_args__ = (Index("ix_backup_events_created_at", "created_at"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    kind: Mapped[str] = mapped_column(String(32), default="manual")
+    status: Mapped[str] = mapped_column(String(32), default="created")
+    backup_id: Mapped[str] = mapped_column(String(96), default="")
+    code: Mapped[str] = mapped_column(String(64), default="")
+    detail: Mapped[str] = mapped_column(String(400), default="")
+    app_version: Mapped[str] = mapped_column(String(32), default="")
+    schema_revision: Mapped[str] = mapped_column(String(32), default="")
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
 class PresenceSession(Base):
     __tablename__ = "presence_sessions"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)

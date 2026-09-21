@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     document_max_chars: int = Field(default=500000, ge=100, le=1000000)
     document_max_chunks: int = Field(default=1000, ge=1, le=2000)
     alex_llm_data_dir: str = ""
+    # Bounded retention for local backups (see docs/backup-format.md). Automatic backups
+    # are the pre-upgrade / pre-restore snapshots; manual ones are never pruned silently
+    # beyond their own larger cap.
+    backup_keep_automatic: int = Field(default=3, ge=1, le=10)
+    backup_keep_manual: int = Field(default=10, ge=1, le=50)
     embedding_model_dir: str = ""  # Optional legacy import directory; not the active installation.
     embedding_model_name: str = "intfloat/multilingual-e5-small"
     embedding_threads: int = Field(default=2, ge=1, le=8)

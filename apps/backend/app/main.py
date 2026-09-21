@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from . import context_builder  # noqa: F401
 from .auth import router as auth_router
+from .backup.routes import router as backup_router
 from .chats import router as chats_router
 from .cloud.client import CloudError
 from .cloud.provider import GatewayBalanceSource, GatewayProvider
@@ -153,6 +154,7 @@ app.include_router(personal_router)
 app.include_router(presence_router)
 app.include_router(status_router)
 app.include_router(cloud_router)
+app.include_router(backup_router)
 app.include_router(documents_router)
 app.include_router(tools_router)
 app.include_router(tasks_router)

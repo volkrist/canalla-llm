@@ -36,6 +36,28 @@ def live_web_key():
     return _live_web_key
 
 
+@pytest.fixture(scope="session")
+def template_database(tmp_path_factory):
+    """A migrated SQLite database that backup/upgrade tests copy into their own roots.
+
+    Built once per session with the real alembic history, so every fixture database in
+    those tests is a genuine product database rather than a hand-made schema.
+    """
+    import subprocess
+    import sys
+
+    backend = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = tmp_path_factory.mktemp("alembic-template") / "alex.db"
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=backend,
+        env={**os.environ, "DATABASE_URL": "sqlite:///" + path.as_posix()},
+        check=True,
+        capture_output=True,
+    )
+    return path
+
+
 @pytest.fixture(autouse=True)
 def database():
     Base.metadata.create_all(engine)
