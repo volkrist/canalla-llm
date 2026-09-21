@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Api } from "../lib/api";
+import { isSharedMode, useCloud } from "../lib/cloud";
 import type { LLMStatus } from "../types";
 
 interface Preferences {
@@ -123,6 +124,10 @@ export default function ComputePanel({
   const dialog = useRef<HTMLDialogElement>(null);
   const locked = useRef(false);
   const key = useRef(crypto.randomUUID());
+  // Shared mode owns compute on Alex Cloud: this panel must not look like the place
+  // where a Pod is started, and the local lifecycle routes refuse there anyway.
+  const cloud = useCloud(api);
+  const sharedGateway = isSharedMode(cloud.status);
   useEffect(() => {
     const show = () => setOpen(true);
     window.addEventListener("alex-open-compute", show);
@@ -320,6 +325,12 @@ export default function ComputePanel({
           </button>
         )}
       </div>
+      {sharedGateway && (
+        <p role="status" className="muted">
+          Compute управляется Alex Cloud: запуск и остановка доступны в разделе
+          настроек «Alex Cloud».
+        </p>
+      )}
       {llm?.provider === "llamacpp" && (
         <p>
           {llm.model || "OrcaRouter"} ·{" "}

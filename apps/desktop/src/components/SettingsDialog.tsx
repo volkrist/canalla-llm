@@ -8,6 +8,8 @@ import { clearDrafts, draftPrefix } from "../lib/drafts";
 import EmbeddingModelStatus from "./EmbeddingModelStatus";
 import WebToolsSettings from "./WebToolsSettings";
 import ProviderSecretPanel from "./ProviderSecretPanel";
+import AlexCloudPanel from "./AlexCloudPanel";
+import { isSharedMode, useCloud } from "../lib/cloud";
 import { version } from "../../package.json";
 
 export default function SettingsDialog({
@@ -30,6 +32,10 @@ export default function SettingsDialog({
   const [section, setSection] = useState("Общие");
   const [options, setOptions] = useState(value);
   const [clear, setClear] = useState(false);
+  // The cloud state decides whether a RunPod key is still needed at all. While it
+  // is unknown the local key path stays available.
+  const cloud = useCloud(api ?? null);
+  const sharedGateway = isSharedMode(cloud.status);
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
@@ -65,6 +71,7 @@ export default function SettingsDialog({
             "Общие",
             "Чат",
             "AI / Compute",
+            "Alex Cloud",
             "Personalization / Memory",
             "Files / RAG",
             "Web & Tools",
@@ -103,10 +110,18 @@ export default function SettingsDialog({
             Профиль, инструкции и настройки памяти
           </button>
         )}
+        {section === "Alex Cloud" && <AlexCloudPanel />}
         {section === "AI / Compute" && (
           <>
             <p>Выбор GPU, лимит цены, бюджет сессии и автоостановка.</p>
-            <ProviderSecretPanel />
+            {sharedGateway ? (
+              <p className="muted">
+                Ключ RunPod здесь не нужен: используется общий Gateway Alex
+                Cloud.
+              </p>
+            ) : (
+              <ProviderSecretPanel />
+            )}
             <button
               type="button"
               disabled={!api}
