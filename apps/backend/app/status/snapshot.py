@@ -23,13 +23,14 @@ from ..tools.tor.browser import socks_listening
 
 READY = "ready"
 STARTING = "starting"
+CONFIGURED = "configured"
 OFF = "off"
 NOT_CONFIGURED = "not_configured"
 UNAVAILABLE = "unavailable"
 ERROR = "error"
 DEGRADED = "degraded"
 
-STATES = (READY, STARTING, OFF, NOT_CONFIGURED, UNAVAILABLE, ERROR, DEGRADED)
+STATES = (READY, STARTING, CONFIGURED, OFF, NOT_CONFIGURED, UNAVAILABLE, ERROR, DEGRADED)
 
 # Recommended recovery action per AI error code: (state, action, recoverable).
 # `configure` needs a decision in settings; `retry` re-reads the authoritative state
@@ -182,7 +183,11 @@ def computer_status(db: Session, user: User, prefs: WebSettings):
 
 
 def web_status(settings: Settings, prefs: WebSettings):
-    """Web readiness. `ready` means configured and enabled, not probed for health."""
+    """Web readiness. A configured provider is `configured`, never `ready`.
+
+    Nothing here proves the provider answers: no TinyFish request is made for a chip.
+    Real health is confirmed per request and surfaces as a tool error code.
+    """
     configured = bool(settings.tinyfish_api_key.get_secret_value())
     enabled = bool(
         prefs.search_enabled
@@ -218,11 +223,23 @@ def web_status(settings: Settings, prefs: WebSettings):
             recoverable=True,
             details=details,
         )
-    return entry(READY, "Веб доступен.", details=details)
+    return entry(
+        CONFIGURED,
+        "Web настроен. Доступность провайдера проверяется при использовании.",
+        details=details,
+    )
 
 
 def tor_status(settings: Settings, prefs: WebSettings):
-    """Tor routing state. Fail-closed: an unconfirmed Tor is never reported as Ready."""
+    """Tor routing state. Fail-closed, and never `ready` without a verified chain.
+
+    An open SOCKS5 port is not a verified Tor route, so a listening endpoint is
+    reported as `configured` ("доступен, цепь ещё не проверена"). The architecture
+    stores no authoritative last-verified proof: `prove_socks5()` runs inside
+    TorBrowserController.start_session and its result lives only in that connection,
+    and this status path must not poll it. Therefore `ready` is intentionally never
+    produced for Tor, and no clearnet fallback exists at any point.
+    """
     listening = socks_listening(settings.tor_socks_host, settings.tor_socks_port)
     details = {
         "mode": prefs.tor_mode,
@@ -230,6 +247,7 @@ def tor_status(settings: Settings, prefs: WebSettings):
         "proxy_port": settings.tor_socks_port,
         "socks_listening": listening,
         "verified_chain": False,
+        "proof_store": "none",
         "required": prefs.tor_mode == "on",
         "fallback": "none",
     }
@@ -243,8 +261,8 @@ def tor_status(settings: Settings, prefs: WebSettings):
         )
     if listening:
         return entry(
-            READY,
-            "Tor доступен: SOCKS5 отвечает. Проверка цепи не выполнялась.",
+            CONFIGURED,
+            "Tor доступен, цепь ещё не проверена. Откат в clearnet не выполняется.",
             details=details,
         )
     return entry(

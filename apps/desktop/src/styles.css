@@ -759,6 +759,11 @@ p {
   background: #1c2920;
   border-color: #2c3a2e;
 }
+.status-chip.state-configured {
+  color: #a9bcc9;
+  background: #212a2f;
+  border-color: #33424a;
+}
 .status-chip.state-starting,
 .status-chip.state-degraded {
   color: #d6c48a;

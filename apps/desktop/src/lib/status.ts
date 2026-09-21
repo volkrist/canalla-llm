@@ -1,9 +1,15 @@
 import type { Api } from "./api";
 
-/** The shared vocabulary. A chip never claims more than its subsystem can prove. */
+/** The shared vocabulary. A chip never claims more than its subsystem can prove.
+ *
+ * `configured` exists because an installation can be set up correctly without any
+ * proof that the provider answers: configured is not healthy, and it never renders
+ * as "Готово".
+ */
 export type SubsystemState =
   | "ready"
   | "starting"
+  | "configured"
   | "off"
   | "not_configured"
   | "unavailable"
@@ -71,6 +77,7 @@ export const CHIP_TITLES: Record<ChipKey, string> = {
 export const STATE_TEXT: Record<SubsystemState, string> = {
   ready: "Готово",
   starting: "Проверяем…",
+  configured: "Настроено",
   off: "Выключено",
   not_configured: "Не настроено",
   unavailable: "Недоступно",
