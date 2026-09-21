@@ -6,6 +6,10 @@ Canonical starting point for a new IDE/agent session. This is not a historical d
 
 **0.9.3 development.** Do not bump for installer or handoff work. Not a 1.0 release cut.
 
+User-facing product name: **Canalla LLM** (window title, installer, chat labels, onboarding,
+assistant name). Storage, credential and protocol names keep the `Alex LLM` spelling on
+purpose — see the Naming section of `AGENTS.md`.
+
 ## 2. Main HEAD
 
 Recorded at handoff (sidecar installer, session restore, then this document):
@@ -44,6 +48,8 @@ Overview (partially stale on mock vs packaged llama.cpp defaults): [architecture
 | Session restore / first-run foundation | [session-first-run-audit.md](session-first-run-audit.md), [session-first-run-design.md](session-first-run-design.md) |
 | Five-chip status + error/recovery UX + shared RunPod balance | [status-recovery-audit.md](status-recovery-audit.md), [status-recovery-design.md](status-recovery-design.md) |
 | Central RunPod Gateway / Cloud Control Plane v2 (**deployed** at `https://gateway.12testers.store`, merged) | [central-runpod-gateway-audit.md](central-runpod-gateway-audit.md), [central-runpod-gateway-design.md](central-runpod-gateway-design.md), [gateway-deployment.md](gateway-deployment.md), [gateway-12testers-deploy-audit.md](gateway-12testers-deploy-audit.md) |
+| Canalla LLM brand + composer context meter | [context-usage.md](context-usage.md) |
+| Upgrade / backup / data preservation (**pushed, not merged**: `feat/upgrade-backup-data`) | [upgrade-backup-audit.md](upgrade-backup-audit.md), [upgrade-backup-design.md](upgrade-backup-design.md), [backup-format.md](backup-format.md) |
 
 Security invariants: [security.md](security.md).
 
@@ -144,8 +150,8 @@ Choice: **PyInstaller onedir** (not Nuitka, not onefile, not `externalBin`). See
 
 | | Path |
 |---|---|
-| Binaries | `%LOCALAPPDATA%\Programs\Alex LLM\` |
-| Data root | `%LOCALAPPDATA%\Alex LLM\` |
+| Binaries | `%LOCALAPPDATA%\Programs\Canalla LLM\` (until this rename: `Programs\Alex LLM`; the installer follows the product name, an older folder is left to Apps & features) |
+| Data root | `%LOCALAPPDATA%\Alex LLM\` (unchanged on purpose) |
 | DB | `data\alex.db` |
 | JWT | `runtime\jwt.secret` |
 | Logs | `logs\backend.log` |
@@ -177,6 +183,8 @@ Primary checkout: `C:\Users\Volkr\Documents\Codex\2026-09-13\x20\outputs\alex-ll
 | Branch | Worktree | Role |
 |---|---|---|
 | `main` | this repo | product |
+| `feat/canalla-llm-context-meter` | (same) | merged into `main` (brand + context meter); keep |
+| `feat/upgrade-backup-data` | (same) | **pushed, not merged** — upgrade/backup slice awaiting the owner's decision |
 | `feat/central-runpod-gateway` | (same) | **merged** (production deployment slice); keep |
 | `feat/status-recovery-ux` | (same) | merged; keep |
 | `feat/session-first-run` | (same) | merged; keep |
@@ -193,19 +201,19 @@ Local leftover: `docs/screenshots/0.4/*.png` — do not commit or delete.
 
 ## 11. Current local test counts
 
-Recorded 21 Sep 2026, no GPU, no TinyFish (Central RunPod Gateway → production deployment):
+Recorded 21 Sep 2026, no GPU, no TinyFish (Canalla LLM brand + composer context meter slice):
 
 | Suite | Result |
 |---|---|
 | gateway pytest | **95 passed** |
 | gateway Ruff check / format | PASS |
 | gateway Alembic (fresh temp SQLite → `0001_gateway_core`, `alembic check` clean) | PASS |
-| backend pytest | **514 passed**, 1 skipped |
+| backend pytest | **529 passed**, 1 skipped |
 | Ruff check / format | PASS |
 | Alembic check (fresh temp SQLite → 0014) | PASS |
-| Vitest | **76 passed** |
+| Vitest | **97 passed** |
 | TypeScript / Prettier / Vite | PASS |
-| Playwright | **19 passed** |
+| Playwright | **20 passed** (incl. the new context-meter spec) |
 | cargo check / test | host **17**, desktop **43** |
 | npm audit --omit=dev | **0** |
 | pip-audit | **0** (local package skipped) |
@@ -223,7 +231,8 @@ A leftover `apps/backend/alex.db` at an old revision is **not** the product data
 
 **UPGRADE / BACKUP / DATA PRESERVATION**
 
-Do not start this unless explicitly tasked. After that: RC / 1.0 gates.
+The slice itself is implemented on `feat/upgrade-backup-data` (pushed, not merged — merge decision
+pending). After it lands: RC / 1.0 gates.
 (Code signing, WM-07 and CD-08 stay closed until separately tasked; the Central RunPod Gateway is
 **deployed** at `https://gateway.12testers.store` and merged into `main` — its compute path
 (`/compute/ensure`, the inference proxy) is still unproven against a real Pod, which is the next

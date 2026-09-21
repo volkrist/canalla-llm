@@ -1,7 +1,38 @@
-# Alex LLM
+# Canalla LLM
 
 Windows desktop **0.9.3**: **Tauri 2 + React + TypeScript** and **FastAPI + SQLAlchemy**.
 The desktop connects only to the backend. The default LLM is a deterministic **mock**, so no GPU, RunPod account or inference server is needed.
+
+## Naming
+
+**Canalla LLM** is the user-facing product name: window title, installer, Start menu,
+About, chat labels, onboarding and the assistant's own name in the system prompt.
+
+The following keep the older `Alex LLM` spelling on purpose, because they are storage,
+identity or protocol names and renaming them would strand user data or lose an
+enrollment:
+
+| Kept | Why |
+|---|---|
+| `%LOCALAPPDATA%\Alex LLM` (data root) | user data, documents and the database live there |
+| Windows Credential Manager targets `Alex LLM/session/{id}`, `Alex LLM/provider/runpod`, `Alex LLM/gateway/installation`, `Alex LLM/device-credential` | session, provider key and Gateway enrollment would be orphaned |
+| bundle identifier `com.alexllm.desktop`, product id `alex-llm`, `alex-llm-desktop`, gateway product `alex-llm-gateway` | installer identity, gateway protocol and packaging |
+| `alex-host-loop.exe`, `alex-backend.exe` | paired-host and sidecar binaries |
+| `Alex Cloud` (the shared Gateway service name) | a separate user-facing service brand, not this slice |
+| `alex-chats.md` export filename, `ALEX_*` environment variables | file/CLI contract |
+
+The installer still installs per user into `%LOCALAPPDATA%\Programs\<product name>`; after
+the rename that is `Programs\Canalla LLM`. An older `Programs\Alex LLM` folder from a
+previous build is not removed automatically — uninstall it from Apps & features once, or
+ignore it; it only holds binaries (never user data).
+
+## Context meter
+
+The composer shows a small ring with the tokens the next message will use
+(`Context 12 480 / 32 768 · 38%`) and a breakdown of system, memory, documents, history
+and draft. The window comes from the backend setting `LLM_CONTEXT_WINDOW` (default
+32768, i.e. llama.cpp `--ctx-size`), never from the frontend:
+[Context usage meter](docs/context-usage.md).
 
 ## Quick start on Windows
 
@@ -53,7 +84,7 @@ Create another account to verify its history is separate.
 
 Outputs:
 
-- `apps/desktop/src-tauri/target/release/alex-llm.exe` — native portable executable, displayed as Alex LLM.
+- `apps/desktop/src-tauri/target/release/alex-llm.exe` — native portable executable, displayed as Canalla LLM.
 - `apps/desktop/src-tauri/target/release/bundle/nsis/` — Windows installer.
 
 The backend is a separate service; it is not bundled into the desktop installer.
@@ -118,6 +149,7 @@ It does not overwrite an existing `.env`. Run backend commands from `apps/backen
 | `LLM_PROVIDER` | **`mock`**; `llamacpp` exists for a later explicitly configured stage |
 | `LLM_BASE_URL` | Backend-only inference server root or `/v1` URL |
 | `LLM_MODEL` | `orcarouter-qwen38-27b-q5km` |
+| `LLM_CONTEXT_WINDOW` | `32768`; the served context window the composer's context meter reports against (must match llama.cpp `--ctx-size`) |
 | `LLM_API_KEY` | Optional backend-only inference key; leave empty for the mock |
 | `MOCK_DELAY` | Optional seconds per 7-character mock chunk, default `0.035` |
 

@@ -1,15 +1,36 @@
 # Alex LLM — agent instructions
 
-PROJECT: **Alex LLM**  
+PROJECT: **Alex LLM** (user-facing name: **Canalla LLM** — see Naming)
 VERSION: **0.9.3 development** (do not bump unless asked)
 
 Read `docs/AI-HANDOFF.md` before changing runtime, packaging, or compute.
+
+## Naming
+
+The product is branded **Canalla LLM** for users: window title, installer, Shortcuts, About,
+chat labels, onboarding, assistant name in the system prompt, README.
+
+These names deliberately keep the old `Alex LLM` spelling — renaming them would strand user
+data or lose an enrollment. Do not "finish the rename" in them:
+
+- data root `%LOCALAPPDATA%\Alex LLM\` and every path below it
+- Credential Manager targets `Alex LLM/session/{id}`, `Alex LLM/provider/runpod`,
+  `Alex LLM/gateway/installation`, `Alex LLM/device-credential`
+- bundle identifier `com.alexllm.desktop`, product id `alex-llm`, `alex-llm-desktop`,
+  gateway product `alex-llm-gateway`, `product.py`
+- sidecar / host binaries `alex-backend.exe`, `alex-host-loop.exe`, `ALEX_*` env vars
+- **Alex Cloud** — the shared Gateway service name, a separate brand
+
+The installer installs into `%LOCALAPPDATA%\Programs\<product name>`, so a rename moves the
+binaries (never the data). An older `Programs\Alex LLM` folder is left for the user to
+uninstall from Apps & features.
 
 ## Architecture
 
 Thin model + thick deterministic controller.
 
 - MODEL: `orcarouter/Qwen3.8-27B-Uncensored` Q5_K_M (alias `orcarouter-qwen38-27b-q5km`)
+- Served context window: `LLM_CONTEXT_WINDOW` (default **32768**, must match llama.cpp `--ctx-size`). One source of truth for the composer's context meter: `docs/context-usage.md`. The frontend never hardcodes a window.
 - AUTONOMY: **HIGH** (fixed)
 - RESEARCH_DEPTH: **DEEP** (fixed)
 - Do not add autonomy/depth selectors.
@@ -27,6 +48,9 @@ Reliability stage: **CLOSED**. Do not reopen a broad reliability rewrite unless 
 - Five-chip status + error/recovery UX + shared RunPod balance
 - Central RunPod Gateway / Cloud Control Plane v2 (implemented, **deployed** at
   `https://gateway.12testers.store`, merged into `main`)
+- Canalla LLM user-facing brand + composer context meter (`docs/context-usage.md`)
+- Upgrade / Backup / Data Preservation — implemented and pushed on `feat/upgrade-backup-data`,
+  **not merged** (owner's merge decision pending); see the audit/design/format docs in `docs/`
 
 ## Production package
 
