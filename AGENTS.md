@@ -23,6 +23,7 @@ Reliability stage: **CLOSED**. Do not reopen a broad reliability rewrite unless 
 - Desktop-owned local backend
 - On-demand RunPod lifecycle
 - Backend Sidecar / Installer Foundation
+- Session Restore / First-Run Foundation
 
 ## Production package
 
@@ -67,7 +68,9 @@ Do not start LoRA yet. Before future LoRA: baseline + censorship/refusal + codin
 
 ## Next product slice (not this checkout)
 
-SESSION RESTORE + FIRST-RUN FOUNDATION — do not implement unless explicitly tasked.
+FIVE-CHIP STATUS + ERROR / RECOVERY UX — do not implement unless explicitly tasked.
+
+Then: upgrade/backup → RC / 1.0.
 
 ## Git safety
 

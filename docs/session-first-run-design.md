@@ -13,7 +13,7 @@ Access session (short-lived) vs persistent device session (longer-lived):
 | | Access token | Persistent session |
 |---|---|---|
 | Form | HS256 JWT (`jti`, `sub`, `iat`, `exp`, `iss=alex-llm`, `aud=alex-desktop`) | Random 256-bit secret, rotated on every use |
-| Lifetime | `JWT_EXPIRE_MINUTES` (default 60) | `AUTH_SESSION_DAYS` (default 30), rolling with activity |
+| Lifetime | `JWT_EXPIRE_MINUTES` (default 60) | sliding `AUTH_SESSION_DAYS` (default 30), bounded by absolute `AUTH_SESSION_MAX_DAYS` (default 90) from `created_at` — refresh never extends a session forever |
 | Stored | Frontend memory only | Device: Windows Credential Manager `Alex LLM/session/{id}` (DPAPI fallback file in data root). Backend: SHA-256 digest only |
 | Issued by | `/auth/*`, `/auth/refresh` | `/auth/login`, `/auth/register`, `/auth/bootstrap`, rotated by `/auth/refresh` |
 
@@ -31,6 +31,8 @@ id), `token_hash` (sha256), `rotated_from` (previous hash — replay protection)
 - Rotation: every successful refresh consumes the presented secret
   (`rotated_from = old hash`) and issues a new one. A replayed rotated secret
   is rejected.
+- Expiry: `expires_at = min(now + sliding, created_at + absolute_max)`;
+  after the absolute cap the session is rejected even while active.
 - Revocation: `POST /auth/revoke` by possession of the secret, idempotent.
   Per-session only; `revoke_all_for_user` exists for future account-wide
   actions (password change/block). Logout = revoke + delete local credential.

@@ -15,6 +15,9 @@ Recorded at handoff (fast-forward of sidecar installer, then this document):
 
 After this file lands, `git rev-parse origin/main` is the live source of truth.
 
+Session restore / first-run slice was merged into `main` as a fast-forward of
+`feat/session-first-run` (`e1f90d0`); the branch is kept.
+
 ## 3. Architecture
 
 Thin model + thick deterministic controller.
@@ -34,6 +37,7 @@ Overview (partially stale on mock vs packaged llama.cpp defaults): [architecture
 | Desktop-owned local backend | [runtime-foundation.md](runtime-foundation.md) |
 | On-demand RunPod lifecycle | [on-demand-ai.md](on-demand-ai.md), [runpod-controller.md](runpod-controller.md) |
 | Backend sidecar / installer foundation | [backend-sidecar-audit.md](backend-sidecar-audit.md), [backend-sidecar-decision.md](backend-sidecar-decision.md), [installer-data-layout.md](installer-data-layout.md) |
+| Session restore / first-run foundation | [session-first-run-audit.md](session-first-run-audit.md), [session-first-run-design.md](session-first-run-design.md) |
 
 Security invariants: [security.md](security.md).
 
@@ -49,6 +53,18 @@ Security invariants: [security.md](security.md).
 ```
 
 Desktop `ensure_backend` prefers the packaged sidecar. Production packaged builds **must not** search `python.exe`. Missing sidecar → `BACKEND_SIDECAR_MISSING`.
+
+**Auth / session (0.9.3):** access JWT (60 min, `jti`) + persistent device session
+(hashed refresh secret in `auth_sessions`, rotated per refresh, sliding
+`AUTH_SESSION_DAYS=30` bounded by absolute `AUTH_SESSION_MAX_DAYS=90`).
+Raw refresh secret lives only in Windows Credential Manager
+(`Alex LLM/session/{id}`, DPAPI fallback in the data root). Endpoints:
+`/auth/bootstrap` (first owner, runtime-token proof, singleton `bootstrap_claim`,
+closes permanently), `/auth/login|register|refresh|revoke|state`. First-run UI
+states: `first_run | auth_required | restoring | authenticated | error`.
+RunPod key: `Alex LLM/provider/runpod` (Credential Manager), passed to the
+owned backend via env; set/delete restarts the owned backend. Details:
+[session-first-run-design.md](session-first-run-design.md).
 
 **Developer (`tauri dev` / debug):** venv Python `python -m app.runtime_entry` is allowed when the sidecar artifact is absent. An already-healthy Alex API on 8000–8019 is reused as `DEV_EXTERNAL` and is not owned/killed.
 
@@ -92,8 +108,7 @@ Do not “fix” these as a reliability rewrite:
 - CD-08 REAL stale-SHA coverage debt
 - REAL backend restart with a live Pod not live-tested (FakeRunPod covered)
 - No production code signing / SmartScreen publisher yet
-- Session restore / first-run wizard **not implemented** (next slice)
-- Direct `alex-backend.exe` without Desktop env may not force `LLM_PROVIDER=llamacpp` until the sidecar is rebuilt; packaged Desktop sets it on spawn
+- Access JWT stays valid until its short expiry after logout (copied-token note, [security.md](security.md))
 
 ## 10. Useful branches / worktrees
 
@@ -115,29 +130,29 @@ Local leftover: `docs/screenshots/0.4/*.png` — do not commit or delete.
 
 ## 11. Current local test counts
 
-Recorded 21 Sep 2026, no GPU, no TinyFish:
+Recorded 21 Sep 2026, no GPU, no TinyFish (session-first-run merge gate):
 
 | Suite | Result |
 |---|---|
-| backend pytest | **402 passed**, 1 skipped |
+| backend pytest | **424 passed**, 1 skipped |
 | Ruff check / format | PASS |
-| Alembic check (fresh temp SQLite → 0013) | PASS |
-| Vitest | **26 passed** |
+| Alembic check (fresh temp SQLite → 0014) | PASS |
+| Vitest | **31 passed** |
 | TypeScript / Prettier / Vite | PASS |
 | Playwright | **15 passed** |
-| cargo test | host **15**, desktop **24** |
+| cargo test | host **17**, desktop **30** |
 | npm audit --omit=dev | **0** |
 | pip-audit | **0** (local package skipped) |
+| Headless acceptance (packaged sidecar, isolated root) | **29/29 PASS** (`scripts/acceptance-session-first-run.py`) |
+| Installed GUI smoke (real Tauri app, CDP-driven) | **25/25 PASS** (`apps/desktop/e2e/gui-smoke.mjs`) |
 
 A leftover `apps/backend/alex.db` at an old revision is **not** the product data root. Prefer a fresh `DATABASE_URL` for `alembic check`.
 
 ## 12. Next slice
 
-**SESSION RESTORE + FIRST-RUN FOUNDATION**
+**FIVE-CHIP STATUS + ERROR / RECOVERY UX**
 
-Installed user launches Alex → packaged backend Ready → existing owner/session restores → no login every restart → first legitimate owner can use AI → core flow without manual `.env`.
-
-Do not start this unless explicitly tasked. After that: five-chip / recovery UX → upgrade/backup → RC / 1.0.
+Do not start this unless explicitly tasked. After that: upgrade/backup → RC / 1.0.
 
 ## 13. Normal test / build commands
 
