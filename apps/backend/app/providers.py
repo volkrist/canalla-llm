@@ -311,12 +311,12 @@ class MockLLMProvider(LLMProvider):
     async def stream_chat(self, messages):
         prompt = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "Hello")
         response = (
-            "Это **Alex LLM**, демонстрационный ответ mock-провайдера.\n\n"
+            "Это **Canalla LLM**, демонстрационный ответ mock-провайдера.\n\n"
             f"Вы написали: {prompt}\n\n"
             "Авторизация, история и потоковая передача уже работают без GPU. "
             "Этот ответ генерируется локальным шаблоном, а не языковой моделью.\n\n"
             "Пример кода:\n\n```python\ndef greet(name: str) -> str:\n"
-            '    return f"Hello, {name}!"\n\nprint(greet("Alex LLM"))\n```\n'
+            '    return f"Hello, {name}!"\n\nprint(greet("Canalla LLM"))\n```\n'
         )
         if any(m["content"].startswith("[Untrusted reference material — documents:") for m in messages):
             response += "\nВ запрос передан контекст документов. Это проверка доставки контекста; mock не делает выводы по источникам.\n"

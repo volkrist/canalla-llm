@@ -24,7 +24,7 @@ async function login(page: Page, request: APIRequestContext) {
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Пароль", { exact: true }).fill(password);
   await page
-    .getByRole("button", { name: "Войти в Alex LLM", exact: true })
+    .getByRole("button", { name: "Войти в Canalla LLM", exact: true })
     .click();
   await expect(page.getByLabel("Web mode", { exact: true })).toHaveValue(
     "auto",

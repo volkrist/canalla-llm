@@ -128,7 +128,7 @@ export default function MessageList({
             </div>
             <div className="message-body">
               <div className="message-author">
-                {message.role === "assistant" ? "Alex LLM" : "Вы"}
+                {message.role === "assistant" ? "Canalla LLM" : "Вы"}
                 <span>{message.role === "assistant" ? "ASSISTANT" : ""}</span>
                 {settings.timestamps && (
                   <time dateTime={message.created_at}>

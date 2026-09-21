@@ -42,7 +42,7 @@ test("Embedding lifecycle: visible preparation, real-byte display, cancel, chat 
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Пароль", { exact: true }).fill(password);
   await page
-    .getByRole("button", { name: "Войти в Alex LLM", exact: true })
+    .getByRole("button", { name: "Войти в Canalla LLM", exact: true })
     .click();
   expect(state).toBe("NOT_INSTALLED");
   await page

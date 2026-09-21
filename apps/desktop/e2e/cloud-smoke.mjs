@@ -473,7 +473,7 @@ async function waitForBalance(page, timeout = 120000) {
 
 async function scenarioFirstRunAndEnroll(page) {
   await page
-    .getByRole("button", { name: "Создать владельца Alex" })
+    .getByRole("button", { name: "Создать владельца Canalla" })
     .waitFor({ timeout: 180000 });
   check("A1 first run asks for the Alex owner (FIRST_RUN owner UI)", true);
   check(
@@ -486,7 +486,7 @@ async function scenarioFirstRunAndEnroll(page) {
     .fill("Cloud Smoke Owner");
   await page.getByLabel("Email", { exact: true }).fill(OWNER_EMAIL);
   await page.getByLabel("Пароль", { exact: true }).fill(PASSWORD);
-  await page.getByRole("button", { name: "Создать владельца Alex" }).click();
+  await page.getByRole("button", { name: "Создать владельца Canalla" }).click();
   await page
     .getByRole("button", { name: "New Chat" })
     .waitFor({ timeout: 90000 });
@@ -656,7 +656,7 @@ async function scenarioLogoutAndSecondUser(page) {
   let loginShown = true;
   try {
     await page
-      .getByRole("button", { name: "Войти в Alex LLM" })
+      .getByRole("button", { name: "Войти в Canalla LLM" })
       .waitFor({ timeout: 60000 });
   } catch {
     loginShown = false;
@@ -705,7 +705,7 @@ async function scenarioLogoutAndSecondUser(page) {
 async function scenarioRestoreConnected(page, label) {
   const workspace = await waitForWorkspace(page, 180000);
   const loginVisible = await page
-    .getByRole("button", { name: "Войти в Alex LLM" })
+    .getByRole("button", { name: "Войти в Canalla LLM" })
     .isVisible()
     .catch(() => false);
   check(

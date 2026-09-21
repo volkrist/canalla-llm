@@ -66,7 +66,7 @@ function ConfirmationCopy({ run }: { run: ToolRun }) {
   if (risk === "SENSITIVE") {
     return (
       <>
-        <h3>Alex LLM хочет выполнить чувствительное действие</h3>
+        <h3>Canalla LLM хочет выполнить чувствительное действие</h3>
         <p>
           <strong>Зачем:</strong> {summary.reason}
         </p>

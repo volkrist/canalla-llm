@@ -47,7 +47,7 @@ test("register, streamed markdown, copy, stop, history, isolation and delete", a
     .fill("Останови этот ответ");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.locator(".message.assistant").last()).toContainText(
-    "Alex LLM",
+    "Canalla LLM",
   );
   await page.getByRole("button", { name: "Stop generation" }).click();
   await expect(
@@ -73,7 +73,7 @@ test("register, streamed markdown, copy, stop, history, isolation and delete", a
   await page.getByRole("button", { name: "Выйти", exact: true }).click();
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Пароль", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "Войти в Alex LLM" }).click();
+  await page.getByRole("button", { name: "Войти в Canalla LLM" }).click();
   await page
     .getByRole("button", { name: "Покажи пример Python", exact: true })
     .click();

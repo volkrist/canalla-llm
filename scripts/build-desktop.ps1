@@ -22,6 +22,7 @@ $nsis = Get-ChildItem -Recurse (Join-Path $repo 'apps\desktop\src-tauri\target\r
   Select-Object -First 1
 $desktop = @(
   (Join-Path $repo 'apps\desktop\src-tauri\target\release\alex-llm.exe'),
+  (Join-Path $repo 'apps\desktop\src-tauri\target\release\Canalla LLM.exe'),
   (Join-Path $repo 'apps\desktop\src-tauri\target\release\Alex LLM.exe')
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 $sidecar = Join-Path $repo 'apps\desktop\src-tauri\sidecar\alex-backend\alex-backend.exe'

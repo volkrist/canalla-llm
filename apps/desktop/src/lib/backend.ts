@@ -21,7 +21,7 @@ export function isTauriRuntime(): boolean {
 
 const ERRORS: Record<string, string> = {
   BACKEND_SIDECAR_MISSING:
-    "Не найден встроенный сервер. Переустановите Alex LLM.",
+    "Не найден встроенный сервер. Переустановите Canalla LLM.",
   BACKEND_START_FAILED: "Локальный сервер не запустился.",
   BACKEND_HEALTH_TIMEOUT: "Локальный сервер не ответил вовремя.",
   BACKEND_VERSION_MISMATCH:

@@ -159,7 +159,7 @@ export default function App() {
       ) : null}
       {tauriBlocked ? (
         runtime?.state === "error" ? null : (
-          <div className="runtime-wait">Запуск Alex…</div>
+          <div className="runtime-wait">Запуск Canalla…</div>
         )
       ) : phase === "authenticated" && session ? (
         <Workspace
@@ -178,7 +178,7 @@ export default function App() {
         <div className="auth-page">
           <div className="auth-panel">
             <form className="auth-form" onSubmit={retry}>
-              <span className="eyebrow">ALEX LLM</span>
+              <span className="eyebrow">CANALLA LLM</span>
               <h2>Не удалось войти</h2>
               <p>{authError || "Локальный сервер не ответил."}</p>
               <button className="primary auth-submit" type="submit">

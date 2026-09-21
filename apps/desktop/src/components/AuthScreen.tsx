@@ -40,12 +40,12 @@ export default function AuthScreen({
     }
   }
   const title = bootstrap
-    ? "Создайте владельца Alex"
+    ? "Создайте владельца Canalla"
     : mode === "login"
       ? "С возвращением"
       : "Начнём знакомство";
   const subtitle = bootstrap
-    ? "Первый аккаунт на этом компьютере станет владельцем Alex и сможет запускать AI."
+    ? "Первый аккаунт на этом компьютере станет владельцем Canalla и сможет запускать AI."
     : mode === "login"
       ? "Войдите, чтобы продолжить разговор."
       : "Создайте аккаунт для ваших диалогов.";
@@ -83,7 +83,7 @@ export default function AuthScreen({
           <Settings2 size={20} />
         </button>
         <form className="auth-form" onSubmit={submit}>
-          <span className="eyebrow">ALEX LLM</span>
+          <span className="eyebrow">CANALLA LLM</span>
           <h2>{title}</h2>
           <p>{subtitle}</p>
           {!bootstrap && (
@@ -168,9 +168,9 @@ export default function AuthScreen({
             {busy
               ? "Подключаемся…"
               : bootstrap
-                ? "Создать владельца Alex"
+                ? "Создать владельца Canalla"
                 : mode === "login"
-                  ? "Войти в Alex LLM"
+                  ? "Войти в Canalla LLM"
                   : "Создать аккаунт"}
             <ArrowRight size={18} />
           </button>
@@ -196,7 +196,8 @@ export default function AuthScreen({
           )}
           {firstRun && !isTauriRuntime() && (
             <p className="muted">
-              Создание владельца доступно в установленном приложении Alex.
+              Создание владельца доступно в установленном приложении Canalla
+              LLM.
             </p>
           )}
         </form>

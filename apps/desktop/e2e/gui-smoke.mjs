@@ -214,7 +214,7 @@ async function withApp(scenario) {
 
 async function scenarioFreshInstall(page) {
   await page
-    .getByRole("button", { name: "Создать владельца Alex" })
+    .getByRole("button", { name: "Создать владельца Canalla" })
     .waitFor({ timeout: 150000 });
   check("A1 fresh install shows FIRST_RUN owner UI", true);
   check(
@@ -225,7 +225,7 @@ async function scenarioFreshInstall(page) {
   await page.getByLabel("Имя владельца (необязательно)").fill("Smoke Owner");
   await page.getByLabel("Email", { exact: true }).fill(EMAIL);
   await page.getByLabel("Пароль", { exact: true }).fill(PASSWORD);
-  await page.getByRole("button", { name: "Создать владельца Alex" }).click();
+  await page.getByRole("button", { name: "Создать владельца Canalla" }).click();
   await page
     .getByRole("button", { name: "New Chat" })
     .waitFor({ timeout: 60000 });
@@ -319,7 +319,7 @@ async function scenarioRestore(page) {
     .getByRole("button", { name: "New Chat" })
     .waitFor({ timeout: 90000 });
   const loginVisible = await page
-    .getByRole("button", { name: "Войти в Alex LLM" })
+    .getByRole("button", { name: "Войти в Canalla LLM" })
     .isVisible()
     .catch(() => false);
   check(
@@ -344,14 +344,14 @@ async function scenarioLogout(page) {
     .waitFor({ timeout: 90000 });
   await page.getByRole("button", { name: "Выйти", exact: true }).click();
   await page
-    .getByRole("button", { name: "Войти в Alex LLM" })
+    .getByRole("button", { name: "Войти в Canalla LLM" })
     .waitFor({ timeout: 30000 });
   check("C1 logout through the UI returns to Login", true);
 }
 
 async function scenarioNotRestored(page) {
   await page
-    .getByRole("button", { name: "Войти в Alex LLM" })
+    .getByRole("button", { name: "Войти в Canalla LLM" })
     .waitFor({ timeout: 90000 });
   const workspace = await page
     .getByRole("button", { name: "New Chat" })
@@ -362,11 +362,11 @@ async function scenarioNotRestored(page) {
 
 async function scenarioLogin(page) {
   await page
-    .getByRole("button", { name: "Войти в Alex LLM" })
+    .getByRole("button", { name: "Войти в Canalla LLM" })
     .waitFor({ timeout: 90000 });
   await page.getByLabel("Email", { exact: true }).fill(EMAIL);
   await page.getByLabel("Пароль", { exact: true }).fill(PASSWORD);
-  await page.getByRole("button", { name: "Войти в Alex LLM" }).click();
+  await page.getByRole("button", { name: "Войти в Canalla LLM" }).click();
   await page
     .getByRole("button", { name: "New Chat" })
     .waitFor({ timeout: 60000 });
@@ -379,7 +379,7 @@ async function scenarioFinalLogout(page) {
     .waitFor({ timeout: 90000 });
   await page.getByRole("button", { name: "Выйти", exact: true }).click();
   await page
-    .getByRole("button", { name: "Войти в Alex LLM" })
+    .getByRole("button", { name: "Войти в Canalla LLM" })
     .waitFor({ timeout: 30000 });
 }
 

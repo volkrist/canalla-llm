@@ -17,7 +17,7 @@ test("Files: real CPU indexing, RAG sources, reindex, rename and deletion", asyn
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Пароль", { exact: true }).fill(password);
   await page
-    .getByRole("button", { name: "Войти в Alex LLM", exact: true })
+    .getByRole("button", { name: "Войти в Canalla LLM", exact: true })
     .click();
   await page
     .getByRole("button", { name: "Прикрепить файл", exact: true })
@@ -139,7 +139,7 @@ test("Files: project scope and PDF page source", async ({ page, request }) => {
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Пароль", { exact: true }).fill(password);
   await page
-    .getByRole("button", { name: "Войти в Alex LLM", exact: true })
+    .getByRole("button", { name: "Войти в Canalla LLM", exact: true })
     .click();
   await page.getByRole("button", { name: "Файлы", exact: true }).click();
   await page
@@ -186,7 +186,7 @@ test("Files: project scope and PDF page source", async ({ page, request }) => {
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Пароль", { exact: true }).fill(password);
   await page
-    .getByRole("button", { name: "Войти в Alex LLM", exact: true })
+    .getByRole("button", { name: "Войти в Canalla LLM", exact: true })
     .click();
   await page
     .getByRole("button", { name: "Aurora backups Seoul", exact: true })

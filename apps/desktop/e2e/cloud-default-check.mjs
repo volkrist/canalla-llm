@@ -189,14 +189,14 @@ async function openCloudPanel(page) {
 
 async function scenario(page) {
   await page
-    .getByRole("button", { name: "Создать владельца Alex" })
+    .getByRole("button", { name: "Создать владельца Canalla" })
     .waitFor({ timeout: 150000 });
   await page
     .getByLabel("Имя владельца (необязательно)")
     .fill("Gateway Default");
   await page.getByLabel("Email", { exact: true }).fill(EMAIL);
   await page.getByLabel("Пароль", { exact: true }).fill(PASSWORD);
-  await page.getByRole("button", { name: "Создать владельца Alex" }).click();
+  await page.getByRole("button", { name: "Создать владельца Canalla" }).click();
   await page
     .getByRole("button", { name: "New Chat" })
     .waitFor({ timeout: 120000 });

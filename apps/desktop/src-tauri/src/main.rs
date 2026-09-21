@@ -40,7 +40,7 @@ fn main() {
             gateway::gateway_disconnect
         ])
         .build(tauri::generate_context!())
-        .expect("Unable to start Alex LLM")
+        .expect("Unable to start Canalla LLM")
         .run(|_app, event| {
             if matches!(
                 event,

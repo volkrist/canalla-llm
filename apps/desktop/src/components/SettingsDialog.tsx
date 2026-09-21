@@ -89,7 +89,7 @@ export default function SettingsDialog({
             </button>
           ))}
         </nav>
-        {section === "О программе" && <p>Alex LLM {version}</p>}
+        {section === "О программе" && <p>Canalla LLM {version}</p>}
         {section === "Web & Tools" &&
           (api ? <WebToolsSettings api={api} /> : <p>Войдите в аккаунт.</p>)}
         {section === "Files / RAG" &&
