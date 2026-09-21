@@ -203,14 +203,21 @@ class CloudAi:
 
     def llm_public_status(self, user) -> dict:
         compute = self.cloud.compute or {}
+        last_error = self.cloud.error_code or compute.get("error_code")
+        ai = compute.get("ai")
+        if ai is None:
+            # No successful Gateway read yet: an unenrolled or unreachable installation is
+            # `unavailable` (which the chip layer renders as "Alex Cloud не подключён"),
+            # never a bare `off` that would hide the reason.
+            ai = "off" if self.cloud.configured and not last_error else "unavailable"
         return {
-            "ai": compute.get("ai", "unavailable" if self.cloud.error_code else "off"),
+            "ai": ai,
             "ai_label": compute.get("ai_label"),
             "provider": "alex-cloud",
             "model": self.cloud.settings.llm_model,
             "diagnostic": {
                 "compute_state": compute.get("state"),
-                "last_error": self.cloud.error_code or compute.get("error_code"),
+                "last_error": last_error,
                 "managed": compute.get("managed"),
                 "adopted": compute.get("adopted"),
                 "idle_deadline": compute.get("idle_deadline"),

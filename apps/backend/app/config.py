@@ -168,17 +168,20 @@ class Settings(BaseSettings):
         if self.alex_gateway_url and not self.alex_gateway_url.startswith(("http://", "https://")):
             raise ValueError("ALEX_GATEWAY_URL must be an HTTP(S) URL")
         if self.alex_ai_mode == "shared":
-            if not self.alex_gateway_url:
-                raise ValueError("Shared AI mode requires ALEX_GATEWAY_URL")
-            target = urlparse(self.alex_gateway_url)
-            if target.username or target.password or target.query or target.fragment:
-                raise ValueError("ALEX_GATEWAY_URL must not contain credentials, a query or a fragment")
-            # Fail closed: plaintext is acceptable only through a loopback tunnel. A remote
-            # Gateway must be HTTPS, because the installation secret is a bearer credential.
-            if target.scheme != "https" and target.hostname not in {"localhost", "127.0.0.1", "::1"}:
-                raise ValueError(
-                    "Remote Alex Cloud requires HTTPS; HTTP is permitted only for a loopback Gateway"
-                )
+            # A production install runs shared by default and may not be enrolled yet: in
+            # that state the client must start and honestly report `gateway_not_connected`
+            # rather than refuse to boot. A URL that *is* configured still has to satisfy
+            # the policy below, and the local RunPod credential is never used either way.
+            if self.alex_gateway_url:
+                target = urlparse(self.alex_gateway_url)
+                if target.username or target.password or target.query or target.fragment:
+                    raise ValueError("ALEX_GATEWAY_URL must not contain credentials, a query or a fragment")
+                # Fail closed: plaintext is acceptable only through a loopback tunnel. A remote
+                # Gateway must be HTTPS, because the installation secret is a bearer credential.
+                if target.scheme != "https" and target.hostname not in {"localhost", "127.0.0.1", "::1"}:
+                    raise ValueError(
+                        "Remote Alex Cloud requires HTTPS; HTTP is permitted only for a loopback Gateway"
+                    )
         if self.alex_llm_data_dir:
             from .data_paths import sqlite_url
 

@@ -18,11 +18,13 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(20);
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(4);
 const MAX_ACTIVATION_CODE: usize = 200;
 
-/// Build/runtime default. Packaged installers ship a real Gateway URL; a developer
-/// checkout leaves it empty so the field stays editable in Settings.
+/// Build/runtime default. A packaged installer bakes its Gateway URL at compile time and
+/// may still override it at runtime; a developer checkout leaves it empty so the field
+/// stays editable in Settings.
 pub fn default_gateway_url() -> String {
+    let baked = option_env!("ALEX_GATEWAY_URL").unwrap_or("");
     std::env::var("ALEX_GATEWAY_URL")
-        .unwrap_or_default()
+        .unwrap_or_else(|_| baked.to_string())
         .trim()
         .trim_end_matches('/')
         .to_string()
@@ -68,6 +70,16 @@ fn host_of(rest: &str) -> String {
             host.to_string()
         }
         _ => host.to_string(),
+    }
+}
+
+/// Is this the packaged production desktop? Same convention as the backend supervisor:
+/// an explicit `ALEX_RUNTIME_MODE` wins, otherwise a release build counts as packaged.
+fn packaged() -> bool {
+    match std::env::var("ALEX_RUNTIME_MODE") {
+        Ok(value) if value.eq_ignore_ascii_case("packaged") => true,
+        Ok(value) if !value.trim().is_empty() => false,
+        _ => cfg!(not(debug_assertions)),
     }
 }
 
@@ -282,29 +294,53 @@ pub fn gateway_disconnect() -> Result<Value, String> {
 }
 
 /// Environment for the owned backend. Shared mode is selected here — by installation
-/// state and build configuration, never by a user-facing autonomy setting. The RunPod
-/// credential of the private/direct path is left untouched and is ignored in shared mode.
+/// state and build configuration, never by a user-facing autonomy setting.
+///
+/// Production rule (0.9.3): a packaged desktop is **shared by default**. Without an
+/// enrollment it still runs shared and reports `gateway_not_connected`, so a local
+/// `Alex LLM/provider/runpod` credential can never silently take over spending for a
+/// production install. Explicit `ALEX_AI_MODE=direct` remains the developer/private
+/// switch, and a developer checkout (no packaged runtime mode) stays direct.
 pub fn gateway_env() -> Vec<(String, String)> {
+    let explicit = std::env::var("ALEX_AI_MODE")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
     match load_enrollment() {
-        Some(enrollment) => vec![
-            ("ALEX_AI_MODE".into(), "shared".into()),
-            (
+        Some(enrollment) => {
+            let mut env = vec![(
+                "ALEX_AI_MODE".into(),
+                explicit.unwrap_or_else(|| "shared".into()),
+            )];
+            env.push((
                 "ALEX_GATEWAY_URL".into(),
                 enrollment["url"].as_str().unwrap_or_default().into(),
-            ),
-            (
+            ));
+            env.push((
                 "ALEX_GATEWAY_INSTALLATION_ID".into(),
                 enrollment["installation_id"].as_str().unwrap_or_default().into(),
-            ),
-            (
+            ));
+            env.push((
                 "ALEX_GATEWAY_INSTALLATION_SECRET".into(),
                 enrollment["installation_secret"].as_str().unwrap_or_default().into(),
-            ),
-        ],
-        None => match std::env::var("ALEX_AI_MODE") {
-            Ok(mode) if !mode.trim().is_empty() => vec![("ALEX_AI_MODE".into(), mode)],
-            _ => Vec::new(),
-        },
+            ));
+            env
+        }
+        None => {
+            if let Some(mode) = explicit {
+                return vec![("ALEX_AI_MODE".into(), mode)];
+            }
+            if !packaged() {
+                // Developer checkout: leave the backend on its own default (direct).
+                return Vec::new();
+            }
+            let mut env = vec![("ALEX_AI_MODE".into(), "shared".into())];
+            let url = default_gateway_url();
+            if !url.is_empty() {
+                env.push(("ALEX_GATEWAY_URL".into(), url));
+            }
+            env
+        }
     }
 }
 
@@ -315,16 +351,30 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    fn isolated() -> (PathBuf, Option<String>, Option<String>) {
+    fn isolated() -> (PathBuf, Option<String>, Option<String>, Option<String>) {
         let previous = std::env::var("ALEX_DEVICE_DIR").ok();
         let previous_name = std::env::var("ALEX_GATEWAY_CREDENTIAL_NAME").ok();
+        let previous_runtime = std::env::var("ALEX_RUNTIME_MODE").ok();
         let temp = std::env::temp_dir().join(format!("alex-gateway-test-{}", unique()));
         let _ = fs::create_dir_all(&temp);
         std::env::set_var("ALEX_DEVICE_DIR", &temp);
         // A distinct credential name keeps the suite away from the real installation
         // entry, which lives in the machine-wide Windows Credential Manager.
+        // `ALEX_RUNTIME_MODE = dev_owned` keeps the suite in developer semantics.
         std::env::set_var("ALEX_GATEWAY_CREDENTIAL_NAME", format!("test-{}", unique()));
-        (temp, previous, previous_name)
+        std::env::set_var("ALEX_RUNTIME_MODE", "dev_owned");
+        (temp, previous, previous_name, previous_runtime)
+    }
+
+    /// Tests must not leave credentials behind: the Windows Credential Manager is
+    /// machine-wide, so a leaked fixture would put the real desktop into a fake
+    /// enrollment (this actually happened once and is why this cleanup exists).
+    fn cleanup(name_previous: Option<String>) {
+        let _ = credential::delete_scoped("gateway", &credential_name());
+        match name_previous {
+            Some(value) => std::env::set_var("ALEX_GATEWAY_CREDENTIAL_NAME", value),
+            None => std::env::remove_var("ALEX_GATEWAY_CREDENTIAL_NAME"),
+        }
     }
 
     fn unique() -> String {
@@ -332,14 +382,15 @@ mod tests {
         format!("{:x}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos())
     }
 
-    fn restore(previous: Option<String>, previous_name: Option<String>) {
+    fn restore(previous: Option<String>, previous_name: Option<String>, previous_runtime: Option<String>) {
+        cleanup(previous_name);
         match previous {
             Some(value) => std::env::set_var("ALEX_DEVICE_DIR", value),
             None => std::env::remove_var("ALEX_DEVICE_DIR"),
         }
-        match previous_name {
-            Some(value) => std::env::set_var("ALEX_GATEWAY_CREDENTIAL_NAME", value),
-            None => std::env::remove_var("ALEX_GATEWAY_CREDENTIAL_NAME"),
+        match previous_runtime {
+            Some(value) => std::env::set_var("ALEX_RUNTIME_MODE", value),
+            None => std::env::remove_var("ALEX_RUNTIME_MODE"),
         }
     }
 
@@ -363,19 +414,19 @@ mod tests {
     #[test]
     fn status_without_enrollment_is_not_connected_and_has_no_secret() {
         let _guard = TEST_ENV_LOCK.lock().unwrap();
-        let (temp, previous, previous_name) = isolated();
+        let (temp, previous, previous_name, previous_runtime) = isolated();
         let status = gateway_status().unwrap();
         assert_eq!(status["configured"], false);
         assert_eq!(status["state"], "not_connected");
         assert!(status.get("installation_secret").is_none());
-        restore(previous, previous_name);
+        restore(previous, previous_name, previous_runtime);
         let _ = fs::remove_dir_all(&temp);
     }
 
     #[test]
     fn enrollment_is_stored_securely_and_never_returned() {
         let _guard = TEST_ENV_LOCK.lock().unwrap();
-        let (temp, previous, previous_name) = isolated();
+        let (temp, previous, previous_name, previous_runtime) = isolated();
         store_enrollment(&json!({
                 "url": "https://gateway.example",
                 "installation_id": "11111111-2222-3333-4444-555555555555",
@@ -388,14 +439,14 @@ mod tests {
         assert_eq!(status["installation_id"], "11111111-2222-3333-4444-555555555555");
         let rendered = status.to_string();
         assert!(!rendered.contains("secret-value-not-for-the-ui"));
-        restore(previous, previous_name);
+        restore(previous, previous_name, previous_runtime);
         let _ = fs::remove_dir_all(&temp);
     }
 
     #[test]
     fn enrollment_environment_makes_the_backend_shared() {
         let _guard = TEST_ENV_LOCK.lock().unwrap();
-        let (temp, previous, previous_name) = isolated();
+        let (temp, previous, previous_name, previous_runtime) = isolated();
         store_enrollment(&json!({
                 "url": "https://gateway.example",
                 "installation_id": "abc",
@@ -413,31 +464,78 @@ mod tests {
             map.get("ALEX_GATEWAY_INSTALLATION_SECRET").map(String::as_str),
             Some("installation-secret-value")
         );
-        restore(previous, previous_name);
+        // The local provider key is never part of the shared-mode environment.
+        assert!(!map.contains_key("RUNPOD_API_KEY"));
+        // An explicit mode still wins over the enrollment default (developer/private).
+        std::env::set_var("ALEX_AI_MODE", "direct");
+        let explicit: std::collections::HashMap<_, _> = gateway_env().into_iter().collect();
+        assert_eq!(explicit.get("ALEX_AI_MODE").map(String::as_str), Some("direct"));
+        std::env::remove_var("ALEX_AI_MODE");
+        restore(previous, previous_name, previous_runtime);
         let _ = fs::remove_dir_all(&temp);
     }
 
     #[test]
-    fn without_enrollment_the_direct_mode_is_default() {
+    fn a_developer_checkout_without_enrollment_stays_direct() {
         let _guard = TEST_ENV_LOCK.lock().unwrap();
-        let (temp, previous, previous_name) = isolated();
+        let (temp, previous, previous_name, previous_runtime) = isolated();
         let mode = std::env::var("ALEX_AI_MODE").ok();
         std::env::remove_var("ALEX_AI_MODE");
+        // ALEXRUNTIME_MODE=dev_owned is set by isolated(): no enrollment and no explicit
+        // mode leaves the backend on its own default, which is direct.
         assert!(gateway_env().is_empty());
         std::env::set_var("ALEX_AI_MODE", "shared");
-        assert_eq!(gateway_env()[0].0, "ALEX_AI_MODE");
+        let explicit = gateway_env();
+        assert_eq!(explicit.len(), 1);
+        assert_eq!(explicit[0].0, "ALEX_AI_MODE");
         match mode {
             Some(value) => std::env::set_var("ALEX_AI_MODE", value),
             None => std::env::remove_var("ALEX_AI_MODE"),
         }
-        restore(previous, previous_name);
+        restore(previous, previous_name, previous_runtime);
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn packaged_production_is_shared_even_without_enrollment() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+        let (temp, previous, previous_name, previous_runtime) = isolated();
+        let mode = std::env::var("ALEX_AI_MODE").ok();
+        let url = std::env::var("ALEX_GATEWAY_URL").ok();
+        std::env::remove_var("ALEX_AI_MODE");
+        std::env::set_var("ALEX_RUNTIME_MODE", "packaged");
+        std::env::set_var("ALEX_GATEWAY_URL", "https://gateway.example");
+        let env: std::collections::HashMap<_, _> = gateway_env().into_iter().collect();
+        // Production default: shared, and no silent fallback to a local provider key.
+        assert_eq!(env.get("ALEX_AI_MODE").map(String::as_str), Some("shared"));
+        assert_eq!(
+            env.get("ALEX_GATEWAY_URL").map(String::as_str),
+            Some("https://gateway.example")
+        );
+        assert!(!env.contains_key("RUNPOD_API_KEY"));
+
+        // An explicit direct mode is still honoured (developer / private path).
+        std::env::set_var("ALEX_AI_MODE", "direct");
+        let env: std::collections::HashMap<_, _> = gateway_env().into_iter().collect();
+        assert_eq!(env.get("ALEX_AI_MODE").map(String::as_str), Some("direct"));
+        assert!(!env.contains_key("ALEX_GATEWAY_URL"));
+
+        match mode {
+            Some(value) => std::env::set_var("ALEX_AI_MODE", value),
+            None => std::env::remove_var("ALEX_AI_MODE"),
+        }
+        match url {
+            Some(value) => std::env::set_var("ALEX_GATEWAY_URL", value),
+            None => std::env::remove_var("ALEX_GATEWAY_URL"),
+        }
+        restore(previous, previous_name, previous_runtime);
         let _ = fs::remove_dir_all(&temp);
     }
 
     #[test]
     fn disconnect_removes_the_credential_even_when_the_gateway_is_unreachable() {
         let _guard = TEST_ENV_LOCK.lock().unwrap();
-        let (temp, previous, previous_name) = isolated();
+        let (temp, previous, previous_name, previous_runtime) = isolated();
         store_enrollment(&json!({
                 "url": "https://127.0.0.1:9",
                 "installation_id": "abc",
@@ -447,7 +545,7 @@ mod tests {
         let result = gateway_disconnect().unwrap();
         assert_eq!(result["configured"], false);
         assert!(credential::load_scoped("gateway", &credential_name()).is_none());
-        restore(previous, previous_name);
+        restore(previous, previous_name, previous_runtime);
         let _ = fs::remove_dir_all(&temp);
     }
 

@@ -15,7 +15,6 @@ from decimal import Decimal
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.cloud.client import CloudError, GatewayClient, map_code
@@ -203,14 +202,32 @@ def test_loopback_plaintext_gateway_is_allowed_for_development():
     assert Settings(**settings.model_dump()) is not None
 
 
-def test_shared_mode_requires_a_gateway_url():
+def test_shared_mode_without_a_url_reports_not_connected():
+    """A production install is shared by default and may not be enrolled yet.
+
+    That state must boot and say "Alex Cloud не подключён" instead of failing to start or
+    silently falling back to a local provider credential.
+    """
     from app.config import Settings
 
     payload = get_settings().model_dump()
     payload["alex_ai_mode"] = "shared"
     payload["alex_gateway_url"] = ""
-    with pytest.raises(ValueError):
-        Settings(**payload)
+    settings = Settings(**payload)
+    assert settings.alex_ai_mode == "shared"
+    client = GatewayClient(settings)
+    assert client.configured is False
+    state = CloudState(settings, client=client)
+
+    class User:
+        id = "u1"
+
+    assert state.snapshot()["state"] == "not_connected"
+    chip = ai_status(CloudAi(state), User())
+    assert chip["state"] == "not_configured"
+    assert "Alex Cloud" in chip["message"]
+    run(state.refresh(force=True))
+    assert state.snapshot()["detail_code"] == "gateway_not_connected"
 
 
 # --------------------------------------------------------------------------------- tokens
@@ -513,6 +530,7 @@ def test_shared_mode_refuses_the_local_compute_routes(gateway):
     application in shared mode for the rest of the suite.
     """
     import httpx
+
     from app.main import app
 
     settings = get_settings()
