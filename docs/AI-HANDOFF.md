@@ -43,6 +43,7 @@ Overview (partially stale on mock vs packaged llama.cpp defaults): [architecture
 | Backend sidecar / installer foundation | [backend-sidecar-audit.md](backend-sidecar-audit.md), [backend-sidecar-decision.md](backend-sidecar-decision.md), [installer-data-layout.md](installer-data-layout.md) |
 | Session restore / first-run foundation | [session-first-run-audit.md](session-first-run-audit.md), [session-first-run-design.md](session-first-run-design.md) |
 | Five-chip status + error/recovery UX + shared RunPod balance | [status-recovery-audit.md](status-recovery-audit.md), [status-recovery-design.md](status-recovery-design.md) |
+| Central RunPod Gateway / Cloud Control Plane v2 (**not deployed, not merged**) | [central-runpod-gateway-audit.md](central-runpod-gateway-audit.md), [central-runpod-gateway-design.md](central-runpod-gateway-design.md), [gateway-deployment.md](gateway-deployment.md) |
 
 Security invariants: [security.md](security.md).
 
@@ -106,6 +107,22 @@ GPU does **not** start on app open, settings, or health. A real model-needed tas
 
 Details: [on-demand-ai.md](on-demand-ai.md), [runpod-controller.md](runpod-controller.md).
 
+### Two provider modes (Central RunPod Gateway, implemented not deployed)
+
+| | Production shared | Dev / private direct |
+|---|---|---|
+| Provider credential | Gateway only (`RUNPOD_API_KEY` in server env) | local `Alex LLM/provider/runpod` |
+| Compute authority | Gateway (`gateway_compute` singleton + database lease) | local `RunPodController` |
+| Inference | client → Gateway `/v1/chat/completions` → Pod | client → Pod directly |
+| Selected by | enrollment + `ALEX_AI_MODE=shared` from the Desktop spawn env | default when no enrollment exists |
+
+The Desktop decides the mode when it spawns its backend (`apps/desktop/src-tauri/src/gateway.rs`): an
+installation credential means shared. The local backend defaults to `direct`, so an un-enrolled install
+behaves exactly as before. In shared mode the local compute lifecycle refuses with
+`gateway_managed_compute`, `POST /runtime/shutdown` never stops shared compute, and the balance plus the AI
+chip come from the Gateway. Typed Gateway operations only: no `/runpod/*` or `/provider/raw` passthrough.
+Client-side code: `apps/backend/app/cloud/*`. Service: `apps/gateway/gateway/*`.
+
 ## 7. Sidecar / installer architecture
 
 Choice: **PyInstaller onedir** (not Nuitka, not onefile, not `externalBin`). See [backend-sidecar-decision.md](backend-sidecar-decision.md).
@@ -153,6 +170,7 @@ Primary checkout: `C:\Users\Volkr\Documents\Codex\2026-09-13\x20\outputs\alex-ll
 | Branch | Worktree | Role |
 |---|---|---|
 | `main` | this repo | product |
+| `feat/central-runpod-gateway` | (same) | implemented, pushed, **not merged**; keep |
 | `feat/status-recovery-ux` | (same) | merged; keep |
 | `feat/session-first-run` | (same) | merged; keep |
 | `feat/backend-sidecar-installer` | (same) | merged; keep |
@@ -168,21 +186,26 @@ Local leftover: `docs/screenshots/0.4/*.png` — do not commit or delete.
 
 ## 11. Current local test counts
 
-Recorded 21 Sep 2026, no GPU, no TinyFish (status/recovery/balance merge gate):
+Recorded 21 Sep 2026, no GPU, no TinyFish (Central RunPod Gateway slice):
 
 | Suite | Result |
 |---|---|
-| backend pytest | **482 passed**, 1 skipped |
+| gateway pytest | **95 passed** |
+| gateway Ruff check / format | PASS |
+| gateway Alembic (fresh temp SQLite → `0001_gateway_core`, `alembic check` clean) | PASS |
+| backend pytest | **512 passed**, 1 skipped |
 | Ruff check / format | PASS |
 | Alembic check (fresh temp SQLite → 0014) | PASS |
-| Vitest | **53 passed** |
+| Vitest | **74 passed** |
 | TypeScript / Prettier / Vite | PASS |
 | Playwright | **19 passed** |
-| cargo test | host **17**, desktop **34** |
+| cargo test | host **17**, desktop **42** |
 | npm audit --omit=dev | **0** |
 | pip-audit | **0** (local package skipped) |
 | Installed GUI smoke (real Tauri app, CDP-driven) | **PASS** (`apps/desktop/e2e/gui-smoke.mjs`) |
-| Live read-only RunPod balance acceptance | **PASS** (`scripts/acceptance-runpod-balance.py`) |
+| Installed cloud GUI smoke (enroll → balance → user switch → restart → reinstall) | **PASS** (`apps/desktop/e2e/cloud-smoke.mjs`) |
+| Local production-like Gateway acceptance (real read-only shared balance) | **PASS** (`scripts/acceptance-central-gateway.py`) |
+| Live read-only RunPod balance acceptance (direct mode) | **PASS** (`scripts/acceptance-runpod-balance.py`) |
 
 A leftover `apps/backend/alex.db` at an old revision is **not** the product data root. Prefer a fresh `DATABASE_URL` for `alembic check`.
 
@@ -191,7 +214,8 @@ A leftover `apps/backend/alex.db` at an old revision is **not** the product data
 **UPGRADE / BACKUP / DATA PRESERVATION**
 
 Do not start this unless explicitly tasked. After that: RC / 1.0 gates.
-(Code signing, WM-07 and CD-08 stay closed until separately tasked.)
+(Code signing, WM-07 and CD-08 stay closed until separately tasked; the Central RunPod Gateway is
+implemented but not deployed, and it is not merged into `main` until that is decided.)
 
 ## 13. Normal test / build commands
 
@@ -223,6 +247,22 @@ cargo check
 cargo test
 cd ..\..\..
 
+# Gateway (its own service, own database, own Alembic history)
+cd apps\gateway
+..\backend\.venv\Scripts\python.exe -m pytest -q
+..\backend\.venv\Scripts\python.exe -m ruff check .
+..\backend\.venv\Scripts\python.exe -m ruff format --check .
+# Run the gateway locally (production-like): set APP_ENV/DATABASE_URL/JWT_SECRET/RUNPOD_API_KEY
+# and ALEX_BACKEND_LIB_DIR=<repo>\apps\backend, then:
+..\backend\.venv\Scripts\python.exe -m alembic -c alembic.ini upgrade head
+..\backend\.venv\Scripts\python.exe -m uvicorn gateway.main:app --host 127.0.0.1 --port 9011
+# One-time installation activation code (operator CLI, no admin panel):
+..\backend\.venv\Scripts\python.exe -m gateway.cli create-code --label "PC A"
+cd ..\..
+
+# REAL read-only Gateway acceptance (two installations, shared balance, no compute action).
+apps\backend\.venv\Scripts\python.exe scripts\acceptance-central-gateway.py
+
 # pip-audit (from apps\backend)
 .\venv\Scripts\python.exe -m pip_audit
 
@@ -250,8 +290,9 @@ Dev loop: `.\scripts\setup-backend.ps1`, `.\scripts\start-desktop.ps1` (`tauri d
 7. [runpod-controller.md](runpod-controller.md)
 8. [security.md](security.md)
 9. [status-recovery-design.md](status-recovery-design.md)
-10. `apps/desktop/src-tauri/src/backend.rs`
-11. `apps/backend/app/runtime_entry.py`, `app/packaging.py`
+10. [central-runpod-gateway-design.md](central-runpod-gateway-design.md), [gateway-deployment.md](gateway-deployment.md)
+11. `apps/desktop/src-tauri/src/backend.rs`
+12. `apps/backend/app/runtime_entry.py`, `app/packaging.py`
 
 ## 15. Permanent prohibitions / invariants
 
@@ -272,3 +313,9 @@ Dev loop: `.\scripts\setup-backend.ps1`, `.\scripts\start-desktop.ps1` (`tauri d
 - Production mock must not masquerade as Ready/real AI
 - Status and balance endpoints stay READ ONLY: they must never start, adopt or stop compute or spend
 - Money stays `Decimal` server-side; a failed provider read keeps the last value and is marked stale
+- The RunPod master key lives only on the Gateway: never in a Desktop, installer, local backend,
+  frontend, client Credential Manager, client SQLite, `localStorage`, client `.env`, client log or
+  API response (`Alex LLM/gateway/installation` is an installation credential, not the master key)
+- No `/runpod/*` or `/provider/raw` passthrough on the Gateway; typed operations only
+- A client can never raise the $1.20/h or $3/session caps, and no client can claim compute ownership
+- Local logout never deletes the installation credential; only an explicit Disconnect does

@@ -25,6 +25,7 @@ Reliability stage: **CLOSED**. Do not reopen a broad reliability rewrite unless 
 - Backend Sidecar / Installer Foundation
 - Session Restore / First-Run Foundation
 - Five-chip status + error/recovery UX + shared RunPod balance
+- Central RunPod Gateway / Cloud Control Plane v2 (implemented, **not deployed**)
 
 ## Production package
 
@@ -48,6 +49,25 @@ Developer `tauri dev` may still use `apps/backend/.venv\Scripts\python.exe`.
 - The same task resumes automatically after the model is ready
 - No duplicate Pods
 - Full application Quit stops a **managed** Pod (not external; not the volume)
+
+## Two provider modes
+
+- **Production shared:** many installations → Central Alex Gateway (`apps/gateway`) → one RunPod
+  account. The master RunPod key exists **only** on the Gateway (server env/secret manager); it is
+  never in a Desktop, installer, local backend, frontend, client Credential Manager, client SQLite,
+  `localStorage`, client `.env`, client log or API response. Installations authenticate as
+  installations (one-time activation code → installation credential → short-lived gateway JWT).
+  The Gateway owns global compute (one managed Pod, database lease), the money caps ($1.20/h,
+  $3/session), the shared balance cache and production inference (client → Gateway → llama.cpp).
+- **Dev / private direct:** the local `Alex LLM/provider/runpod` credential and `RunPodController`
+  keep working unchanged. Never migrate that key to the Gateway automatically, never delete it.
+- The mode is build/runtime config (`ALEX_AI_MODE`), never a user-facing autonomy setting. An
+  enrolled installation runs shared; without an enrollment the local backend stays direct.
+- Local users stay local: `user_id`/`email`/`role` are never cloud identity. While shared mode is
+  active the local compute lifecycle refuses with `gateway_managed_compute`; starting/stopping
+  shared compute goes through the typed Gateway operations only.
+- Do not add `/runpod/*` or `/provider/raw` passthrough endpoints, and never let a client raise the
+  financial caps.
 
 ## Permanent security
 
@@ -73,6 +93,16 @@ Developer `tauri dev` may still use `apps/backend/.venv\Scripts\python.exe`.
   `Alex LLM/provider/runpod`, survived logout, full restart and reinstall, and served two users with the same
   shared balance; an explicit delete removed it for everyone. No `.env` is involved in the installed product.
 - Web and Tor chips report `configured`, not `ready`: a real provider health probe and a stored verified-Tor-chain proof do not exist yet
+- The Central Alex Gateway is **not deployed**: no host, DNS or TLS exists yet, enrollment uses one-time
+  activation codes (no central Alex account service), and the service is single-process (in-process rate
+  limiter; the database lease is the real compute authority). Deployment artifacts + runbook are ready in
+  `apps/gateway` and `docs/gateway-deployment.md`.
+- Shared-mode acceptance is real but local: two enrolled installations, one shared balance, revocation, the
+  protocol guard and the absence of passthrough routes were accepted against a **local** production-like
+  Gateway with a **read-only** account query; the installed GUI smoke drove enrollment, balance, user
+  switch, restart and reinstall on the real installer. No Pod was created and no GPU was started.
+- Shared compute has no quotes or GPU picker in the UI: the Gateway selects the cheapest GPU inside the
+  server-side caps. The Settings → Alex Cloud panel offers «Запустить AI» / «Остановить AI» only.
 
 Do not start LoRA yet. Before future LoRA: baseline + censorship/refusal + coding/tools/security + catastrophic-forgetting regression.
 
