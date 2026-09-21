@@ -16,9 +16,9 @@ enrollment:
 |---|---|
 | `%LOCALAPPDATA%\Alex LLM` (data root) | user data, documents and the database live there |
 | Windows Credential Manager targets `Alex LLM/session/{id}`, `Alex LLM/provider/runpod`, `Alex LLM/gateway/installation`, `Alex LLM/device-credential` | session, provider key and Gateway enrollment would be orphaned |
-| bundle identifier `com.alexllm.desktop`, product id `alex-llm`, `alex-llm-desktop`, gateway product `alex-llm-gateway` | installer identity, gateway protocol and packaging |
+| bundle identifier `com.alexllm.desktop`, product id `alex-llm`, `alex-llm-desktop` | installer identity, gateway protocol and packaging |
 | `alex-host-loop.exe`, `alex-backend.exe` | paired-host and sidecar binaries |
-| `Alex Cloud` (the shared Gateway service name) | a separate user-facing service brand, not this slice |
+| the shared Gateway's internal names: product id `alex-llm-gateway`, unit `alex-gateway.service`, `/opt/alex-gateway`, endpoint `gateway.12testers.store` | the cloud service is **Canalla Cloud** in user-facing text; renaming the internals would break the deployment |
 | `alex-chats.md` export filename, `ALEX_*` environment variables | file/CLI contract |
 
 The installer still installs per user into `%LOCALAPPDATA%\Programs\<product name>`; after
@@ -37,6 +37,19 @@ The composer shows a small ring with the tokens the next message will use
 and draft. The window comes from the backend setting `LLM_CONTEXT_WINDOW` (default
 32768, i.e. llama.cpp `--ctx-size`), never from the frontend:
 [Context usage meter](docs/context-usage.md).
+
+## Compute Preferences
+
+Compute limits are each user's own money policy, not product caps. A new user starts at
+**$0.52/hour** and **$3.00/session** (48 GB VRAM floor, 10-minute idle stop, automatic
+cheapest-compatible selection, retry search) and may raise or lower both for themselves in
+either provider mode — direct or shared; only the technical bounds ($100/hour,
+$1000/session) are enforced, and a malformed policy is rejected instead of silently
+replaced. Automatic mode always prefers the cheapest compatible GPU inside the user's own
+maximum, so raising the limit never buys a more expensive card. The policy is stored per
+account in the local database and survives logout, restart and backup/restore; starting and
+stopping compute stays the machine owner's action:
+[Compute Preferences](docs/compute-preferences.md).
 
 ## Quick start on Windows
 

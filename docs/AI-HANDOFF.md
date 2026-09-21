@@ -50,6 +50,7 @@ Overview (partially stale on mock vs packaged llama.cpp defaults): [architecture
 | Central RunPod Gateway / Cloud Control Plane v2 (**deployed** at `https://gateway.12testers.store`, merged) | [central-runpod-gateway-audit.md](central-runpod-gateway-audit.md), [central-runpod-gateway-design.md](central-runpod-gateway-design.md), [gateway-deployment.md](gateway-deployment.md), [gateway-12testers-deploy-audit.md](gateway-12testers-deploy-audit.md) |
 | Canalla LLM brand + composer context meter | [context-usage.md](context-usage.md) |
 | Upgrade / backup / data preservation (**COMPLETED**, merged) | [upgrade-backup-audit.md](upgrade-backup-audit.md), [upgrade-backup-design.md](upgrade-backup-design.md), [backup-format.md](backup-format.md) |
+| RC / 1.0 final gates | [release-1.0.md](release-1.0.md), [compute-preferences.md](compute-preferences.md), [../CHANGELOG.md](../CHANGELOG.md) |
 
 Security invariants: [security.md](security.md).
 
@@ -359,9 +360,15 @@ Dev loop: `.\scripts\setup-backend.ps1`, `.\scripts\start-desktop.ps1` (`tauri d
 - Production mock must not masquerade as Ready/real AI
 - Status and balance endpoints stay READ ONLY: they must never start, adopt or stop compute or spend
 - Money stays `Decimal` server-side; a failed provider read keeps the last value and is marked stale
+- Compute Preferences are the **user's own money policy, not product caps**: defaults $0.52/hour and
+  $3.00/session, editable by every authenticated local user in both provider modes (no admin role for
+  *their own* policy, start/stop stays owner-gated), technical bounds only ($100/hour, $1000/session),
+  `compute_policy_invalid` (422) instead of a silent replacement, cheapest compatible GPU inside the
+  user's own maximum. Contract: [compute-preferences.md](compute-preferences.md)
 - The RunPod master key lives only on the Gateway: never in a Desktop, installer, local backend,
   frontend, client Credential Manager, client SQLite, `localStorage`, client `.env`, client log or
   API response (`Alex LLM/gateway/installation` is an installation credential, not the master key)
 - No `/runpod/*` or `/provider/raw` passthrough on the Gateway; typed operations only
-- A client can never raise the $1.20/h or $3/session caps, and no client can claim compute ownership
+- A client can never widen a technical bound, set another installation's policy or claim compute
+  ownership
 - Local logout never deletes the installation credential; only an explicit Disconnect does

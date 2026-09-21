@@ -3,9 +3,9 @@
 // Runs the REAL installed app against an ISOLATED data root and device dir, with NO
 // enrollment and NO reachable Gateway, and proves the production defaults:
 //
-//   * the backend runs in shared mode (Alex Cloud), never silently in direct mode,
+//   * the backend runs in shared mode (Canalla Cloud), never silently in direct mode,
 //     even though `Alex LLM/provider/runpod` exists on this machine;
-//   * an unenrolled production install says "Alex Cloud не подключён" instead of
+//   * an unenrolled production install says "Canalla Cloud не подключён" instead of
 //     falling back to the local provider credential;
 //   * the RunPod API key field is absent (shared mode has nothing to configure there);
 //   * the five chips keep rendering and the AI chip never claims Ready.
@@ -182,7 +182,7 @@ async function openCloudPanel(page) {
   const dialog = page.getByRole("dialog");
   await dialog.waitFor({ timeout: 30000 });
   await dialog
-    .getByRole("button", { name: "Alex Cloud", exact: true })
+    .getByRole("button", { name: "Canalla Cloud", exact: true })
     .click({ timeout: 30000 });
   return dialog;
 }
@@ -261,11 +261,11 @@ async function scenario(page) {
   );
   check("D1 five status chips render", true);
 
-  // Settings → Alex Cloud: not connected, activation form available, no RunPod key field.
+  // Settings → Canalla Cloud: not connected, activation form available, no RunPod key field.
   const dialog = await openCloudPanel(page);
   const panel = await dialog.innerText();
   check(
-    "E1 the Alex Cloud panel says it is not connected",
+    "E1 the Canalla Cloud panel says it is not connected",
     panel.includes("Не подключено"),
     panel.split("\n").slice(0, 3).join(" / "),
   );

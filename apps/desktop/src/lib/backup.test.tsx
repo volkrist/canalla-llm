@@ -273,7 +273,7 @@ describe("backup panel", () => {
     const html = renderPanel();
     expect(html).toContain("Проверить");
     expect(html).not.toContain("Восстановить");
-    expect(html).toContain("установленном приложении Alex");
+    expect(html).toContain("установленном приложении Canalla LLM");
   });
 
   it("does not offer a second operation while the backend is busy", async () => {
@@ -388,7 +388,7 @@ describe("backup operations", () => {
     invokeMock.mockResolvedValue({
       restored: true,
       code: "restored",
-      message: "Alex восстановлен.",
+      message: "Canalla восстановлен.",
       backup_id: "manual-20260615-093000",
       safety_backup_id: "pre-restore-20260616-080000",
     });
@@ -414,7 +414,7 @@ describe("backup operations", () => {
     expect(result.restored).toBe(false);
     const html = renderPanel();
     expect(html).toContain("Локальный сервер не остановился вовремя.");
-    expect(html).not.toContain("Alex восстановлен из копии");
+    expect(html).not.toContain("Canalla восстановлен из копии");
     expect(html).toContain("1 копия");
   });
 
@@ -447,7 +447,7 @@ describe("backup operations", () => {
 });
 
 describe("settings integration", () => {
-  it("lists the backups tab next to Alex Cloud", () => {
+  it("lists the backups tab next to Canalla Cloud", () => {
     const html = flat(
       renderToStaticMarkup(
         <SettingsDialog
@@ -459,7 +459,7 @@ describe("settings integration", () => {
       ),
     );
     expect(html).toContain(">Резервные копии<");
-    expect(html.indexOf(">Alex Cloud<")).toBeLessThan(
+    expect(html.indexOf(">Canalla Cloud<")).toBeLessThan(
       html.indexOf(">Резервные копии<"),
     );
     expect(html.indexOf(">Резервные копии<")).toBeLessThan(

@@ -151,9 +151,9 @@ class GatewayClient:
             ) as client:
                 response = await client.request(method, self.url + path, json=json, headers=headers)
         except httpx.TimeoutException:
-            raise CloudError("gateway_unavailable", "Alex Cloud не ответил вовремя.") from None
+            raise CloudError("gateway_unavailable", "Canalla Cloud не ответил вовремя.") from None
         except httpx.HTTPError:
-            raise CloudError("gateway_unavailable", "Alex Cloud сейчас недоступен.") from None
+            raise CloudError("gateway_unavailable", "Canalla Cloud сейчас недоступен.") from None
         try:
             body = response.json() if response.content else {}
         except ValueError:
@@ -177,9 +177,12 @@ class GatewayClient:
     async def health(self) -> dict:
         status, body = await self._send("GET", "/health", authorized=False, timeout=10)
         if status != 200 or not isinstance(body, dict):
-            raise CloudError("gateway_unavailable", "Alex Cloud сейчас недоступен.", status)
+            raise CloudError("gateway_unavailable", "Canalla Cloud сейчас недоступен.", status)
         if body.get("gateway_protocol_version") != self.settings.alex_gateway_protocol_version:
-            raise CloudError("gateway_protocol_mismatch", "Версия Alex Cloud несовместима с Alex.")
+            raise CloudError(
+                "gateway_protocol_mismatch",
+                "Версия Canalla Cloud несовместима с этой установкой Canalla LLM.",
+            )
         return body
 
     async def compute_status(self) -> dict:

@@ -461,7 +461,7 @@ async function prepare() {
 
       // Enroll against the deployed Gateway with a fresh one-time code.
       code = operatorCode("upgrade-acceptance");
-      const dialog = await openSettingsSection(page, "Alex Cloud");
+      const dialog = await openSettingsSection(page, "Canalla Cloud");
       const address = dialog.getByLabel("Адрес Gateway");
       if (!(await address.inputValue()).trim())
         await address.fill(EXPECTED_URL);
@@ -471,14 +471,14 @@ async function prepare() {
       let connected = false;
       while (Date.now() < deadline && !connected) {
         const text = await dialog.innerText().catch(() => "");
-        connected = /Alex Cloud · Подключено/.test(text);
+        connected = /Canalla Cloud · Подключено/.test(text);
         if (!connected) await sleep(1000);
       }
       const panel = await dialog.innerText();
       const installationId =
         (panel.match(/Установка:\s*([0-9a-f-]{16,})/i) || [])[1] || "";
       check(
-        "P4 the old build is enrolled in Alex Cloud",
+        "P4 the old build is enrolled in Canalla Cloud",
         connected,
         installationId.slice(0, 8) + "…",
       );
@@ -629,7 +629,7 @@ async function verify() {
         JSON.stringify(backups),
       );
 
-      const dialog = await openSettingsSection(page, "Alex Cloud");
+      const dialog = await openSettingsSection(page, "Canalla Cloud");
       // The panel reads the cloud state when it mounts: wait for that read to settle.
       const settleDeadline = Date.now() + 180000;
       let panel = "";
@@ -642,7 +642,7 @@ async function verify() {
       installationId =
         (panel.match(/Установка:\s*([0-9a-f-]{16,})/i) || [])[1] || "";
       check(
-        "V5 Alex Cloud is still connected after the over-install",
+        "V5 Canalla Cloud is still connected after the over-install",
         /Подключено/.test(panel),
         flat(panel).slice(0, 90),
       );

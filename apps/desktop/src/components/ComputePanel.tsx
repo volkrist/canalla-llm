@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { Api } from "../lib/api";
 import { isSharedMode, useCloud } from "../lib/cloud";
+import {
+  overLimitRateLine,
+  policyMoney,
+  runningSharedSession,
+} from "../lib/compute";
 import type { LLMStatus } from "../types";
 
 interface Preferences {
@@ -222,6 +227,16 @@ export default function ComputePanel({
   }
   const effective =
     status?.search_preferences || status?.preferences || preferences;
+  // §27: the running Pod belongs to the whole installation, so its rate can sit above this
+  // user's own limit (they lowered it afterwards, or another installation started it). The
+  // line is read from the last Gateway compute answer in the shared snapshot — the panel
+  // never asks for compute on render and never adjusts the policy itself.
+  const overLimit = sharedGateway
+    ? overLimitRateLine(
+        runningSharedSession(cloud.compute),
+        status?.preferences?.max_hourly_price ?? effective.max_hourly_price,
+      )
+    : null;
   const gpu = quote?.options.find((item) => item.id === selected);
   const displayedState =
     llm?.provider === "llamacpp" &&
@@ -327,8 +342,14 @@ export default function ComputePanel({
       </div>
       {sharedGateway && (
         <p role="status" className="muted">
-          Compute управляется Alex Cloud: запуск и остановка доступны в разделе
-          настроек «Alex Cloud».
+          Compute управляется Canalla Cloud: сам AI запускается и
+          останавливается в разделе настроек «Canalla Cloud», а лимиты ниже —
+          ваши собственные, их можно повышать и понижать.
+        </p>
+      )}
+      {overLimit && (
+        <p role="status" className="status-warn">
+          {overLimit}
         </p>
       )}
       {llm?.provider === "llamacpp" && (
@@ -363,8 +384,9 @@ export default function ComputePanel({
       {!status?.session && status?.configured && (
         <p>
           {status.datacenter} · {effective.gpu_id || "NVIDIA"} · VRAM ≥
-          {effective.min_vram_gb} GB · цена ≤$
-          {Number(effective.max_hourly_price).toFixed(2)}/ч
+          {effective.min_vram_gb} GB · цена ≤
+          {policyMoney(effective.max_hourly_price)}
+          /ч
         </p>
       )}
       {status?.state === "no_gpu" && status.can_control && (
@@ -473,12 +495,12 @@ export default function ComputePanel({
             <>
               <p>
                 Сохранённые лимиты: максимум{" "}
-                {money(
+                {policyMoney(
                   status?.preferences?.max_hourly_price ??
                     effective.max_hourly_price,
                 )}
                 /ч · бюджет{" "}
-                {money(
+                {policyMoney(
                   status?.preferences?.session_budget ??
                     effective.session_budget,
                 )}
@@ -490,14 +512,16 @@ export default function ComputePanel({
               </p>
               {status?.session && (
                 <p>
-                  Текущая сессия: бюджет {money(status.session.session_budget)},
-                  максимум {money(status.session.max_hourly_price)}/ч,
+                  Текущая сессия: бюджет{" "}
+                  {policyMoney(status.session.session_budget)}, максимум{" "}
+                  {policyMoney(status.session.max_hourly_price)}/ч,
                   автоостановка{" "}
                   {status.session.auto_stop_minutes || "выключена"} мин.
                   Сохранённые изменения бюджета, цены и автоостановки
                   применяются сразу; GPU — при следующем запуске.
                 </p>
               )}
+              {overLimit && <p className="status-warn">{overLimit}</p>}
               <div className="compute-fields">
                 <label>
                   Точный GPU (пусто — любой подходящий NVIDIA)

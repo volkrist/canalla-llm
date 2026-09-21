@@ -52,7 +52,7 @@ export default function AlexCloudPanel() {
     try {
       const restart = await enrollGateway(url.trim(), code);
       setCode("");
-      setMessage(restartMessage("Alex Cloud подключён", restart));
+      setMessage(restartMessage("Canalla Cloud подключён", restart));
     } catch (e) {
       setMessage(enrollError(e));
     } finally {
@@ -61,14 +61,14 @@ export default function AlexCloudPanel() {
   }
   function disconnect() {
     const confirmed = window.confirm(
-      "Отключить Alex Cloud на этой установке? Общий Gateway и общий аккаунт RunPod станут недоступны.",
+      "Отключить Canalla Cloud на этой установке? Общий Gateway и общий аккаунт RunPod станут недоступны.",
     );
     if (!confirmed) return;
     setBusy(true);
     setMessage("");
     void disconnectGateway()
       .then((restart) =>
-        setMessage(restartMessage("Alex Cloud отключён", restart)),
+        setMessage(restartMessage("Canalla Cloud отключён", restart)),
       )
       .catch((e: unknown) => setMessage(enrollError(e)))
       .finally(() => setBusy(false));
@@ -79,7 +79,7 @@ export default function AlexCloudPanel() {
     if (
       action === "stop" &&
       !window.confirm(
-        "Остановить общий AI? Compute используется всеми установками Alex Cloud.",
+        "Остановить общий AI? Compute используется всеми установками Canalla Cloud.",
       )
     ) {
       return;
@@ -95,7 +95,7 @@ export default function AlexCloudPanel() {
       setComputeMessage(result.compute.message || "");
     } catch (e) {
       setComputeMessage(
-        e instanceof Error ? e.message : "Alex Cloud не принял запрос",
+        e instanceof Error ? e.message : "Canalla Cloud не принял запрос",
       );
     } finally {
       setBusy(false);
@@ -104,14 +104,14 @@ export default function AlexCloudPanel() {
   if (!tauri)
     return (
       <p className="muted">
-        Подключение к Alex Cloud доступно в установленном приложении Canalla
+        Подключение к Canalla Cloud доступно в установленном приложении Canalla
         LLM.
       </p>
     );
   return (
     <div>
       <p role="status">
-        <strong>Alex Cloud</strong> · {stateText}
+        <strong>Canalla Cloud</strong> · {stateText}
       </p>
       <p className="field-help">
         RunPod теперь инфраструктура Canalla LLM: обычный пользователь не вводит
@@ -128,7 +128,8 @@ export default function AlexCloudPanel() {
           <div>
             <p className="field-help">
               Общий AI запускается по запросу и останавливается сам, когда им
-              никто не пользуется. Лимиты расходов задаёт Alex Cloud.
+              никто не пользуется. Лимиты расходов — ваши собственные: они
+              задаются в разделе настроек «AI / Compute».
             </p>
             <div>
               <button
@@ -157,7 +158,7 @@ export default function AlexCloudPanel() {
             {computeMessage && <p className="muted">{computeMessage}</p>}
           </div>
           <button type="button" disabled={busy} onClick={disconnect}>
-            Отключить Alex Cloud
+            Отключить Canalla Cloud
           </button>
         </>
       ) : (
@@ -176,7 +177,7 @@ export default function AlexCloudPanel() {
           <p className="field-help">
             {defaultUrl
               ? "Адрес задан установкой. Меняйте его только по указанию администратора."
-              : "Укажите адрес общего Gateway Alex Cloud."}
+              : "Укажите адрес общего Gateway Canalla Cloud."}
           </p>
           <label>
             Код активации

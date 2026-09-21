@@ -76,7 +76,7 @@ export default function SettingsDialog({
             "Общие",
             "Чат",
             "AI / Compute",
-            "Alex Cloud",
+            "Canalla Cloud",
             "Резервные копии",
             "Personalization / Memory",
             "Files / RAG",
@@ -116,14 +116,14 @@ export default function SettingsDialog({
             Профиль, инструкции и настройки памяти
           </button>
         )}
-        {section === "Alex Cloud" && <AlexCloudPanel />}
+        {section === "Canalla Cloud" && <AlexCloudPanel />}
         {section === "Резервные копии" && <BackupPanel />}
         {section === "AI / Compute" && (
           <>
             <p>Выбор GPU, лимит цены, бюджет сессии и автоостановка.</p>
             {sharedGateway ? (
               <p className="muted">
-                Ключ RunPod здесь не нужен: используется общий Gateway Alex
+                Ключ RunPod здесь не нужен: используется общий Gateway Canalla
                 Cloud.
               </p>
             ) : (

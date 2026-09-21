@@ -3,7 +3,7 @@
 // This is the client half of the "Central Gateway production deployment" slice: the app is
 // started from its real installation (%LOCALAPPDATA%\Programs\Alex LLM\alex-llm.exe) with the
 // REAL data root and the REAL credential entries — no isolated fixtures — and every state
-// change goes through the real product path (Settings → Alex Cloud):
+// change goes through the real product path (Settings → Canalla Cloud):
 //
 //   1. explicit Disconnect of an enrolled installation;
 //   2. a full restart of the app, which must still start (readiness contract), stay
@@ -443,7 +443,7 @@ function externalConnections(pids) {
 
 // ---------------------------------------------------------------------------------------
 
-/** Phase 0: if this installation is enrolled, leave Alex Cloud through the real UI. */
+/** Phase 0: if this installation is enrolled, leave Canalla Cloud through the real UI. */
 async function disconnectIfEnrolled(page, launched) {
   await page
     .getByRole("button", { name: "New Chat" })
@@ -451,17 +451,17 @@ async function disconnectIfEnrolled(page, launched) {
   console.log(
     `      app ready in ${Math.round((Date.now() - launched) / 1000)}s`,
   );
-  const dialog = await openSettingsSection(page, "Alex Cloud");
+  const dialog = await openSettingsSection(page, "Canalla Cloud");
   // The panel reads the cloud state when it mounts, so wait for that read to settle
   // instead of judging a label that is still being fetched.
   const settled = await waitForDialogText(
     page,
-    "Alex Cloud\\s*·\\s*(Подключено|Не подключено)",
+    "Canalla Cloud\\s*·\\s*(Подключено|Не подключено)",
     180000,
   );
   const panel = await dialog.innerText();
   const label = flat(
-    panel.split("\n").find((row) => /Alex Cloud/.test(row)) || "",
+    panel.split("\n").find((row) => /Canalla Cloud/.test(row)) || "",
   );
   check("P0 the panel settles on an authoritative state", settled, label);
   if (!/Подключено/.test(panel)) {
@@ -550,7 +550,7 @@ async function preEnrollmentState(page, launched) {
     balance,
   );
 
-  const dialog = await openSettingsSection(page, "Alex Cloud");
+  const dialog = await openSettingsSection(page, "Canalla Cloud");
   const panel = await dialog.innerText();
   check("B4 the panel reports «Не подключено»", /Не подключено/.test(panel));
   const address = dialog.getByLabel("Адрес Gateway");
@@ -590,17 +590,17 @@ async function preEnrollmentState(page, launched) {
 
 /** Phase 3-4: enroll through the real product path and read the shared account. */
 async function enrollAndVerify(page) {
-  const dialog = await openSettingsSection(page, "Alex Cloud");
+  const dialog = await openSettingsSection(page, "Canalla Cloud");
   await dialog.getByLabel("Код активации").fill(code);
   await dialog.getByRole("button", { name: "Подключить" }).click();
   const connected = await waitForDialogText(
     page,
-    "Alex Cloud\\s*·\\s*Подключено",
+    "Canalla Cloud\\s*·\\s*Подключено",
     300000,
   );
   const panel = await dialog.innerText();
   check(
-    "C1 the panel settles on «Alex Cloud · Подключено»",
+    "C1 the panel settles on «Canalla Cloud · Подключено»",
     connected,
     flat(panel).slice(0, 90),
   );
@@ -817,7 +817,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    `PRODUCTION ACCEPTANCE PASS — the installed app uses the shared Alex Cloud account (${
+    `PRODUCTION ACCEPTANCE PASS — the installed app uses the shared Canalla Cloud account (${
       enrolled ? enrolled.balance.replace(/\s+/g, " ") : "balance read"
     })`,
   );

@@ -32,7 +32,7 @@ class ComputeRequest(BaseModel):
 def cloud_of(request: Request) -> CloudState:
     cloud = getattr(request.app.state, "cloud", None)
     if cloud is None:
-        raise HTTPException(503, "Alex Cloud недоступен в этой конфигурации")
+        raise HTTPException(503, "Canalla Cloud недоступен в этой конфигурации")
     return cloud
 
 
@@ -64,6 +64,7 @@ async def ensure_compute(
             "max_hourly_price": float(prefs.max_hourly_price),
             "session_budget": float(prefs.session_budget),
             "min_vram_gb": int(prefs.min_vram_gb),
+            "selection": prefs.selection,
             "gpu_id": prefs.gpu_id,
         }
     if body.auto_stop_minutes is not None:

@@ -66,7 +66,7 @@ class CloudState:
         if not self.shared:
             return
         if not self.configured:
-            self.error_code, self.message = "gateway_not_connected", "Alex Cloud не подключён."
+            self.error_code, self.message = "gateway_not_connected", "Canalla Cloud не подключён."
             return
         age = self._age()
         if not force and age is not None and age < self.interval():
@@ -172,12 +172,12 @@ class CloudState:
 
 
 _MESSAGES = {
-    "connected": "Alex Cloud подключён. AI работает через общий Gateway.",
-    "connecting": "Подключаемся к Alex Cloud…",
-    "not_connected": "Alex Cloud не подключён.",
-    "unavailable": "Alex Cloud сейчас недоступен.",
-    "revoked": "Эта установка отключена от Alex Cloud. Нужен новый код активации.",
-    "protocol_mismatch": "Версия Alex Cloud несовместима с этой установкой Alex.",
+    "connected": "Canalla Cloud подключён. AI работает через общий Gateway.",
+    "connecting": "Подключаемся к Canalla Cloud…",
+    "not_connected": "Canalla Cloud не подключён.",
+    "unavailable": "Canalla Cloud сейчас недоступен.",
+    "revoked": "Эта установка отключена от Canalla Cloud. Нужен новый код активации.",
+    "protocol_mismatch": "Версия Canalla Cloud несовместима с этой установкой Canalla LLM.",
 }
 
 

@@ -1,4 +1,4 @@
-// Installed Tauri GUI smoke for the CENTRAL RUNPOD GATEWAY slice (Alex Cloud).
+// Installed Tauri GUI smoke for the CENTRAL RUNPOD GATEWAY slice (Canalla Cloud).
 //
 // Drives the REAL installed app (%LOCALAPPDATA%\Programs\Alex LLM\alex-llm.exe) through
 // WebView2 remote debugging (CDP) with an ISOLATED data root and device dir, against a
@@ -505,12 +505,12 @@ async function scenarioFirstRunAndEnroll(page) {
     chips[0],
   );
 
-  // C1 — Settings offers the Alex Cloud tab with the one-time activation flow.
-  await openSettingsSection(page, "Alex Cloud");
+  // C1 — Settings offers the Canalla Cloud tab with the one-time activation flow.
+  await openSettingsSection(page, "Canalla Cloud");
   const cloudTab = await dialogText(page);
   check(
-    "C1 Settings offers the Alex Cloud tab with the activation code and «Подключить»",
-    /Alex Cloud/.test(cloudTab) &&
+    "C1 Settings offers the Canalla Cloud tab with the activation code and «Подключить»",
+    /Canalla Cloud/.test(cloudTab) &&
       cloudTab.includes("Адрес Gateway") &&
       cloudTab.includes("Код активации") &&
       (await dialog(page)
@@ -526,7 +526,7 @@ async function scenarioFirstRunAndEnroll(page) {
   );
 
   // D — enroll this installation with the one-time activation code.
-  await openSettingsSection(page, "Alex Cloud");
+  await openSettingsSection(page, "Canalla Cloud");
   const address = dialog(page).getByLabel("Адрес Gateway");
   if (!(await address.inputValue()).trim()) await address.fill(GATEWAY_URL);
   check(
@@ -538,12 +538,12 @@ async function scenarioFirstRunAndEnroll(page) {
   await dialog(page).getByRole("button", { name: "Подключить" }).click();
   const connected = await waitForDialogText(
     page,
-    "Alex Cloud\\s*·\\s*Подключено",
+    "Canalla Cloud\\s*·\\s*Подключено",
     180000,
   );
   const enrolled = await dialogText(page);
   check(
-    "D2 the panel reports «Alex Cloud · Подключено»",
+    "D2 the panel reports «Canalla Cloud · Подключено»",
     connected,
     enrolled.slice(0, 160),
   );
@@ -561,19 +561,19 @@ async function scenarioFirstRunAndEnroll(page) {
   const panelHtml = await dialog(page).innerHTML();
   const keyPrefix = providerKeyPrefix();
   check(
-    "I1 the Alex Cloud panel DOM never contains an installation secret",
+    "I1 the Canalla Cloud panel DOM never contains an installation secret",
     !/installation_secret/i.test(panelHtml) &&
       !/installation-secret/i.test(panelHtml),
   );
   check(
-    "I2 the Alex Cloud panel DOM never contains the RunPod key",
+    "I2 the Canalla Cloud panel DOM never contains the RunPod key",
     !keyPrefix || !panelHtml.includes(keyPrefix),
     keyPrefix
       ? "compared against the stored provider credential"
       : "no provider credential found",
   );
   check(
-    "I3 the Alex Cloud panel never renders the activation code",
+    "I3 the Canalla Cloud panel never renders the activation code",
     !(await dialog(page).innerText()).includes(CODE),
   );
 
@@ -581,7 +581,7 @@ async function scenarioFirstRunAndEnroll(page) {
   const startAi = dialog(page).getByRole("button", { name: "Запустить AI" });
   const stopAi = dialog(page).getByRole("button", { name: "Остановить AI" });
   check(
-    "F1 the Alex Cloud panel exposes the shared AI controls",
+    "F1 the Canalla Cloud panel exposes the shared AI controls",
     (await startAi.count()) === 1 && (await startAi.isVisible()),
   );
   check(
@@ -663,11 +663,11 @@ async function scenarioLogoutAndSecondUser(page) {
   }
   check("G1 logout through the UI returns to the login screen", loginShown);
 
-  await openSettingsSection(page, "Alex Cloud");
+  await openSettingsSection(page, "Canalla Cloud");
   await waitForCloudPanelLoaded(page);
   const afterLogout = await dialogText(page);
   check(
-    "G2 after logout Alex Cloud is still connected and asks for no code",
+    "G2 after logout Canalla Cloud is still connected and asks for no code",
     !afterLogout.includes("Код активации") &&
       !/Подключить/.test(afterLogout) &&
       /Gateway:\s*http/.test(afterLogout),
@@ -684,10 +684,10 @@ async function scenarioLogoutAndSecondUser(page) {
     await waitForWorkspace(page, 90000),
   );
 
-  await openSettingsSection(page, "Alex Cloud");
+  await openSettingsSection(page, "Canalla Cloud");
   const secondConnected = await waitForDialogText(
     page,
-    "Alex Cloud\\s*·\\s*Подключено",
+    "Canalla Cloud\\s*·\\s*Подключено",
     120000,
   );
   const second = await dialogText(page);
@@ -713,15 +713,15 @@ async function scenarioRestoreConnected(page, label) {
     workspace && !loginVisible,
   );
   await waitForStatus(page);
-  await openSettingsSection(page, "Alex Cloud");
+  await openSettingsSection(page, "Canalla Cloud");
   const connected = await waitForDialogText(
     page,
-    "Alex Cloud\\s*·\\s*Подключено",
+    "Canalla Cloud\\s*·\\s*Подключено",
     150000,
   );
   const panel = await dialogText(page);
   check(
-    `${label}2 Alex Cloud is still connected without entering an activation code`,
+    `${label}2 Canalla Cloud is still connected without entering an activation code`,
     connected && !panel.includes("Код активации") && !/Подключить/.test(panel),
     panel.slice(0, 160),
   );
@@ -752,7 +752,7 @@ async function main() {
     console.error("an alex-llm.exe process is already running; close it first");
     process.exit(2);
   }
-  console.log("Alex Cloud GUI smoke against the REAL installed app");
+  console.log("Canalla Cloud GUI smoke against the REAL installed app");
   console.log(`DATA_ROOT=${DATA_ROOT}`);
   console.log(`DEVICE_DIR=${DEVICE_DIR}`);
   console.log(
@@ -770,7 +770,9 @@ async function main() {
     `  [info] Gateway compute before: state=${computeBefore.state} sessions=${computeBefore.sessions} events=${JSON.stringify(computeBefore.events)}`,
   );
 
-  console.log("Scenario A-F — fresh install → owner → Alex Cloud enrollment");
+  console.log(
+    "Scenario A-F — fresh install → owner → Canalla Cloud enrollment",
+  );
   await withApp(scenarioFirstRunAndEnroll, "A-F");
   const usersA = dbQuery("SELECT id,email,is_owner FROM users");
   check(
@@ -860,7 +862,7 @@ async function main() {
   const setup = process.env.ALEX_SMOKE_SETUP;
   if (!setup || !fs.existsSync(setup)) {
     skip(
-      "J1-J3 reinstall keeps Alex Cloud connected and the data root intact",
+      "J1-J3 reinstall keeps Canalla Cloud connected and the data root intact",
       "ALEX_SMOKE_SETUP was not provided",
     );
   } else {
@@ -959,7 +961,7 @@ async function main() {
     Boolean(readCredential(PROVIDER_TARGET)),
   );
   check(
-    "K5 the real Alex Cloud enrollment entry is untouched",
+    "K5 the real Canalla Cloud enrollment entry is untouched",
     credentialTargets().includes("Alex LLM/gateway/installation"),
   );
   check(

@@ -26,14 +26,14 @@ function lastRestoreText(record: BackupRestoreRecord): string {
   return parts.join(" · ");
 }
 
-/** The restored copy and the safety copy Alex kept are both named. The list on screen
+/** The restored copy and the safety copy Canalla kept are both named. The list on screen
  *  was read before the restore, so the message says when it refreshes. */
 function restoreMessage(result: RestoreResult, fallbackId: string): string {
   const safety = result.safety_backup_id
     ? ` Перед восстановлением сохранена копия ${result.safety_backup_id}.`
     : "";
   const hints = " Список обновится при следующем открытии этого раздела.";
-  return `Alex восстановлен из копии ${result.backup_id || fallbackId}.${safety}${hints}`;
+  return `Canalla восстановлен из копии ${result.backup_id || fallbackId}.${safety}${hints}`;
 }
 
 /** Резервные копии: список, проверка и восстановление. No path of an individual
@@ -105,7 +105,7 @@ export default function BackupPanel() {
       <p className="field-help">
         Копия содержит локальную базу (чаты, сообщения, проекты, память,
         настройки) и документы. Пароли, ключ облачного GPU-провайдера и данные
-        установки Alex Cloud в копию не входят: они остаются в защищённом
+        установки Canalla Cloud в копию не входят: они остаются в защищённом
         хранилище Windows.
       </p>
       {error && <p className="muted">{error}</p>}
@@ -147,8 +147,9 @@ export default function BackupPanel() {
           {confirm === item.id ? (
             <div>
               <p className="muted">
-                Восстановить Alex из этой копии? Текущие данные будут заменены;
-                перед заменой Alex сохранит копию текущего состояния.
+                Восстановить Canalla из этой копии? Текущие данные будут
+                заменены; перед заменой Canalla сохранит копию текущего
+                состояния.
               </p>
               <button
                 type="button"
@@ -201,7 +202,7 @@ export default function BackupPanel() {
       )}
       {!tauri && (
         <p className="field-help">
-          Восстановление доступно в установленном приложении Alex: оно
+          Восстановление доступно в установленном приложении Canalla LLM: оно
           останавливает локальный сервер и запускает его заново.
         </p>
       )}

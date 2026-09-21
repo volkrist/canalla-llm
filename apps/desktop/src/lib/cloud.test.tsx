@@ -229,11 +229,11 @@ describe("cloud status read", () => {
   });
 });
 
-describe("Alex Cloud panel", () => {
+describe("Canalla Cloud panel", () => {
   it("asks for the activation code while the installation is not connected", async () => {
     await loadCloud(cloudStatus(), { default_url: "https://gateway.example" });
     const html = renderPanel();
-    expect(html).toContain("Alex Cloud");
+    expect(html).toContain("Canalla Cloud");
     expect(html).toContain("Не подключено");
     expect(html).toContain("Код активации");
     expect(html).toMatch(/<input type="password"[^>]*autocomplete="off"/i);
@@ -242,7 +242,7 @@ describe("Alex Cloud panel", () => {
     expect(html).toMatch(
       /<input type="url"[^>]*value="https:\/\/gateway\.example"/i,
     );
-    expect(html).not.toContain("Отключить Alex Cloud");
+    expect(html).not.toContain("Отключить Canalla Cloud");
   });
 
   it("shows the installation, the url, the backend message and disconnect", async () => {
@@ -265,7 +265,7 @@ describe("Alex Cloud panel", () => {
     expect(html).toContain(
       "Gateway отвечает, общий аккаунт RunPod используется.",
     );
-    expect(html).toContain("Отключить Alex Cloud");
+    expect(html).toContain("Отключить Canalla Cloud");
     expect(html).not.toMatch(/<input type="password"/i);
     expect(html).not.toContain("Код активации");
   });
@@ -277,7 +277,7 @@ describe("Alex Cloud panel", () => {
       message: "Установка подключена.",
     });
     const html = renderPanel();
-    expect(html).toContain("Отключить Alex Cloud");
+    expect(html).toContain("Отключить Canalla Cloud");
     expect(html).toContain("https://gateway.example");
     expect(html).toContain("Установка подключена.");
     expect(html).not.toMatch(/<input type="password"/i);
@@ -311,7 +311,7 @@ describe("Alex Cloud panel", () => {
     expect(html).toContain("public-installation-id");
   });
 
-  it("explains that Alex Cloud belongs to the installed app in a browser", () => {
+  it("explains that Canalla Cloud belongs to the installed app in a browser", () => {
     tauri.enabled = false;
     const html = renderPanel();
     expect(html).toContain("доступно в установленном приложении Canalla LLM");
@@ -425,14 +425,14 @@ describe("enrollment and disconnect", () => {
       expect(enrollError(code)).not.toContain(code);
     }
     expect(enrollError("something_new")).toBe(
-      "Не удалось подключиться к Alex Cloud: something_new.",
+      "Не удалось подключиться к Canalla Cloud: something_new.",
     );
     expect(enrollError(new Error("offline"))).toContain("offline");
   });
 });
 
 describe("settings integration", () => {
-  it("lists the Alex Cloud tab next to AI / Compute", () => {
+  it("lists the Canalla Cloud tab next to AI / Compute", () => {
     const html = flat(
       renderToStaticMarkup(
         <SettingsDialog
@@ -443,11 +443,11 @@ describe("settings integration", () => {
         />,
       ),
     );
-    expect(html).toContain(">Alex Cloud<");
+    expect(html).toContain(">Canalla Cloud<");
     expect(html.indexOf(">AI / Compute<")).toBeLessThan(
-      html.indexOf(">Alex Cloud<"),
+      html.indexOf(">Canalla Cloud<"),
     );
-    expect(html.indexOf(">Alex Cloud<")).toBeLessThan(
+    expect(html.indexOf(">Canalla Cloud<")).toBeLessThan(
       html.indexOf(">Personalization / Memory<"),
     );
   });
@@ -496,7 +496,8 @@ describe("shared compute control", () => {
     expect(init.method).toBe("POST");
     expect(init.body).toBe(JSON.stringify({ task_id: "task-1" }));
     expect(result.compute.state).toBe("ready");
-    // The client never proposes a price or a budget: Alex Cloud owns both.
+    // The desktop never names a price or a budget: this user's own policy is attached
+    // by the local backend, and the Gateway stays the authority for money.
     expect(String(init.body)).not.toContain("hourly");
     expect(String(init.body)).not.toContain("budget");
   });
@@ -514,6 +515,29 @@ describe("shared compute control", () => {
     expect(url).toBe("http://127.0.0.1:8000/cloud/compute/stop");
     expect(init.method).toBe("POST");
     expect(result.compute.state).toBe("stopped");
+  });
+
+  it("remembers the Gateway compute answer for the panels", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(200, {
+        ...cloudStatus({ state: "connected" }),
+        compute: computeStatus(),
+      }),
+    );
+    setCloudClient(api);
+    expect(cloudSnapshot().compute).toBeNull();
+    await ensureCloudCompute();
+    expect(cloudSnapshot().compute?.session?.hourly_rate_usd).toBe("0.790000");
+    // A later status read cannot erase what the Gateway proved about the Pod: the status
+    // payload carries no compute session of its own.
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, cloudStatus({ state: "connected" })),
+    );
+    await refreshCloud();
+    expect(cloudSnapshot().compute?.session?.hourly_rate_usd).toBe("0.790000");
+    // A new session (or logout) inherits nothing.
+    setCloudClient(null);
+    expect(cloudSnapshot().compute).toBeNull();
   });
 
   it("summarizes a shared session honestly, or not at all", () => {

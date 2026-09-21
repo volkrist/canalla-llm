@@ -75,24 +75,43 @@ export function isSharedMode(status: CloudStatus | null): boolean {
 
 /** Shared snapshot. Settings needs the mode and the panel needs the rest, so both
  *  read one object and can never disagree with each other. */
-export interface CloudSnapshot {
+export interface CloudSnapshot extends CloudSnapshotParts {
+  /** The last Gateway compute answer. `GET /cloud/status` does not carry the compute
+   *  payload, so only `ensure`/`stop` can prove it: `null` means "not known", never
+   *  "no Pod". Reading a shared Pod's rate must not become a request of its own. */
+  compute: CloudComputeStatus | null;
+}
+
+type CloudSnapshotParts = {
   status: CloudStatus | null;
   gateway: GatewayStatus | null;
   /** Set when a read failed: the UI then says the status is unknown instead of
    *  inventing a state. */
   error: string;
-}
+};
 
-const EMPTY: CloudSnapshot = { status: null, gateway: null, error: "" };
+const EMPTY: CloudSnapshotParts = { status: null, gateway: null, error: "" };
 
-let snapshot: CloudSnapshot = EMPTY;
+let snapshot: CloudSnapshot = { ...EMPTY, compute: null };
 const listeners = new Set<() => void>();
 let client: Api | null = null;
 let read: Promise<CloudSnapshot> | null = null;
+/** Survives the status reads: a running Pod stays a fact until the Gateway says otherwise. */
+let compute: CloudComputeStatus | null = null;
 
-function publish(next: CloudSnapshot) {
-  snapshot = next;
+function publish(next: CloudSnapshotParts) {
+  snapshot = { ...next, compute };
   for (const listener of listeners) listener();
+}
+
+/** Only `ensure`/`stop` return the compute payload, so they are the only writers. */
+function publishCompute(next: CloudComputeStatus | null) {
+  compute = next;
+  publish({
+    status: snapshot.status,
+    gateway: snapshot.gateway,
+    error: snapshot.error,
+  });
 }
 
 export function cloudSnapshot(): CloudSnapshot {
@@ -112,6 +131,8 @@ export function subscribeCloud(listener: () => void): () => void {
 export function setCloudClient(api: Api | null): void {
   if (api === client && api !== null) return;
   client = api;
+  // A new session (or logout) inherits neither the previous status nor its compute answer.
+  compute = null;
   publish(EMPTY);
 }
 
@@ -166,7 +187,7 @@ async function readCloud(): Promise<CloudSnapshot> {
     publish({
       status: null,
       gateway,
-      error: "Состояние Alex Cloud доступно после входа в аккаунт.",
+      error: "Состояние Canalla Cloud доступно после входа в аккаунт.",
     });
     return snapshot;
   }
@@ -176,7 +197,8 @@ async function readCloud(): Promise<CloudSnapshot> {
     publish({
       status: null,
       gateway,
-      error: error instanceof Error ? error.message : "Alex Cloud недоступен",
+      error:
+        error instanceof Error ? error.message : "Canalla Cloud недоступен",
     });
   }
   return snapshot;
@@ -253,7 +275,7 @@ const ENROLL_ERRORS: Record<string, string> = {
 export function enrollError(error: unknown): string {
   const code = String(error);
   return (
-    ENROLL_ERRORS[code] || `Не удалось подключиться к Alex Cloud: ${code}.`
+    ENROLL_ERRORS[code] || `Не удалось подключиться к Canalla Cloud: ${code}.`
   );
 }
 
@@ -295,19 +317,26 @@ export async function ensureCloudCompute(
   taskId?: string,
 ): Promise<CloudComputeSnapshot> {
   if (!client) throw new Error("Нет активной сессии");
-  return client.json<CloudComputeSnapshot>("/cloud/compute/ensure", {
-    method: "POST",
-    body: JSON.stringify(taskId ? { task_id: taskId } : {}),
-  });
+  const result = await client.json<CloudComputeSnapshot>(
+    "/cloud/compute/ensure",
+    {
+      method: "POST",
+      body: JSON.stringify(taskId ? { task_id: taskId } : {}),
+    },
+  );
+  publishCompute(result.compute);
+  return result;
 }
 
 /** Stop shared compute. The Gateway refuses for provider compute Alex does not own. */
 export async function stopCloudCompute(): Promise<CloudComputeSnapshot> {
   if (!client) throw new Error("Нет активной сессии");
-  return client.json<CloudComputeSnapshot>("/cloud/compute/stop", {
-    method: "POST",
-    body: JSON.stringify({}),
-  });
+  const result = await client.json<CloudComputeSnapshot>(
+    "/cloud/compute/stop",
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  publishCompute(result.compute);
+  return result;
 }
 
 /** Human summary of one shared compute session, or null when there is nothing to show. */

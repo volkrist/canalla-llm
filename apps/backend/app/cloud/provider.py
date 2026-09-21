@@ -53,7 +53,7 @@ class GatewayBalanceSource:
             raise CloudError(code, error.message, error.status) from None
         balance = _decimal(payload.get("balance_usd"))
         if balance is None:
-            raise CloudError("malformed_response", "Alex Cloud не вернул баланс.")
+            raise CloudError("malformed_response", "Canalla Cloud не вернул баланс.")
         return {"balance": balance, "current_spend_per_hr": _decimal(payload.get("account_spend_per_hr"))}
 
 

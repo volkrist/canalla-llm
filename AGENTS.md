@@ -19,7 +19,10 @@ data or lose an enrollment. Do not "finish the rename" in them:
 - bundle identifier `com.alexllm.desktop`, product id `alex-llm`, `alex-llm-desktop`,
   gateway product `alex-llm-gateway`, `product.py`
 - sidecar / host binaries `alex-backend.exe`, `alex-host-loop.exe`, `ALEX_*` env vars
-- **Alex Cloud** — the shared Gateway service name, a separate brand
+- **Canalla Cloud** — the shared Gateway service, user-facing brand. The internal product id
+  `alex-llm-gateway`, the unit `alex-gateway.service`, the directories under `/opt/alex-gateway`
+  and the public endpoint `gateway.12testers.store` keep the old spelling; only the text a user
+  reads says Canalla Cloud
 
 The installer installs into `%LOCALAPPDATA%\Programs\<product name>`, so a rename moves the
 binaries (never the data). An older `Programs\Alex LLM` folder is left for the user to
@@ -36,6 +39,7 @@ Thin model + thick deterministic controller.
 
 - MODEL: `orcarouter/Qwen3.8-27B-Uncensored` Q5_K_M (alias `orcarouter-qwen38-27b-q5km`)
 - Served context window: `LLM_CONTEXT_WINDOW` (default **32768**, must match llama.cpp `--ctx-size`). One source of truth for the composer's context meter: `docs/context-usage.md`. The frontend never hardcodes a window.
+- Compute money policy is per-user preference, not a product cap — contract: `docs/compute-preferences.md`.
 - AUTONOMY: **HIGH** (fixed)
 - RESEARCH_DEPTH: **DEEP** (fixed)
 - Do not add autonomy/depth selectors.
@@ -88,17 +92,30 @@ Developer `tauri dev` may still use `apps/backend/.venv\Scripts\python.exe`.
   never in a Desktop, installer, local backend, frontend, client Credential Manager, client SQLite,
   `localStorage`, client `.env`, client log or API response. Installations authenticate as
   installations (one-time activation code → installation credential → short-lived gateway JWT).
-  The Gateway owns global compute (one managed Pod, database lease), the money caps ($1.20/h,
-  $3/session), the shared balance cache and production inference (client → Gateway → llama.cpp).
+  The Gateway owns global compute (one managed Pod, database lease), the per-user money policy
+  enforcement, the shared balance cache and production inference (client → Gateway → llama.cpp).
 - **Dev / private direct:** the local `Alex LLM/provider/runpod` credential and `RunPodController`
   keep working unchanged. Never migrate that key to the Gateway automatically, never delete it.
-- The mode is build/runtime config (`ALEX_AI_MODE`), never a user-facing autonomy setting. An
-  enrolled installation runs shared; without an enrollment the local backend stays direct.
+- The mode is build/runtime config (`ALEX_AI_MODE`), never a user-facing autonomy setting. A
+  **packaged** install is shared even without an enrollment (it then answers with
+  `gateway_not_connected` instead of falling back to a local provider key); a developer checkout
+  without an enrollment stays direct, and an explicit `ALEX_AI_MODE=direct` keeps the dev/private
+  path.
 - Local users stay local: `user_id`/`email`/`role` are never cloud identity. While shared mode is
   active the local compute lifecycle refuses with `gateway_managed_compute`; starting/stopping
   shared compute goes through the typed Gateway operations only.
-- Do not add `/runpod/*` or `/provider/raw` passthrough endpoints, and never let a client raise the
-  financial caps.
+- Do not add `/runpod/*` or `/provider/raw` passthrough endpoints, and never let a client widen a
+  technical bound, set another installation's policy or claim compute ownership.
+- **Compute Preferences are the user's own money policy, not product caps.** Defaults for a new
+  user are **$0.52/hour** and **$3.00/session** (48 GB VRAM floor, 10-minute idle stop, automatic
+  selection), and every authenticated local user may raise or lower both for themselves in **both**
+  provider modes — no admin role is needed to edit *their own* policy. The only bounds are technical
+  ($100/hour, $1000/session): the Gateway honours the value the authenticated installation sent and
+  answers `compute_policy_invalid` (422) for a malformed or out-of-range one instead of quietly
+  replacing it. Automatic mode always prefers the **cheapest compatible** GPU inside the user's own
+  maximum (a higher maximum never buys a pricier card, and a stray `gpu_id` is ignored unless the
+  client asks for `selection: "manual"`). Start/stop stays owner-gated. See
+  `docs/compute-preferences.md`.
 
 ## Permanent security
 
@@ -131,7 +148,7 @@ the backups live under the data root, never in the install directory.
   (`GatewayProvider.READY_TTL_SECONDS`, single-flight background refresh) and must never perform a
   Gateway round trip. The Desktop's runtime probe allows 400 ms, and probing per request both broke
   the app's readiness and turned a healthy client into a hot loop against the shared Gateway.
-- The Alex Cloud panel must never keep a transient state: `refreshCloud()` waits (bounded) for the
+- The Canalla Cloud panel must never keep a transient state: `refreshCloud()` waits (bounded) for the
   first settled answer after a backend restart
 
 ## Known focused limitations
@@ -157,10 +174,10 @@ the backups live under the data root, never in the install directory.
   real UI (disconnect → restart → enroll → balance → leaks). No Pod was created and no GPU was started.
 - The Gateway has not driven real compute yet: no Pod has ever been created through it, so
   `POST /compute/ensure` on the deployed service (and the deployed `/v1/chat/completions` proxy) is
-  still unproven against a real Pod. Money caps, the single-Pod lease and the create-unknown path are
-  covered by the FakeRunPod suite only.
+  still unproven against a real Pod. Money enforcement, the single-Pod lease and the create-unknown
+  path are covered by the FakeRunPod suite only.
 - Shared compute has no quotes or GPU picker in the UI: the Gateway selects the cheapest GPU inside the
-  server-side caps. The Settings → Alex Cloud panel offers «Запустить AI» / «Остановить AI» only.
+  user's own policy. The Settings → Canalla Cloud panel offers «Запустить AI» / «Остановить AI» only.
 
 Do not start LoRA yet. Before future LoRA: baseline + censorship/refusal + coding/tools/security + catastrophic-forgetting regression.
 

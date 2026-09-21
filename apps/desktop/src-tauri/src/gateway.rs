@@ -176,19 +176,20 @@ pub fn gateway_status() -> Result<Value, String> {
             "default_url": if default.is_empty() { Value::Null } else { json!(default) },
             "installation_id": Value::Null,
             "state": "not_connected",
-            "message": "Alex Cloud не подключён.",
+            "message": "Canalla Cloud не подключён.",
         })),
         Some(enrollment) => {
             let url = enrollment["url"].as_str().unwrap_or_default().to_string();
             let installation_id = enrollment["installation_id"].as_str().unwrap_or_default().to_string();
             let (state, message) = match health(&url) {
-                Ok(()) => ("connected".to_string(), "Alex Cloud подключён.".to_string()),
+                Ok(()) => ("connected".to_string(), "Canalla Cloud подключён.".to_string()),
                 Err(code) => (
                     code.clone(),
                     if code == "gateway_protocol_mismatch" {
-                        "Версия Alex Cloud несовместима с этой установкой Alex.".to_string()
+                        "Версия Canalla Cloud несовместима с установкой Canalla LLM."
+                            .to_string()
                     } else {
-                        "Alex Cloud сейчас недоступен.".to_string()
+                        "Canalla Cloud сейчас недоступен.".to_string()
                     },
                 ),
             };
