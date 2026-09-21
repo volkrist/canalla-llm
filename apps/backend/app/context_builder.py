@@ -9,6 +9,8 @@ from fastapi import Depends, Query
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
+from . import context_usage as usage
+from .compute.models import GenerationUsage
 from .config import get_settings
 from .database import get_db
 from .models import Chat, Memory, Message, Project, User, now
@@ -246,24 +248,40 @@ class ContextBuilder:
             else None
         )
         messages = [{"role": "system", "content": self.settings.global_system_prompt}]
+        parts = [usage.part(usage.PART_SYSTEM, "System", self.settings.global_system_prompt)]
 
-        def context(label, content):
+        def context(label, content, key):
             if content:
-                messages.append({"role": "user", "content": f"[{label}: user-provided context]\n{content}"})
+                body = f"[{label}: user-provided context]\n{content}"
+                messages.append({"role": "user", "content": body})
+                parts.append(usage.part(key, usage.LABELS[key], body))
 
-        context("Profile and custom instructions", user.display_name + "\n" + user.custom_instructions)
+        context(
+            "Profile and custom instructions",
+            user.display_name + "\n" + user.custom_instructions,
+            usage.PART_PROFILE,
+        )
         pinned = [(m, score) for m, score in selected if m.is_pinned]
         project_memories = [(m, score) for m, score in selected if not m.is_pinned and m.project_id]
         general = [(m, score) for m, score in selected if not m.is_pinned and not m.project_id]
-        context("Pinned memories", "\n".join(m.content for m, _ in pinned))
+        context("Pinned memories", "\n".join(m.content for m, _ in pinned), usage.PART_PINNED)
         context(
             "Project",
             (project.name + "\n" + project.description)[: self.settings.context_project_chars]
             if project
             else "",
+            usage.PART_PROJECT,
         )
-        context("Relevant project memories", "\n".join(m.content for m, _ in project_memories))
-        context("Relevant general memories", "\n".join(m.content for m, _ in general))
+        context(
+            "Relevant project memories",
+            "\n".join(m.content for m, _ in project_memories),
+            usage.PART_PROJECT_MEMORY,
+        )
+        context(
+            "Relevant general memories",
+            "\n".join(m.content for m, _ in general),
+            usage.PART_MEMORY,
+        )
         from .documents.retrieval import retrieve
 
         sources, rag_warning = retrieve(db, user, chat, current.content)
@@ -276,6 +294,7 @@ class ContextBuilder:
                     f"[{s['label']}] {s['display_name']} (page {s['page_number'] or 'n/a'})\n{s['excerpt']}"
                     for s in sources
                 ),
+                usage.PART_DOCUMENTS,
             )
         web_insert_index = len(messages)
         rows = db.scalars(
@@ -295,7 +314,15 @@ class ContextBuilder:
             history.append({"role": row.role, "content": row.content})
             size += len(row.content)
         messages.extend(reversed(history))
+        if history:
+            parts.append(
+                usage.messages_part(
+                    usage.PART_HISTORY, usage.LABELS[usage.PART_HISTORY], [m["content"] for m in history]
+                )
+            )
         messages.append({"role": "user", "content": current.content})
+        if current.content:
+            parts.append(usage.part(usage.PART_DRAFT, usage.LABELS[usage.PART_DRAFT], current.content))
         ids = [m.id for m, _ in selected]
         if track and ids:
             db.execute(
@@ -341,6 +368,11 @@ class ContextBuilder:
                 "rag_budget": self.settings.rag_max_chars,
             },
             "total_chars": sum(len(m["content"]) for m in messages),
+            "context_usage": usage.summarize(
+                parts,
+                limit_tokens=self.settings.llm_context_window,
+                model=self.settings.llm_model,
+            ),
         }
 
 
@@ -354,3 +386,38 @@ def preview(
     chat = owned(db, Chat, key, user.id)
     current = Message(id="preview", chat_id=key, role="user", content=prompt, created_at=now())
     return ContextBuilder().build(db, user, chat, current)
+
+
+def last_measured_tokens(db: Session, chat_id: str) -> dict | None:
+    """Prompt size the provider reported for the newest completed generation, if any."""
+    row = db.scalar(
+        select(GenerationUsage)
+        .where(GenerationUsage.chat_id == chat_id, GenerationUsage.input_tokens.is_not(None))
+        .order_by(GenerationUsage.created_at.desc())
+        .limit(1)
+    )
+    if row is None:
+        return None
+    return {
+        "prompt_tokens": row.input_tokens,
+        "at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+@router.get("/chats/{key}/context-usage")
+def usage_snapshot(
+    key: str,
+    prompt: str = Query("", max_length=32000),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """What the composer's context meter shows before a message is sent.
+
+    The estimate covers the same parts ``build`` sends to the model; ``measured`` carries
+    the real prompt size of the newest completed generation so the two can be compared.
+    ``track=False``: reading the meter must never change memory usage counters.
+    """
+    chat = owned(db, Chat, key, user.id)
+    current = Message(id="preview", chat_id=key, role="user", content=prompt, created_at=now())
+    built = ContextBuilder().build(db, user, chat, current)
+    return {**built["context_usage"], "measured": last_measured_tokens(db, chat.id)}
