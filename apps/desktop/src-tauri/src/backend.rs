@@ -73,6 +73,21 @@ impl BackendStatus {
             diagnostic: None,
         }
     }
+
+    /// The owned backend was stopped on purpose (restore): no error, no process.
+    fn stopped(data_dir: PathBuf, mode: RuntimeMode) -> Self {
+        Self {
+            state: BackendState::Starting,
+            ownership: Ownership::None,
+            url: None,
+            port: None,
+            pid: None,
+            error: None,
+            data_dir: data_dir.to_string_lossy().into_owned(),
+            runtime_mode: mode,
+            diagnostic: None,
+        }
+    }
 }
 
 struct Live {
@@ -322,6 +337,54 @@ fn discover_backend_launch() -> Result<(PathBuf, PathBuf, RuntimeMode), String> 
     Ok((python, cwd, RuntimeMode::DevOwned))
 }
 
+/// How another module (the restore path) runs the same backend program one-shot.
+pub(crate) fn backend_launch() -> Result<(PathBuf, PathBuf, RuntimeMode), String> {
+    discover_backend_launch()
+}
+
+/// The environment every backend process needs, owned in one place so the restore
+/// invocation can never drift from the supervised startup.
+pub(crate) fn base_backend_env(
+    command: &mut Command,
+    mode: &RuntimeMode,
+    root: &Path,
+    secret: &str,
+    token: &str,
+) {
+    let data = root.join("data");
+    let documents = root.join("documents");
+    command
+        .env("ALEX_LLM_DATA_DIR", root)
+        .env("DATABASE_URL", sqlite_url(&data.join("alex.db")))
+        .env("DOCUMENT_STORAGE_DIR", &documents)
+        .env("JWT_SECRET", secret)
+        .env("ALEX_RUNTIME_TOKEN", token)
+        .env("ALEX_BACKEND_HOST", "127.0.0.1")
+        .env(
+            "APP_ENV",
+            if *mode == RuntimeMode::Packaged {
+                "production"
+            } else {
+                "development"
+            },
+        );
+    if *mode == RuntimeMode::Packaged {
+        command.env("ALEX_PACKAGED", "1");
+        command.env("CORS_ORIGINS", r#"["https://tauri.localhost","tauri://localhost"]"#);
+        command.env("ALEX_RUNTIME_MODE", "packaged");
+        command.env("LLM_PROVIDER", "llamacpp");
+        command.env("LLM_CONNECTION_MODE", "runpod");
+    } else {
+        command.env("ALEX_RUNTIME_MODE", "dev_owned");
+    }
+    for (name, value) in crate::auth::provider_env() {
+        command.env(name, value);
+    }
+    for (name, value) in crate::gateway::gateway_env() {
+        command.env(name, value);
+    }
+}
+
 fn discover_backend_python() -> Result<(PathBuf, PathBuf), String> {
     if let Ok(raw) = std::env::var("ALEX_BACKEND_PYTHON") {
         let python = PathBuf::from(raw);
@@ -451,7 +514,7 @@ fn read_lock(root: &Path) -> Option<Value> {
 
 fn spawn_owned(port: u16, instance: &str, secret: &str) -> Result<Live, String> {
     let root = data_root();
-    let (data, documents, logs, _runtime, _models) = layout(&root)?;
+    let (_data, _documents, logs, _runtime, _models) = layout(&root)?;
     let (program, cwd, mode) = discover_backend_launch()?;
     let log_path = logs.join("backend.log");
     let log = fs::OpenOptions::new()
@@ -460,54 +523,20 @@ fn spawn_owned(port: u16, instance: &str, secret: &str) -> Result<Live, String> 
         .open(&log_path)
         .map_err(|_| "DATA_ROOT_UNAVAILABLE".to_string())?;
     let err = log.try_clone().map_err(|_| "DATA_ROOT_UNAVAILABLE".to_string())?;
-    let db = data.join("alex.db");
     let token = load_or_create_runtime_token(&root).unwrap_or_default();
     let mut command = Command::new(&program);
     if mode != RuntimeMode::Packaged {
         command.args(["-m", "app.runtime_entry"]);
     }
+    command.current_dir(&cwd);
+    base_backend_env(&mut command, &mode, &root, secret, &token);
     command
-        .current_dir(&cwd)
-        .env("ALEX_LLM_DATA_DIR", &root)
-        .env("DATABASE_URL", sqlite_url(&db))
-        .env("DOCUMENT_STORAGE_DIR", &documents)
-        .env("JWT_SECRET", secret)
-        .env("ALEX_RUNTIME_TOKEN", &token)
         .env("ALEX_BACKEND_PORT", port.to_string())
-        .env("ALEX_BACKEND_HOST", "127.0.0.1")
         .env("ALEX_BACKEND_INSTANCE", instance)
         .env("ALEX_BACKEND_OWNED", "1")
-        .env(
-            "APP_ENV",
-            if mode == RuntimeMode::Packaged {
-                "production"
-            } else {
-                "development"
-            },
-        )
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(err));
-    if mode == RuntimeMode::Packaged {
-        command.env("ALEX_PACKAGED", "1");
-        command.env("CORS_ORIGINS", r#"["https://tauri.localhost","tauri://localhost"]"#);
-        command.env("ALEX_RUNTIME_MODE", "packaged");
-        command.env("LLM_PROVIDER", "llamacpp");
-        command.env("LLM_CONNECTION_MODE", "runpod");
-    } else {
-        command.env("ALEX_RUNTIME_MODE", "dev_owned");
-    }
-    // User-configured provider secrets (Credential Manager) win over stale
-    // .env entries; absent credentials leave the developer .env untouched.
-    for (name, value) in crate::auth::provider_env() {
-        command.env(name, value);
-    }
-    // Alex Cloud: when the installation is enrolled, the backend runs in production
-    // shared mode. The installation credential is a client credential (it authorizes
-    // this installation), while the RunPod master key stays server-side.
-    for (name, value) in crate::gateway::gateway_env() {
-        command.env(name, value);
-    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -665,6 +694,10 @@ fn spawn_and_wait(sup: &mut Supervisor, port: u16, restarts: u8) -> Result<Backe
                     "JWT_SECRET_FAILED"
                 } else if wait == Some(14) {
                     "DATA_ROOT_UNAVAILABLE"
+                } else if wait == Some(15) {
+                    // Fail closed: the upgrade was refused because its pre-upgrade backup
+                    // could not be created, and the database was left untouched.
+                    "PRE_UPGRADE_BACKUP_FAILED"
                 } else {
                     &code
                 };
@@ -769,19 +802,56 @@ pub fn current_status() -> BackendStatus {
 pub fn restart_backend_blocking() -> Result<BackendStatus, String> {
     let mut sup = supervisor().lock().map_err(|e| e.to_string())?;
     let root = data_root();
+    if let Some(status) = stop_owned_locked(&mut sup, &root)? {
+        sup.last = status.clone();
+        return Ok(status);
+    }
+    match ensure_locked(&mut sup) {
+        Ok(status) => Ok(status),
+        Err(code) => {
+            let status = BackendStatus::error(&code, root);
+            sup.last = status.clone();
+            Ok(status)
+        }
+    }
+}
+
+/// Stop the owned backend and leave it stopped. Used by the restore path, which has to run
+/// the sidecar in its one-shot ``--restore-backup`` mode while nothing holds the database.
+/// An external developer backend is never stopped: `Err` carries the refusal code.
+pub fn stop_backend_blocking() -> Result<BackendStatus, String> {
+    let mut sup = supervisor().lock().map_err(|e| e.to_string())?;
+    let root = data_root();
+    if let Some(status) = stop_owned_locked(&mut sup, &root)? {
+        sup.last = status.clone();
+        return Ok(status);
+    }
+    let mode = sup
+        .live
+        .as_ref()
+        .map(|live| live.mode.clone())
+        .unwrap_or(RuntimeMode::None);
+    let status = BackendStatus::stopped(root, mode);
+    sup.last = status.clone();
+    Ok(status)
+}
+
+/// Returns `Some(status)` when the operation must stop early (an external backend), and
+/// `None` when the owned backend was stopped and the caller may proceed.
+fn stop_owned_locked(sup: &mut Supervisor, root: &Path) -> Result<Option<BackendStatus>, String> {
     if let Some(mut live) = sup.live.take() {
         if live.ownership != Ownership::Owned {
-            // An external developer backend is not ours to restart.
+            // An external developer backend is not ours to restart or stop.
+            let status = status_from_live(&live, BackendState::Ready, None);
             sup.live = Some(live);
-            return Ok(sup.last.clone());
+            return Ok(Some(status));
         }
         // Same managed-compute stop as full Quit: never leave a billed Pod
         // running while the supervising backend is replaced.
         let port = live.port;
         let pid = live.pid;
         let had_job = live.job.is_some();
-        let token = fs::read_to_string(root.join("runtime").join("shutdown.token"))
-            .unwrap_or_default();
+        let token = fs::read_to_string(root.join("runtime").join("shutdown.token")).unwrap_or_default();
         request_managed_shutdown(port, token.trim());
         if let Some(mut child) = live.child.take() {
             let _ = child.kill();
@@ -802,19 +872,10 @@ pub fn restart_backend_blocking() -> Result<BackendStatus, String> {
             std::thread::sleep(Duration::from_millis(150));
         }
         if port_connectable(port) {
-            let status = BackendStatus::error("BACKEND_STOP_TIMEOUT", root);
-            sup.last = status.clone();
-            return Ok(status);
+            return Ok(Some(BackendStatus::error("BACKEND_STOP_TIMEOUT", root.to_path_buf())));
         }
     }
-    match ensure_locked(&mut sup) {
-        Ok(status) => Ok(status),
-        Err(code) => {
-            let status = BackendStatus::error(&code, root);
-            sup.last = status.clone();
-            Ok(status)
-        }
-    }
+    Ok(None)
 }
 
 #[cfg(windows)]
