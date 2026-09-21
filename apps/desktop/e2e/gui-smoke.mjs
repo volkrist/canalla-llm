@@ -24,8 +24,12 @@ const EXE = path.join(
 const CDP_PORT = 9223;
 const EMAIL = "smoke-owner@example.com";
 const PASSWORD = "smoke-password-12345";
-const DATA_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "alex-gui-smoke-data-"));
-const DEVICE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "alex-gui-smoke-cred-"));
+const DATA_ROOT = fs.mkdtempSync(
+  path.join(os.tmpdir(), "alex-gui-smoke-data-"),
+);
+const DEVICE_DIR = fs.mkdtempSync(
+  path.join(os.tmpdir(), "alex-gui-smoke-cred-"),
+);
 const PYTHON = path.resolve(
   __dirname,
   "..",
@@ -57,6 +61,32 @@ function dbQuery(sql) {
     { encoding: "utf8" },
   ).trim();
   return JSON.parse(out);
+}
+
+/** The status bar renders `starting` until the first authoritative snapshot arrives. */
+async function waitForStatus(page) {
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll(".status-chip").length === 5 &&
+      !document.querySelector(".status-chip.state-starting"),
+    null,
+    { timeout: 60000 },
+  );
+}
+
+/**
+ * Credentials this harness owns. Scoped to its own isolated sessions so the check
+ * never depends on (or reports) unrelated credentials in the real Windows store.
+ */
+function sessionCredentialTargets(ids) {
+  const wanted = new Set(ids);
+  return credentialTargets().filter((target) =>
+    wanted.has(target.split("/").pop()),
+  );
+}
+
+function dbSessionIds() {
+  return dbQuery("SELECT id FROM auth_sessions").map(([id]) => id);
 }
 
 function credentialTargets() {
@@ -187,12 +217,18 @@ async function scenarioFreshInstall(page) {
     .getByRole("button", { name: "Создать владельца Alex" })
     .waitFor({ timeout: 150000 });
   check("A1 fresh install shows FIRST_RUN owner UI", true);
-  check("A2 backend auto Ready on launch", backendPort !== 0, `port ${backendPort}`);
+  check(
+    "A2 backend auto Ready on launch",
+    backendPort !== 0,
+    `port ${backendPort}`,
+  );
   await page.getByLabel("Имя владельца (необязательно)").fill("Smoke Owner");
   await page.getByLabel("Email", { exact: true }).fill(EMAIL);
   await page.getByLabel("Пароль", { exact: true }).fill(PASSWORD);
   await page.getByRole("button", { name: "Создать владельца Alex" }).click();
-  await page.getByRole("button", { name: "New Chat" }).waitFor({ timeout: 60000 });
+  await page
+    .getByRole("button", { name: "New Chat" })
+    .waitFor({ timeout: 60000 });
   check("A3 owner created through the UI, Workspace reached", true);
   const storage = await page.evaluate(() => Object.keys(localStorage));
   const sessionStorage = await page.evaluate(() => Object.keys(sessionStorage));
@@ -201,7 +237,71 @@ async function scenarioFreshInstall(page) {
     storage.every((key) => !/token|session|secret|refresh/i.test(key)),
     storage.join(","),
   );
-  check("A5 sessionStorage is empty", sessionStorage.length === 0, sessionStorage.join(","));
+  check(
+    "A5 sessionStorage is empty",
+    sessionStorage.length === 0,
+    sessionStorage.join(","),
+  );
+  const chips = await page.locator(".status-chip").allInnerTexts();
+  check(
+    "A9a status bar checks before the first snapshot, so nothing flickers",
+    chips.length === 5 && chips.every((row) => /Проверяем/.test(row)),
+    chips.join(" | "),
+  );
+  await waitForStatus(page);
+  const settled = await page.locator(".status-chip").allInnerTexts();
+  check(
+    "A9 five status chips with readable text (no colour-only status)",
+    settled.length === 5 &&
+      ["ai", "computer", "web", "tor", "memory"].every((name) =>
+        settled.some((row) => row.toLowerCase().includes(name)),
+      ),
+    settled.join(" | "),
+  );
+  const trouble = settled.filter((row) =>
+    /Недоступно|Ошибка|Требует внимания/.test(row),
+  );
+  if (trouble.length) {
+    const card = await page.getByTestId("status-recovery").innerText();
+    check(
+      "A9b an unavailable subsystem explains itself with a recovery action",
+      card.length > 0 && /Повторить|Настроить|Подключить/.test(card),
+      card.replace(/\s+/g, " ").slice(0, 140),
+    );
+  } else {
+    console.log(
+      "  [info] every chip is ready/enabled; no recovery card expected",
+    );
+  }
+  const balance = await page.getByTestId("runpod-balance").innerText();
+  check(
+    "A10 shared balance is honest without a key, never a fake $0.00",
+    /RunPod не настроен/.test(balance) && !/\$0\.00/.test(balance),
+    balance.trim(),
+  );
+  const body = await page.locator("body").innerText();
+  check(
+    "A11 no provider secret material in the UI",
+    !/api_key|RUNPOD_API_KEY|Bearer\s/i.test(body),
+  );
+  await page.locator(".status-chip", { hasText: "tor" }).click();
+  const detail = await page.getByTestId("status-detail").innerText();
+  check(
+    "A12 chip details explain the verdict without provider internals",
+    /Цепь проверена/.test(detail) && /Откат/.test(detail),
+    detail.replace(/\s+/g, " ").slice(0, 140),
+  );
+  await page.locator(".status-chip", { hasText: "tor" }).click();
+  const health = await fetch(`http://127.0.0.1:${backendPort}/health`).then(
+    (response) => response.json(),
+  );
+  check(
+    "A13 packaged backend reports production provider defaults",
+    health.provider === "llamacpp" &&
+      health.product === "alex-llm" &&
+      health.version === "0.9.3",
+    `provider=${health.provider} version=${health.version}`,
+  );
 }
 
 async function scenarioRestore(page) {
@@ -209,20 +309,37 @@ async function scenarioRestore(page) {
     .getByText("Восстанавливаем сеанс…")
     .isVisible()
     .catch(() => false);
-  await page.getByRole("button", { name: "New Chat" }).waitFor({ timeout: 90000 });
+  await page
+    .getByRole("button", { name: "New Chat" })
+    .waitFor({ timeout: 90000 });
   const loginVisible = await page
     .getByRole("button", { name: "Войти в Alex LLM" })
     .isVisible()
     .catch(() => false);
-  check("B1 full Quit + relaunch restores session (no password prompt)", !loginVisible);
+  check(
+    "B1 full Quit + relaunch restores session (no password prompt)",
+    !loginVisible,
+  );
   if (restoring) console.log("  [info] SESSION_RESTORING screen observed");
   check("B2 restore did not start GPU (compute untouched)", true);
+  await waitForStatus(page);
+  const chips = await page.locator(".status-chip").allInnerTexts();
+  const balance = await page.getByTestId("runpod-balance").innerText();
+  check(
+    "B4 five status chips and the shared balance returned after restore",
+    chips.length === 5 && balance.trim().length > 0 && !/\$0\.00/.test(balance),
+    chips.join(" | "),
+  );
 }
 
 async function scenarioLogout(page) {
-  await page.getByRole("button", { name: "New Chat" }).waitFor({ timeout: 90000 });
+  await page
+    .getByRole("button", { name: "New Chat" })
+    .waitFor({ timeout: 90000 });
   await page.getByRole("button", { name: "Выйти", exact: true }).click();
-  await page.getByRole("button", { name: "Войти в Alex LLM" }).waitFor({ timeout: 30000 });
+  await page
+    .getByRole("button", { name: "Войти в Alex LLM" })
+    .waitFor({ timeout: 30000 });
   check("C1 logout through the UI returns to Login", true);
 }
 
@@ -238,18 +355,26 @@ async function scenarioNotRestored(page) {
 }
 
 async function scenarioLogin(page) {
-  await page.getByRole("button", { name: "Войти в Alex LLM" }).waitFor({ timeout: 90000 });
+  await page
+    .getByRole("button", { name: "Войти в Alex LLM" })
+    .waitFor({ timeout: 90000 });
   await page.getByLabel("Email", { exact: true }).fill(EMAIL);
   await page.getByLabel("Пароль", { exact: true }).fill(PASSWORD);
   await page.getByRole("button", { name: "Войти в Alex LLM" }).click();
-  await page.getByRole("button", { name: "New Chat" }).waitFor({ timeout: 60000 });
+  await page
+    .getByRole("button", { name: "New Chat" })
+    .waitFor({ timeout: 60000 });
   check("E1 login once reaches Workspace", true);
 }
 
 async function scenarioFinalLogout(page) {
-  await page.getByRole("button", { name: "New Chat" }).waitFor({ timeout: 90000 });
+  await page
+    .getByRole("button", { name: "New Chat" })
+    .waitFor({ timeout: 90000 });
   await page.getByRole("button", { name: "Выйти", exact: true }).click();
-  await page.getByRole("button", { name: "Войти в Alex LLM" }).waitFor({ timeout: 30000 });
+  await page
+    .getByRole("button", { name: "Войти в Alex LLM" })
+    .waitFor({ timeout: 30000 });
 }
 
 async function main() {
@@ -269,21 +394,42 @@ async function main() {
   console.log("Scenario A — fresh install: FIRST_RUN → owner via UI");
   await withApp(scenarioFreshInstall);
   const usersA = dbQuery("SELECT id,email,is_owner FROM users");
-  check("A6 exactly one user, owner flag set", usersA.length === 1 && usersA[0][2] === 1, JSON.stringify(usersA));
-  check("A7 exactly one bootstrap claim", dbQuery("SELECT COUNT(*) FROM bootstrap_claim")[0][0] === 1);
-  check("A8 device session credential stored", credentialTargets().length === 1);
+  check(
+    "A6 exactly one user, owner flag set",
+    usersA.length === 1 && usersA[0][2] === 1,
+    JSON.stringify(usersA),
+  );
+  check(
+    "A7 exactly one bootstrap claim",
+    dbQuery("SELECT COUNT(*) FROM bootstrap_claim")[0][0] === 1,
+  );
+  check(
+    "A8 device session credential stored",
+    sessionCredentialTargets(dbSessionIds()).length === 1,
+  );
   const userId = usersA[0][0];
-  fs.writeFileSync(path.join(os.tmpdir(), "alex-gui-smoke-user-id.txt"), userId);
+  fs.writeFileSync(
+    path.join(os.tmpdir(), "alex-gui-smoke-user-id.txt"),
+    userId,
+  );
 
-  console.log("Scenario B — full Quit, relaunch → SESSION_RESTORING → restored");
+  console.log(
+    "Scenario B — full Quit, relaunch → SESSION_RESTORING → restored",
+  );
   await withApp(scenarioRestore);
   const usersB = dbQuery("SELECT id FROM users");
-  check("B3 same user id after restore, no second user", usersB.length === 1 && usersB[0][0] === userId);
+  check(
+    "B3 same user id after restore, no second user",
+    usersB.length === 1 && usersB[0][0] === userId,
+  );
 
   console.log("Scenario C — logout through the UI");
   await withApp(scenarioLogout);
   await sleep(1500);
-  check("C2 logout removed the local session credential", credentialTargets().length === 0);
+  check(
+    "C2 logout removed the local session credential",
+    sessionCredentialTargets(dbSessionIds()).length === 0,
+  );
 
   console.log("Scenario D — full Quit + relaunch → Login (NOT restored)");
   await withApp(scenarioNotRestored);
@@ -292,12 +438,18 @@ async function main() {
   await withApp(scenarioLogin);
   await withApp(scenarioRestore);
   const usersE = dbQuery("SELECT id FROM users");
-  check("E2 same user id across the whole flow", usersE.length === 1 && usersE[0][0] === userId);
+  check(
+    "E2 same user id across the whole flow",
+    usersE.length === 1 && usersE[0][0] === userId,
+  );
 
   console.log("Final logout (cleanup)");
   await withApp(scenarioFinalLogout);
   await sleep(1500);
-  check("F1 cleanup logout removed credential", credentialTargets().length === 0);
+  check(
+    "F1 cleanup logout removed credential",
+    sessionCredentialTargets(dbSessionIds()).length === 0,
+  );
 
   const sessions = dbQuery(
     "SELECT id,user_id,revoked_at IS NOT NULL FROM auth_sessions ORDER BY created_at",
@@ -314,18 +466,39 @@ async function main() {
     "F3 DB stores only 64-hex hashes (no raw secrets)",
     hashes.every(([h]) => /^[0-9a-f]{64}$/.test(h)),
   );
-  check("F4 no duplicate owner rows", dbQuery("SELECT COUNT(*) FROM bootstrap_claim")[0][0] === 1);
-  check("F5 install.id and session pointer exist", fs.existsSync(path.join(DATA_ROOT, "runtime", "install.id")));
+  check(
+    "F9 no compute session or GPU was ever created by the status UI",
+    dbQuery("SELECT COUNT(*) FROM compute_sessions")[0][0] === 0 &&
+      (dbQuery("SELECT active_session_id FROM compute_control")[0] || [
+        null,
+      ])[0] === null,
+  );
+  check(
+    "F4 no duplicate owner rows",
+    dbQuery("SELECT COUNT(*) FROM bootstrap_claim")[0][0] === 1,
+  );
+  check(
+    "F5 install.id and session pointer exist",
+    fs.existsSync(path.join(DATA_ROOT, "runtime", "install.id")),
+  );
 
   const logPath = path.join(DATA_ROOT, "logs", "backend.log");
   if (fs.existsSync(logPath)) {
     const log = fs.readFileSync(logPath, "utf8");
-    check("F6 backend.log contains no refresh secret material", !/refresh_secret|token_hash/i.test(log));
+    check(
+      "F6 backend.log contains no refresh secret material",
+      !/refresh_secret|token_hash/i.test(log),
+    );
     check(
       "F7 backend.log contains no bearer tokens",
       !/Bearer\s+[A-Za-z0-9._-]{20,}/i.test(log),
     );
     check("F8 backend.log contains no password", !log.includes(PASSWORD));
+    check(
+      "F10 backend.log shows no balance refresh failure and no upstream key leak",
+      !/runpod_balance_refresh_failed/.test(log) &&
+        !/clientBalance|api\.runpod\.io|runpod_api_key/i.test(log),
+    );
   } else {
     check("F6-F8 backend.log present", false, "missing log");
   }
@@ -335,7 +508,9 @@ async function main() {
     console.error(`GUI SMOKE FAILED: ${failures} failing check(s)`);
     process.exit(1);
   }
-  console.log("GUI SMOKE PASS — RunPod $0, TinyFish $0, GPU 0, Volume untouched");
+  console.log(
+    "GUI SMOKE PASS — RunPod $0, TinyFish $0, GPU 0, Volume untouched",
+  );
   fs.rmSync(DATA_ROOT, { recursive: true, force: true });
   fs.rmSync(DEVICE_DIR, { recursive: true, force: true });
   process.exit(0);
