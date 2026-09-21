@@ -54,7 +54,8 @@ async def lifespan(application):
     application.state.balance = getattr(application.state, "balance_override", None) or RunPodBalanceService(
         compute.api, compute.gpu_active, compute.active_session
     )
-    await application.state.balance.start()
+    if settings.balance_background_enabled:
+        await application.state.balance.start()
 
     async def queue_monitor():
         from .compute.demand import resume_parked_demand

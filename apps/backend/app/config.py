@@ -150,6 +150,7 @@ class Settings(BaseSettings):
     runpod_startup_timeout: int = Field(default=900, ge=60, le=3600)
     compute_poll_seconds: float = Field(default=5, ge=1, le=60)
     compute_background_enabled: bool = True
+    balance_background_enabled: bool = True
 
     @model_validator(mode="after")
     def validate_security(self):
