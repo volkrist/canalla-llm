@@ -134,7 +134,8 @@ export function balanceLine(balance: BalanceStatus): string {
 }
 
 export function balanceNote(balance: BalanceStatus): string {
-  if (!balance.configured) return "Добавьте RunPod API key в настройках Alex";
+  if (!balance.configured)
+    return "Добавьте RunPod API key в настройках Canalla LLM";
   if (!balance.available) {
     return balance.message || "RunPod не вернул баланс";
   }

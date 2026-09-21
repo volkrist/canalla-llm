@@ -25,6 +25,11 @@ The installer installs into `%LOCALAPPDATA%\Programs\<product name>`, so a renam
 binaries (never the data). An older `Programs\Alex LLM` folder is left for the user to
 uninstall from Apps & features.
 
+The assistant persona is **Canalla LLM** too — chat labels, confirmations, status messages
+and the system prompt say Canalla LLM, so do not reintroduce a bare `Alex` in UI text. Tool
+descriptions, protocol headers (`X-Alex-*`), comments and fixture names keep `Alex`; they
+are prompt-internal or protocol text, not branding.
+
 ## Architecture
 
 Thin model + thick deterministic controller.

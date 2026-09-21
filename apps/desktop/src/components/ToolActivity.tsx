@@ -82,7 +82,7 @@ function ConfirmationCopy({ run }: { run: ToolRun }) {
   }
   return (
     <>
-      <h3>Alex хочет выполнить:</h3>
+      <h3>Canalla LLM хочет выполнить:</h3>
       <p>{summary.action_detail || summary.target || run.tool_name}</p>
     </>
   );

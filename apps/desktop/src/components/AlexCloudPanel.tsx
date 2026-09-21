@@ -18,7 +18,7 @@ function restartMessage(prefix: string, outcome: RestartOutcome): string {
   if (outcome === "external") {
     return `${prefix}; перезапустите внешний backend вручную.`;
   }
-  return `${prefix}, но локальный сервер не перезапустился. Запустите Alex заново.`;
+  return `${prefix}, но локальный сервер не перезапустился. Запустите Canalla LLM заново.`;
 }
 
 /** Alex Cloud: one installation connects to the shared Gateway, and the Gateway
@@ -104,7 +104,8 @@ export default function AlexCloudPanel() {
   if (!tauri)
     return (
       <p className="muted">
-        Подключение к Alex Cloud доступно в установленном приложении Alex.
+        Подключение к Alex Cloud доступно в установленном приложении Canalla
+        LLM.
       </p>
     );
   return (
@@ -113,9 +114,10 @@ export default function AlexCloudPanel() {
         <strong>Alex Cloud</strong> · {stateText}
       </p>
       <p className="field-help">
-        RunPod теперь инфраструктура Alex: обычный пользователь не вводит RunPod
-        API key, а одна установка Alex подключается к общему Gateway и
-        использует общий аккаунт RunPod. Ключ RunPod остаётся только на сервере.
+        RunPod теперь инфраструктура Canalla LLM: обычный пользователь не вводит
+        RunPod API key, а одна установка Canalla LLM подключается к общему
+        Gateway и использует общий аккаунт RunPod. Ключ RunPod остаётся только
+        на сервере.
       </p>
       {cloud.error && <p className="muted">{cloud.error}</p>}
       {note && <p className="muted">{note}</p>}

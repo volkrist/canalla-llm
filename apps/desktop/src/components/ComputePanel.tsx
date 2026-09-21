@@ -443,8 +443,8 @@ export default function ComputePanel({
               </p>
               {!status?.session?.managed && (
                 <p>
-                  Это существующий Pod вне управления Alex. Остановка требует
-                  прав администратора.
+                  Это существующий Pod вне управления Canalla LLM. Остановка
+                  требует прав администратора.
                 </p>
               )}
               <button

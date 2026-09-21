@@ -314,7 +314,7 @@ describe("Alex Cloud panel", () => {
   it("explains that Alex Cloud belongs to the installed app in a browser", () => {
     tauri.enabled = false;
     const html = renderPanel();
-    expect(html).toContain("доступно в установленном приложении Alex");
+    expect(html).toContain("доступно в установленном приложении Canalla LLM");
     expect(html).not.toContain("Код активации");
   });
 });

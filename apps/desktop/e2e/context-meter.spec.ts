@@ -12,13 +12,20 @@ test("composer context meter shows the served window and its breakdown", async (
     .getByLabel("Email", { exact: true })
     .fill(`context-meter-${Date.now()}@example.com`);
   await page.getByLabel("Пароль", { exact: true }).fill("test-password-123");
-  await page.getByRole("button", { name: "Создать аккаунт", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Создать аккаунт", exact: true })
+    .click();
 
   // No chat yet: the meter has nothing to measure and stays hidden.
-  await expect(page.getByRole("heading", { name: "О чём поговорим?" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "О чём поговорим?" }),
+  ).toBeVisible();
   await expect(page.locator(".context-meter")).toHaveCount(0);
 
-  const composer = page.getByRole("textbox", { name: "Сообщение", exact: true });
+  const composer = page.getByRole("textbox", {
+    name: "Сообщение",
+    exact: true,
+  });
   await composer.fill("Покажи короткий пример на Python");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.locator(".message.assistant").last()).toContainText(

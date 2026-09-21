@@ -29,9 +29,9 @@ const ERRORS: Record<string, string> = {
   MIGRATION_FAILED:
     "Не удалось обновить базу. Чат не запущен; данные не удалены.",
   NO_SAFE_BACKEND_PORT:
-    "Порт занят другим приложением. Alex не завершает чужие процессы.",
+    "Порт занят другим приложением. Canalla LLM не завершает чужие процессы.",
   BACKEND_STOP_TIMEOUT:
-    "Локальный сервер не остановился вовремя. Закройте Alex и повторите.",
+    "Локальный сервер не остановился вовремя. Закройте Canalla LLM и повторите.",
   DATA_ROOT_UNAVAILABLE: "Нет доступа к папке данных пользователя.",
   JWT_SECRET_FAILED: "Не удалось подготовить локальный ключ входа.",
   migration_failed:
@@ -39,7 +39,7 @@ const ERRORS: Record<string, string> = {
   backend_python_missing:
     "Не найден Python backend. Для разработки выполните setup-backend.ps1.",
   no_safe_backend_port:
-    "Порт занят другим приложением. Alex не завершает чужие процессы.",
+    "Порт занят другим приложением. Canalla LLM не завершает чужие процессы.",
 };
 
 export function backendMessage(status: BackendRuntime | null): string {

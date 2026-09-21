@@ -361,8 +361,9 @@ export default function WebToolsSettings({ api }: { api: Api }) {
             <legend>TinyFish Browser · Paid</legend>
             <p>
               Browser: {status?.configured ? "Configured" : "Not configured"} /
-              Paid. Alex создаёт cloud Chromium, подключает Playwright/CDP и
-              выполняет typed actions. LLM не получает raw JS/CDP.
+              Paid. Canalla LLM создаёт cloud Chromium, подключает
+              Playwright/CDP и выполняет typed actions. LLM не получает raw
+              JS/CDP.
             </p>
             <label>
               Browser{" "}
@@ -555,12 +556,13 @@ export default function WebToolsSettings({ api }: { api: Api }) {
               />
             </label>
             <p>
-              Alex работает со всем локальным компьютером. Trusted Workspace
-              снижает подтверждения для безопасных NORMAL_CHANGE внутри roots
-              (запись файлов, процессы с cwd в roots). READ доступен везде.
-              SENSITIVE и CRITICAL всегда требуют объяснение и «Разрешить один
-              раз». CRITICAL не имеет Always allow. Device credential хранится в
-              Windows Credential Manager, JS его не читает.
+              Canalla LLM работает со всем локальным компьютером. Trusted
+              Workspace снижает подтверждения для безопасных NORMAL_CHANGE
+              внутри roots (запись файлов, процессы с cwd в roots). READ
+              доступен везде. SENSITIVE и CRITICAL всегда требуют объяснение и
+              «Разрешить один раз». CRITICAL не имеет Always allow. Device
+              credential хранится в Windows Credential Manager, JS его не
+              читает.
             </p>
             <label>
               <input

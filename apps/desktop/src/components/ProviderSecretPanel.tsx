@@ -66,7 +66,7 @@ export default function ProviderSecretPanel() {
   if (!tauri)
     return (
       <p className="muted">
-        Управление ключами доступно в установленном приложении Alex.
+        Управление ключами доступно в установленном приложении Canalla LLM.
       </p>
     );
   return (

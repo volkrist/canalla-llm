@@ -58,7 +58,7 @@ export default function StatusChips({
   const details = open ? snapshot?.subsystems[open] : undefined;
   const rows = open ? detailRows(open, details) : [];
   return (
-    <section className="status-bar" aria-label="Состояние Alex">
+    <section className="status-bar" aria-label="Состояние Canalla LLM">
       <div className="status-chips">
         {CHIP_ORDER.map((chip) => {
           const state = chipState(snapshot, chip);

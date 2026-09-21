@@ -244,7 +244,8 @@ const ENROLL_ERRORS: Record<string, string> = {
     "Gateway отклонил код активации. Проверьте код и срок его действия.",
   gateway_unreachable:
     "Gateway не отвечает. Проверьте адрес и подключение к сети.",
-  gateway_protocol_mismatch: "Версия Gateway несовместима с этой версией Alex.",
+  gateway_protocol_mismatch:
+    "Версия Gateway несовместима с этой версией Canalla LLM.",
 };
 
 /** Stable codes become honest Russian text. The activation code is never echoed;

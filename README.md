@@ -26,6 +26,10 @@ the rename that is `Programs\Canalla LLM`. An older `Programs\Alex LLM` folder f
 previous build is not removed automatically — uninstall it from Apps & features once, or
 ignore it; it only holds binaries (never user data).
 
+The assistant has no separate name: chat labels, confirmations, status messages and the
+system prompt all say Canalla LLM. The one remaining bare `Alex` in the UI is the
+display-name placeholder in the owner form, which is an example of the user's own name.
+
 ## Context meter
 
 The composer shows a small ring with the tokens the next message will use

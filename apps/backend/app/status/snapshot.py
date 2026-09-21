@@ -83,14 +83,14 @@ AI_DEFAULTS = {
     UNAVAILABLE: ("AI сейчас недоступен.", "retry", True),
     ERROR: ("Ошибка AI.", "retry", True),
     DEGRADED: ("AI ожидает решения.", "retry", True),
-    NOT_CONFIGURED: ("RunPod не настроен. Добавьте API key в настройках Alex.", "configure", True),
+    NOT_CONFIGURED: ("RunPod не настроен. Добавьте API key в настройках Canalla LLM.", "configure", True),
 }
 
 # Shared mode has no local RunPod credential to configure: the same states are explained
 # in terms of Alex Cloud instead of a provider key.
 CLOUD_DEFAULTS = {
     **AI_DEFAULTS,
-    NOT_CONFIGURED: ("Alex Cloud не подключён. Подключите его в настройках Alex.", "configure", True),
+    NOT_CONFIGURED: ("Alex Cloud не подключён. Подключите его в настройках Canalla LLM.", "configure", True),
     UNAVAILABLE: ("Alex Cloud сейчас недоступен.", "retry", True),
 }
 
@@ -235,7 +235,7 @@ def web_status(settings: Settings, prefs: WebSettings):
     if not configured:
         return entry(
             NOT_CONFIGURED,
-            "Веб не настроен. Добавьте TinyFish API key в настройках Alex.",
+            "Веб не настроен. Добавьте TinyFish API key в настройках Canalla LLM.",
             detail_code="web_not_configured",
             action="configure",
             recoverable=True,
