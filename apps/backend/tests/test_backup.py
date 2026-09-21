@@ -598,6 +598,81 @@ def test_failed_verification_clears_the_verified_marker(tmp_path, template_datab
     assert service.state()["busy"] == ""
 
 
+def test_a_larger_history_round_trips(tmp_path, template_database):
+    """A reasonable volume (hundreds of messages, several documents) must always survive."""
+    root = make_root(tmp_path, template_database, with_data=False)
+    with connect(root / "data" / "alex.db") as db:
+        db.execute(
+            "INSERT INTO users (id,email,password_hash,created_at) VALUES ('bulk','bulk@example.com','hash','2026-09-21')"
+        )
+        db.execute(
+            "INSERT INTO chats (id,user_id,title,created_at,updated_at) VALUES ('bulk-chat','bulk','Большая история','2026-09-21','2026-09-21')"
+        )
+        for index in range(600):
+            db.execute(
+                "INSERT INTO messages (id,chat_id,role,content,created_at) VALUES (?,?,?,?,?)",
+                (
+                    f"bulk-{index}",
+                    "bulk-chat",
+                    "user" if index % 2 == 0 else "assistant",
+                    f"Сообщение {index} 🚀",
+                    "2026-09-21",
+                ),
+            )
+    for index in range(8):
+        (root / "documents" / f"{index:032x}").write_bytes(f"документ {index}".encode())
+    before = counts(root)
+
+    backup = BackupService(root).create_now(kind="manual")
+    with connect(root / "data" / "alex.db") as db:
+        db.execute("DELETE FROM messages")
+    report = restore_backup(Path(backup["path"]), root)
+
+    assert report["restored"] is True
+    after = counts(root)
+    assert after == before
+    with connect(root / "data" / "alex.db") as db:
+        assert db.execute("SELECT content FROM messages WHERE id='bulk-599'").fetchone() == (
+            "Сообщение 599 🚀",
+        )
+
+
+def test_a_backup_from_another_pc_restores_data_but_not_identity(tmp_path, template_database):
+    """Import semantics: user data yes, machine identity and enrollment no."""
+    source = make_root(tmp_path / "source", template_database)
+    backup = BackupService(source).create_now(kind="manual")
+
+    # The other PC: its own identity files and its own (different) document set.
+    target = make_root(tmp_path / "target", template_database, with_data=False)
+    with connect(target / "data" / "alex.db") as db:
+        db.execute(
+            "INSERT INTO users (id,email,password_hash,created_at) VALUES ('other','other@example.com','hash','2026-09-21')"
+        )
+    for path in (target / "documents").iterdir():
+        path.unlink()
+    (target / "documents" / ("e" * 32)).write_bytes(b"other pc document")
+    (target / "runtime" / "jwt.secret").write_text("z" * 64, encoding="utf-8")
+    (target / "runtime" / "install.id").write_text("other-machine-identity", encoding="utf-8")
+    (target / "runtime" / "session.id").write_text("other-session-pointer", encoding="utf-8")
+    (target / "device.json").write_text('{"device_id":"other"}', encoding="utf-8")
+
+    report = restore_backup(Path(backup["path"]), target)
+
+    assert report["restored"] is True
+    assert counts(target) == counts(source), "user data follows the backup"
+    assert (target / "runtime" / "jwt.secret").read_text(encoding="utf-8") == "z" * 64
+    assert (target / "runtime" / "install.id").read_text(encoding="utf-8") == "other-machine-identity"
+    assert (target / "runtime" / "session.id").read_text(encoding="utf-8") == "other-session-pointer"
+    assert (target / "device.json").read_text(encoding="utf-8") == '{"device_id":"other"}'
+    # The source machine's identity never appears anywhere in the target data root.
+    blob = b""
+    for path in sorted(target.rglob("*")):
+        if path.is_file():
+            blob += path.read_bytes()
+    for marker in (b"machine-install-id-1234", b"session-pointer-5678", b"j" * 64):
+        assert marker not in blob
+
+
 def test_restore_result_file_is_written_and_readable(tmp_path, template_database):
     root = make_root(tmp_path, template_database)
     backup = BackupService(root).create_now(kind="manual")
