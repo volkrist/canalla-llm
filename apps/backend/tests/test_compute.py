@@ -668,7 +668,9 @@ def test_preferences_are_editable_by_any_user_but_the_lifecycle_is_not(client, a
     other = auth("bob@example.com")
     saved = client.put("/compute/preferences", headers=other, json={"session_budget": 5})
     assert saved.status_code == 200, saved.text
-    assert Decimal(str(client.get("/compute/preferences", headers=other).json()["session_budget"])) == Decimal("5")
+    assert Decimal(
+        str(client.get("/compute/preferences", headers=other).json()["session_budget"])
+    ) == Decimal("5")
     assert client.post("/compute/search", headers=other, json={}).status_code == 403
 
 
