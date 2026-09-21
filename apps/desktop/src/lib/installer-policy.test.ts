@@ -1,5 +1,8 @@
 // Uninstall / over-install policy guard (upgrade safety slice).
 //
+// Read the installer configuration and the generated NSIS script with node:fs, so this is a
+// Node-context test: it is excluded from the browser TypeScript project (tsconfig.json) and
+// runs under vitest only. Keep the imports on `node:` specifiers.
 // The promise is: uninstalling removes the program, never the user's data, and never a
 // Windows Credential Manager entry. This test reads the installer configuration and the
 // generated NSIS script, so a future edit that would delete `%LOCALAPPDATA%\Alex LLM` or
@@ -14,7 +17,14 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const tauriRoot = path.resolve(here, "..", "..", "src-tauri");
 const configPath = path.join(tauriRoot, "tauri.conf.json");
 const hooksPath = path.join(tauriRoot, "nsis", "hooks.nsh");
-const generatedPath = path.join(tauriRoot, "target", "release", "nsis", "x64", "installer.nsi");
+const generatedPath = path.join(
+  tauriRoot,
+  "target",
+  "release",
+  "nsis",
+  "x64",
+  "installer.nsi",
+);
 
 function read(file: string): string {
   return fs.readFileSync(file, "utf8");
@@ -41,7 +51,9 @@ describe("installer policy", () => {
 
   it("never asks NSIS to delete application data on uninstall", () => {
     const config = JSON.parse(read(configPath));
-    expect(config.bundle.windows.nsis.deleteAppDataOnUninstall ?? false).toBe(false);
+    expect(config.bundle.windows.nsis.deleteAppDataOnUninstall ?? false).toBe(
+      false,
+    );
   });
 
   it("keeps the generated uninstaller away from the data root", () => {

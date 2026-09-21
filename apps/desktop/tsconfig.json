@@ -13,5 +13,9 @@
     "isolatedModules": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts"],
+  // installer-policy.test.ts is a Node-context guard: it reads the installer configuration
+  // with node:fs, and this browser project carries no @types/node. vitest runs it; see the
+  // header of that file. Excluded here so `tsc -b` stays a browser-only check.
+  "exclude": ["src/lib/installer-policy.test.ts"]
 }
