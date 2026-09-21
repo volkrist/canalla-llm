@@ -49,7 +49,7 @@ Overview (partially stale on mock vs packaged llama.cpp defaults): [architecture
 | Five-chip status + error/recovery UX + shared RunPod balance | [status-recovery-audit.md](status-recovery-audit.md), [status-recovery-design.md](status-recovery-design.md) |
 | Central RunPod Gateway / Cloud Control Plane v2 (**deployed** at `https://gateway.12testers.store`, merged) | [central-runpod-gateway-audit.md](central-runpod-gateway-audit.md), [central-runpod-gateway-design.md](central-runpod-gateway-design.md), [gateway-deployment.md](gateway-deployment.md), [gateway-12testers-deploy-audit.md](gateway-12testers-deploy-audit.md) |
 | Canalla LLM brand + composer context meter | [context-usage.md](context-usage.md) |
-| Upgrade / backup / data preservation (**pushed, not merged**: `feat/upgrade-backup-data`) | [upgrade-backup-audit.md](upgrade-backup-audit.md), [upgrade-backup-design.md](upgrade-backup-design.md), [backup-format.md](backup-format.md) |
+| Upgrade / backup / data preservation (**COMPLETED**, merged) | [upgrade-backup-audit.md](upgrade-backup-audit.md), [upgrade-backup-design.md](upgrade-backup-design.md), [backup-format.md](backup-format.md) |
 
 Security invariants: [security.md](security.md).
 
@@ -201,20 +201,20 @@ Local leftover: `docs/screenshots/0.4/*.png` — do not commit or delete.
 
 ## 11. Current local test counts
 
-Recorded 21 Sep 2026, no GPU, no TinyFish (Canalla LLM brand + composer context meter slice):
+Recorded 22 Sep 2026, no GPU, no TinyFish (Canalla LLM brand, composer context meter and the merged upgrade / backup slice):
 
 | Suite | Result |
 |---|---|
 | gateway pytest | **95 passed** |
 | gateway Ruff check / format | PASS |
 | gateway Alembic (fresh temp SQLite → `0001_gateway_core`, `alembic check` clean) | PASS |
-| backend pytest | **529 passed**, 1 skipped |
+| backend pytest | **570 passed**, 1 skipped |
 | Ruff check / format | PASS |
-| Alembic check (fresh temp SQLite → 0014) | PASS |
-| Vitest | **97 passed** |
+| Alembic check (fresh temp SQLite → 0015) | PASS |
+| Vitest | **119 passed** |
 | TypeScript / Prettier / Vite | PASS |
-| Playwright | **20 passed** (incl. the new context-meter spec) |
-| cargo check / test | host **17**, desktop **43** |
+| Playwright | **20 passed** (incl. the context-meter spec) |
+| cargo check / test | host **17**, desktop **50** |
 | npm audit --omit=dev | **0** |
 | pip-audit | **0** (local package skipped) |
 | Installed GUI smoke (real Tauri app, CDP-driven) | **PASS** (`apps/desktop/e2e/gui-smoke.mjs`) |
@@ -222,6 +222,8 @@ Recorded 21 Sep 2026, no GPU, no TinyFish (Canalla LLM brand + composer context 
 | Installed production-default check (shared, no silent direct fallback) | **13/13 PASS** (`apps/desktop/e2e/cloud-default-check.mjs`) |
 | **Public Gateway acceptance** (deployed HTTPS, two installations, shared balance, revoke) | **PASS** (`scripts/acceptance-public-gateway.py`) |
 | **Installed app against the public Gateway** (disconnect → restart → enroll → balance → leaks) | **PASS** (`apps/desktop/e2e/cloud-prod-enroll.mjs`) |
+| **Installed backup/restore acceptance** (backup → mutate → restore, tamper rejection, migration failure) | **PASS** (`apps/desktop/e2e/backup-smoke.mjs`) |
+| **Installer over-install acceptance** (older schema + data → new build → data, session, enrollment) | **PASS** (`apps/desktop/e2e/upgrade-over-install.mjs prepare-legacy` then `verify`) |
 | Local production-like Gateway acceptance (real read-only shared balance) | **PASS** (`scripts/acceptance-central-gateway.py`) |
 | Live read-only RunPod balance acceptance (direct mode) | **PASS** (`scripts/acceptance-runpod-balance.py`) |
 
@@ -229,14 +231,16 @@ A leftover `apps/backend/alex.db` at an old revision is **not** the product data
 
 ## 12. Next slice
 
-**UPGRADE / BACKUP / DATA PRESERVATION**
+**RC / 1.0 FINAL GATES**
 
-The slice itself is implemented on `feat/upgrade-backup-data` (pushed, not merged — merge decision
-pending). After it lands: RC / 1.0 gates.
-(Code signing, WM-07 and CD-08 stay closed until separately tasked; the Central RunPod Gateway is
-**deployed** at `https://gateway.12testers.store` and merged into `main` — its compute path
-(`/compute/ensure`, the inference proxy) is still unproven against a real Pod, which is the next
-verification step when a Pod is first started deliberately.)
+**RC / 1.0 FINAL GATES**
+
+The upgrade / backup / data preservation slice is **complete and merged into `main`**; do not reopen
+it. Do not start RC either unless explicitly tasked. (Code signing, WM-07 and CD-08 stay closed until
+separately tasked; the Central RunPod Gateway is **deployed** at
+`https://gateway.12testers.store` and merged into `main` — its compute path
+(`/compute/ensure`, the inference proxy) is still unproven against a real Pod, which is the
+next verification step when a Pod is first started deliberately.)
 
 ## 13. Normal test / build commands
 
@@ -295,6 +299,17 @@ apps\backend\.venv\Scripts\python.exe scripts\acceptance-public-gateway.py
 cd apps\desktop
 node e2e/cloud-prod-enroll.mjs
 cd ..\..
+
+# Upgrade / backup acceptance (installed app, isolated data roots, no GPU):
+#   backup -> mutate -> restore, corrupt/tampered rejection, pre-upgrade backup,
+#   installer over-install with data + credentials preserved.
+cd apps\desktop
+node e2e/backup-smoke.mjs
+node e2e/upgrade-over-install.mjs
+cd ..\..
+
+# Gateway snapshot tool (on the VPS, before any Gateway migration or release switch):
+sudo /usr/local/sbin/alex-gateway-backup.sh && sudo /usr/local/sbin/alex-gateway-backup.sh --prune
 
 # pip-audit (from apps\backend)
 .\venv\Scripts\python.exe -m pip_audit

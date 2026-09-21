@@ -9,7 +9,9 @@ import EmbeddingModelStatus from "./EmbeddingModelStatus";
 import WebToolsSettings from "./WebToolsSettings";
 import ProviderSecretPanel from "./ProviderSecretPanel";
 import AlexCloudPanel from "./AlexCloudPanel";
+import BackupPanel from "./BackupPanel";
 import { isSharedMode, useCloud } from "../lib/cloud";
+import { useBackups } from "../lib/backup";
 import { version } from "../../package.json";
 
 export default function SettingsDialog({
@@ -36,6 +38,9 @@ export default function SettingsDialog({
   // is unknown the local key path stays available.
   const cloud = useCloud(api ?? null);
   const sharedGateway = isSharedMode(cloud.status);
+  // The backup panel is props-free like the cloud panel, so the authenticated
+  // client is registered here and the panel reuses it.
+  useBackups(api ?? null);
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
@@ -72,6 +77,7 @@ export default function SettingsDialog({
             "Чат",
             "AI / Compute",
             "Alex Cloud",
+            "Резервные копии",
             "Personalization / Memory",
             "Files / RAG",
             "Web & Tools",
@@ -111,6 +117,7 @@ export default function SettingsDialog({
           </button>
         )}
         {section === "Alex Cloud" && <AlexCloudPanel />}
+        {section === "Резервные копии" && <BackupPanel />}
         {section === "AI / Compute" && (
           <>
             <p>Выбор GPU, лимит цены, бюджет сессии и автоостановка.</p>

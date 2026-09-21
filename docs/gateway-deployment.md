@@ -585,8 +585,14 @@ Rollback:
   prepaid provider caps, exactly as described in [runpod-controller.md](runpod-controller.md).
 - **No metrics endpoint, tracing or log aggregation** is shipped; alerting is built from `/health`,
   the audit table, host metrics and the proxy log.
-- **No backup automation.** The compose example has no scheduled `pg_dump`, and no restore has been
-  rehearsed in this slice.
+- **No scheduled backup of the Gateway database.** A snapshot tool now exists
+  (`apps/gateway/deploy/alex-gateway-backup.sh`, installed at
+  `/usr/local/sbin/alex-gateway-backup.sh`, snapshots under
+  `/var/lib/alex-gateway/backups/`, retention 5, verified with `PRAGMA integrity_check` and a
+  table check) but it is **run by the operator before a migration or release switch**, not by
+  a timer; see [alex-gateway-backup.md](../apps/gateway/deploy/alex-gateway-backup.md). The
+  Gateway stores no chats, prompts or documents, so its backup is small and recovery is
+  cheap — the trade-off is a manual step, documented as such.
 - **No public deployment was performed when this runbook was written.** It has since been
 deployed (see «Deployed instance» above and the deploy audit): the reachable instance is
 the 12Testers VPS one, and the remaining gaps are listed in that audit (no backup automation,

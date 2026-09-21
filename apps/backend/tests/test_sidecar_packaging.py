@@ -69,7 +69,7 @@ def test_fresh_and_upgrade_migrate_via_resolver(tmp_path):
         capture_output=True,
     )
     with sqlite3.connect(fresh) as db:
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0014",)
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0015",)
 
     older = tmp_path / "older.db"
     env["DATABASE_URL"] = "sqlite:///" + older.as_posix()
@@ -96,7 +96,7 @@ def test_fresh_and_upgrade_migrate_via_resolver(tmp_path):
     with sqlite3.connect(older) as db:
         assert db.execute("SELECT email FROM users").fetchone() == ("keep@example.com",)
         assert db.execute("SELECT is_owner FROM users").fetchone() == (1,)
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0014",)
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0015",)
         assert older.exists()
 
 

@@ -2,6 +2,7 @@
 
 mod auth;
 mod backend;
+mod backup;
 mod credential;
 mod fs_guard;
 mod gateway;
@@ -37,7 +38,9 @@ fn main() {
             auth::delete_provider_secret,
             gateway::gateway_status,
             gateway::gateway_enroll,
-            gateway::gateway_disconnect
+            gateway::gateway_disconnect,
+            backup::restore_backup,
+            backup::backup_location
         ])
         .build(tauri::generate_context!())
         .expect("Unable to start Canalla LLM")
