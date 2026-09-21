@@ -34,11 +34,7 @@ const EXE = path.join(
 );
 const CDP_PORT = 9224;
 const GATEWAY_URL = "http://127.0.0.1:9011";
-const GATEWAY_DB = path.join(
-  os.tmpdir(),
-  "alex-gateway-smoke",
-  "gateway.db",
-);
+const GATEWAY_DB = path.join(os.tmpdir(), "alex-gateway-smoke", "gateway.db");
 const STAMP = `${Date.now()}`;
 const GATEWAY_CREDENTIAL_NAME = `smoke-${STAMP}`;
 const GATEWAY_CREDENTIAL_TARGET = `Alex LLM/gateway/${GATEWAY_CREDENTIAL_NAME}`;
@@ -358,7 +354,9 @@ async function withApp(scenario, phase) {
   check(
     `0.x local test Gateway reachable for ${phase}`,
     alive?.ready === true,
-    alive ? "" : "the Gateway process is gone: dependent checks are environment-limited",
+    alive
+      ? ""
+      : "the Gateway process is gone: dependent checks are environment-limited",
   );
   const child = launchApp();
   let failure = null;
@@ -400,9 +398,7 @@ async function openSettingsSection(page, section) {
 }
 
 async function closeSettings(page) {
-  await dialog(page)
-    .getByRole("button", { name: "Закрыть настройки" })
-    .click();
+  await dialog(page).getByRole("button", { name: "Закрыть настройки" }).click();
   await page
     .locator("dialog.settings-dialog")
     .waitFor({ state: "hidden", timeout: 20000 })
@@ -445,9 +441,7 @@ async function waitForDialogText(page, pattern, timeout = 120000) {
 
 async function waitForWorkspace(page, timeout = 180000) {
   try {
-    await page
-      .getByRole("button", { name: "New Chat" })
-      .waitFor({ timeout });
+    await page.getByRole("button", { name: "New Chat" }).waitFor({ timeout });
     return true;
   } catch {
     return false;
@@ -461,7 +455,11 @@ async function balanceText(page) {
 async function waitForBalance(page, timeout = 120000) {
   try {
     await page.waitForFunction(
-      () => /\$\s?\d/.test(document.querySelector('[data-testid="runpod-balance"]')?.textContent || ""),
+      () =>
+        /\$\s?\d/.test(
+          document.querySelector('[data-testid="runpod-balance"]')
+            ?.textContent || "",
+        ),
       null,
       { timeout },
     );
@@ -483,7 +481,9 @@ async function scenarioFirstRunAndEnroll(page) {
     backendPort !== 0,
     `port ${backendPort}`,
   );
-  await page.getByLabel("Имя владельца (необязательно)").fill("Cloud Smoke Owner");
+  await page
+    .getByLabel("Имя владельца (необязательно)")
+    .fill("Cloud Smoke Owner");
   await page.getByLabel("Email", { exact: true }).fill(OWNER_EMAIL);
   await page.getByLabel("Пароль", { exact: true }).fill(PASSWORD);
   await page.getByRole("button", { name: "Создать владельца Alex" }).click();
@@ -542,7 +542,11 @@ async function scenarioFirstRunAndEnroll(page) {
     180000,
   );
   const enrolled = await dialogText(page);
-  check("D2 the panel reports «Alex Cloud · Подключено»", connected, enrolled.slice(0, 160));
+  check(
+    "D2 the panel reports «Alex Cloud · Подключено»",
+    connected,
+    enrolled.slice(0, 160),
+  );
   check(
     "D3 the app restarted its owned backend with the shared environment",
     /перезапущен/.test(enrolled),
@@ -606,7 +610,9 @@ async function scenarioFirstRunAndEnroll(page) {
   // E — the shared balance becomes visible (settings closed, status bar read).
   await closeSettings(page);
   const balance = await waitForBalance(page, 180000);
-  const gatewayBody = await fetchJson(`${GATEWAY_URL}/health`).catch(() => null);
+  const gatewayBody = await fetchJson(`${GATEWAY_URL}/health`).catch(
+    () => null,
+  );
   if (/\$\s?\d/.test(balance)) {
     check("E1 the shared RunPod balance is visible in the app", true, balance);
   } else if (gatewayBody?.provider_configured === false) {
@@ -620,7 +626,9 @@ async function scenarioFirstRunAndEnroll(page) {
 
   // B3 + I (page scope) — honest chip after connecting, no secret material left.
   await waitForStatus(page);
-  const settled = (await page.locator(".status-chip").allInnerTexts()).map(flat);
+  const settled = (await page.locator(".status-chip").allInnerTexts()).map(
+    flat,
+  );
   check(
     "B3 after connecting, the AI chip still reports an honest not-ready state",
     settled.length === 5 &&
@@ -747,7 +755,9 @@ async function main() {
   console.log("Alex Cloud GUI smoke against the REAL installed app");
   console.log(`DATA_ROOT=${DATA_ROOT}`);
   console.log(`DEVICE_DIR=${DEVICE_DIR}`);
-  console.log(`gateway=${GATEWAY_URL}  credential=${GATEWAY_CREDENTIAL_TARGET}`);
+  console.log(
+    `gateway=${GATEWAY_URL}  credential=${GATEWAY_CREDENTIAL_TARGET}`,
+  );
 
   const health = await fetchJson(`${GATEWAY_URL}/health`).catch(() => null);
   check(
@@ -780,7 +790,9 @@ async function main() {
   const healthShared = await fetch(`http://127.0.0.1:${backendPort}/health`)
     .then((response) => response.json())
     .catch(() => null);
-  console.log(`  [info] owned backend /health: ${JSON.stringify(healthShared)}`);
+  console.log(
+    `  [info] owned backend /health: ${JSON.stringify(healthShared)}`,
+  );
 
   console.log("Scenario G — logout, then a different local user");
   await withApp(scenarioLogoutAndSecondUser, "G");
@@ -808,28 +820,40 @@ async function main() {
     const enrollment = readCredential(GATEWAY_CREDENTIAL_TARGET);
     let installationSecret = "";
     try {
-      installationSecret = JSON.parse(enrollment || "{}").installation_secret || "";
+      installationSecret =
+        JSON.parse(enrollment || "{}").installation_secret || "";
     } catch {
       installationSecret = "";
     }
     check(
       "I6 the app's backend log contains no RunPod key value",
       !keyPrefix || !log.includes(keyPrefix),
-      keyPrefix ? "compared against the stored provider credential" : "no provider credential",
+      keyPrefix
+        ? "compared against the stored provider credential"
+        : "no provider credential",
     );
     check(
       "I7 the app's backend log contains no installation secret",
       !installationSecret || !log.includes(installationSecret),
-      installationSecret ? "compared against the enrollment entry" : "no enrollment readable",
+      installationSecret
+        ? "compared against the enrollment entry"
+        : "no enrollment readable",
     );
-    check("I8 the app's backend log contains no activation code", !log.includes(CODE));
+    check(
+      "I8 the app's backend log contains no activation code",
+      !log.includes(CODE),
+    );
     check(
       "I9 the app's backend log shows no secret-shaped assignments",
       !/RUNPOD_API_KEY\s*=\s*\S/.test(log) &&
         !/INSTALLATION_SECRET\s*=\s*\S/.test(log),
     );
   } else {
-    check("I6-I9 the app's backend log exists to be checked", false, "missing log");
+    check(
+      "I6-I9 the app's backend log exists to be checked",
+      false,
+      "missing log",
+    );
   }
 
   console.log("Scenario J — reinstall over the existing installation");
@@ -870,7 +894,8 @@ async function main() {
     }
     check(
       "J2 the reinstall actually rewrote the installation",
-      stamp(uninstaller) !== uninstallerBefore && stamp(uninstaller) !== "missing",
+      stamp(uninstaller) !== uninstallerBefore &&
+        stamp(uninstaller) !== "missing",
       `uninstaller ${uninstallerBefore} -> ${stamp(uninstaller)}`,
     );
     check(
@@ -878,7 +903,10 @@ async function main() {
       stamp(EXE) === appBefore && appBefore !== "missing",
       `alex-llm.exe ${stamp(EXE)}`,
     );
-    await withApp((page) => scenarioRestoreConnected(page, "R"), "R (after reinstall)");
+    await withApp(
+      (page) => scenarioRestoreConnected(page, "R"),
+      "R (after reinstall)",
+    );
     const countsAfter = dbQuery(
       "SELECT (SELECT COUNT(*) FROM users), (SELECT COUNT(*) FROM chats), (SELECT COUNT(*) FROM auth_sessions)",
     )[0];
@@ -901,7 +929,8 @@ async function main() {
   check(
     "F4 the Gateway audited no ensure/stop/creating operation",
     computeAfter.events.every(
-      ([operation]) => !["ensure", "stop", "creating", "starting_pod"].includes(operation),
+      ([operation]) =>
+        !["ensure", "stop", "creating", "starting_pod"].includes(operation),
     ),
     JSON.stringify(computeAfter.events),
   );
@@ -941,7 +970,8 @@ async function main() {
 
   console.log();
   if (skipped.length) {
-    for (const entry of skipped) console.log(`SKIPPED: ${entry.name} — ${entry.reason}`);
+    for (const entry of skipped)
+      console.log(`SKIPPED: ${entry.name} — ${entry.reason}`);
   }
   if (failures > 0) {
     console.error(`ALEX CLOUD GUI SMOKE FAILED: ${failures} failing check(s)`);

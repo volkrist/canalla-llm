@@ -23,12 +23,21 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const EXE = path.join(process.env.LOCALAPPDATA, "Programs", "Alex LLM", "alex-llm.exe");
+const EXE = path.join(
+  process.env.LOCALAPPDATA,
+  "Programs",
+  "Alex LLM",
+  "alex-llm.exe",
+);
 const CDP_PORT = 9231;
 const EMAIL = "gateway-default@example.com";
 const PASSWORD = "gateway-default-12345";
-const DATA_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "alex-gw-default-data-"));
-const DEVICE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "alex-gw-default-cred-"));
+const DATA_ROOT = fs.mkdtempSync(
+  path.join(os.tmpdir(), "alex-gw-default-data-"),
+);
+const DEVICE_DIR = fs.mkdtempSync(
+  path.join(os.tmpdir(), "alex-gw-default-cred-"),
+);
 const CREDENTIAL_NAME = `default-${Date.now().toString(36)}`;
 const EXPECTED_URL = "https://gateway.12testers.store";
 
@@ -50,7 +59,10 @@ function skip(name, reason) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function fetchJson(url, options) {
-  const response = await fetch(url, { ...options, signal: AbortSignal.timeout(5000) });
+  const response = await fetch(url, {
+    ...options,
+    signal: AbortSignal.timeout(5000),
+  });
   return response.json();
 }
 
@@ -89,7 +101,9 @@ async function waitCdp(timeoutMs = 150000) {
   while (Date.now() < deadline) {
     try {
       const targets = await fetchJson(`http://127.0.0.1:${CDP_PORT}/json/list`);
-      const page = targets.find((target) => target.type === "page" && target.url);
+      const page = targets.find(
+        (target) => target.type === "page" && target.url,
+      );
       if (page) return page;
     } catch {
       /* not ready */
@@ -112,15 +126,21 @@ async function quitApp(child) {
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline && child.exitCode === null) await sleep(250);
   if (child.exitCode === null) {
-    spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+    spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+    });
     const hard = Date.now() + 20000;
     while (Date.now() < hard && child.exitCode === null) await sleep(250);
   }
   const portDeadline = Date.now() + 30000;
   while (Date.now() < portDeadline) {
-    const listing = spawnSync("tasklist", ["/FI", "IMAGENAME eq alex-backend.exe"], {
-      encoding: "utf8",
-    }).stdout;
+    const listing = spawnSync(
+      "tasklist",
+      ["/FI", "IMAGENAME eq alex-backend.exe"],
+      {
+        encoding: "utf8",
+      },
+    ).stdout;
     if (!listing.includes("alex-backend.exe")) return;
     await sleep(400);
   }
@@ -134,7 +154,15 @@ a = ctypes.WinDLL("advapi32", use_last_error=True)
 a.CredDeleteW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD]
 a.CredDeleteW.restype = wintypes.BOOL
 print("deleted" if a.CredDeleteW("Alex LLM/gateway/${name}", 1, 0) else "absent")`;
-  const python = path.resolve(__dirname, "..", "..", "backend", ".venv", "Scripts", "python.exe");
+  const python = path.resolve(
+    __dirname,
+    "..",
+    "..",
+    "backend",
+    ".venv",
+    "Scripts",
+    "python.exe",
+  );
   try {
     return execFileSync(python, ["-c", script], { encoding: "utf8" }).trim();
   } catch {
@@ -153,7 +181,9 @@ async function openCloudPanel(page) {
     });
   const dialog = page.getByRole("dialog");
   await dialog.waitFor({ timeout: 30000 });
-  await dialog.getByRole("button", { name: "Alex Cloud", exact: true }).click({ timeout: 30000 });
+  await dialog
+    .getByRole("button", { name: "Alex Cloud", exact: true })
+    .click({ timeout: 30000 });
   return dialog;
 }
 
@@ -161,20 +191,35 @@ async function scenario(page) {
   await page
     .getByRole("button", { name: "Создать владельца Alex" })
     .waitFor({ timeout: 150000 });
-  await page.getByLabel("Имя владельца (необязательно)").fill("Gateway Default");
+  await page
+    .getByLabel("Имя владельца (необязательно)")
+    .fill("Gateway Default");
   await page.getByLabel("Email", { exact: true }).fill(EMAIL);
   await page.getByLabel("Пароль", { exact: true }).fill(PASSWORD);
   await page.getByRole("button", { name: "Создать владельца Alex" }).click();
-  await page.getByRole("button", { name: "New Chat" }).waitFor({ timeout: 120000 });
+  await page
+    .getByRole("button", { name: "New Chat" })
+    .waitFor({ timeout: 120000 });
 
   backendPort = await findBackendPort();
-  check("A1 backend is Ready after launch", backendPort !== 0, `port ${backendPort}`);
+  check(
+    "A1 backend is Ready after launch",
+    backendPort !== 0,
+    `port ${backendPort}`,
+  );
 
   // The authoritative source for the mode: the local backend's own cloud status.
-  const cloud = await fetchJson(`http://127.0.0.1:${backendPort}/cloud/status`, {
-    headers: { Authorization: "Bearer " + (await ownerToken()) },
-  });
-  check("B1 mode is shared without an enrollment", cloud.mode === "shared", `mode=${cloud.mode}`);
+  const cloud = await fetchJson(
+    `http://127.0.0.1:${backendPort}/cloud/status`,
+    {
+      headers: { Authorization: "Bearer " + (await ownerToken()) },
+    },
+  );
+  check(
+    "B1 mode is shared without an enrollment",
+    cloud.mode === "shared",
+    `mode=${cloud.mode}`,
+  );
   check(
     "B2 no enrollment is reported honestly",
     cloud.state === "not_connected" && cloud.enrolled === false,
@@ -225,9 +270,14 @@ async function scenario(page) {
     panel.split("\n").slice(0, 3).join(" / "),
   );
   const codeField = dialog.getByLabel("Код активации");
-  check("E2 the activation code field is offered", (await codeField.count()) > 0);
+  check(
+    "E2 the activation code field is offered",
+    (await codeField.count()) > 0,
+  );
 
-  const runpodField = dialog.locator('input[placeholder="Вставьте новый ключ"]');
+  const runpodField = dialog.locator(
+    'input[placeholder="Вставьте новый ключ"]',
+  );
   const runpodLabel = await dialog
     .locator("label")
     .filter({ hasText: "RunPod API key" })
@@ -238,7 +288,10 @@ async function scenario(page) {
     `inputs=${await runpodField.count()} labels=${runpodLabel}`,
   );
 
-  const aiSection = dialog.getByRole("button", { name: "AI / Compute", exact: true });
+  const aiSection = dialog.getByRole("button", {
+    name: "AI / Compute",
+    exact: true,
+  });
   if ((await aiSection.count()) > 0) {
     await aiSection.click();
     const note = await dialog.innerText();
@@ -269,13 +322,19 @@ async function main() {
     console.error(`installed app not found: ${EXE}`);
     process.exit(1);
   }
-  console.log("Production default check — installed app, isolated data root, no enrollment");
+  console.log(
+    "Production default check — installed app, isolated data root, no enrollment",
+  );
   console.log(`DATA_ROOT=${DATA_ROOT}`);
-  console.log(`credential=${CREDENTIAL_NAME}  expected gateway=${EXPECTED_URL}`);
+  console.log(
+    `credential=${CREDENTIAL_NAME}  expected gateway=${EXPECTED_URL}`,
+  );
   const child = launchApp();
   try {
     await waitCdp();
-    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
+    const browser = await chromium.connectOverCDP(
+      `http://127.0.0.1:${CDP_PORT}`,
+    );
     const context = browser.contexts()[0];
     const page = context.pages()[0];
     try {
@@ -298,10 +357,14 @@ async function main() {
   console.log();
   if (skipped) console.log(`SKIPPED: ${skipped}`);
   if (failures > 0) {
-    console.error(`PRODUCTION DEFAULT CHECK FAILED: ${failures} failing check(s)`);
+    console.error(
+      `PRODUCTION DEFAULT CHECK FAILED: ${failures} failing check(s)`,
+    );
     process.exit(1);
   }
-  console.log("PRODUCTION DEFAULT CHECK PASS — shared by default, no silent direct fallback");
+  console.log(
+    "PRODUCTION DEFAULT CHECK PASS — shared by default, no silent direct fallback",
+  );
   process.exit(0);
 }
 
