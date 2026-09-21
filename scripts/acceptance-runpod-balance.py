@@ -49,7 +49,11 @@ def main() -> int:
     try:
         return run(workdir)
     finally:
-        workdir.cleanup()
+        try:
+            workdir.cleanup()
+        except OSError:
+            # Windows can still hold the SQLite file for a moment; the OS cleans temp dirs.
+            pass
 
 
 def run(workdir: tempfile.TemporaryDirectory) -> int:
@@ -179,7 +183,7 @@ def run(workdir: tempfile.TemporaryDirectory) -> int:
 
     print()
     print(f"RunPod balance (UI rounded): {money(first_value)}")
-    engine.dispose()
+    engine.dispose()  # release the SQLite handle before the temp dir is removed
     if failures:
         print(f"BALANCE ACCEPTANCE FAILED: {len(failures)} check(s): {', '.join(failures)}")
         return 1

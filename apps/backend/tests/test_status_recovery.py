@@ -494,8 +494,38 @@ def test_status_balance_is_identical_for_every_user_and_uses_one_upstream_call(c
     first = client.get("/status", headers=auth("user-a@example.com"))
     second = client.get("/status", headers=auth("user-b@example.com"))
     assert first.status_code == second.status_code == 200
+    # One installation-global provider credential serves every local user: both see
+    # `configured` and exactly the same shared account balance, with one supplier read.
+    assert first.json()["balance"]["configured"] is True
+    assert second.json()["balance"]["configured"] is True
     assert first.json()["balance"]["balance_usd"] == second.json()["balance"]["balance_usd"] == "8.73"
     assert api.calls == 1
+
+
+def test_provider_credential_is_shared_not_per_user(client, auth, fake_balance):
+    _service, api, _clock = fake_balance
+    seen = []
+    user_scoped_flags = []
+    for header in (auth("shared-a@example.com"), auth("shared-b@example.com")):
+        payload = client.get("/status", headers=header).json()
+        seen.append((payload["balance"]["configured"], payload["balance"]["balance_usd"]))
+        # Session identity differs per user; the provider configuration does not.
+        user_scoped_flags.append(payload["subsystems"]["ai"]["details"]["configured"])
+    assert seen[0] == seen[1] == (True, "8.73")
+    assert user_scoped_flags[0] == user_scoped_flags[1]
+    assert api.calls == 1
+
+
+def test_no_provider_credential_configures_nobody(client, auth):
+    """Without a credential every user is honestly not configured, and no supplier
+    call is made (there is nothing to read a balance with)."""
+    for email in ("nokey-a@example.com", "nokey-b@example.com"):
+        payload = client.get("/status", headers=auth(email)).json()
+        assert payload["balance"]["configured"] is False
+        assert payload["balance"]["available"] is False
+        assert payload["balance"]["balance_usd"] is None
+        assert payload["balance"]["error_code"] == "not_configured"
+        assert payload["subsystems"]["ai"]["details"]["configured"] is False
 
 
 def test_status_never_leaks_the_provider_key(client, auth, fake_balance):
