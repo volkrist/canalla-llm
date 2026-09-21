@@ -4,7 +4,9 @@ The raw refresh secret exists only on the client device (Windows Credential
 Manager / DPAPI fallback). The backend stores a SHA-256 digest and enforces
 expiry, revocation and single-use rotation: every successful refresh consumes
 the presented secret and issues a new one, so a replayed (rotated) secret is
-rejected.
+rejected. Expiry is a sliding window bounded by an absolute cap measured from
+created_at (AUTH_SESSION_DAYS / AUTH_SESSION_MAX_DAYS): no session can be
+extended forever.
 """
 
 from __future__ import annotations
@@ -42,6 +44,18 @@ def session_lifetime() -> timedelta:
     return timedelta(days=get_settings().auth_session_days)
 
 
+def session_max_lifetime() -> timedelta:
+    """Absolute cap from created_at: activity can never extend a session forever."""
+    return timedelta(days=get_settings().auth_session_max_days)
+
+
+def next_expiry(row: AuthSession, current: datetime) -> datetime:
+    """min(now + sliding window, created_at + absolute max)."""
+    sliding = current + session_lifetime()
+    absolute = utc(row.created_at) + session_max_lifetime()
+    return min(sliding, absolute)
+
+
 class SessionRejected(Exception):
     """The presented persistent session credential is not acceptable."""
 
@@ -75,6 +89,9 @@ def refresh_session(
     current = now()
     if row.revoked_at is not None or utc(row.expires_at) < current:
         raise SessionRejected()
+    if utc(row.created_at) + session_max_lifetime() <= current:
+        # Absolute lifetime exhausted: even an active session must end.
+        raise SessionRejected()
     if row.rotated_from is not None and digest == row.rotated_from:
         # Replay of a consumed (rotated) secret.
         raise SessionRejected()
@@ -88,8 +105,9 @@ def refresh_session(
     row.replaced_at = current
     row.token_hash = hash_secret(fresh)
     row.last_used_at = current
-    # Rolling bounded window: activity keeps the session alive.
-    row.expires_at = current + session_lifetime()
+    # Rolling sliding window, bounded by the absolute cap from created_at:
+    # a session cannot be extended indefinitely.
+    row.expires_at = next_expiry(row, current)
     clean_device = _clean_device_id(device_id)
     if clean_device and row.device_id is None:
         row.device_id = clean_device

@@ -164,6 +164,53 @@ def test_malformed_credentials_fail_closed(client):
     assert _refresh(client, "x", "y").status_code == 401
 
 
+def test_refresh_extends_sliding_expiry(client):
+    body = _register(client)
+    with SessionLocal() as db:
+        row = db.get(AuthSession, body["session_id"])
+        row.expires_at = now() + timedelta(days=1)
+        db.commit()
+    refreshed = _refresh(client, body["session_id"], body["refresh_secret"])
+    assert refreshed.status_code == 200
+    with SessionLocal() as db:
+        row = db.get(AuthSession, body["session_id"])
+        from app.config import get_settings
+
+        assert utc(row.expires_at) >= now() + timedelta(days=get_settings().auth_session_days - 1)
+
+
+def test_refresh_expiry_never_exceeds_absolute_max(client):
+    from app.config import get_settings
+
+    body = _register(client)
+    with SessionLocal() as db:
+        row = db.get(AuthSession, body["session_id"])
+        row.created_at = now() - timedelta(days=get_settings().auth_session_max_days - 1)
+        row.expires_at = now() + timedelta(hours=1)
+        db.commit()
+    refreshed = _refresh(client, body["session_id"], body["refresh_secret"])
+    assert refreshed.status_code == 200
+    with SessionLocal() as db:
+        row = db.get(AuthSession, body["session_id"])
+        # Capped at created_at + max: sliding would have been ~now+30d, the
+        # absolute cap is ~now+1d.
+        cap = utc(row.created_at) + timedelta(days=get_settings().auth_session_max_days)
+        assert abs((utc(row.expires_at) - cap).total_seconds()) < 60
+    assert refreshed.json()["expires_at"]
+
+
+def test_active_session_rejected_after_absolute_max(client):
+    from app.config import get_settings
+
+    body = _register(client)
+    with SessionLocal() as db:
+        row = db.get(AuthSession, body["session_id"])
+        row.created_at = now() - timedelta(days=get_settings().auth_session_max_days + 1)
+        row.expires_at = now() + timedelta(hours=1)  # sliding window alone would allow it
+        db.commit()
+    assert _refresh(client, body["session_id"], body["refresh_secret"]).status_code == 401
+
+
 def test_bootstrap_requires_runtime_proof(client):
     response = client.post("/auth/bootstrap", json={"email": "owner@example.com", "password": PASSWORD})
     assert response.status_code == 403

@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(min_length=32)
     jwt_expire_minutes: int = Field(default=60, ge=1, le=1440)
     auth_session_days: int = Field(default=30, ge=1, le=365)
+    auth_session_max_days: int = Field(default=90, ge=1, le=3650)
     cors_origins: list[str] = [
         "http://localhost:1420",
         "http://127.0.0.1:1420",
@@ -168,6 +169,8 @@ class Settings(BaseSettings):
                 raise ValueError("Production CORS must use HTTPS or tauri://localhost")
             if len(self.jwt_secret) < 48:
                 raise ValueError("Production JWT_SECRET must be at least 48 characters")
+        if self.auth_session_max_days < self.auth_session_days:
+            raise ValueError("AUTH_SESSION_MAX_DAYS must be at least AUTH_SESSION_DAYS")
         if urlparse(self.llm_base_url).scheme not in {"http", "https"}:
             raise ValueError("LLM_BASE_URL must be an HTTP(S) URL")
         for field, path_field in (
