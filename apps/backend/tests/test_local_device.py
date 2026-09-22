@@ -371,6 +371,23 @@ def test_pairing_defaults_to_windows_device(setup, client):
     assert client.post(f"/tools/devices/{paired['device_id']}/forget", headers=headers).status_code == 404
 
 
+def test_heartbeats_never_duplicate_the_device(setup, client):
+    """The host heartbeats on every launch; it must reuse its pairing, not create a second host."""
+    headers, _context, _events = setup
+    paired = client.post("/tools/devices/pair", headers=headers, json={"platform": "windows"}).json()
+    device = {
+        "X-Alex-Device-Id": paired["device_id"],
+        "X-Alex-Device-Credential": paired["credential"],
+    }
+    first = client.post("/tools/devices/heartbeat", headers={**headers, **device})
+    second = client.post("/tools/devices/heartbeat", headers={**headers, **device})
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.json()["device_id"] == second.json()["device_id"] == paired["device_id"]
+    assert second.json()["online"] is True
+    listed = client.get("/tools/devices", headers=headers).json()
+    assert [row["device_id"] for row in listed] == [paired["device_id"]]
+
+
 def test_sensitive_explanation_and_immutable_digest(setup, client):
     from pydantic import ValidationError
 
