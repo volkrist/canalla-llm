@@ -148,10 +148,10 @@ def test_computer_chip_uses_device_heartbeat_window():
         ready = snap.computer_status(db, user, prefs)
         assert ready["state"] == "ready"
         assert ready["details"]["device"]["display_name"] == "Windows device"
-        row.last_seen = now() - timedelta(seconds=120)
+        row.last_seen = now() - timedelta(seconds=300)
         db.commit()
         offline = snap.computer_status(db, user, prefs)
-        assert offline["state"] == "unavailable"
+        assert offline["state"] == "unavailable", offline["details"]["heartbeat_age_seconds"]
         assert offline["action"] == "reconnect"
         assert offline["detail_code"] == "host_offline"
 

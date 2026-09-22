@@ -236,7 +236,7 @@ Recorded 22 Sep 2026 at the 1.0.0 release cut (no GPU, no TinyFish), one suite a
 | gateway pytest | **112 passed** |
 | gateway Ruff check / format | PASS (26 files formatted) |
 | gateway Alembic (fresh temp SQLite → `0001_gateway_core`, `alembic check` clean) | PASS |
-| backend pytest | **579 passed**, 1 skipped |
+| Backend pytest | 604 passed, 1 skipped |
 | Ruff check / format | PASS (176 files formatted) |
 | Alembic check (fresh temp SQLite → 0015) | PASS |
 | Vitest | **135 passed** |
@@ -313,7 +313,7 @@ acceptance all landed on `release/canalla-1.1.0` in this cycle.
 |---|---|
 | `apps/backend/tests/test_tor_service.py` (deterministic: fake listener, fake binary, fake spawn, fake proof) | **16 passed** |
 | `apps/backend/tests/test_status_recovery.py` (the new computer/tor contract) | **+7 cases** (3 computer, 4 Tor) |
-| Backend pytest / Ruff / BasedPyright | **603 passed, 1 skipped** / PASS / **0 errors, 0 warnings** |
+| Backend pytest / Ruff / BasedPyright | **604 passed, 1 skipped** / PASS / **0 errors, 0 warnings** |
 | Vitest / TypeScript / Prettier / Vite / Playwright | **161 passed** / clean / PASS / PASS / **20 passed** |
 | cargo check / cargo test | clean / **69 passed** (host 18, desktop 51, incl. the device-credential redirection test) |
 | Installed `e2e/always-ready.mjs` (real build, isolated root, no clicks) | **21/21 PASS** — Computer «Готово», Tor «Готово» with a proven circuit, popovers separating health from mode, and after a full Quit + relaunch the session and the **same `device_id`** come back with one device and no second pairing |
