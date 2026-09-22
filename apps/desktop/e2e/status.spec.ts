@@ -16,6 +16,33 @@ function chip(state: string, extra: Chip = {}) {
   };
 }
 
+function torChip(state = "configured", extra: Chip = {}) {
+  // The Tor chip shows service health; the mode is policy and lives in the popover.
+  const base = chip(state, {
+    details: {
+      mode: "auto",
+      proxy_host: "127.0.0.1",
+      proxy_port: 9050,
+      configured_port: 9050,
+      socks_listening: state !== "unavailable",
+      verified_chain: state === "ready",
+      verified_at: state === "ready" ? "2026-09-22T13:36:39+00:00" : null,
+      proof_ttl_seconds: 900,
+      method: "socks5h",
+      managed: false,
+      binary: null,
+      candidates: [9050, 9150],
+      required: false,
+      fallback: "none",
+    },
+  });
+  return {
+    ...base,
+    ...extra,
+    details: { ...base.details, ...(extra.details ?? {}) },
+  };
+}
+
 function payload({
   chips = {},
   balance = {},
@@ -26,7 +53,7 @@ function payload({
       ai: chip("ready"),
       computer: chip("ready"),
       web: chip("ready"),
-      tor: chip("off"),
+      tor: torChip(),
       memory: chip("ready"),
       ...chips,
     },
@@ -95,7 +122,7 @@ test("five chips, live shared balance and a stale value that never becomes zero"
     page.getByRole("button", { name: "AI: Проверяем…" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Tor: Выключено" }),
+    page.getByRole("button", { name: "Tor: Настроено" }),
   ).toBeVisible();
   await expect(page.getByTestId("runpod-balance")).toContainText("$10.00");
   expect(await page.locator("body").innerText()).not.toContain("$0.00");
@@ -185,17 +212,9 @@ test("a configured provider is never shown as ready", async ({ page }) => {
                 "Web настроен. Доступность провайдера проверяется при использовании.",
               details: { provider: "TinyFish", probe: "configuration" },
             }),
-            tor: chip("configured", {
+            tor: torChip("configured", {
               message:
                 "Tor доступен, цепь ещё не проверена. Откат в clearnet не выполняется.",
-              details: {
-                mode: "auto",
-                proxy_port: 9050,
-                socks_listening: true,
-                verified_chain: false,
-                proof_store: "none",
-                fallback: "none",
-              },
             }),
             memory: chip("configured"),
           },
@@ -231,18 +250,13 @@ test("chip details are available without a diagnostics dashboard", async ({
       await route.fulfill({
         json: payload({
           chips: {
-            tor: chip("unavailable", {
-              detail_code: "tor_unavailable",
-              message: "Tor не подтверждён.",
+            tor: torChip("unavailable", {
+              detail_code: "tor_circuit_invalid",
+              message:
+                "SOCKS отвечает, но цепь Tor не подтверждена. Запросы через Tor выполняться не будут.",
               action: "retry",
               recoverable: true,
-              details: {
-                mode: "auto",
-                proxy_port: 9050,
-                socks_listening: false,
-                verified_chain: false,
-                fallback: "none",
-              },
+              details: { socks_listening: true, verified_chain: false },
             }),
           },
         }),
@@ -253,7 +267,7 @@ test("chip details are available without a diagnostics dashboard", async ({
   await register(page, `details-${Date.now()}@example.com`);
   await page.getByRole("button", { name: "Tor: Недоступно" }).click();
   const detail = page.getByTestId("status-detail");
-  await expect(detail).toContainText("Tor не подтверждён.");
+  await expect(detail).toContainText("цепь Tor не подтверждена");
   await expect(detail).toContainText("Цепь проверена");
   await expect(detail).toContainText("Откат");
 });

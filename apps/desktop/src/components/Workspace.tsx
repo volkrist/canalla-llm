@@ -228,6 +228,7 @@ export default function Workspace({
             error={status.error}
             refreshing={status.refreshing}
             onAction={statusAction}
+            api={api}
           />
           <div
             className={`connection ${health ? "connected" : ""}`}

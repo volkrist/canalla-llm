@@ -1,4 +1,6 @@
 import type { Api } from "./api";
+import { record, text as payloadText } from "./payload";
+import { parseTorDetails, torEndpoint } from "./tor";
 
 /** The shared vocabulary. A chip never claims more than its subsystem can prove.
  *
@@ -85,6 +87,29 @@ export const STATE_TEXT: Record<SubsystemState, string> = {
   degraded: "Требует внимания",
 };
 
+/** Wording for a subsystem whose starting state is worth naming. Tor is a service that is
+ *  coming up, not a value being read, so it says so. */
+const CHIP_STATE_TEXT: Partial<
+  Record<ChipKey, Partial<Record<SubsystemState, string>>>
+> = {
+  tor: { starting: "Подключается…" },
+};
+
+export function stateText(chip: ChipKey, state: SubsystemState): string {
+  return CHIP_STATE_TEXT[chip]?.[state] ?? STATE_TEXT[state];
+}
+
+/** What a chip says. Without any snapshot nothing is known yet, so the generic checking text is
+ *  used and no subsystem claims to be connecting. */
+export function chipText(
+  snapshot: StatusSnapshot | null,
+  chip: ChipKey,
+): string {
+  return snapshot
+    ? stateText(chip, chipState(snapshot, chip))
+    : STATE_TEXT.starting;
+}
+
 export const ACTION_TEXT: Record<RecoveryAction, string> = {
   retry: "Повторить",
   configure: "Настроить",
@@ -126,6 +151,64 @@ function clockTime(value: string | null): string {
   });
 }
 
+/** A day-and-time stamp for a moment that may be older than today, or `null` so the row is
+ *  dropped: an unreadable timestamp is never rendered as a value. */
+function stamp(value: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function booleanText(value: boolean | null): string | null {
+  if (value === null) return null;
+  return value ? "да" : "нет";
+}
+
+/** The device heartbeat is what the backend state already proved; it is never inferred here. */
+function heartbeatText(state: SubsystemState): string | null {
+  if (state === "ready") return "в норме";
+  if (state === "unavailable") return "нет ответа";
+  return null;
+}
+
+export interface ComputerDevice {
+  display_name: string | null;
+  platform: string | null;
+  last_seen: string | null;
+}
+
+/** `subsystems.computer.details`. `paired` and the device are what the backend proved; the mode is
+ *  the user's policy and is reported separately. */
+export interface ComputerDetails {
+  mode: string | null;
+  paired: boolean | null;
+  device: ComputerDevice | null;
+}
+
+export function parseComputerDetails(
+  details: Record<string, unknown> | null | undefined,
+): ComputerDetails {
+  const raw = details || {};
+  const device = record(raw.device);
+  return {
+    mode: payloadText(raw.computer_mode),
+    paired: typeof raw.paired === "boolean" ? raw.paired : null,
+    device: device
+      ? {
+          display_name: payloadText(device.display_name),
+          platform: payloadText(device.platform),
+          last_seen: payloadText(device.last_seen),
+        }
+      : null,
+  };
+}
+
 /** A failed read must never be rendered as `$0.00`. */
 export function balanceLine(balance: BalanceStatus): string {
   if (!balance.configured) return "RunPod не настроен";
@@ -163,24 +246,27 @@ export function lowBalanceWarning(balance: BalanceStatus): string | null {
   return `Низкий баланс: ${money(balance.balance_usd)} (порог ${money(balance.low_threshold_usd)})`;
 }
 
-/** Whitelisted detail rows: nothing else from the payload can reach the DOM. */
+/** Whitelisted detail rows: nothing else from the payload can reach the DOM.
+ *
+ * The Computer and Tor rows lead with health and keep the usage policy as its own row, because the
+ * two are different things: a healthy service stays healthy while its mode is off. */
 export function detailRows(
   chip: ChipKey,
   status: SubsystemStatus | undefined,
 ): Array<[string, string]> {
   if (!status) return [];
   const details = status.details || {};
+  const rows: Array<[string, string]> = [];
+  const push = (label: string, value: string | null) => {
+    if (value !== null && value !== "") rows.push([label, value]);
+  };
   const text = (key: string) => {
     const value = details[key];
     if (value === null || value === undefined || value === "") return null;
     if (typeof value === "boolean") return value ? "да" : "нет";
     return String(value);
   };
-  const rows: Array<[string, string]> = [];
-  const add = (label: string, key: string) => {
-    const value = text(key);
-    if (value !== null) rows.push([label, value]);
-  };
+  const add = (label: string, key: string) => push(label, text(key));
   if (chip === "ai") {
     add("Провайдер", "provider");
     add("Модель", "model");
@@ -188,11 +274,16 @@ export function detailRows(
     add("RunPod key", "configured");
   }
   if (chip === "computer") {
-    add("Режим", "computer_mode");
-    add("Сопряжён", "paired");
-    const device = details.device as
-      { display_name?: string } | null | undefined;
-    if (device?.display_name) rows.push(["Устройство", device.display_name]);
+    const computer = parseComputerDetails(details);
+    push("Состояние", stateText("computer", status.state));
+    push("Режим", computer.mode);
+    push(
+      "Сопряжён",
+      computer.paired === null ? null : computer.paired ? "да" : "нет",
+    );
+    push("Отклик", heartbeatText(status.state));
+    push("Последний отклик", stamp(computer.device?.last_seen ?? null));
+    push("Устройство", computer.device?.display_name ?? null);
   }
   if (chip === "web") {
     add("Провайдер", "provider");
@@ -201,11 +292,19 @@ export function detailRows(
     add("Профиль готовности", "probe");
   }
   if (chip === "tor") {
-    add("Режим", "mode");
-    add("SOCKS5", "proxy_port");
-    add("Порт отвечает", "socks_listening");
-    add("Цепь проверена", "verified_chain");
-    add("Откат", "fallback");
+    push("Состояние", stateText("tor", status.state));
+    const tor = parseTorDetails(details);
+    push("Режим", tor.mode);
+    push("SOCKS", torEndpoint(tor));
+    push("Порт отвечает", booleanText(tor.socks_listening));
+    push("Цепь проверена", booleanText(tor.verified_chain));
+    push("Метод", tor.method);
+    push(
+      "Процесс",
+      tor.managed === null ? null : tor.managed ? "Управляемый" : "Внешний",
+    );
+    push("Последняя проверка", stamp(tor.verified_at));
+    push("Откат", tor.fallback);
   }
   if (chip === "memory") {
     add("Память включена", "enabled");

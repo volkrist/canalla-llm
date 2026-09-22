@@ -10,6 +10,9 @@ import {
   type DeviceStatus,
 } from "../lib/host";
 import type { ComputerMode, TorMode, WebMode } from "../lib/tools";
+import { fetchStatus, type SubsystemStatus } from "../lib/status";
+import { ensureTorService } from "../lib/tor";
+import TorServiceBlock from "./TorServiceBlock";
 
 interface Preferences {
   search_enabled: boolean;
@@ -73,6 +76,8 @@ export default function WebToolsSettings({ api }: { api: Api }) {
   const [credName, setCredName] = useState("");
   const [credSecret, setCredSecret] = useState("");
   const [credNames, setCredNames] = useState<string[]>([]);
+  const [torStatus, setTorStatus] = useState<SubsystemStatus | null>(null);
+  const [torBusy, setTorBusy] = useState(false);
   useEffect(() => {
     let live = true;
     void Promise.all([
@@ -80,8 +85,11 @@ export default function WebToolsSettings({ api }: { api: Api }) {
       api.json<Status>("/tools/status"),
       readDeviceStatus().catch(() => ({ paired: false, online: false })),
       listUserCredentials().catch(() => [] as string[]),
+      // The Tor service health is the product's own answer in `/status`, so Settings shows the
+      // same health the chip does. A failed read only loses this block, never the panel.
+      fetchStatus(api).catch(() => null),
     ])
-      .then(([prefs, state, host, names]) => {
+      .then(([prefs, state, host, names, snapshot]) => {
         if (live) {
           setValue({
             search_enabled: prefs.search_enabled,
@@ -114,6 +122,7 @@ export default function WebToolsSettings({ api }: { api: Api }) {
           setStatus(state);
           setDevice(host);
           setCredNames(names);
+          setTorStatus(snapshot?.subsystems.tor ?? null);
         }
       })
       .catch((e: Error) => {
@@ -140,6 +149,20 @@ export default function WebToolsSettings({ api }: { api: Api }) {
       window.dispatchEvent(new Event("alex-tools-settings"));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось сохранить");
+    }
+  }
+  async function ensureTorNow() {
+    setTorBusy(true);
+    try {
+      // `/tools/tor/ensure` answers before the work is done, so the authoritative snapshot is
+      // re-read right after instead of waiting on a cold bootstrap.
+      await ensureTorService(api);
+      setTorStatus((await fetchStatus(api)).subsystems.tor);
+      setError("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось проверить Tor");
+    } finally {
+      setTorBusy(false);
     }
   }
   async function forget() {
@@ -452,12 +475,14 @@ export default function WebToolsSettings({ api }: { api: Api }) {
           </fieldset>
           <fieldset>
             <legend>Tor</legend>
-            <p>
-              Tor Network: {status?.tor_status || "Проверка…"}
-              {status && !status.tor_search_configured
-                ? " · Tor Search provider not configured"
-                : ""}
-            </p>
+            <TorServiceBlock
+              status={torStatus}
+              busy={torBusy}
+              onEnsure={() => void ensureTorNow()}
+            />
+            {status && !status.tor_search_configured ? (
+              <p>Tor Search provider not configured</p>
+            ) : null}
             <p>
               Tor Browser:{" "}
               {status?.tor_browser?.detected ? "Detected" : "Not detected"}
