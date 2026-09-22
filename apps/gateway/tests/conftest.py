@@ -110,7 +110,9 @@ class FakeRunPod:
                             "secure": True,
                             "memory": memory,
                             "price": {"secure": price},
-                            "dataCenters": [{"id": "US-TX-3", "availability": self.availability or availability}],
+                            "dataCenters": [
+                                {"id": "US-TX-3", "availability": self.availability or availability}
+                            ],
                         }
                         for gid, memory, price, availability in [
                             ("gpu-cheap-unavailable", 48, 0.4, "NONE"),

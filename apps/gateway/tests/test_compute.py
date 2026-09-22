@@ -206,9 +206,7 @@ def test_invalid_policy_is_rejected_never_silently_replaced(gateway, client):
         assert response.status_code == 422, (caps, response.text)
         assert response.json()["code"] == "compute_policy_invalid"
         assert "больше 0" in response.json()["detail"]
-    for index, caps in enumerate(
-        [{"max_hourly_price": -1}, {"max_hourly_price": 0}, {"session_budget": -3}]
-    ):
+    for index, caps in enumerate([{"max_hourly_price": -1}, {"max_hourly_price": 0}, {"session_budget": -3}]):
         response = ensure_error(client, headers, operation_id=f"op-badshape-{index:04d}", **caps)
         assert response.status_code == 422, (caps, response.text)
     assert gateway.runpod.creates == []
