@@ -16,6 +16,11 @@
 //   set ALEX_SMOKE_ACTIVATION_CODE=<one-time code from the Gateway operator CLI>
 //   set ALEX_SMOKE_SETUP=<path to the freshly built *setup.exe>   (optional, for step J)
 //   node e2e/cloud-smoke.mjs
+//
+// From-scratch runs (temporary Gateway, temporary database, code created for this run only):
+//   apps/backend/.venv/Scripts/python.exe scripts/cloud-smoke-local.py
+// That fixture sets ALEX_SMOKE_GATEWAY_URL and ALEX_SMOKE_GATEWAY_DB, which default to
+// http://127.0.0.1:9011 and %TEMP%\alex-gateway-smoke\gateway.db.
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -45,8 +50,15 @@ const EXE =
     "alex-llm.exe",
   );
 const CDP_PORT = 9224;
-const GATEWAY_URL = "http://127.0.0.1:9011";
-const GATEWAY_DB = path.join(os.tmpdir(), "alex-gateway-smoke", "gateway.db");
+// Defaults for a Gateway a developer started by hand; scripts/cloud-smoke-local.py points the
+// smoke at its own throwaway Gateway and database instead.
+const GATEWAY_URL =
+  (process.env.ALEX_SMOKE_GATEWAY_URL || "").trim() || "http://127.0.0.1:9011";
+const GATEWAY_DB =
+  (process.env.ALEX_SMOKE_GATEWAY_DB || "").trim() ||
+  path.join(os.tmpdir(), "alex-gateway-smoke", "gateway.db");
+// The panel renders the address it is configured with, so the check follows the URL.
+const GATEWAY_ADDRESS = GATEWAY_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const STAMP = `${Date.now()}`;
 const GATEWAY_CREDENTIAL_NAME = `smoke-${STAMP}`;
 const GATEWAY_CREDENTIAL_TARGET = `Alex LLM/gateway/${GATEWAY_CREDENTIAL_NAME}`;
@@ -567,7 +579,7 @@ async function scenarioFirstRunAndEnroll(page) {
   check(
     "D4 the panel shows the installation and the Gateway without any secret",
     /Установка:/.test(enrolled) &&
-      /Gateway:\s*http:\/\/127\.0\.0\.1:9011/.test(enrolled),
+      new RegExp(`Gateway:\\s*${GATEWAY_ADDRESS}`).test(enrolled),
   );
   // I (panel scope) — the panel is unmounted when Settings closes, so read it now.
   const panelHtml = await dialog(page).innerHTML();

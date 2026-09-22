@@ -10,10 +10,11 @@ No-GPU validation first (this is what Phase A requires):
     python scripts/acceptance-live-rc-final.py --self-test     # pure logic + lifecycle matrix
     python scripts/acceptance-live-rc-final.py --dry-run       # real Gateway, no Pod created
 
-Paid run:
+Paid run (one Pod; add ``--core-only`` for a release sanity, which skips the context,
+overflow and long-stream cases that the 1.0.0 certification already proved):
 
     python scripts/acceptance-live-rc-final.py --max-hourly 0.52 --budget-usd 3.00 \
-        --capacity-timeout 600 --spend-ceiling 0.20
+        --capacity-timeout 60 --spend-ceiling 0.15 --core-only
 
 ``--self-test`` proves the *lifecycle*, not only the formulas: ``lifecycle_matrix`` drives the
 real ``main()`` with a deterministic fake Gateway and a virtual clock through capacity waiting,
@@ -46,7 +47,7 @@ GATEWAY_ENV = "/etc/alex-gateway/alex-gateway.env"
 GATEWAY_DIR = "/opt/alex-gateway/current"
 ALIAS = "orcarouter-qwen38-27b-q5km"
 CONTEXT_WINDOW = 32768
-CLIENT_VERSION = "1.0.0"
+CLIENT_VERSION = "1.1.0"
 
 # The product's own estimate rule (apps/backend/app/context_usage.py): four Latin characters or
 # two non-Latin characters per token, plus one chat-template allowance per message.
@@ -1349,7 +1350,16 @@ def main(argv: list[str] | None = None, client_factory=None) -> int:
     parser.add_argument("--escalate-to", type=float, default=1.20)
     parser.add_argument("--spend-ceiling", type=float, default=0.20)
     parser.add_argument("--skip-long-stream", action="store_true")
+    parser.add_argument(
+        "--core-only",
+        action="store_true",
+        help="live A (basic), Stop and after-Stop only: the context and overflow cases "
+        "were proven in the 1.0.0 certification and are not repeated for every release",
+    )
     args = parser.parse_args(argv)
+    if args.core_only:
+        # A release sanity pays for one Pod and three answers, nothing else.
+        args.skip_long_stream = True
 
     if args.self_test:
         return self_test()
@@ -1629,99 +1639,108 @@ def main(argv: list[str] | None = None, client_factory=None) -> int:
             if len(failures) > mark:
                 raise HarnessAbort("LIVE A basic response failed")
 
-            print("3. LIVE B — context at about 70% of the window")
-            mark = len(failures)
-            seventy_prompt = synthetic_prompt(int(CONTEXT_WINDOW * 0.7))
-            seventy = stream_once(
-                api, headers, seventy_prompt, stream=False, max_tokens=16
-            )
-            measure["context_70"] = {
-                "status": seventy["status"],
-                "chunks": seventy["chunks"],
-                "characters": seventy["characters"],
-                "finish_reason": seventy["finish_reason"],
-                "usage": seventy["usage"],
-                "estimated_tokens": estimate_tokens(seventy_prompt),
-                "share_of_window": round(
-                    estimate_tokens(seventy_prompt) / CONTEXT_WINDOW, 3
-                ),
-                "text": seventy["text"][:80],
-            }
-            measured = (seventy.get("usage") or {}).get("prompt_tokens")
-            estimate = estimate_tokens(seventy_prompt)
-            if isinstance(measured, int) and measured > 0:
-                measure["context_70"]["measured_prompt_tokens"] = measured
-                measure["context_70"]["difference_tokens"] = measured - estimate
-                measure["context_70"]["difference_percent"] = round(
-                    (measured - estimate) / measured * 100, 2
+            if args.core_only:
+                # Basic, Stop and after-Stop are the release sanity; the context and
+                # overflow cases were proven in the 1.0.0 certification and are not
+                # repeated for every release (they cost paid GPU time).
+                print("3-5. LIVE B/C/D — context and overflow: skipped (--core-only)")
+                measure["context_70"] = {"skipped": "core-only"}
+                measure["context_86"] = {"skipped": "core-only"}
+                measure["overflow"] = {"skipped": "core-only"}
+            else:
+                print("3. LIVE B — context at about 70% of the window")
+                mark = len(failures)
+                seventy_prompt = synthetic_prompt(int(CONTEXT_WINDOW * 0.7))
+                seventy = stream_once(
+                    api, headers, seventy_prompt, stream=False, max_tokens=16
                 )
-            check(
-                "70% context accepted by the model",
-                seventy["status"] == 200,
-                f"status={seventy['status']} {seventy.get('error') or ''}",
-            )
-            check(
-                "the model really received roughly the estimated 70% prompt",
-                isinstance(measured, int) and measured > 0,
-                f"measured={measured} estimated={estimate}",
-            )
-            if len(failures) > mark:
-                raise HarnessAbort("LIVE B context 70% failed")
-
-            print("4. LIVE C — context above 85% of the window")
-            mark = len(failures)
-            high_prompt = synthetic_prompt(int(CONTEXT_WINDOW * 0.86))
-            high = stream_once(api, headers, high_prompt, stream=False, max_tokens=16)
-            measure["context_86"] = {
-                "status": high["status"],
-                "chunks": high["chunks"],
-                "characters": high["characters"],
-                "finish_reason": high["finish_reason"],
-                "usage": high["usage"],
-                "estimated_tokens": estimate_tokens(high_prompt),
-                "share_of_window": round(
-                    estimate_tokens(high_prompt) / CONTEXT_WINDOW, 3
-                ),
-                "text": high["text"][:80],
-            }
-            measured_high = (high.get("usage") or {}).get("prompt_tokens")
-            if isinstance(measured_high, int) and measured_high > 0:
-                measure["context_86"]["measured_prompt_tokens"] = measured_high
-                measure["context_86"]["difference_tokens"] = (
-                    measured_high - estimate_tokens(high_prompt)
+                measure["context_70"] = {
+                    "status": seventy["status"],
+                    "chunks": seventy["chunks"],
+                    "characters": seventy["characters"],
+                    "finish_reason": seventy["finish_reason"],
+                    "usage": seventy["usage"],
+                    "estimated_tokens": estimate_tokens(seventy_prompt),
+                    "share_of_window": round(
+                        estimate_tokens(seventy_prompt) / CONTEXT_WINDOW, 3
+                    ),
+                    "text": seventy["text"][:80],
+                }
+                measured = (seventy.get("usage") or {}).get("prompt_tokens")
+                estimate = estimate_tokens(seventy_prompt)
+                if isinstance(measured, int) and measured > 0:
+                    measure["context_70"]["measured_prompt_tokens"] = measured
+                    measure["context_70"]["difference_tokens"] = measured - estimate
+                    measure["context_70"]["difference_percent"] = round(
+                        (measured - estimate) / measured * 100, 2
+                    )
+                check(
+                    "70% context accepted by the model",
+                    seventy["status"] == 200,
+                    f"status={seventy['status']} {seventy.get('error') or ''}",
                 )
-            check(
-                "86% context accepted by the model",
-                high["status"] == 200,
-                f"status={high['status']} {high.get('error') or ''}",
-            )
-            if len(failures) > mark:
-                raise HarnessAbort("LIVE C context above 85% failed")
+                check(
+                    "the model really received roughly the estimated 70% prompt",
+                    isinstance(measured, int) and measured > 0,
+                    f"measured={measured} estimated={estimate}",
+                )
+                if len(failures) > mark:
+                    raise HarnessAbort("LIVE B context 70% failed")
 
-            print("5. LIVE D — input beyond the safe window")
-            mark = len(failures)
-            over_prompt = synthetic_prompt(int(CONTEXT_WINDOW * 1.25))
-            over = stream_once(api, headers, over_prompt, stream=False, max_tokens=16)
-            overflow_kind = classify_overflow(over)
-            measure["overflow"] = {
-                "status": over["status"],
-                "chunks": over["chunks"],
-                "characters": over["characters"],
-                "finish_reason": over["finish_reason"],
-                "error": over["error"],
-                "kind": overflow_kind,
-                "estimated_tokens": estimate_tokens(over_prompt),
-                "share_of_window": round(
-                    estimate_tokens(over_prompt) / CONTEXT_WINDOW, 3
-                ),
-            }
-            check(
-                "an over-window input is trimmed or refused with a typed error, never a crash",
-                overflow_kind in {"trimmed", "rejected", "rejected_upstream"},
-                f"{overflow_kind} status={over['status']} {over.get('error') or ''}",
-            )
-            if len(failures) > mark:
-                raise HarnessAbort("LIVE D overflow failed")
+                print("4. LIVE C — context above 85% of the window")
+                mark = len(failures)
+                high_prompt = synthetic_prompt(int(CONTEXT_WINDOW * 0.86))
+                high = stream_once(api, headers, high_prompt, stream=False, max_tokens=16)
+                measure["context_86"] = {
+                    "status": high["status"],
+                    "chunks": high["chunks"],
+                    "characters": high["characters"],
+                    "finish_reason": high["finish_reason"],
+                    "usage": high["usage"],
+                    "estimated_tokens": estimate_tokens(high_prompt),
+                    "share_of_window": round(
+                        estimate_tokens(high_prompt) / CONTEXT_WINDOW, 3
+                    ),
+                    "text": high["text"][:80],
+                }
+                measured_high = (high.get("usage") or {}).get("prompt_tokens")
+                if isinstance(measured_high, int) and measured_high > 0:
+                    measure["context_86"]["measured_prompt_tokens"] = measured_high
+                    measure["context_86"]["difference_tokens"] = (
+                        measured_high - estimate_tokens(high_prompt)
+                    )
+                check(
+                    "86% context accepted by the model",
+                    high["status"] == 200,
+                    f"status={high['status']} {high.get('error') or ''}",
+                )
+                if len(failures) > mark:
+                    raise HarnessAbort("LIVE C context above 85% failed")
+
+                print("5. LIVE D — input beyond the safe window")
+                mark = len(failures)
+                over_prompt = synthetic_prompt(int(CONTEXT_WINDOW * 1.25))
+                over = stream_once(api, headers, over_prompt, stream=False, max_tokens=16)
+                overflow_kind = classify_overflow(over)
+                measure["overflow"] = {
+                    "status": over["status"],
+                    "chunks": over["chunks"],
+                    "characters": over["characters"],
+                    "finish_reason": over["finish_reason"],
+                    "error": over["error"],
+                    "kind": overflow_kind,
+                    "estimated_tokens": estimate_tokens(over_prompt),
+                    "share_of_window": round(
+                        estimate_tokens(over_prompt) / CONTEXT_WINDOW, 3
+                    ),
+                }
+                check(
+                    "an over-window input is trimmed or refused with a typed error, never a crash",
+                    overflow_kind in {"trimmed", "rejected", "rejected_upstream"},
+                    f"{overflow_kind} status={over['status']} {over.get('error') or ''}",
+                )
+                if len(failures) > mark:
+                    raise HarnessAbort("LIVE D overflow failed")
 
             print("6. LIVE E — long stream through Cloudflare and Nginx")
             elapsed_paid = time.monotonic() - stamps["pod_create_started_at"]
