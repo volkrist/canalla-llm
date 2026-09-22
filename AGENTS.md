@@ -71,8 +71,10 @@ Reliability stage: **CLOSED**. Do not reopen a broad reliability rewrite unless 
 - 1.1.0 release candidate — **COMPLETED and accepted** (`release/canalla-1.1.0`): the D-9 Gateway
   startup deadline, the compact workspace and Settings shell, the POST context preview with an
   honest failed-snapshot state, unified device state, strict project type checking, the hardened
-  release/acceptance tooling and the installed 1.0.0 → 1.1.0 upgrade. Not merged and not tagged
-  yet: the live GPU sanity is externally blocked by provider capacity (`docs/release-1.1.md`).
+  release/acceptance tooling, the installed 1.0.0 → 1.1.0 upgrade and the **always-ready Computer +
+  Tor services** (health separate from usage policy, managed Tor with a persisted circuit proof,
+  pairing reused across restarts). Not merged and not tagged yet: the live GPU sanity is externally
+  blocked by provider capacity (`docs/release-1.1.md`).
 
 ## Production package
 
@@ -173,7 +175,15 @@ the backups live under the data root, never in the install directory.
   in the installed app (Settings → AI / Compute → RunPod API key), landed in Credential Manager
   `Alex LLM/provider/runpod`, survived logout, full restart and reinstall, and served two users with the same
   shared balance; an explicit delete removed it for everyone. No `.env` is involved in the installed product.
-- Web and Tor chips report `configured`, not `ready`: a real provider health probe and a stored verified-Tor-chain proof do not exist yet
+- Web chips report `configured`, not `ready`: TinyFish has no health probe. **Tor is `ready` only with
+  a persisted SOCKS5h proof** since 1.1.0 (`docs/tor.md`); Computer is `ready` on a live heartbeat
+  (`docs/local-computer.md`)
+- **Computer is ready while Canalla runs, and comes back when Canalla is launched**: no autostart at
+  Windows login, no `Run` entry, no «start with Windows» toggle. Pairing, `device_id` and credential
+  survive, so the next launch needs no button. `alex-host-loop.exe` stays the headless E2E variant
+- A machine-wide device credential is **not** scoped by `ALEX_DEVICE_DIR` (only `device.json` is):
+  every installed acceptance harness must set `ALEX_DEVICE_CREDENTIAL_TARGET` or it overwrites the
+  credential the operator's own install pairs with
 - The Central Alex Gateway **is deployed** on the existing 12Testers VPS
   (`https://gateway.12testers.store`, Let's Encrypt, separate service/database) and is merged
   into `main`. Deployment facts, acceptance results, defects found and rollback/backup live in
@@ -228,9 +238,10 @@ until separately tasked.
 
 Canalla LLM **1.1.0** — release candidate on `release/canalla-1.1.0`, built, installed and accepted
 against the deployed Gateway 1.1.0 (`/opt/alex-gateway/releases/adb568734430`). It carries the D-9
-startup deadline, the compact workspace and Settings shell, the POST context preview, and strict
-project type checking (BasedPyright 0/0). **Not merged and not tagged**: the live GPU sanity is
-externally blocked by provider capacity for now — see [docs/release-1.1.md](docs/release-1.1.md).
+startup deadline, the compact workspace and Settings shell, the POST context preview, the
+always-ready Computer and Tor services, and strict project type checking (BasedPyright 0/0).
+**Not merged and not tagged**: the live GPU sanity is externally blocked by provider capacity for
+now — see [docs/release-1.1.md](docs/release-1.1.md).
 
 ## Git safety
 
@@ -240,4 +251,4 @@ Do not commit `docs/screenshots/0.4/*.png` leftover noise.
 
 ## Tests
 
-No paid GPU or TinyFish unless the task explicitly requires REAL acceptance. Commands: `docs/AI-HANDOFF.md`. The consolidated live gate is `scripts/acceptance-live-rc-final.py`: `--self-test` proves the 28-case lifecycle matrix with a fake Gateway and no network, `--dry-run` exercises the real Gateway without creating a Pod, and the paid run uses one Pod for every live case with a spend ceiling (`--core-only` restricts it to Basic → Stop → After Stop). `scripts/acceptance-post-release-1.1.0.py` is the installed-sidecar certification: `--self-test` is its 16-case lifecycle matrix and `--live` is the one-Pod sanity. `scripts/cloud-smoke-local.py` starts a temporary local Gateway so the installed cloud smoke runs from scratch.
+No paid GPU or TinyFish unless the task explicitly requires REAL acceptance. Commands: `docs/AI-HANDOFF.md`. The consolidated live gate is `scripts/acceptance-live-rc-final.py`: `--self-test` proves the 28-case lifecycle matrix with a fake Gateway and no network, `--dry-run` exercises the real Gateway without creating a Pod, and the paid run uses one Pod for every live case with a spend ceiling (`--core-only` restricts it to Basic → Stop → After Stop). `scripts/acceptance-post-release-1.1.0.py` is the installed-sidecar certification: `--self-test` is its 16-case lifecycle matrix and `--live` is the one-Pod sanity. `scripts/cloud-smoke-local.py` starts a temporary local Gateway so the installed cloud smoke runs from scratch. The installed always-ready gate is `apps/desktop/e2e/always-ready.mjs`: Computer and Tor must turn green on a normal launch and again after a relaunch, with no button, the same `device_id` and one device — it needs `ALEX_DEVICE_CREDENTIAL_TARGET` isolation like every other installed smoke.

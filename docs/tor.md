@@ -4,6 +4,11 @@ Tor is a separate capability from TinyFish Web. `web_mode` does not enable or
 disable it. Composer and Web & Tools expose **Tor Off / Auto / On**, independent
 of Web mode.
 
+Since 1.1.0 Tor is also an **always-ready service**: the backend keeps a route to
+Tor up and *proves* it, so «Tor Готово» is a real health statement instead of a
+configuration flag. See *Tor service (1.1.0)* at the end of this document — the
+routing rules below are unchanged by it.
+
 ## Modes
 
 - **Off** — no Tor tools for that request.
@@ -105,3 +110,61 @@ clearnet/onion pair). Reachability never implies official:
 SOCKS is loopback-only. TinyFish is not used. Paid Agent/Browser are not Tor
 transports. Migration 0010 adds `web_source_snapshots.details` for Tor research
 metadata.
+
+## Tor service (1.1.0)
+
+`app.tools.tor.service.TorService` is the single owner of Tor health. It runs in
+the backend lifespan (never in `app_env=test`), starts nothing on the GPU and
+never blocks startup.
+
+**Discovery order** — the configured endpoint first, then `127.0.0.1:9050`
+(standalone Tor), then `127.0.0.1:9150` (Tor Browser), plus any `tor_extra_ports`.
+The first endpoint that answers becomes the runtime route; nothing else is ever
+tried, so a stray proxy can never be adopted by accident.
+
+**Managed start** — when nothing answers and `tor_managed_enabled` is on, the
+service starts its own process: `TOR_BINARY_PATH` if set, otherwise the Tor
+Browser bundle (`Browser/TorBrowser/Tor/tor.exe`), otherwise `tor` on `PATH`,
+otherwise `Program Files\Tor`. It uses its own `--DataDirectory` under the data
+root and logs to `<data root>/logs/tor.log`.
+
+**Readiness is a proof, not a listener.** Tor opens its SOCKS listener at
+bootstrap 0 %, so an open port means nothing. The chip turns green only after a
+SOCKS5h round trip to `tor_check_url` (default
+`https://check.torproject.org/api/ip`) came back as Tor (`IsTor: true`). The
+result is persisted at `<data root>/runtime/tor.json` for
+`tor_proof_ttl_seconds` and **never stores the exit IP**.
+
+| Snapshot state | Meaning | Chip |
+|---|---|---|
+| `ready` | endpoint known **and** a fresh proof | «Готово» |
+| `starting` | managed process bootstrapping (`Bootstrapped NN%` read from the Tor log) | «Подключается…» |
+| `configured` | a listener answers but no proof (e.g. an external Tor we do not own) | «Настроено» |
+| `unavailable` | no endpoint / proof failed / start failed, with a typed reason | «Недоступно» |
+
+Typed reasons: `tor_not_installed`, `tor_circuit_invalid`, `tor_no_endpoint`,
+`tor_start_failed`, `tor_managed_disabled`.
+
+**The mode is policy, never health.** `tor_mode` is reported as a row in the
+popover (`Состояние` / `Режим` / `SOCKS` / `Порт отвечает` / `Цепь проверена` /
+`Метод` / `Процесс` / `Последняя проверка` / `Откат`). `Off` or `Auto` never
+makes a healthy service look offline and never turns an unhealthy one green.
+
+**Recovery is automatic.** A supervisor re-probes on a bounded cadence
+(`tor_supervise_seconds`, `STARTING_DELAY_SECONDS` while bootstrapping), restarts
+the owned process when it died and re-proves the route. `POST /tools/tor/ensure`
+(«Проверить снова» / «Запустить Tor») is the manual fallback only: it returns the
+current snapshot immediately and continues the work in the background.
+
+**No clearnet fallback, ever.** A request that requires Tor fails closed with its
+typed reason while Tor is unhealthy; it is never quietly sent over the direct
+network, and the recovery keeps running in the background.
+
+**Dependency.** Tor itself is not bundled. The managed start needs a local Tor:
+typically the Tor Browser installation or `tor.exe` on `PATH`; without one the
+honest state is `unavailable` / `tor_not_installed` with the manual path in the
+popover.
+
+`stop()` terminates **only** the process this service started, and the backend
+stops it again on shutdown. An external Tor is never killed, adopted or
+reconfigured.

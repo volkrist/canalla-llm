@@ -30,12 +30,14 @@ Recorded at the 1.0 release: `git rev-parse origin/main` is the live source of t
   `/opt/alex-gateway/releases/9bd75486c34b` (the 1.0.0 release), then
   `/opt/alex-gateway/releases/999e00b19ebd`, `/opt/alex-gateway/releases/5539b623e592`
 
-Release artifacts: `Canalla LLM_1.1.0_x64-setup.exe` (87 172 470 B, SHA-256
-`3094793e5ece751b17d4ab69bfe5c34cc369a1408556b7b04cd7e4def379fdea`), desktop `alex-llm.exe`
-(SHA-256 `184ddf8d487161f5b45b8bf56c5d96d6696cc1e5988a7def798f005580694f4d`; the installed copy is
-the NSIS-patched build, `dc250ae11588a4b231402a599f442d62…`), sidecar `alex-backend.exe`
-(`52af9fe6acf2b49ac9ab0003c07b5d5b2a668ffa2845e0255e2a3f39aacb4a2b`), native host
-`alex-host-loop.exe` (`de615f11057cf7d6a73b9e012a10dc64ed76c34cd20bfc32a82990e17c6f27cb`).
+Release artifacts (rebuilt 22 Sep 2026 23:16, the build the installed acceptances ran against):
+`Canalla LLM_1.1.0_x64-setup.exe` (87 199 279 B, SHA-256
+`4d3441acc6f555287f68c5fecb87abe352f9107e506771843952d28a126fad3a`), Desktop `alex-llm.exe`
+(SHA-256 `fbd339552160454c204a32ce7703c33616c2a9dd99234e54f5920e54c1596ebe`; the installed copy is
+the NSIS-patched build, `6d216a69763ba31476dbe6bb10b3ffe2951a2e0299a290cdfd9512cf1b089986`), sidecar
+`alex-backend.exe` (`4cc390217d491a52f1e94a63cee9c8d8679adc4b2207ead7bcbb50c88c92db8e`, identical in
+the bundle and in `%LOCALAPPDATA%\Programs\Canalla LLM\sidecar\alex-backend\`), native host
+`alex-host-loop.exe` (`defc68b1bb62e614af07b95a1799a4ce9a314c7f05c046020dc5d19d4e7c93ea`).
 
 The 1.0.0 artifacts remain as published: `Canalla LLM_1.0.0_x64-setup.exe` (87 180 763 B, SHA-256
 `3465e6405cd5817be584b75eb11238a86e36b958f44776f9583d6008d1d22362`), sidecar
@@ -64,6 +66,7 @@ Overview (partially stale on mock vs packaged llama.cpp defaults): [architecture
 | Five-chip status + error/recovery UX + shared RunPod balance | [status-recovery-audit.md](status-recovery-audit.md), [status-recovery-design.md](status-recovery-design.md) |
 | Central RunPod Gateway / Cloud Control Plane v2 (**deployed** at `https://gateway.12testers.store`, merged) | [central-runpod-gateway-audit.md](central-runpod-gateway-audit.md), [central-runpod-gateway-design.md](central-runpod-gateway-design.md), [gateway-deployment.md](gateway-deployment.md), [gateway-12testers-deploy-audit.md](gateway-12testers-deploy-audit.md) |
 | Canalla LLM user-facing brand + composer context meter | [context-usage.md](context-usage.md) |
+| Computer + Tor **always ready** (health vs. usage policy, managed Tor with a proven circuit, device-credential isolation in the harnesses) | [tor.md](tor.md), [local-computer.md](local-computer.md) |
 | RC / 1.0 final gates (**released as `v1.0.0`**, merged into `main`; live-certified on the production path) | [release-1.0.md](release-1.0.md), [compute-preferences.md](compute-preferences.md), [../CHANGELOG.md](../CHANGELOG.md) |
 
 Security invariants: [security.md](security.md).
@@ -183,6 +186,16 @@ Do not “fix” these as a reliability rewrite:
 - CD-08 REAL stale-SHA coverage debt
 - REAL backend restart with a live Pod not live-tested (FakeRunPod covered)
 - No production code signing / SmartScreen publisher yet
+- **No autostart at Windows login** (1.1.0): the installer registers no `Run` entry and there is no
+  «start with Windows» toggle, so the Computer host comes back when Canalla is launched — the
+  pairing, `device_id` and credential survive, so that launch needs no button. The shipped
+  `alex-host-loop.exe` is the headless E2E variant and is never started by the product
+  ([local-computer.md](local-computer.md))
+- **Web chips report `configured`, not `ready`** (no TinyFish health probe). Tor **does** prove
+  `ready` since 1.1.0 through a persisted SOCKS5h round trip ([tor.md](tor.md))
+- **A machine-wide device credential is not scoped by `ALEX_DEVICE_DIR`**, only `device.json` is.
+  Every installed smoke must set `ALEX_DEVICE_CREDENTIAL_TARGET` or it overwrites
+  `Alex LLM/device-credential`, i.e. the credential the operator's own installation pairs with
 - Access JWT stays valid until its short expiry after logout (copied-token note, [security.md](security.md))
 - Live RunPod **balance** was accepted read-only through the **production credential path**
   (`scripts/acceptance-runpod-balance.py` for the two-user/shared-cache check, and the installed UI for the
@@ -271,8 +284,9 @@ Recorded after the repo-wide type-checking cleanup; the release artifact itself 
 
 ### Acceptance of the 1.1.0 release candidate (22 Sep 2026)
 
-Everything below ran on the exact 1.1.0 artifact (`Canalla LLM_1.1.0_x64-setup.exe`, sidecar
-`52af9fe6…`). The candidate is **READY**; only the paid GPU sanity is externally blocked.
+Everything below ran on the exact 1.1.0 artifact (`Canalla LLM_1.1.0_x64-setup.exe`
+`4d3441ac…`, sidecar `4cc39021…`). The candidate is **READY**; only the paid GPU sanity is
+externally blocked.
 
 | Gate | Result |
 |---|---|
@@ -289,6 +303,23 @@ Everything below ran on the exact 1.1.0 artifact (`Canalla LLM_1.1.0_x64-setup.e
 | Gateway deployment 1.1.0 (verified snapshot → atomic `current` switch → service restart) | **PASS** — `/health` version 1.1.0, protocol 1, ready, database ok, provider configured; 12Testers site/API 200, nginx and its backend active, PM2 online |
 | Paid live sanity on the exact 1.1.0 (Basic → Stop → After Stop, 60 s capacity window) | **INCOMPLETE — external blocker**: two 60-second windows answered `searching`/`gpu_unavailable` (compatible GPUs exist, no usable stock). No Pod was created, nothing was spent, `active_pods=[]`, session `null`, Volume untouched |
 
+### Computer + Tor always-ready, accepted on the installed 1.1.0 (23 Sep 2026)
+
+The requirement was that Computer and Tor be ready after a *normal launch*, with no button pressed,
+and that usage policy never masquerade as health. The product code, the tests and the installed
+acceptance all landed on `release/canalla-1.1.0` in this cycle.
+
+| Gate | Result |
+|---|---|
+| `apps/backend/tests/test_tor_service.py` (deterministic: fake listener, fake binary, fake spawn, fake proof) | **16 passed** |
+| `apps/backend/tests/test_status_recovery.py` (the new computer/tor contract) | **+7 cases** (3 computer, 4 Tor) |
+| Backend pytest / Ruff / BasedPyright | **603 passed, 1 skipped** / PASS / **0 errors, 0 warnings** |
+| Vitest / TypeScript / Prettier / Vite / Playwright | **161 passed** / clean / PASS / PASS / **20 passed** |
+| cargo check / cargo test | clean / **69 passed** (host 18, desktop 51, incl. the device-credential redirection test) |
+| Installed `e2e/always-ready.mjs` (real build, isolated root, no clicks) | **21/21 PASS** — Computer «Готово», Tor «Готово» with a proven circuit, popovers separating health from mode, and after a full Quit + relaunch the session and the **same `device_id`** come back with one device and no second pairing |
+| Installed GUI smoke / backup smoke / cloud-default-check / cloud smoke | **PASS** / **PASS** / **15/15** / **PASS** |
+| Operator's own installed 1.1.0 (real data root, normal launch) | Computer `ready` on a fresh heartbeat, Tor `ready` from a persisted `runtime/tor.json` proof (`source: managed`, full bootstrap in ~30 s), no orphan `tor.exe` or 9050 listener after Quit |
+
 ## 12. Next slice
 
 **CANALLA LLM 1.1.0 — LIVE SANITY ONLY**
@@ -298,7 +329,10 @@ Status on the branch `release/canalla-1.1.0` (22 Sep 2026):
 - **Done and verified**: the D-9 startup deadline in the Gateway (with 18 deterministic cases), the
   compact workspace and the Settings shell, the POST context preview with an honest failed-snapshot
   state, strict project type checking (0/0 over 226 files), the release/acceptance tooling, the
-  1.1.0 build and its real upgrade over the installed 1.0.0, and the deployment of Gateway 1.1.0.
+  1.1.0 build and its real upgrade over the installed 1.0.0, the deployment of Gateway 1.1.0, and
+  the **always-ready Computer + Tor service** (backend `TorService` with a proven circuit, the
+  health/policy split on both chips, the device-credential isolation in every installed smoke, and
+  `e2e/always-ready.mjs` proving readiness on a normal launch *and* after a restart).
 - **Open**: only the **paid live sanity on the exact installed 1.1.0** — twice attempted, twice
   blocked externally by RunPod capacity (`gpu_unavailable`, no Pod, no spend). The release branch is
   ready; the next attempt is manual and must stay bounded:

@@ -42,6 +42,18 @@ the Settings dialog rather than in a panel over the app. Поиск по фай�
 with its prepare/retry actions) now has a home in Данные. One device snapshot feeds the top-bar
 chip, the Computer bar and Settings, so they can no longer disagree by up to a polling interval.
 
+**Computer and Tor are ready before you touch anything.** They are services, not switches. On a
+normal launch, with no button pressed, both chips turn green on their own and stay green: the mode
+(`Ask`, `Off`, `Auto`) is policy and never makes a healthy service look offline. Tor is discovered
+(configured endpoint, then `127.0.0.1:9050`, then `127.0.0.1:9150`), started when nothing answers,
+and it claims «Готово» only after a real SOCKS5h round trip came back as Tor — an open listener is
+«Настроено», never «Готово», and a cold bootstrap says «Подключается…» with Tor's own percentage.
+Recovery is automatic; the manual actions («Проверить снова», «Запустить Tor», «Подключить») stay
+as fallbacks, and a request that needs Tor still fails closed instead of falling back to clearnet.
+The Computer host pairs, heartbeats and reconnects by itself, keeps the same `device_id` across
+restarts and no longer shows a red chip with a Connect button for a reconnect that is already in
+flight. The popovers separate health (`Состояние`) from policy (`Режим`) for both.
+
 ## 2. Install and upgrade
 
 Run `Canalla LLM_1.1.0_x64-setup.exe` over the installed Canalla LLM. The installer is per user,
@@ -82,19 +94,20 @@ externally blocked (section 7).
 | Gate | Result |
 |---|---|
 | BasedPyright (`npx basedpyright`) | 0 errors, 0 warnings, 226 files |
-| Backend pytest | 581 passed, 1 skipped |
+| Backend pytest | 603 passed, 1 skipped |
 | Backend ruff (`check` + `format --check`) | PASS |
-| Backend alembic (`upgrade head`, `check`) | PASS (head `0015`) |
-| Gateway pytest | 130 passed (112 + 18 new D-9 cases) |
+| Backend alembic (`upgrade head`, `check`) | PASS (head `0015`, no new operations) |
+| Gateway pytest | 130 passed (112 + 18 D-9 cases) |
 | Gateway ruff, alembic | PASS (head `0001_gateway_core`) |
-| Vitest | 150 passed |
+| Vitest | 161 passed |
 | TypeScript (`tsc -b`), Prettier, Vite build | PASS |
 | Playwright | 20 passed |
-| `cargo check`, `cargo test` | PASS (67 tests) |
+| `cargo check`, `cargo test` | PASS (69 tests: host 18, desktop 51) |
 | `npm audit --omit=dev`, `pip-audit` | 0 vulnerabilities / clean |
 | Harness lifecycle matrix (`acceptance-post-release-1.1.0.py --self-test`) | 16/16 PASS |
 | Harness lifecycle matrix (`acceptance-live-rc-final.py --self-test`) | 28/28 PASS |
-| Installed cloud-default-check | 13/13 PASS |
+| Installed always-ready (`e2e/always-ready.mjs`) | 21/21 PASS — Computer and Tor green on a normal launch *and* after a restart, no clicks; same `device_id`, one device |
+| Installed cloud-default-check | 15/15 PASS |
 | Installed GUI smoke | PASS |
 | Installed backup smoke | PASS |
 | Installed cloud smoke (`scripts/cloud-smoke-local.py`) | PASS (Scenario J skipped: needs `ALEX_SMOKE_SETUP`) |
@@ -130,13 +143,22 @@ The deployed Gateway was upgraded to 1.1.0 from a verified database snapshot:
   refresh, so the operator's installation list can name an older client after an upgrade. Nothing
   in routing, policy or security reads it; updating it would add a field to the token request, so
   it stays documented rather than changed in a patch release.
-- Web and Tor chips still report `configured`, not `ready`, and a real backend restart with a live
-  Pod has still not been live-tested.
+- **Web still reports `configured`, not `ready`** — TinyFish has no health probe. Tor does: it
+  turns green only on a persisted SOCKS5h proof that the route is really Tor.
+- **Canalla does not start itself at Windows login** (no `Run` entry, no «start with Windows»
+  toggle). After a PC restart the Computer host is back as soon as Canalla is launched — which is
+  when the device is usable — and that launch restores the same pairing without a button; the
+  manual path for an earlier start is the Startup folder or Task Scheduler. The managed Tor needs
+  a local Tor (Tor Browser's bundle, `PATH` or `Program Files\Tor`); without one, the honest state
+  is `unavailable` with `tor_not_installed` instead of a green chip.
+- A real backend restart with a live Pod has still not been live-tested.
 
 ## 8. Documentation map
 
 - [CHANGELOG.md](../CHANGELOG.md) — the same changes in changelog form.
 - [context-usage.md](context-usage.md) — the context meter's contract, including the new POST preview.
+- [tor.md](tor.md) — the Tor service, its proof, its states and the routing rules that are unchanged.
+- [local-computer.md](local-computer.md) — the host, pairing, the always-ready windows and the no-autostart limitation.
 - [compute-preferences.md](compute-preferences.md) — the money policy and the startup deadline.
 - [gateway-deployment.md](gateway-deployment.md) — deploy, upgrade and rollback on the operator side.
 - [gateway-12testers-deploy-audit.md](gateway-12testers-deploy-audit.md) — what the first deployment found.

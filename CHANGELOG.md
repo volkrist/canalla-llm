@@ -10,6 +10,25 @@ public endpoint — are unchanged on purpose; see the Naming section of `AGENTS.
 Release candidate on `release/canalla-1.1.0`. Installer artifact:
 `Canalla LLM_1.1.0_x64-setup.exe`. Runtime and Gateway protocols stay at `1`.
 
+### Added
+
+- **Computer and Tor are always-ready services, not on-demand switches.** After a normal launch,
+  with no button pressed, both chips turn green on their own, and they stay ready when the mode is
+  `Ask`/`Off`/`Auto` because the mode is policy, not health.
+  - **Tor** is discovered (configured endpoint → `127.0.0.1:9050` → `127.0.0.1:9150`), started when
+    nothing answers (Tor Browser's `tor.exe`, `PATH`, `Program Files\Tor`), and it turns `ready`
+    only after a SOCKS5h round trip came back as Tor — an open listener is `Настроено`, never
+    «Готово». A cold bootstrap is reported as «Подключается…» with the real percentage from Tor's
+    own log. Recovery is automatic and bounded; the manual action stays as «Проверить снова» /
+    «Запустить Tor». A request that needs Tor still fails closed — there is no clearnet fallback —
+    and the popover separates `Состояние` from `Режим`, `SOCKS`, the proof and its age.
+  - **Computer** pairs the device, heartbeats it every 8 s and reconnects by itself: a heartbeat
+    younger than 45 s is «Готово», a host that was alive moments ago is
+    «восстанавливает соединение» instead of a red chip with a button, and only a genuinely absent
+    host reaches `Недоступно` / `host_offline`. Pairing is reused across restarts (same
+    `device_id`, no second device) and the manual «Подключить» is the fallback for a revoked or
+    missing credential.
+
 ### Fixed
 
 - **A Pod that never became ready no longer bills forever (D-9).** The Gateway now enforces a
@@ -53,6 +72,12 @@ Release candidate on `release/canalla-1.1.0`. Installer artifact:
   reported as an external blocker instead of being waited out. `scripts/cloud-smoke-local.py`
   makes the installed cloud smoke runnable from scratch (temporary local Gateway, temporary
   database, throwaway activation code).
+- **Acceptance harnesses no longer touch the machine's real device credential.** `ALEX_DEVICE_DIR`
+  moves `device.json` but not the credential, which is one machine-wide Credential Manager entry,
+  so the installed smokes now borrow a run-owned `ALEX_DEVICE_CREDENTIAL_TARGET`, delete it (and
+  their own session credentials) again, and say so in their pass/fail output;
+  `e2e/always-ready.mjs` also relaunches the same install to prove that the pairing and the session
+  come back unchanged. A unit test pins the redirection.
 
 ### Known limitations
 
@@ -68,6 +93,13 @@ Release candidate on `release/canalla-1.1.0`. Installer artifact:
   `last_seen_at` only, so the Gateway's installation list can name an older client after an
   upgrade. It is operator metadata: nothing in routing, policy or security reads it, and updating
   it would add a field to the token request, so it stays documented instead.
+- **Canalla does not start itself at Windows login.** The installer registers no `Run` entry (on
+  upgrade it only removes the legacy `Alex LLM` one) and 1.1.0 ships no «start with Windows»
+  toggle, so a *restarted PC* brings the Computer host back when Canalla is launched — not before.
+  The pairing, the credential and the `device_id` are preserved, so that launch needs no button
+  and no re-pair; a user who wants the app up earlier can add the Startup folder or a Task
+  Scheduler entry. The shipped `alex-host-loop.exe` is the headless variant for E2E and is not
+  started by the product.
 - **The live GPU sanity for 1.1.0 is externally blocked by provider capacity** (RunPod reported
   `gpu_unavailable` for every catalogue entry in two 60-second windows, so no Pod was created and
   nothing was spent). The release candidate is otherwise fully accepted; see
@@ -79,8 +111,8 @@ Release candidate on `release/canalla-1.1.0`. Installer artifact:
   memory and documents have budgets, a single oversized draft does not — so the upstream refuses
   it and the client sees a typed `gateway_unavailable` naming the upstream status; and the
   provider's `currentSpendPerHr` keeps reporting a terminated Pod for a while after a stop.
-- **Web and Tor report `configured`, never `ready`** — a real provider health probe and a
-  stored verified-Tor-chain proof do not exist yet.
+- **Web reports `configured`, never `ready`** — TinyFish has no health probe yet. Tor does have a
+  real proof since 1.1.0: a persisted SOCKS5h round trip that came back as Tor.
 - A real backend restart with a live Pod has not been live-tested.
 - An access token stays valid until its short expiry after logout.
 - Shared compute has no quotes or GPU picker in the UI: the Gateway selects the cheapest GPU
