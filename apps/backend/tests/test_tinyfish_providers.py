@@ -19,6 +19,10 @@ class TestCredentials:
 
 
 class Context:
+    # Armed by the browser-start test; the provider reads them for ownership and audit.
+    user_id: str
+    run_id: str
+
     def __init__(self):
         self.secrets = ("test-only-provider-credential",)
         self.settings = WebSettings(agent_enabled=True)

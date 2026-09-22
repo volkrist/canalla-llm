@@ -4,6 +4,7 @@ import re
 import time
 from contextlib import suppress
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Literal
 from urllib.parse import quote, urljoin, urlsplit
 
@@ -198,7 +199,7 @@ class BrowserController:
         return "Confirmed action completed."
 
 
-class TinyFishBrowserProvider(ToolProvider):
+class TinyFishBrowserProvider(ToolProvider[BrowserStartArgs | WebBrowserArgs]):
     def __init__(self, client=None, playwright_factory=None):
         self.client = client or get_tinyfish_client()
         self.playwright_factory = playwright_factory
@@ -255,6 +256,10 @@ class TinyFishBrowserProvider(ToolProvider):
             if not isinstance(cdp_url, str) or urlsplit(cdp_url).scheme != "wss":
                 raise ToolError("malformed_browser_session")
             await validate_url(cdp_url.replace("wss://", "https://", 1), context.resolver)
+            # The supplier field is untyped JSON: an absent base_url is a malformed session,
+            # not a supplier outage, so it must fail like the sibling session_id/cdp_url checks.
+            if not isinstance(base_url, str):
+                raise ToolError("malformed_browser_session")
             await validate_url(base_url, context.resolver)
             playwright = await factory().start()
             browser = await playwright.chromium.connect_over_cdp(cdp_url, timeout=30000)
@@ -378,6 +383,7 @@ class TinyFishBrowserProvider(ToolProvider):
         session.stopped = session.stopped or time.monotonic()
         if session.task and session.task is not asyncio.current_task():
             session.task.cancel()
+        terminated = False
         with anyio.CancelScope(shield=True):
             with suppress(Exception):
                 await session.browser.close()
@@ -390,7 +396,7 @@ class TinyFishBrowserProvider(ToolProvider):
             with SessionLocal() as db:
                 row = db.get(ToolRun, session.run_id)
                 if row:
-                    row.cost_estimate = cost
+                    row.cost_estimate = Decimal(str(cost))
                     row.result_metadata = {
                         **row.result_metadata,
                         "supplier_stop_confirmed": terminated,
@@ -578,6 +584,7 @@ class TinyFishBrowserProvider(ToolProvider):
         if not session:
             raise ToolError("not_found")
         async with self.locks[session.session_id]:
+            method, target = "click", ""
             if args.operation == "wait":
                 await asyncio.sleep(args.seconds)
             elif args.operation == "back":
@@ -597,7 +604,6 @@ class TinyFishBrowserProvider(ToolProvider):
                 await validate_url(target, context.resolver)
                 session.allow_write = True
                 session.write_budget = 1
-                method = "click"
                 try:
                     try:
                         await (
@@ -638,7 +644,7 @@ class TinyFishBrowserProvider(ToolProvider):
             )
 
 
-class BrowserActionProvider(ToolProvider):
+class BrowserActionProvider(ToolProvider[BrowserReadArgs | BrowserWriteArgs]):
     def __init__(self, browser):
         self.browser = browser
 

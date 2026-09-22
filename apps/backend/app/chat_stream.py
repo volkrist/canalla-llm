@@ -79,6 +79,7 @@ async def stream_response(
     request.app.state.generating.add(chat.id)
     mutation_lock.acquire()
     try:
+        user_message: Message
         if action == "resume":
             from .tools.models import LocalTask
 
@@ -87,11 +88,12 @@ async def stream_response(
                 raise HTTPException(404, "Задача не найдена")
             content = task.original_user_request
             prior = ordered_messages(db, chat.id)
-            user_message = next((row for row in reversed(prior) if row.role == "user"), None)
-            if user_message is None:
-                user_message = Message(chat_id=chat.id, role="user", content=content)
-                db.add(user_message)
+            resumed = next((row for row in reversed(prior) if row.role == "user"), None)
+            if resumed is None:
+                resumed = Message(chat_id=chat.id, role="user", content=content)
+                db.add(resumed)
                 db.flush()
+            user_message = resumed
         elif action == "send":
             prior = ordered_messages(db, chat.id)
             created = now()
@@ -104,6 +106,8 @@ async def stream_response(
             if chat.title == "New chat":
                 chat.title = content[:80]
         else:
+            if target is None:
+                raise HTTPException(404, "Сообщение не найдено")
             user_message = target
             db.execute(delete(Message).where(Message.chat_id == chat.id, after(target)))
             if action == "resend":
@@ -150,9 +154,10 @@ async def stream_response(
     async def generate():
         parts = []
         status = "stopped"
-        tokens = {}
+        # Pre-typed containers: the values are heterogeneous (counts, flags, ISO stamps, None).
+        tokens: dict[str, object] = {}
         first_token_at = None
-        cancellation = {"upstream_cancel_confirmed": None}
+        cancellation: dict[str, object] = {"upstream_cancel_confirmed": None}
         started = assistant.generation_started_at
         iterator = None
         tool_task = None
@@ -160,9 +165,15 @@ async def stream_response(
         parked = False
         tool_context = None
         usage_id = None
+        queue = asyncio.Queue(maxsize=64)
         from .tools.local.plan import looks_like_autonomous, looks_like_computer
         from .tools.local.public_text import public_assistant_text
         from .tools.local.workspace import looks_like_coding
+
+        async def emit(event, value):
+            if queue.full():
+                queue.get_nowait()
+            queue.put_nowait((event, jsonable_encoder(value)))
 
         try:
             await request.app.state.presence.publish()
@@ -213,12 +224,6 @@ async def stream_response(
             )
             max_search = settings.tools_task_max_search if autonomous else settings.tools_max_search
             max_fetch = settings.tools_task_max_fetch if autonomous else settings.tools_max_fetch
-            queue = asyncio.Queue(maxsize=64)
-
-            async def emit(event, value):
-                if queue.full():
-                    queue.get_nowait()
-                queue.put_nowait((event, jsonable_encoder(value)))
 
             tool_context = ExecutionContext(
                 user.id,
@@ -290,7 +295,7 @@ async def stream_response(
                 snapshot = snapshot_db.get(MessageContext, assistant_id)
                 if snapshot:
                     snapshot.snapshot = {
-                        **snapshot.snapshot,
+                        **(snapshot.snapshot or {}),
                         "web_mode": effective_web_mode,
                         "computer_mode": effective_computer_mode,
                         "tor_mode": effective_tor_mode,
@@ -492,7 +497,7 @@ async def stream_response(
                         saved.completed_at = now()
                         saved.ttft_ms = (
                             max(0, int((first_token_at - started).total_seconds() * 1000))
-                            if first_token_at
+                            if first_token_at and started
                             else None
                         )
                         saved.cancellation = cancellation

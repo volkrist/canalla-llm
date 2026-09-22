@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
     app_env: Literal["development", "production", "test"] = "development"
     database_url: str = "sqlite:///./alex.db"
-    jwt_secret: str = Field(min_length=32)
+    jwt_secret: str = Field(default="", min_length=32)
     jwt_expire_minutes: int = Field(default=60, ge=1, le=1440)
     auth_session_days: int = Field(default=30, ge=1, le=365)
     auth_session_max_days: int = Field(default=90, ge=1, le=3650)

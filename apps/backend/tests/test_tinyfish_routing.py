@@ -290,9 +290,13 @@ def test_browser_link_contract_and_docs_candidates():
 
     page = "https://www.python.org/"
     relative = normalize_browser_link(page, "/doc/", "Documentation", 0, "L1")
+    if relative is None:
+        raise AssertionError("an in-page relative link must normalise")
     assert relative["resolved_url"] == "https://www.python.org/doc/"
     assert relative["same_origin"] is True
     absolute = normalize_browser_link(page, "https://docs.python.org/3/", "Python Docs", 1, "L2")
+    if absolute is None:
+        raise AssertionError("an absolute http link must normalise")
     assert absolute["resolved_url"] == "https://docs.python.org/3/"
     assert absolute["same_origin"] is False
     assert normalize_browser_link(page, "javascript:alert(1)", "x", 2, "L3") is None

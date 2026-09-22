@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from functools import lru_cache
+from typing import Any
 
 import httpx
 
@@ -67,7 +68,7 @@ class TinyFishClient:
             await asyncio.sleep(max(0, self.next_search - time.monotonic()))
             self.next_search = time.monotonic() + self.settings.tinyfish_search_interval_seconds
 
-    async def request(self, method, url, *, body=None, params=None, retry=True, timeout=40):
+    async def request(self, method, url, *, body=None, params=None, retry=True, timeout=40) -> dict[str, Any]:
         if url in {SEARCH, FETCH} and not self.settings.tinyfish_search_fetch_free:
             raise ToolError("pricing_not_confirmed")
         # Endpoints are adapter constants, never supplied by model/browser content.
@@ -106,6 +107,9 @@ class TinyFishClient:
             raise ToolError("provider_unavailable") from None
         except (ValueError, TypeError):
             raise ToolError("malformed_provider_result") from None
+        # Unreachable: every response path inside the attempt loop returns or raises, so the
+        # caller always receives a mapping. Stated explicitly so the return type stays honest.
+        raise ToolError("provider_unavailable")
 
     async def agent_events(self, body):
         try:
