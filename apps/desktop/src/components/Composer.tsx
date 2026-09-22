@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, Globe, Paperclip, Square } from "lucide-react";
 import type { ComputerMode, TorMode, WebMode } from "../lib/tools";
 import type { ContextUsage } from "../lib/context-usage";
 import ContextUsageMeter from "./ContextUsageMeter";
@@ -23,6 +23,7 @@ export default function Composer({
   deviceLabel = "Not paired",
   deviceOnline = false,
   contextUsage = null,
+  contextFailed = false,
 }: {
   busy: boolean;
   streaming: boolean;
@@ -42,6 +43,7 @@ export default function Composer({
   deviceLabel?: string;
   deviceOnline?: boolean;
   contextUsage?: ContextUsage | null;
+  contextFailed?: boolean;
 }) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -72,6 +74,28 @@ export default function Composer({
     if (!accepted) setDraft(text);
     setSending(false);
   }
+  const showStatus =
+    streaming ||
+    phase === "stopped" ||
+    phase === "error" ||
+    phase === "completed";
+  const statusText = streaming
+    ? `${
+        phase === "sending"
+          ? "Отправляем запрос…"
+          : phase === "streaming"
+            ? "Ответ поступает…"
+            : elapsed < 8
+              ? "Ожидаем первый ответ модели…"
+              : "Модель обрабатывает запрос…"
+      } ${elapsed} с`
+    : phase === "stopped"
+      ? "Генерация остановлена"
+      : phase === "error"
+        ? "Ошибка генерации"
+        : phase === "completed"
+          ? "Ответ завершён"
+          : "";
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (
       event.key === "Enter" &&
@@ -85,7 +109,7 @@ export default function Composer({
   }
   return (
     <div className="composer-wrap">
-      <ContextUsageMeter usage={contextUsage} />
+      <ContextUsageMeter usage={contextUsage} failed={contextFailed} />
       <div className="composer">
         <textarea
           ref={textarea}
@@ -99,8 +123,8 @@ export default function Composer({
           rows={2}
         />
         <div className="composer-toolbar">
-          <label>
-            Web{" "}
+          <label className="composer-select">
+            <span className="composer-select-label">Web</span>
             <select
               aria-label="Web mode"
               disabled={busy}
@@ -112,17 +136,8 @@ export default function Composer({
               <option value="on">On</option>
             </select>
           </label>
-          {webMode === "auto" && (
-            <button
-              type="button"
-              disabled={busy || !draft.trim() || !connected}
-              onClick={() => void submit("on")}
-            >
-              Найти в интернете
-            </button>
-          )}
-          <label>
-            Tor{" "}
+          <label className="composer-select">
+            <span className="composer-select-label">Tor</span>
             <select
               aria-label="Tor mode"
               disabled={busy}
@@ -134,8 +149,8 @@ export default function Composer({
               <option value="on">On</option>
             </select>
           </label>
-          <label>
-            Computer{" "}
+          <label className="composer-select">
+            <span className="composer-select-label">Computer</span>
             <select
               aria-label="Computer mode"
               disabled={busy}
@@ -149,33 +164,38 @@ export default function Composer({
               <option value="trusted">Trusted Workspace</option>
             </select>
           </label>
-          <span
-            className={`connection ${deviceOnline ? "connected" : ""}`}
-            role="status"
-            aria-label="Device status"
-          >
-            <span className="tiny-dot" /> Device: {deviceLabel}{" "}
-            {deviceOnline ? "Online" : "Offline"}
-          </span>
+          {webMode === "auto" && (
+            <button
+              type="button"
+              className="icon-action"
+              aria-label="Найти в интернете"
+              title="Найти в интернете"
+              disabled={busy || !draft.trim() || !connected}
+              onClick={() => void submit("on")}
+            >
+              <Globe size={15} />
+            </button>
+          )}
           <button
             type="button"
+            className="icon-action"
+            aria-label="Прикрепить файл"
+            title="Прикрепить файл"
             disabled={busy}
             onClick={() => window.dispatchEvent(new Event("alex-attach"))}
           >
-            Прикрепить файл
+            <Paperclip size={15} />
           </button>
-          <span>
-            <span className="tiny-dot" />{" "}
-            {streaming
-              ? `${phase === "sending" ? "Отправляем запрос…" : phase === "streaming" ? "Ответ поступает…" : elapsed < 8 ? "Ожидаем первый ответ модели…" : "Модель обрабатывает запрос…"} ${elapsed} с`
-              : phase === "stopped"
-                ? "Генерация остановлена"
-                : phase === "error"
-                  ? "Ошибка генерации"
-                  : phase === "completed"
-                    ? "Ответ завершён"
-                    : "Ваш следующий вопрос"}
+          <span
+            className={`${deviceOnline ? "device-chip online" : "device-chip"}`}
+            role="status"
+            aria-label={`Device: ${deviceLabel} ${deviceOnline ? "Online" : "Offline"}`}
+            title={`${deviceLabel} · ${deviceOnline ? "Online" : "Offline"}`}
+          >
+            <span className="tiny-dot" />
+            {deviceOnline ? "PC Online" : "PC Offline"}
           </span>
+          {showStatus && <span className="composer-status">{statusText}</span>}
           {streaming ? (
             <button
               className="send-button stop"

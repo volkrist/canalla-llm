@@ -447,8 +447,8 @@ describe("settings integration", () => {
     expect(html.indexOf(">AI / Compute<")).toBeLessThan(
       html.indexOf(">Canalla Cloud<"),
     );
-    expect(html.indexOf(">Canalla Cloud<")).toBeLessThan(
-      html.indexOf(">Personalization / Memory<"),
+    expect(html.indexOf(">Память<")).toBeLessThan(
+      html.indexOf(">Canalla Cloud<"),
     );
   });
 });

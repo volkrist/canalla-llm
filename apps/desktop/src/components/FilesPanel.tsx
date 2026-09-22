@@ -119,6 +119,12 @@ export default function FilesPanel({
       (!status || d.status === status) &&
       (filter === "all" || (d.project_id || "general") === filter),
   );
+  const scoped = projectId
+    ? documents.filter((d) => d.project_id === projectId)
+    : documents;
+  // Closed and nothing for this scope: no heading and no empty block. The composer's
+  // attach button still opens the dialog through the `alex-attach` event.
+  if (!open && !scoped.length) return null;
   return (
     <section className="files-toolbar">
       <button onClick={() => setOpen(true)}>Файлы</button>

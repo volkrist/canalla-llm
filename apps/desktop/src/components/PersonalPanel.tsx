@@ -55,22 +55,52 @@ const emptyMemory = (): Omit<Memory, "id"> => ({
   is_pinned: false,
   is_active: true,
 });
+/** Opens the personal panel on one section. Settings and the compact bars use this entry point. */
+export function openPersonalPanel(
+  tab: "Профиль" | "Пользователи" | "Проекты" | "Память",
+) {
+  window.dispatchEvent(
+    new CustomEvent("alex-personal-settings", { detail: { tab } }),
+  );
+}
+
+/**
+ * "Personal data changed". The chat-side project picker and the section that lives in Settings are
+ * two mounts of the same component, so a project (or a memory) created in one has to reach the
+ * other without a page reload and without a second copy of the data.
+ */
+export const PERSONAL_REFRESH_EVENT = "alex-personal-refresh";
+
+function requestPersonalRefresh() {
+  window.dispatchEvent(new Event(PERSONAL_REFRESH_EVENT));
+}
+
 export default function PersonalPanel({
   api,
   onLogout,
-  chatId,
-  projectId,
-  onProject,
-  prompt,
-  technical,
+  chatId = null,
+  projectId = null,
+  onProject = async () => {},
+  prompt = "",
+  technical = false,
+  variant = "full",
+  embedded = false,
+  section,
 }: {
   api: Api;
   onLogout: () => void;
-  chatId: string | null;
-  projectId: string | null;
-  onProject: (id: string | null) => Promise<void>;
-  prompt: string;
-  technical: boolean;
+  chatId?: string | null;
+  projectId?: string | null;
+  onProject?: (id: string | null) => Promise<void>;
+  prompt?: string;
+  technical?: boolean;
+  /** `bar` keeps only the compact project selector on the chat screen; the sections live in
+   * Settings and open the dialog. `full` is the original layout. */
+  variant?: "full" | "bar";
+  /** Renders one section inline, for the Settings shell: no dialog, no nav, no chrome. */
+  embedded?: boolean;
+  /** The section the Settings shell has selected (embedded mode only). */
+  section?: "Профиль" | "Пользователи" | "Проекты" | "Память";
 }) {
   const presence = usePresence(api, onLogout);
   const [tab, setTab] = useState("");
@@ -114,6 +144,8 @@ export default function PersonalPanel({
     setError("");
     try {
       await action();
+      // A change made here is visible everywhere else that shows the same data.
+      requestPersonalRefresh();
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Не удалось выполнить действие",
@@ -148,8 +180,24 @@ export default function PersonalPanel({
     return () => clearInterval(timer);
   }, [api]);
   useEffect(() => {
-    if (tab) dialog.current?.showModal();
-  }, [tab]);
+    // Reads only: this listener never runs through `run`, so it cannot echo itself.
+    const refresh = () => {
+      void api
+        .json<Profile>("/profile")
+        .then(setProfile)
+        .catch(() => {});
+      void refreshProjects().catch(() => {});
+      void refreshMemory().catch(() => {});
+    };
+    window.addEventListener(PERSONAL_REFRESH_EVENT, refresh);
+    return () => window.removeEventListener(PERSONAL_REFRESH_EVENT, refresh);
+  }, [api, query, category, page]);
+  useEffect(() => {
+    if (embedded && section) setTab(section);
+  }, [embedded, section]);
+  useEffect(() => {
+    if (tab && !embedded) dialog.current?.showModal();
+  }, [tab, embedded]);
   useEffect(() => {
     if (tab !== "Память" || busy) return;
     let cancelled = false;
@@ -194,7 +242,12 @@ export default function PersonalPanel({
         ),
       );
     };
-    const settings = () => setTab("Профиль");
+    const settings = (event: Event) => {
+      // Settings uses this entry point to open one section directly (Профиль/Пользователи/
+      // Проекты/Память) instead of keeping those links on the chat screen.
+      const wanted = (event as CustomEvent<{ tab?: string }>).detail?.tab;
+      setTab(wanted ? wanted : "Профиль");
+    };
     window.addEventListener("alex-remember", remember);
     window.addEventListener("alex-used-memory", used);
     window.addEventListener("alex-personal-settings", settings);
@@ -207,27 +260,31 @@ export default function PersonalPanel({
   function stateText(status: string, using: boolean) {
     return `${status === "online" ? "● Online" : status === "idle" ? "◐ Idle" : "○ Offline"}${using ? " · Использует AI" : ""}`;
   }
+  const compact = variant === "bar";
+  const nav = (
+    <div className="personal-nav">
+      <span>
+        {profile?.display_name || "Профиль"} ·{" "}
+        {presence.connected && self
+          ? stateText(self.status, self.using_ai)
+          : "Presence unavailable"}
+      </span>
+      {["Пользователи", "Проекты", "Память", "Профиль"].map((name) => (
+        <button
+          key={name}
+          onClick={() => {
+            setTab(name);
+            setError("");
+          }}
+        >
+          {name}
+        </button>
+      ))}
+    </div>
+  );
   return (
     <section className="personal-panel">
-      <div className="personal-nav">
-        <span>
-          {profile?.display_name || "Профиль"} ·{" "}
-          {presence.connected && self
-            ? stateText(self.status, self.using_ai)
-            : "Presence unavailable"}
-        </span>
-        {["Пользователи", "Проекты", "Память", "Профиль"].map((name) => (
-          <button
-            key={name}
-            onClick={() => {
-              setTab(name);
-              setError("");
-            }}
-          >
-            {name}
-          </button>
-        ))}
-      </div>
+      {compact ? null : nav}
       {chatId && (
         <div className="project-picker">
           <label>
@@ -272,21 +329,27 @@ export default function PersonalPanel({
       {tab && (
         <dialog
           ref={dialog}
-          className="settings-dialog personal-dialog"
+          open={embedded ? true : undefined}
+          className={
+            embedded ? "personal-embedded" : "settings-dialog personal-dialog"
+          }
           onCancel={() => setTab("")}
         >
-          <div className="dialog-title">
-            <h2>{tab}</h2>
-            <button
-              onClick={() => {
-                setTab("");
-                setEditing(null);
-                setProject(null);
-              }}
-            >
-              Закрыть
-            </button>
-          </div>
+          {embedded ? null : (
+            <div className="dialog-title">
+              <h2>{tab}</h2>
+              <button
+                onClick={() => {
+                  setTab("");
+                  setEditing(null);
+                  setProject(null);
+                }}
+              >
+                Закрыть
+              </button>
+            </div>
+          )}
+          {compact && !embedded ? nav : null}
           {tab === "Пользователи" && (
             <>
               <p>Видны только имя, статус и последняя активность.</p>

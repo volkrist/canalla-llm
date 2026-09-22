@@ -72,7 +72,7 @@ interface Status {
     pod_id?: string;
   };
 }
-const labels: Record<string, string> = {
+export const computeLabels: Record<string, string> = {
   not_configured: "AI не настроен",
   offline: "AI выключен",
   stopped: "AI остановлен",
@@ -112,10 +112,13 @@ export default function ComputePanel({
   api,
   technical,
   llm,
+  variant = "full",
 }: {
   api: Api;
   technical: boolean;
   llm: LLMStatus | null;
+  /** `dialog` keeps only the AI / Compute dialog (the chat screen uses the compact bar). */
+  variant?: "full" | "dialog";
 }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [preferences, setPreferences] = useState<Preferences>(defaults);
@@ -139,11 +142,31 @@ export default function ComputePanel({
     return () => window.removeEventListener("alex-open-compute", show);
   }, []);
   useEffect(() => {
+    // The compact bar keeps the same two actions the old summary had (one click, no duplicate
+    // logic): it routes them here, where the quote, the confirmation and the POST already live.
+    const start = () => {
+      setOpen(true);
+      void search();
+    };
+    const stop = () => void stopAI();
+    window.addEventListener("alex-compute-start", start);
+    window.addEventListener("alex-compute-stop", stop);
+    return () => {
+      window.removeEventListener("alex-compute-start", start);
+      window.removeEventListener("alex-compute-stop", stop);
+    };
+  });
+  useEffect(() => {
     let cancelled = false;
     const refresh = async () => {
       try {
         const next = await api.json<Status>("/compute/status");
         if (!cancelled) setStatus(next);
+        // One source of truth for the compact bar on the chat screen: it follows this read
+        // instead of polling the same endpoint a second time.
+        window.dispatchEvent(
+          new CustomEvent("alex-compute-status", { detail: next }),
+        );
       } catch {
         if (!cancelled) setStatus(null);
       }
@@ -273,143 +296,152 @@ export default function ComputePanel({
     );
   return (
     <section className="compute-panel" aria-label="AI Compute">
-      <div className="compute-summary">
-        <span
-          className={`tiny-dot ${status?.state === "ready" ? "ready" : ""}`}
-        />
-        <strong>
-          {status
-            ? labels[displayedState || "offline"] || displayedState
-            : "Compute недоступен"}
-        </strong>
-        {status?.session && (
-          <span>
-            {status.session.gpu_type} · {money(status.session.hourly_rate)}/ч ·{" "}
-            {status.session.gpu_vram_mb
-              ? `${status.session.gpu_vram_mb / 1024} GB · `
-              : ""}
-            {[
-              Math.floor(status.session.billable_seconds / 3600),
-              Math.floor(status.session.billable_seconds / 60) % 60,
-              status.session.billable_seconds % 60,
-            ]
-              .map((n) => String(n).padStart(2, "0"))
-              .join(":")}{" "}
-            · ≈{money(status.session.estimated_cost)}
-          </span>
-        )}
-        <button disabled={!status || busy} onClick={() => setOpen(true)}>
-          AI / Compute
-        </button>
-        {!status?.session && status?.state !== "searching" && (
-          <button
-            disabled={busy || !status?.configured || !status?.can_control}
-            title={
-              !status?.can_control
-                ? "Нужны права управления compute"
-                : !status.configured
-                  ? "RunPod не настроен на backend"
-                  : undefined
-            }
-            onClick={() => {
-              setOpen(true);
-              void search();
-            }}
-          >
-            {status?.state === "error" ? "Повторить" : "Запустить AI"}
-          </button>
-        )}
-        {status?.state === "searching" && (
-          <button
-            disabled={busy || !status.can_cancel_search}
-            onClick={() =>
-              void run(async () => {
-                await api.json("/compute/search/cancel", { method: "POST" });
-                setQuote(null);
-              })
-            }
-          >
-            Отменить поиск
-          </button>
-        )}
-        {status?.session && status.can_control && (
-          <button disabled={busy} onClick={() => void stopAI()}>
-            {status.active_generations
-              ? "Остановить после ответа"
-              : "Остановить AI"}
-          </button>
-        )}
-      </div>
-      {sharedGateway && (
-        <p role="status" className="muted">
-          Compute управляется Canalla Cloud: сам AI запускается и
-          останавливается в разделе настроек «Canalla Cloud», а лимиты ниже —
-          ваши собственные, их можно повышать и понижать.
-        </p>
-      )}
-      {overLimit && (
-        <p role="status" className="status-warn">
-          {overLimit}
-        </p>
-      )}
-      {llm?.provider === "llamacpp" && (
-        <p>
-          {llm.model || "OrcaRouter"} ·{" "}
-          {llm.available ? "AI Ready" : labels[llm.state] || "AI Offline"}
-        </p>
-      )}
-      {error && !open && (
-        <p role="alert" className="error">
-          {error}
-          <button
-            onClick={() => {
-              setOpen(true);
-            }}
-          >
-            Подробнее
-          </button>
-        </p>
-      )}
-      {status?.session?.pending_stop && (
-        <p role="status">Остановка после текущего ответа</p>
-      )}
-      {status?.state === "searching" && (
-        <p>
-          Следующая проверка:{" "}
-          {status.next_search_at
-            ? new Date(status.next_search_at).toLocaleTimeString("ru-RU")
-            : "ожидание"}
-        </p>
-      )}
-      {!status?.session && status?.configured && (
-        <p>
-          {status.datacenter} · {effective.gpu_id || "NVIDIA"} · VRAM ≥
-          {effective.min_vram_gb} GB · цена ≤
-          {policyMoney(effective.max_hourly_price)}
-          /ч
-        </p>
-      )}
-      {status?.state === "no_gpu" && status.can_control && (
-        <button
-          disabled={busy}
-          onClick={() => {
-            const next = {
-              ...preferences,
-              auto_search: true,
-              search_interval: 30,
-            };
-            setPreferences(next);
-            void search(next);
-          }}
-        >
-          Продолжить автоматический поиск
-        </button>
-      )}
-      {status?.state === "gpu_found" && gpu && (
-        <p>
-          {gpu.name} · {gpu.vram_gb} GB · {money(gpu.hourly_rate)}/ч{" "}
-          <button onClick={() => setOpen(true)}>Запустить</button>
-        </p>
+      {variant === "full" && (
+        <>
+          <div className="compute-summary">
+            <span
+              className={`tiny-dot ${status?.state === "ready" ? "ready" : ""}`}
+            />
+            <strong>
+              {status
+                ? computeLabels[displayedState || "offline"] || displayedState
+                : "Compute недоступен"}
+            </strong>
+            {status?.session && (
+              <span>
+                {status.session.gpu_type} · {money(status.session.hourly_rate)}
+                /ч ·{" "}
+                {status.session.gpu_vram_mb
+                  ? `${status.session.gpu_vram_mb / 1024} GB · `
+                  : ""}
+                {[
+                  Math.floor(status.session.billable_seconds / 3600),
+                  Math.floor(status.session.billable_seconds / 60) % 60,
+                  status.session.billable_seconds % 60,
+                ]
+                  .map((n) => String(n).padStart(2, "0"))
+                  .join(":")}{" "}
+                · ≈{money(status.session.estimated_cost)}
+              </span>
+            )}
+            <button disabled={!status || busy} onClick={() => setOpen(true)}>
+              AI / Compute
+            </button>
+            {!status?.session && status?.state !== "searching" && (
+              <button
+                disabled={busy || !status?.configured || !status?.can_control}
+                title={
+                  !status?.can_control
+                    ? "Нужны права управления compute"
+                    : !status.configured
+                      ? "RunPod не настроен на backend"
+                      : undefined
+                }
+                onClick={() => {
+                  setOpen(true);
+                  void search();
+                }}
+              >
+                {status?.state === "error" ? "Повторить" : "Запустить AI"}
+              </button>
+            )}
+            {status?.state === "searching" && (
+              <button
+                disabled={busy || !status.can_cancel_search}
+                onClick={() =>
+                  void run(async () => {
+                    await api.json("/compute/search/cancel", {
+                      method: "POST",
+                    });
+                    setQuote(null);
+                  })
+                }
+              >
+                Отменить поиск
+              </button>
+            )}
+            {status?.session && status.can_control && (
+              <button disabled={busy} onClick={() => void stopAI()}>
+                {status.active_generations
+                  ? "Остановить после ответа"
+                  : "Остановить AI"}
+              </button>
+            )}
+          </div>
+          {sharedGateway && (
+            <p role="status" className="muted">
+              Compute управляется Canalla Cloud: сам AI запускается и
+              останавливается в разделе настроек «Canalla Cloud», а лимиты ниже
+              — ваши собственные, их можно повышать и понижать.
+            </p>
+          )}
+          {overLimit && (
+            <p role="status" className="status-warn">
+              {overLimit}
+            </p>
+          )}
+          {llm?.provider === "llamacpp" && (
+            <p>
+              {llm.model || "OrcaRouter"} ·{" "}
+              {llm.available
+                ? "AI Ready"
+                : computeLabels[llm.state] || "AI Offline"}
+            </p>
+          )}
+          {error && !open && (
+            <p role="alert" className="error">
+              {error}
+              <button
+                onClick={() => {
+                  setOpen(true);
+                }}
+              >
+                Подробнее
+              </button>
+            </p>
+          )}
+          {status?.session?.pending_stop && (
+            <p role="status">Остановка после текущего ответа</p>
+          )}
+          {status?.state === "searching" && (
+            <p>
+              Следующая проверка:{" "}
+              {status.next_search_at
+                ? new Date(status.next_search_at).toLocaleTimeString("ru-RU")
+                : "ожидание"}
+            </p>
+          )}
+          {!status?.session && status?.configured && (
+            <p>
+              {status.datacenter} · {effective.gpu_id || "NVIDIA"} · VRAM ≥
+              {effective.min_vram_gb} GB · цена ≤
+              {policyMoney(effective.max_hourly_price)}
+              /ч
+            </p>
+          )}
+          {status?.state === "no_gpu" && status.can_control && (
+            <button
+              disabled={busy}
+              onClick={() => {
+                const next = {
+                  ...preferences,
+                  auto_search: true,
+                  search_interval: 30,
+                };
+                setPreferences(next);
+                void search(next);
+              }}
+            >
+              Продолжить автоматический поиск
+            </button>
+          )}
+          {status?.state === "gpu_found" && gpu && (
+            <p>
+              {gpu.name} · {gpu.vram_gb} GB · {money(gpu.hourly_rate)}/ч{" "}
+              <button onClick={() => setOpen(true)}>Запустить</button>
+            </p>
+          )}
+        </>
       )}
       {open && (
         <dialog
@@ -447,6 +479,9 @@ export default function ComputePanel({
             <p>Запуск и остановка доступны администратору.</p>
           )}
           {status?.message && <p role="status">{status.message}</p>}
+          {status?.session?.pending_stop && (
+            <p role="status">Остановка после текущего ответа</p>
+          )}
           {status?.session && status.can_control && !confirmStop && (
             <button disabled={busy} onClick={() => void stopAI()}>
               {status.active_generations
@@ -820,14 +855,14 @@ export default function ComputePanel({
                 <dt>RunPod</dt>
                 <dd>{status.configured ? "Configured" : "Not configured"}</dd>
                 <dt>Compute</dt>
-                <dd>{labels[status.state] || status.state}</dd>
+                <dd>{computeLabels[status.state] || status.state}</dd>
                 <dt>GPU</dt>
                 <dd>{status.session?.gpu_type || "—"}</dd>
                 <dt>llama.cpp / Model</dt>
                 <dd>
                   {llm?.available
                     ? "Ready"
-                    : labels[llm?.state || "offline"] || "Недоступен"}
+                    : computeLabels[llm?.state || "offline"] || "Недоступен"}
                 </dd>
                 <dt>Provider</dt>
                 <dd>{llm?.provider || "—"}</dd>

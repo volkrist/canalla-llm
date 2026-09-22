@@ -54,7 +54,7 @@ test("Web settings warnings and explicit Browser commands require per-action app
     page.getByRole("button", { name: "Stop generation", exact: true }),
   ).toBeHidden({ timeout: 15000 });
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Web & Tools", exact: true }).click();
+  await page.getByRole("button", { name: "Web / Tor", exact: true }).click();
   await expect(
     page.getByText("TinyFish API: Not configured", { exact: true }),
   ).toBeVisible();

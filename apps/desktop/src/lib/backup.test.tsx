@@ -462,8 +462,8 @@ describe("settings integration", () => {
     expect(html.indexOf(">Canalla Cloud<")).toBeLessThan(
       html.indexOf(">Резервные копии<"),
     );
-    expect(html.indexOf(">Резервные копии<")).toBeLessThan(
-      html.indexOf(">Personalization / Memory<"),
+    expect(html.indexOf(">Память<")).toBeLessThan(
+      html.indexOf(">Резервные копии<"),
     );
   });
 });

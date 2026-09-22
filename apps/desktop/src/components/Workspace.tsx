@@ -17,7 +17,9 @@ import Composer from "./Composer";
 import { draftPrefix, readDraft, writeDraft } from "../lib/drafts";
 import { useContextUsage } from "../lib/context-usage";
 import ComputePanel from "./ComputePanel";
-import StatusChips from "./StatusChips";
+import ComputeBar from "./ComputeBar";
+import ComputerBar from "./ComputerBar";
+import StatusChips, { StatusBilling } from "./StatusChips";
 import { useStatus } from "../hooks/useStatus";
 import type { RecoveryAction } from "../lib/status";
 import { recoveryPlan } from "../lib/errors";
@@ -35,6 +37,7 @@ import {
   runHostJobs,
   type DeviceStatus,
 } from "../lib/host";
+import { DEVICE_REFRESH_EVENT, publishDevice } from "../lib/device";
 
 export default function Workspace({
   api,
@@ -79,24 +82,33 @@ export default function Workspace({
         const alias = prefs.device_display_name?.trim() || "Windows device";
         await pairLocalDevice(api.base, token, alias);
         const status = await readDeviceStatus();
-        if (live) setDevice(status);
+        if (live) {
+          setDevice(status);
+          // Single source of truth: chips, the compact bar and Settings subscribe to this.
+          publishDevice(status);
+        }
         await runHostJobs(api.base, token, prefs.workspace_roots || []);
       } catch {
         const status = await readDeviceStatus().catch(() => ({
           paired: false,
           online: false,
         }));
-        if (live) setDevice(status);
+        if (live) {
+          setDevice(status);
+          publishDevice(status);
+        }
       }
     };
     void refresh();
     const timer = setInterval(() => void refresh(), 8000);
     const onJobs = () => void refresh();
     window.addEventListener("alex-host-jobs", onJobs);
+    window.addEventListener(DEVICE_REFRESH_EVENT, onJobs);
     return () => {
       live = false;
       clearInterval(timer);
       window.removeEventListener("alex-host-jobs", onJobs);
+      window.removeEventListener(DEVICE_REFRESH_EVENT, onJobs);
     };
   }, [api]);
   const prefix = draftPrefix(api.base, user.id);
@@ -210,6 +222,13 @@ export default function Workspace({
             <Menu size={21} />
           </button>
           <div className="chat-title">{title}</div>
+          <StatusChips
+            compact
+            snapshot={status.snapshot}
+            error={status.error}
+            refreshing={status.refreshing}
+            onAction={statusAction}
+          />
           <div
             className={`connection ${health ? "connected" : ""}`}
             role="status"
@@ -218,12 +237,11 @@ export default function Workspace({
             {health ? "Connected" : "Offline"}
           </div>
         </header>
-        <StatusChips
-          snapshot={status.snapshot}
-          error={status.error}
-          refreshing={status.refreshing}
-          onAction={statusAction}
-        />
+        <div className="status-line">
+          <StatusBilling snapshot={status.snapshot} />
+        </div>
+        <ComputerBar snapshot={status.snapshot} onAction={statusAction} />
+        <ComputeBar api={api} llm={llm} />
         <PersonalPanel
           api={api}
           onLogout={onLogout}
@@ -231,6 +249,7 @@ export default function Workspace({
           projectId={
             chat.chats.find((c) => c.id === chat.selected)?.project_id || null
           }
+          variant="bar"
           onProject={async (id) => {
             if (chat.selected)
               await chat.update(chat.selected, { project_id: id });
@@ -248,6 +267,7 @@ export default function Workspace({
           api={api}
           llm={llm}
           technical={settings.technicalDetails}
+          variant="dialog"
         />
         {exportError && (
           <p role="alert" className="error">
@@ -348,6 +368,7 @@ export default function Workspace({
           setDraft={setDraft}
           enterSends={settings.enterSends}
           contextUsage={contextUsage.usage}
+          contextFailed={contextUsage.failed}
         />
         <TaskPanel
           task={chat.task}

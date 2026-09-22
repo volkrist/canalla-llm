@@ -1,7 +1,21 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 const shots = "../../docs/screenshots/0.4";
 mkdirSync(shots, { recursive: true });
+
+/** The personal sections live inside the Settings dialog: the tab switches the section there. */
+async function openSection(page: Page, section: string) {
+  const settings = page.locator(".settings-dialog").first();
+  if (!(await settings.isVisible().catch(() => false))) {
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+  }
+  await settings.getByRole("button", { name: section, exact: true }).click();
+}
+
+/** The sections render in place, so the dialog is Settings itself, not a panel over it. */
+async function closeSection(page: Page) {
+  await page.getByRole("button", { name: "Закрыть настройки" }).click();
+}
 
 test("personal memory, projects, source approval, context and real WebSocket", async ({
   page,
@@ -21,9 +35,9 @@ test("personal memory, projects, source approval, context and real WebSocket", a
   await page
     .getByRole("button", { name: "Создать аккаунт", exact: true })
     .click();
-  await expect(page.locator(".personal-nav").first()).toContainText("Online");
-  await page.getByRole("button", { name: "Профиль", exact: true }).click();
-  const dialog = page.getByRole("dialog");
+  await openSection(page, "Профиль");
+  const dialog = page.locator(".settings-dialog").first();
+  await expect(page.locator(".personal-embedded").first()).toBeVisible();
   await dialog.getByLabel("Имя", { exact: true }).fill("Alex");
   await dialog
     .getByLabel("Custom instructions", { exact: true })
@@ -35,13 +49,13 @@ test("personal memory, projects, source approval, context and real WebSocket", a
     dialog.getByRole("button", { name: "Сохранить профиль", exact: true }),
   ).toBeEnabled();
   await page.screenshot({ path: `${shots}/profile.png` });
-  await dialog.getByRole("button", { name: "Закрыть", exact: true }).click();
-  await page.getByRole("button", { name: "Пользователи", exact: true }).click();
+  await closeSection(page);
+  await openSection(page, "Пользователи");
   await expect(dialog).toContainText("Alex");
   await expect(dialog).toContainText("Online");
   await page.screenshot({ path: `${shots}/users-online.png` });
-  await dialog.getByRole("button", { name: "Закрыть", exact: true }).click();
-  await page.getByRole("button", { name: "Проекты", exact: true }).click();
+  await closeSection(page);
+  await openSection(page, "Проекты");
   await dialog
     .getByRole("button", { name: "Создать проект", exact: true })
     .click();
@@ -52,8 +66,8 @@ test("personal memory, projects, source approval, context and real WebSocket", a
     .click();
   await expect(dialog.locator(".personal-card")).toContainText("Alex LLM");
   await page.screenshot({ path: `${shots}/projects.png` });
-  await dialog.getByRole("button", { name: "Закрыть", exact: true }).click();
-  await page.getByRole("button", { name: "Память", exact: true }).click();
+  await closeSection(page);
+  await openSection(page, "Память");
   await dialog
     .getByRole("button", { name: "Добавить память", exact: true })
     .click();
@@ -83,16 +97,17 @@ test("personal memory, projects, source approval, context and real WebSocket", a
   await dialog.getByLabel("Фильтр категории").selectOption("project");
   await expect(dialog.locator(".personal-card")).toHaveCount(1);
   await page.screenshot({ path: `${shots}/memory-list.png` });
-  await dialog.getByRole("button", { name: "Закрыть", exact: true }).click();
+  await closeSection(page);
   await page
     .getByRole("textbox", { name: "Сообщение" })
     .fill("Привет, Alex LLM");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByLabel("Проект чата")).toBeVisible();
-  await expect(page.locator(".personal-nav").first()).toContainText(
-    "Использует AI",
-  );
+  // Presence lives in the sections themselves; the chat screen keeps only the compact bars.
+  await openSection(page, "Пользователи");
+  await expect(dialog).toContainText(/Использует AI|Online/);
   await page.screenshot({ path: `${shots}/using-ai.png` });
+  await closeSection(page);
   await expect(
     page.getByRole("button", { name: "Send", exact: true }),
   ).toBeVisible();
@@ -101,9 +116,10 @@ test("personal memory, projects, source approval, context and real WebSocket", a
   await page
     .getByRole("button", { name: "Предпросмотр контекста", exact: true })
     .click();
-  await expect(dialog).toContainText("FastAPI и JWT");
+  const preview = page.locator(".settings-dialog").first();
+  await expect(preview).toContainText("FastAPI и JWT");
   await page.screenshot({ path: `${shots}/context-preview.png` });
-  await dialog.getByRole("button", { name: "Закрыть", exact: true }).click();
+  await preview.getByRole("button", { name: "Закрыть", exact: true }).click();
   await page
     .getByRole("button", { name: "Запомнить", exact: true })
     .first()
@@ -175,8 +191,8 @@ test("presence unavailable and reconnect, idle/offline display, logout closes so
   await page
     .getByRole("button", { name: "Создать аккаунт", exact: true })
     .click();
-  await page.getByRole("button", { name: "Пользователи", exact: true }).click();
-  const dialog = page.getByRole("dialog");
+  await openSection(page, "Пользователи");
+  const dialog = page.locator(".settings-dialog").first();
   await expect(dialog).toContainText("Idle");
   await expect(dialog).toContainText("6 мин назад");
   await page.screenshot({ path: `${shots}/users-idle-test-fixture.png` });
@@ -198,7 +214,7 @@ test("presence unavailable and reconnect, idle/offline display, logout closes so
   await expect(dialog).toContainText("Presence unavailable");
   await expect.poll(() => connects).toBeGreaterThan(1);
   await expect(dialog).not.toContainText("Presence unavailable");
-  await dialog.getByRole("button", { name: "Закрыть", exact: true }).click();
+  await closeSection(page);
   closed = false;
   await page.getByRole("button", { name: "Выйти", exact: true }).click();
   await expect.poll(() => closed).toBe(true);

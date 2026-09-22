@@ -116,36 +116,42 @@ test("real-provider controls: offline, loading, ready, generating and stop-after
   await page
     .getByRole("button", { name: "Создать аккаунт", exact: true })
     .click();
-  const panel = page.locator(".compute-summary");
+  // The chat screen keeps one compact AI bar; the dialog keeps the detailed controls.
+  const panel = page.locator(".compact-bar.compute");
+  const dialog = page.getByRole("dialog");
   await expect(
     panel.getByRole("button", { name: "Запустить AI", exact: true }),
   ).toBeVisible();
   await panel
     .getByRole("button", { name: "Запустить AI", exact: true })
     .click();
-  await page.getByRole("button", { name: "Закрыть", exact: true }).click();
   await expect(
-    panel.getByRole("button", { name: "Отменить поиск", exact: true }),
+    dialog.getByRole("button", { name: "Отменить поиск", exact: true }),
   ).toBeVisible();
-  await panel
+  await dialog
     .getByRole("button", { name: "Отменить поиск", exact: true })
     .click();
+  await dialog.getByRole("button", { name: "Закрыть", exact: true }).click();
   state = "no_gpu";
-  await page
+  await panel
+    .getByRole("button", { name: "AI / Compute", exact: true })
+    .click();
+  await dialog
     .getByRole("button", {
       name: "Продолжить автоматический поиск",
       exact: true,
     })
     .click();
   await expect(
-    panel.getByRole("button", { name: "Отменить поиск", exact: true }),
+    dialog.getByRole("button", { name: "Отменить поиск", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText("US-TX-3 · NVIDIA", { exact: false }),
   ).toBeVisible();
-  await panel
+  await dialog
     .getByRole("button", { name: "Отменить поиск", exact: true })
     .click();
+  await dialog.getByRole("button", { name: "Закрыть", exact: true }).click();
   state = "starting_pod";
   await expect(
     panel.getByRole("button", { name: "Остановить AI", exact: true }),

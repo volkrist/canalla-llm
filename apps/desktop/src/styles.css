@@ -169,17 +169,50 @@ input[type="radio"] {
   width: 100%;
   margin-top: 12px;
 }
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-group-title {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7d8a7d;
+}
 .settings-tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 24px;
 }
 .settings-tabs button {
   padding: 8px 12px;
 }
 .settings-tabs button[aria-pressed="true"] {
   background: #344b3c;
+}
+/* The personal sections render inside the settings shell, without their own dialog chrome. */
+.personal-embedded {
+  position: static;
+  inset: auto;
+  margin: 0;
+  width: auto;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+.personal-embedded label {
+  margin-top: 14px;
 }
 .hljs-keyword,
 .hljs-selector-tag,
@@ -387,9 +420,12 @@ p {
 .runtime-banner {
   position: relative;
   z-index: 20;
-  padding: 10px 16px;
+  /* A thin transient strip: it exists only while the owned backend is starting (or while the
+     app is attached to an external one) and disappears the moment it is ready. */
+  padding: 4px 14px;
   text-align: center;
-  font-size: 13px;
+  font-size: 11px;
+  letter-spacing: 0.01em;
   background: #24342b;
   color: #d5e6d8;
   border-bottom: 1px solid #3a4d42;
@@ -687,17 +723,18 @@ p {
   background: radial-gradient(ellipse at 50% 20%, #191d1a00, #101314 85%);
 }
 .topbar {
-  height: 77px;
+  height: 54px;
   flex-shrink: 0;
-  padding: 0 35px;
+  padding: 0 22px;
   border-bottom: 1px solid #252a27;
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: 12px;
 }
 .chat-title {
-  font-size: 13px;
+  font-size: 12.5px;
   color: #b6c0b8;
+  max-width: 38%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -883,7 +920,7 @@ p {
   justify-content: center;
   font-size: 10px;
   color: #77837b;
-  padding: 18px 15px;
+  padding: 6px 15px 4px;
   flex-shrink: 0;
 }
 .mode-line > span:first-child {
@@ -969,7 +1006,7 @@ p {
   border: 1px solid #3b453b;
   background: #1b211d;
   border-radius: 16px;
-  padding: 17px 17px 11px;
+  padding: 12px 13px 9px;
   box-shadow: 0 9px 30px #0002;
 }
 .composer:focus-within {
@@ -977,7 +1014,7 @@ p {
 }
 .composer textarea {
   display: block;
-  min-height: 50px;
+  min-height: 38px;
   max-height: 170px;
   width: 100%;
   background: transparent;
@@ -994,7 +1031,8 @@ p {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 6px;
+  gap: 8px;
+  margin-top: 5px;
 }
 .composer-toolbar > span {
   font-size: 10px;
@@ -1027,7 +1065,7 @@ p {
   text-align: center;
   font-size: 9px;
   color: #647168;
-  margin: 13px 0 19px;
+  margin: 7px 0 10px;
 }
 .composer-hint > span {
   padding: 0 8px;
@@ -1089,6 +1127,25 @@ p {
 .context-alert {
   font-size: 10px;
   color: #d98a72;
+}
+/* No snapshot (the last read failed): a neutral compact state, never a stale percent. */
+.context-unavailable {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border-radius: 9px;
+  color: #7d8a7d;
+  font-size: 10px;
+  line-height: 1;
+  cursor: default;
+}
+.context-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #55604f;
+  flex: 0 0 auto;
 }
 .context-breakdown {
   position: absolute;
@@ -1524,8 +1581,7 @@ p {
   }
 }
 .personal-panel {
-  border-bottom: 1px solid #303638;
-  padding: 8px 20px;
+  padding: 6px 22px 0;
   font-size: 12px;
 }
 .personal-nav {
@@ -1594,9 +1650,17 @@ p {
 }
 .project-picker {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
-  margin-top: 8px;
+  margin-top: 0;
+}
+.project-picker {
+  font-size: 11px;
+  color: #8b978f;
+}
+.project-picker select {
+  padding: 4px 7px;
+  font-size: 11px;
 }
 .memory-editor {
   border: 1px solid #66ad83;
@@ -1741,4 +1805,259 @@ p {
 }
 .embedding-model {
   padding: 10px 0;
+}
+
+/* ---------------------------------------------------------------------------------------
+   Compact service area (2.0 UI): status chips live in the header, the balance is a thin
+   line, the device warning and the AI state are single-line bars, and the composer keeps
+   one control row. Everything here is presentation only.
+   --------------------------------------------------------------------------------------- */
+.status-bar.compact {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  position: relative;
+}
+.status-bar.compact .status-chips {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+.status-bar.compact .status-chip {
+  height: 24px;
+  padding: 2px 8px;
+  gap: 5px;
+  font-size: 9.5px;
+  border-radius: 12px;
+}
+.status-bar.compact .status-chip-name {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+.status-bar.compact .status-detail,
+.status-bar.compact .status-alert {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: min(440px, 88vw);
+  box-shadow: 0 14px 34px #0009;
+  background: #1d211e;
+}
+.status-bar.compact .status-alert {
+  flex-wrap: nowrap;
+  align-items: baseline;
+  overflow: hidden;
+}
+.status-bar.compact .status-alert summary {
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 22px 0;
+  flex-shrink: 0;
+}
+.status-line .status-billing {
+  gap: 8px;
+}
+.compact-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  row-gap: 4px;
+  margin: 7px 22px 0;
+  padding: 0 12px;
+  min-height: 38px;
+  border: 1px solid #262d29;
+  border-radius: 10px;
+  background: #171b19;
+  font-size: 11.5px;
+  color: #9caaa2;
+  flex-shrink: 0;
+}
+.compact-bar.computer {
+  min-height: 36px;
+  border-color: #433b2a;
+  background: #221f19;
+  color: #d6c48a;
+}
+/* The AI / Compute dialog stays mounted for the header bar, so its empty wrapper must not
+   reserve space on the chat screen. */
+.compute-panel:empty {
+  display: none;
+}
+.compact-bar .compact-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+.compact-bar .compact-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.compact-note {
+  font-size: 10.5px;
+  color: #d6c48a;
+  flex-shrink: 0;
+}
+.compact-bar .compact-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.compact-action {
+  font-family: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid #33403a;
+  background: #1b201d;
+  color: #c5c0b5;
+  cursor: pointer;
+}
+.compact-action:hover {
+  border-color: #46604f;
+  color: #dfe7dd;
+}
+.compact-action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.compact-details {
+  flex-basis: 100%;
+  font-size: 10.5px;
+  color: #9caaa2;
+  padding-bottom: 8px;
+}
+.compact-details summary {
+  cursor: pointer;
+  color: #8b978f;
+}
+.compact-details p {
+  margin: 6px 0;
+  color: #c5c0b5;
+}
+.compact-details dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 6px 0 0;
+}
+.compact-details dl > div {
+  display: flex;
+  gap: 5px;
+}
+.compact-details dt {
+  color: #77837b;
+}
+.compact-details dd {
+  margin: 0;
+  color: #c5c0b5;
+}
+.composer-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.composer-select-label {
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #77837b;
+}
+.composer-select select {
+  padding: 3px 6px;
+  font-size: 11px;
+  border-radius: 7px;
+  border: 1px solid #33403a;
+  background: #191e20;
+  color: #dfe7dd;
+}
+.icon-action {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid #2f3833;
+  background: #1a1f1c;
+  color: #a9b6ad;
+  cursor: pointer;
+}
+.icon-action:hover:not(:disabled) {
+  border-color: #46604f;
+  color: #dfe7dd;
+}
+.icon-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.device-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  padding: 4px 9px;
+  border-radius: 20px;
+  border: 1px solid #3b3429;
+  background: #262522;
+  color: #b9a180;
+}
+.device-chip.online {
+  color: #9fc499;
+  background: #1c2920;
+  border-color: #2c3a2e;
+}
+.composer-status {
+  margin-left: auto;
+  font-size: 10px;
+  color: #80957d;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+@media (max-width: 900px) {
+  .status-bar.compact .status-chip-state {
+    display: none;
+  }
+  .status-bar.compact .status-chip {
+    padding: 2px 7px;
+  }
+  .status-bar.compact .status-chip-name {
+    font-size: 9px;
+  }
+}
+@media (max-width: 720px) {
+  .status-bar.compact .status-chip-name {
+    display: none;
+  }
+  .compact-bar {
+    margin: 7px 12px 0;
+  }
+  .status-line,
+  .personal-panel {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .chat-title {
+    max-width: 30%;
+  }
 }

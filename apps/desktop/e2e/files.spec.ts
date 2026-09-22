@@ -141,7 +141,9 @@ test("Files: project scope and PDF page source", async ({ page, request }) => {
   await page
     .getByRole("button", { name: "Войти в Canalla LLM", exact: true })
     .click();
-  await page.getByRole("button", { name: "Файлы", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Прикрепить файл", exact: true })
+    .click();
   await page
     .getByLabel("Проект загрузки", { exact: true })
     .selectOption(project.id);
@@ -212,7 +214,9 @@ test("Files: invalid UTF-8 reports failed and remains retryable", async ({
   await page
     .getByRole("button", { name: "Создать аккаунт", exact: true })
     .click();
-  await page.getByRole("button", { name: "Файлы", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Прикрепить файл", exact: true })
+    .click();
   await page.getByLabel("Загрузить файлы", { exact: true }).setInputFiles({
     name: "invalid.txt",
     mimeType: "text/plain",

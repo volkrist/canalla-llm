@@ -15,6 +15,15 @@ import { chromium } from "playwright";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// The released product version, taken from the packaging metadata instead of a literal so the
+// smoke cannot silently pin an older release.
+const PRODUCT_VERSION = JSON.parse(
+  fs.readFileSync(
+    path.join(__dirname, "..", "src-tauri", "tauri.conf.json"),
+    "utf8",
+  ),
+).version;
+
 // The product installs into Programs\Canalla LLM; a legacy Alex LLM install can still exist
 // during an upgrade acceptance, so prefer the current name and fall back to the old one.
 const EXE =
@@ -146,6 +155,9 @@ function launchApp() {
       ...process.env,
       ALEX_LLM_DATA_DIR: DATA_ROOT,
       ALEX_DEVICE_DIR: DEVICE_DIR,
+      // Without this the smoke would read the machine's real Canalla Cloud enrollment and
+      // its shared balance: the clean-state claim needs its own credential name.
+      ALEX_GATEWAY_CREDENTIAL_NAME: `gui-smoke-${Date.now().toString(36)}`,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
     },
     stdio: "ignore",
@@ -317,7 +329,7 @@ async function scenarioFreshInstall(page) {
     "A13 packaged backend reports production provider defaults",
     health.provider === "llamacpp" &&
       health.product === "alex-llm" &&
-      health.version === "0.9.3",
+      health.version === PRODUCT_VERSION,
     `provider=${health.provider} version=${health.version}`,
   );
 }

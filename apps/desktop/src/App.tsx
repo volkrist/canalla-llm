@@ -206,6 +206,7 @@ export default function App() {
           value={settings}
           onSave={saveSettings}
           onClose={() => setShowSettings(false)}
+          onLogout={logout}
         />
       )}
     </>
