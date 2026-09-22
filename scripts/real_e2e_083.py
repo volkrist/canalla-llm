@@ -10,12 +10,15 @@ import time
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location("real_e2e_08", Path(__file__).with_name("real_e2e_08.py"))
+if spec is None or spec.loader is None:
+    raise SystemExit("cannot load the real_e2e_08.py harness")
 e2e = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(e2e)
 
-e2e.SESSION_BUDGET = 0.40
-e2e.GPU_COST_STOP = 0.35
-e2e.GPU_WALL = 12 * 60
+# The harness is loaded by path, so its overrides go through the module namespace.
+vars(e2e)["SESSION_BUDGET"] = 0.40
+vars(e2e)["GPU_COST_STOP"] = 0.35
+vars(e2e)["GPU_WALL"] = 12 * 60
 NATURAL = (
     "Через Tor найди официальный onion-сервис Tor Project. "
     "Проверь его по официальному источнику. "

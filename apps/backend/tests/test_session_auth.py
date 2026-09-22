@@ -11,6 +11,7 @@ from app.database import SessionLocal
 from app.models import AuthSession, BootstrapClaim, User
 from app.security import can_start_compute
 from app.session_auth import hash_secret, now, utc
+from tests.db_helpers import require_row, require_scalar
 
 PASSWORD = "test-password-123"
 
@@ -52,8 +53,7 @@ def test_state_is_first_run_then_auth_required(client):
 def test_raw_refresh_secret_never_stored(client):
     body = _register(client)
     with SessionLocal() as db:
-        row = db.get(AuthSession, body["session_id"])
-        assert row is not None
+        row = require_row(db, AuthSession, body["session_id"])
         assert row.token_hash == hash_secret(body["refresh_secret"])
         assert row.token_hash != body["refresh_secret"]
         assert body["refresh_secret"] not in row.token_hash
@@ -77,7 +77,7 @@ def test_refresh_rotates_and_old_secret_is_rejected(client):
     me = client.get("/auth/me", headers={"Authorization": "Bearer " + payload["access_token"]})
     assert me.status_code == 200
     with SessionLocal() as db:
-        row = db.get(AuthSession, body["session_id"])
+        row = require_row(db, AuthSession, body["session_id"])
         # After two rotations the consumed secret is the first issued one.
         assert row.rotated_from == hash_secret(payload["refresh_secret"])
         assert row.token_hash == hash_secret(again.json()["refresh_secret"])
@@ -92,7 +92,7 @@ def test_refresh_rejects_wrong_secret_and_wrong_session(client):
 def test_refresh_rejects_expired_session(client):
     body = _register(client)
     with SessionLocal() as db:
-        row = db.get(AuthSession, body["session_id"])
+        row = require_row(db, AuthSession, body["session_id"])
         row.expires_at = now() - timedelta(seconds=1)
         db.commit()
     assert _refresh(client, body["session_id"], body["refresh_secret"]).status_code == 401
@@ -127,7 +127,7 @@ def test_relogin_as_other_user_maps_session_to_that_user(client):
     refreshed = _refresh(client, bob["session_id"], bob["refresh_secret"]).json()
     assert refreshed["user"]["email"] == "bob@example.com"
     with SessionLocal() as db:
-        row = db.get(AuthSession, bob["session_id"])
+        row = require_row(db, AuthSession, bob["session_id"])
         assert row.user_id == refreshed["user"]["id"]
     # Alice's own session was not affected.
     assert _refresh(client, alice["session_id"], alice["refresh_secret"]).status_code == 200
@@ -167,13 +167,13 @@ def test_malformed_credentials_fail_closed(client):
 def test_refresh_extends_sliding_expiry(client):
     body = _register(client)
     with SessionLocal() as db:
-        row = db.get(AuthSession, body["session_id"])
+        row = require_row(db, AuthSession, body["session_id"])
         row.expires_at = now() + timedelta(days=1)
         db.commit()
     refreshed = _refresh(client, body["session_id"], body["refresh_secret"])
     assert refreshed.status_code == 200
     with SessionLocal() as db:
-        row = db.get(AuthSession, body["session_id"])
+        row = require_row(db, AuthSession, body["session_id"])
         from app.config import get_settings
 
         assert utc(row.expires_at) >= now() + timedelta(days=get_settings().auth_session_days - 1)
@@ -184,14 +184,14 @@ def test_refresh_expiry_never_exceeds_absolute_max(client):
 
     body = _register(client)
     with SessionLocal() as db:
-        row = db.get(AuthSession, body["session_id"])
+        row = require_row(db, AuthSession, body["session_id"])
         row.created_at = now() - timedelta(days=get_settings().auth_session_max_days - 1)
         row.expires_at = now() + timedelta(hours=1)
         db.commit()
     refreshed = _refresh(client, body["session_id"], body["refresh_secret"])
     assert refreshed.status_code == 200
     with SessionLocal() as db:
-        row = db.get(AuthSession, body["session_id"])
+        row = require_row(db, AuthSession, body["session_id"])
         # Capped at created_at + max: sliding would have been ~now+30d, the
         # absolute cap is ~now+1d.
         cap = utc(row.created_at) + timedelta(days=get_settings().auth_session_max_days)
@@ -204,7 +204,7 @@ def test_active_session_rejected_after_absolute_max(client):
 
     body = _register(client)
     with SessionLocal() as db:
-        row = db.get(AuthSession, body["session_id"])
+        row = require_row(db, AuthSession, body["session_id"])
         row.created_at = now() - timedelta(days=get_settings().auth_session_max_days + 1)
         row.expires_at = now() + timedelta(hours=1)  # sliding window alone would allow it
         db.commit()
@@ -231,9 +231,9 @@ def test_bootstrap_creates_owner_with_session(client, monkeypatch):
     assert body["user"]["display_name"] == "Владелец"
     assert body["session_id"] and body["refresh_secret"]
     with SessionLocal() as db:
-        user = db.scalar(select(User))
+        user = require_scalar(db, select(User))
         assert user.is_owner is True
-        claim = db.get(BootstrapClaim, 1)
+        claim = require_row(db, BootstrapClaim, 1)
         assert claim.owner_user_id == user.id
         assert can_start_compute(user, db) is True
     # Wrong runtime token is rejected.
@@ -274,7 +274,7 @@ def test_bootstrap_closed_when_users_already_exist(client, monkeypatch):
     )
     assert response.status_code == 409
     with SessionLocal() as db:
-        user = db.scalar(select(User))
+        user = require_scalar(db, select(User))
         assert user.is_owner is False
         assert db.scalar(select(func.count()).select_from(BootstrapClaim)) == 0
 
@@ -288,8 +288,8 @@ def test_register_after_owner_does_not_claim_owner(client, monkeypatch):
     )
     second = _register(client, email="second@example.com")
     with SessionLocal() as db:
-        owner = db.scalar(select(User).where(User.email == "owner@example.com"))
-        member = db.scalar(select(User).where(User.email == "second@example.com"))
+        owner = require_scalar(db, select(User).where(User.email == "owner@example.com"))
+        member = require_scalar(db, select(User).where(User.email == "second@example.com"))
         assert owner.is_owner is True
         assert member.is_owner is False
         assert can_start_compute(owner, db) is True
@@ -320,5 +320,5 @@ def test_bootstrap_race_has_exactly_one_winner():
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(User)) == 1
         assert db.scalar(select(func.count()).select_from(BootstrapClaim)) == 1
-        owner = db.scalar(select(User))
+        owner = require_scalar(db, select(User))
         assert owner.is_owner is True

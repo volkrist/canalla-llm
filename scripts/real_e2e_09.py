@@ -11,20 +11,24 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 
 spec = importlib.util.spec_from_file_location("real_e2e_08", SCRIPTS / "real_e2e_08.py")
+if spec is None or spec.loader is None:
+    raise SystemExit("cannot load the real_e2e_08.py harness")
 e2e = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(e2e)
 
-e2e.SESSION_BUDGET = 0.45
-e2e.GPU_COST_STOP = 0.42
-e2e.GPU_WALL = 30 * 60
-e2e.MAX_HOURLY = 1.10
-e2e.CATALOG_WAIT = 25 * 60
+# The harness is loaded by path, so its overrides go through the module namespace.
+vars(e2e)["SESSION_BUDGET"] = 0.45
+vars(e2e)["GPU_COST_STOP"] = 0.42
+vars(e2e)["GPU_WALL"] = 30 * 60
+vars(e2e)["MAX_HOURLY"] = 1.10
+vars(e2e)["CATALOG_WAIT"] = 25 * 60
 
 NATURAL_PROMPT = (
     "Полностью проверь этот тестовый проект.\n"
@@ -99,7 +103,7 @@ def wait_l40s_only(api, prefs):
     )
 
 
-e2e.wait_for_selectable_gpu = wait_l40s_only
+vars(e2e)["wait_for_selectable_gpu"] = wait_l40s_only
 
 
 def dummy_discovered():
@@ -279,7 +283,7 @@ class PauseWatcher(threading.Thread):
         super().__init__(daemon=True)
         self.api = api
         self.stop = threading.Event()
-        self.result = {"attempted": False, "paused": False}
+        self.result: dict[str, Any] = {"attempted": False, "paused": False}
 
     def run(self):
         while not self.stop.wait(1.5):

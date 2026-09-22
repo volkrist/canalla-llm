@@ -1,0 +1,31 @@
+{
+  "venvPath": "apps/backend",
+  "venv": ".venv",
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "standard",
+  "include": [
+    "apps/backend/app",
+    "apps/backend/tests",
+    "apps/backend/alembic",
+    "apps/gateway/gateway",
+    "apps/gateway/tests",
+    "scripts"
+  ],
+  "exclude": [
+    "**/.venv",
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.ruff_cache",
+    "**/.tmp-diagnostics",
+    "apps/backend/build",
+    "apps/backend/dist",
+    "apps/desktop/src-tauri/target",
+    "runtime",
+    "docs"
+  ],
+  "executionEnvironments": [
+    { "root": "apps/backend", "extraPaths": ["apps/backend"] },
+    { "root": "apps/gateway", "extraPaths": ["apps/gateway", "apps/backend"] },
+    { "root": "scripts", "extraPaths": [".", "apps/backend", "apps/gateway"] }
+  ]
+}

@@ -37,7 +37,6 @@ import argparse
 import ctypes
 import json
 import subprocess
-import sys
 import time
 from ctypes import wintypes
 from decimal import Decimal

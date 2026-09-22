@@ -19,14 +19,17 @@ SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 
 spec = importlib.util.spec_from_file_location("real_e2e_08", SCRIPTS / "real_e2e_08.py")
+if spec is None or spec.loader is None:
+    raise SystemExit("cannot load the real_e2e_08.py harness")
 e2e = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(e2e)
 
-e2e.SESSION_BUDGET = 0.25
-e2e.GPU_COST_STOP = 0.22
-e2e.GPU_WALL = 12 * 60
-e2e.MAX_HOURLY = 1.10
-e2e.CATALOG_WAIT = 25 * 60
+# The harness is loaded by path, so its overrides go through the module namespace.
+vars(e2e)["SESSION_BUDGET"] = 0.25
+vars(e2e)["GPU_COST_STOP"] = 0.22
+vars(e2e)["GPU_WALL"] = 12 * 60
+vars(e2e)["MAX_HOURLY"] = 1.10
+vars(e2e)["CATALOG_WAIT"] = 25 * 60
 
 FOLDERID_DESKTOP = "B4BFCC3A-DB2C-424C-B029-7FE99A87C641"
 MARKER = "ALEX_SEARCH_MARKER_49127"
@@ -99,7 +102,6 @@ def dummy_discovered():
 
 def wait_l40s_only(api, prefs):
     deadline = time.time() + e2e.CATALOG_WAIT
-    last = []
     while time.time() < deadline:
         try:
             response = api.client.get("/compute/options", headers=api.headers())
@@ -112,8 +114,6 @@ def wait_l40s_only(api, prefs):
             time.sleep(20)
             continue
         options = response.json().get("options") or []
-        if options:
-            last = options
         l40s = next((item for item in options if item.get("id") == "NVIDIA L40S"), None)
         compatible = e2e.compatible_gpus(options)
         e2e.REPORT["gpu_options"] = [
@@ -139,7 +139,7 @@ def wait_l40s_only(api, prefs):
     raise RuntimeError("no_l40s_after_wait")
 
 
-e2e.wait_for_selectable_gpu = wait_l40s_only
+vars(e2e)["wait_for_selectable_gpu"] = wait_l40s_only
 _orig_compatible = e2e.compatible_gpus
 
 
@@ -147,7 +147,7 @@ def compatible_gpus_l40s(options):
     return [item for item in _orig_compatible(options) if item.get("id") == "NVIDIA L40S"]
 
 
-e2e.compatible_gpus = compatible_gpus_l40s
+vars(e2e)["compatible_gpus"] = compatible_gpus_l40s
 
 
 def compute_running(api):
@@ -211,6 +211,8 @@ def wallet_snapshot():
 
         async def _read():
             value = await client.request("GET", WALLET, retry=False, timeout=20)
+            if value is None:
+                raise RuntimeError("tinyfish_wallet_returned_no_payload")
             return {
                 "available_balance": value.get("available_balance"),
                 "currency": value.get("currency"),

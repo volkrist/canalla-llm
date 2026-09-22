@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from urllib.parse import urljoin
 
 from app.providers import MockLLMProvider
-from app.tools.contracts import RiskLevel, ToolError, ToolResult
+from app.tools.contracts import RiskLevel, ToolError, ToolProvider, ToolResult
 from app.tools.registry import make_registry
 
 
@@ -40,7 +40,7 @@ async def public_dns(host):
     return ["93.184.216.34"]
 
 
-class FakeWebProvider:
+class FakeWebProvider(ToolProvider):
     read_only_enforced = True
 
     def __init__(self, capability):
@@ -166,7 +166,7 @@ def python_org_home_links():
     return links
 
 
-class FakeBrowser:
+class FakeBrowser(ToolProvider):
     def __init__(self):
         self.sessions = {}
         self.writes = 0
@@ -284,7 +284,7 @@ class FakeBrowser:
         self.links = []
 
 
-class FakeBrowserAction:
+class FakeBrowserAction(ToolProvider):
     def __init__(self, browser):
         self.browser = browser
 

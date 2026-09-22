@@ -364,11 +364,13 @@ def run(key: str) -> int:
 
 def read_only_provider_settings(key: str):
     """Minimal settings for a read-only provider view. Nothing here touches the product DB."""
+    from pydantic import SecretStr
+
     from app.config import Settings
 
     return Settings(
         jwt_secret="acceptance-read-only-view-" + "x" * 32,
-        runpod_api_key=key,
+        runpod_api_key=SecretStr(key),
         llm_provider="llamacpp",
         llm_connection_mode="runpod",
     )

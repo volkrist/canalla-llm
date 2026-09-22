@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from app import providers
-from app.config import Settings
+from tests.settings_factory import make_settings
 
 
 def test_llamacpp_transport_without_network(monkeypatch):
@@ -34,7 +34,7 @@ def test_llamacpp_transport_without_network(monkeypatch):
         lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs),
     )
     provider = providers.LlamaCppProvider(
-        Settings(
+        make_settings(
             _env_file=None,
             llm_base_url="http://inference.invalid/v1",
             llm_model="configured-model",
@@ -90,7 +90,7 @@ def test_llamacpp_plan_tools_disables_thinking_and_keeps_tools(monkeypatch):
         lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs),
     )
     provider = providers.LlamaCppProvider(
-        Settings(
+        make_settings(
             _env_file=None,
             llm_base_url="http://inference.invalid/v1",
             llm_model="configured-model",
@@ -117,6 +117,6 @@ def test_llamacpp_rejects_truncated_stream(monkeypatch):
     monkeypatch.setattr(
         providers.httpx, "AsyncClient", lambda **kwargs: original(transport=transport, **kwargs)
     )
-    provider = providers.LlamaCppProvider(Settings(_env_file=None))
+    provider = providers.LlamaCppProvider(make_settings(_env_file=None))
     with pytest.raises(RuntimeError, match="completion marker"):
         asyncio.run(provider.chat([{"role": "user", "content": "hello"}]))

@@ -14,8 +14,9 @@ from __future__ import annotations
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
+from typing import Any, cast
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import CursorResult, delete, or_, select
 from sqlalchemy.orm import Session
 
 from .config import get_settings
@@ -146,7 +147,8 @@ def purge_stale(db: Session) -> int:
         delete(AuthSession).where(or_(AuthSession.expires_at < cutoff, AuthSession.revoked_at < cutoff))
     )
     db.commit()
-    return result.rowcount or 0
+    # A DELETE always runs on a cursor; the base Result type does not expose rowcount.
+    return cast("CursorResult[Any]", result).rowcount or 0
 
 
 def _clean_device_id(device_id: str | None) -> str | None:

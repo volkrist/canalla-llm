@@ -23,6 +23,7 @@ from app.tools.models import LocalTask, ToolRun
 from app.tools.orchestrator import ToolOrchestrator
 from app.tools.policy import ToolLimits, ToolPolicy, WebSettings, assert_explicit_git_add
 from app.tools.registry import make_registry
+from tests.db_helpers import require_row
 from tests.fake_host import FakeHost
 from tests.test_autonomous_tasks import _project
 
@@ -251,7 +252,7 @@ def test_computer_write_queue_promotes(setup):
         assert waiting.workspace == owner.workspace
         LocalTaskController().finish(db, context, "COMPLETED")
         db.expire_all()
-        waiting = db.get(LocalTask, waiting.id)
+        waiting = require_row(db, LocalTask, waiting.id)
         assert waiting.status == machine.READY
         assert (waiting.facts or {}).get("promoted_from_queue") is True
 
@@ -304,8 +305,8 @@ def test_stale_lock_promotes_waiter(setup):
         owner_id, waiting_id = owner.id, waiting.id
     reconcile_tools()
     with SessionLocal() as db:
-        waiting = db.get(LocalTask, waiting_id)
-        owner = db.get(LocalTask, owner_id)
+        waiting = require_row(db, LocalTask, waiting_id)
+        owner = require_row(db, LocalTask, owner_id)
         assert owner.status in {machine.COMPLETED, machine.INTERRUPTED} or owner.finished_at
         assert waiting.status == machine.READY
 
@@ -458,7 +459,7 @@ def test_payload_mutation_invalidates_approval(setup, pages):
     async def allow(event, value):
         if value.get("status") == "waiting_confirmation":
             with SessionLocal() as db:
-                row = db.get(ToolRun, value["id"])
+                row = require_row(db, ToolRun, value["id"])
                 row.input_digest = "0" * 64
                 db.commit()
             client.post(f"/tools/runs/{value['id']}/confirm", headers=headers, json={"allow": True})

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from typing import cast
 
 from app.tools.contracts import ToolError
 from app.tools.local.facts import from_tool, record
 from app.tools.local.grounding import fallback_answer, goal_met, incomplete
 from app.tools.orchestrator import ToolOrchestrator
 from app.tools.policy import WebSettings
+from app.tools.tinyfish.browser import TinyFishBrowserProvider
 from tests.fakes_web import FakeBrowser, fake_registry, python_org_home_links
 
 PROMPT = (
@@ -232,9 +234,11 @@ def test_controller_selects_buried_docs_then_closes():
             "metadata": {"title": "Welcome to Python.org", "current_url": "https://www.python.org/"},
         }
 
-    _, browser = orchestrator.registry.get("browser_start")
-    browser._owned_session = lambda uid: SimpleNamespace(
-        session_id="s", user_id=uid, active=True, links=python_org_home_links()
+    # The registry answers behind the ToolProvider interface; browser_start is the
+    # concrete browser provider whose session hook this test replaces.
+    browser = cast("TinyFishBrowserProvider", orchestrator.registry.get("browser_start")[1])
+    browser._owned_session = lambda user_id: SimpleNamespace(
+        session_id="s", user_id=user_id, active=True, links=python_org_home_links()
     )
     orchestrator._run = fake_run
     context = _context()

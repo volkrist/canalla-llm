@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -24,7 +25,9 @@ from app.tools.models import LocalTask
 from app.tools.orchestrator import ToolOrchestrator
 from app.tools.policy import COMPUTER_CORE_TOOLS, ToolLimits, WebSettings, computer_planner_tools
 from app.tools.registry import make_registry
+from app.tools.tinyfish.browser import TinyFishBrowserProvider
 from app.tools.web_router import select_tinyfish_route
+from tests.db_helpers import require_row
 from tests.fake_host import FakeHost
 from tests.fakes_web import python_org_home_links
 from tests.test_autonomous_tasks import _project
@@ -96,7 +99,10 @@ def test_verified_facts_and_contradiction_blocked():
             "metadata": {"path": r"C:\t\hello.txt", "sha256": "abc"},
         },
     )
-    assert latest(facts, "FILE_READ")["content_excerpt"].startswith("ALEX_EXTERNAL")
+    read = latest(facts, "FILE_READ")
+    if read is None:
+        raise AssertionError("FILE_READ was not recorded")
+    assert read["content_excerpt"].startswith("ALEX_EXTERNAL")
     assert contradiction("I cannot access the filesystem", facts) == "denies_verified_local_access"
     assert incomplete("done", facts, "Прочитай файл и скажи что внутри") == "missing_file_content"
     answer = fallback_answer(facts, "Что внутри файла?")
@@ -301,10 +307,12 @@ def test_browser_prepare_injects_when_planner_surface_empty(setup):
     names = {item.name for item in orchestrator.planner_definitions(context)}
     assert "web_search" not in names
     assert "web_browser" not in names
-    _, browser = orchestrator.registry.get("browser_start")
-    browser._owned_session = lambda uid: SimpleNamespace(
+    # The registry answers behind the ToolProvider interface; browser_start is the
+    # concrete browser provider whose session hook this test replaces.
+    browser = cast("TinyFishBrowserProvider", orchestrator.registry.get("browser_start")[1])
+    browser._owned_session = lambda user_id: SimpleNamespace(
         session_id="s",
-        user_id=uid,
+        user_id=user_id,
         active=True,
         links=python_org_home_links(),
     )
@@ -346,7 +354,7 @@ def test_create_read_grounded(setup):
     assert len(handled) <= 6
     assert not (root / "alex_out.txt").exists()
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         text = fallback_answer(row.facts, context.user_prompt)
         assert "GROUNDING_REAL_PASS" in text
         assert issue_for("I don't have filesystem access", row.facts, context.user_prompt)
@@ -361,8 +369,11 @@ def test_hash_grounded(setup):
     assert "hash_file" in handled
     assert len(handled) <= 3
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
-        assert latest(row.facts, "HASH_RESULT")["digest"] == digest
+        row = require_row(db, LocalTask, context.task_id)
+        hashed = latest(row.facts, "HASH_RESULT")
+        if hashed is None:
+            raise AssertionError("HASH_RESULT was not recorded")
+        assert hashed["digest"] == digest
         assert digest in fallback_answer(row.facts, context.user_prompt)
 
 
@@ -372,7 +383,7 @@ def test_system_info_grounded(setup):
     )
     assert handled == ["get_system_info"] or handled.count("get_system_info") == 1 and len(handled) <= 3
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         text = fallback_answer(row.facts, context.user_prompt)
         assert "10.0" in text and "8" in text
 
@@ -393,7 +404,7 @@ def test_search_marker_efficient(setup):
     assert "run_python" not in handled and "run_powershell" not in handled
     assert not (root / "alex_out.txt").exists()
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         assert "data.json" in fallback_answer(row.facts, context.user_prompt)
         metrics = (row.facts or {}).get("metrics") or {}
         assert int(metrics.get("tool_calls_total") or 0) <= 5
@@ -413,7 +424,7 @@ def test_external_reread_replaces_fact(setup):
         orch().prepare(QuietProvider(), [{"role": "user", "content": context.user_prompt}], 1, context, {})
     )
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         assert "ALEX_EXTERNAL_FILE_CHANGE_7391" in (latest(row.facts, "FILE_READ") or {}).get(
             "content_excerpt", ""
         )
@@ -449,7 +460,7 @@ def test_write_queue_auto_resumes(setup):
     )
     assert (root / "queue-a.txt").read_text(encoding="utf-8") == "QUEUE_A"
     with SessionLocal() as db:
-        queued = db.get(LocalTask, queued.id)
+        queued = require_row(db, LocalTask, queued.id)
         assert queued.status == machine.READY
         assert (queued.facts or {}).get("auto_continue") is True
     asyncio.run(continue_pending(orch(), QuietProvider(), user_id=context.user_id))
@@ -463,7 +474,7 @@ def test_owned_process_start_stop(setup):
     )
     assert "run_python" in handled
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         started = latest(row.facts, "PROCESS_STARTED")
         assert started and started.get("pid")
         owned = (row.checkpoint or {}).get("owned_processes") or []
@@ -477,7 +488,7 @@ def test_owned_process_start_stop(setup):
         orch().prepare(QuietProvider(), [{"role": "user", "content": context.user_prompt}], 1, context, {})
     )
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         stopped = latest(row.facts, "PROCESS_STOPPED")
         assert stopped and stopped.get("verified_dead")
     assert host.jobs == {} or all(proc.poll() is not None for proc in host.jobs.values())
@@ -546,7 +557,10 @@ def test_hash_ignores_non_hex_host_text():
     ok = from_tool(
         {}, "hash_file", {"text": digest, "metadata": {"digest": digest, "path": r"C:\t\hello.txt"}}
     )
-    assert latest(ok, "HASH_RESULT")["digest"] == digest
+    hashed = latest(ok, "HASH_RESULT")
+    if hashed is None:
+        raise AssertionError("HASH_RESULT was not recorded")
+    assert hashed["digest"] == digest
     assert digest in fallback_answer(ok, "What is the SHA256 of hello.txt?")
 
 
@@ -559,7 +573,7 @@ def test_write_file_on_disk_and_paraphrase(setup):
     assert path.read_text(encoding="utf-8") == "ALEX_EVAL_WRITE_OK"
     assert "write_file" in handled
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         text = fallback_answer(row.facts, context.user_prompt)
         assert "ALEX_EVAL_WRITE_OK" in text
         written = latest(row.facts, "FILE_CREATED") or latest(row.facts, "FILE_WRITTEN")
@@ -705,7 +719,7 @@ def test_named_file_ops_do_not_use_workspace_root(setup):
     assert "read_file" in handled
     _assert_file_tools_not_workspace(host, root)
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         assert "nested-ok" in (latest(row.facts, "FILE_READ") or {}).get("content_excerpt", "")
 
 
@@ -729,7 +743,7 @@ def test_pronoun_reread_keeps_previous_file(setup):
     assert "read_file" in host.handled[len(before) :]
     _assert_file_tools_not_workspace(host, root)
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         assert "ALEX_EXTERNAL_FILE_CHANGE_7391" in (latest(row.facts, "FILE_READ") or {}).get(
             "content_excerpt", ""
         )

@@ -182,10 +182,8 @@ def upload(
     storage = LocalDocumentStorage(settings.document_storage_dir)
     with mutation_lock:
         db.scalar(select(User).where(User.id == user.id).with_for_update())
-        if (
-            db.scalar(select(func.count()).select_from(Document).where(Document.user_id == user.id))
-            >= settings.document_max_per_user
-        ):
+        owned = db.scalar(select(func.count()).select_from(Document).where(Document.user_id == user.id))
+        if (owned or 0) >= settings.document_max_per_user:
             raise HTTPException(409, "Достигнут лимит документов")
         digest = hashlib.sha256(data).hexdigest()
         if db.scalar(select(Document.id).where(Document.user_id == user.id, Document.sha256 == digest)):

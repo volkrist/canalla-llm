@@ -97,6 +97,8 @@ def test_saved_policy_is_read_back_by_a_fresh_controller(client, auth):
         from app.models import User
 
         user = db.query(User).first()
+        if user is None:
+            raise AssertionError("the registered user is missing")
         stored = restarted.preferences(user.id)
     assert stored.max_hourly_price == Decimal("1.25")
     assert stored.session_budget == Decimal("7.50")

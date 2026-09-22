@@ -18,6 +18,7 @@ from app.compute.schemas import ComputePreferences, StartRequest, StopRequest
 from app.config import get_settings
 from app.database import SessionLocal
 from app.models import Chat, User
+from tests.db_helpers import require_row, require_scalar
 
 
 class Supplier:
@@ -237,7 +238,7 @@ def test_budget_stops_even_during_generation(compute):
     asyncio.run(scenario())
     assert supplier.actions == [{"action": "terminate"}]
     with SessionLocal() as db:
-        row = db.scalar(select(ComputeSession))
+        row = require_scalar(db, select(ComputeSession))
         assert row.stop_reason == "session_budget"
         assert estimate(row, supplier.time)[1] == Decimal("0.008000")
 
@@ -265,7 +266,7 @@ def test_session_owner_sees_pod_id_not_volume(compute):
 
     asyncio.run(scenario())
     with SessionLocal() as db:
-        row = db.scalar(select(ComputeSession))
+        row = require_scalar(db, select(ComputeSession))
         owner = User(
             id=row.started_by_user_id, email="owner@example.com", password_hash="unused", role="user"
         )
@@ -355,7 +356,7 @@ def test_startup_timeout_terminates_managed_compute(compute):
 
     asyncio.run(scenario())
     with SessionLocal() as db:
-        assert db.scalar(select(ComputeSession)).stop_reason == "startup_timeout"
+        assert require_scalar(db, select(ComputeSession)).stop_reason == "startup_timeout"
 
 
 def test_search_cancel_and_other_user_quote_access(compute):
@@ -404,7 +405,7 @@ def test_auto_selection_cannot_choose_more_expensive_quote(compute):
     async def scenario():
         quote = await controller.search_gpu(user, ComputePreferences())
         with SessionLocal() as db:
-            row = db.get(ComputeQuote, quote["quote_id"])
+            row = require_row(db, ComputeQuote, quote["quote_id"])
             row.options = row.options + [
                 {
                     **next(g for g in row.options if g["id"] == "gpu-48"),
@@ -508,7 +509,7 @@ def test_auto_connect_waits_for_exact_gpu_not_cheaper_fallback(compute):
     async def scenario():
         # gpu-80 is available but forbidden by the exact target, even under a higher limit.
         supplier.price = 4
-        prefs = ComputePreferences(auto_connect=True, gpu_id="gpu-48", max_hourly_price=2)
+        prefs = ComputePreferences(auto_connect=True, gpu_id="gpu-48", max_hourly_price=Decimal("2"))
         await controller.search_gpu(user, prefs)
         assert controller.get_compute_status(user)["state"] == "searching"
         assert not supplier.creates
@@ -562,7 +563,8 @@ def test_auto_connect_rechecks_permissions_after_wait(compute):
                     created_at=supplier.time - timedelta(days=1),
                 )
             )
-            db.get(User, user.id).role = "user"
+            member = require_row(db, User, user.id)
+            member.role = "user"
             db.commit()
         supplier.price = 0.8
         supplier.time += timedelta(seconds=31)
@@ -615,7 +617,9 @@ def test_live_preferences_ignore_legacy_env_cap_and_survive_restart(compute):
 
     async def scenario():
         await start(controller, user)
-        prefs = ComputePreferences(session_budget=5, max_hourly_price=1.6, auto_stop_minutes=5)
+        prefs = ComputePreferences(
+            session_budget=Decimal("5"), max_hourly_price=Decimal("1.6"), auto_stop_minutes=5
+        )
         await controller.update_preferences(user, prefs)
         current = controller.get_compute_status(user)
         assert current["session"]["session_budget"] == 5
@@ -633,7 +637,7 @@ def test_changed_preferences_invalidate_quote(compute):
 
     async def scenario():
         quote = await controller.search_gpu(user, ComputePreferences())
-        await controller.update_preferences(user, ComputePreferences(max_hourly_price=0.5))
+        await controller.update_preferences(user, ComputePreferences(max_hourly_price=Decimal("0.5")))
         with pytest.raises(RunPodError):
             await controller.start_compute(
                 user,
@@ -653,7 +657,7 @@ def test_live_search_preferences_restrict_next_attempt(compute):
         supplier.price = 4
         await controller.search_gpu(user, ComputePreferences(auto_connect=True, gpu_id="gpu-48"))
         await controller.update_preferences(
-            user, ComputePreferences(auto_connect=True, gpu_id="gpu-80", max_hourly_price=1.7)
+            user, ComputePreferences(auto_connect=True, gpu_id="gpu-80", max_hourly_price=Decimal("1.7"))
         )
         await controller.tick()
         assert len(supplier.creates) == 1

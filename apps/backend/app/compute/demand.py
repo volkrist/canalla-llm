@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -30,13 +31,19 @@ async def provider_ready(provider) -> bool:
     status = getattr(provider, "status", None)
     if callable(status):
         try:
-            return await status() == "ready"
+            observed = status()
+            # Duck-typed provider: a status() that is not awaitable is not a status, so it
+            # falls through to the health probe exactly as the bare await used to.
+            if inspect.isawaitable(observed):
+                return await observed == "ready"
         except Exception:
             pass
     health = getattr(provider, "health", None)
     if callable(health):
         try:
-            return bool(await health())
+            observed = health()
+            if inspect.isawaitable(observed):
+                return bool(await observed)
         except Exception:
             return False
     return False
@@ -82,7 +89,10 @@ def park_waiting_llm(
             LocalTaskController().waiting_llm(
                 db, SimpleNamespace(task_id=row.id, user_id=user.id, secrets=()), reason
             )
-            row = db.get(LocalTask, row.id)
+            refreshed = db.get(LocalTask, row.id)
+            if refreshed is None:  # pragma: no cover - waiting_llm commits this same row
+                raise RuntimeError("local task row is missing")
+            row = refreshed
         facts = dict(row.facts or {})
         facts.update(
             {
@@ -244,17 +254,17 @@ async def wait_for_production(request, user, chat, user_message, assistant, cont
 async def resume_parked_demand(compute):
     """Parked WAITING_LLM / approved compute.start must start the same GPU session."""
     from ..config import get_settings
-    from .models import ComputeControl
+    from .controller import control_row
 
     if not production_llm_required(get_settings()):
         return
     with SessionLocal() as db:
-        jobs = [
+        jobs: list[tuple[User | None, str | None, str | None]] = [
             (db.get(User, row.user_id), row.chat_id, row.id)
             for row in db.scalars(select(LocalTask).where(LocalTask.status == machine.WAITING_LLM))
         ]
-        control = db.get(ComputeControl, 1)
-        if control and control.confirmation_run_id:
+        control = control_row(db)
+        if control.confirmation_run_id:
             run = db.get(ToolRun, control.confirmation_run_id)
             if run and run.status == "approved":
                 jobs.append((db.get(User, run.user_id), run.chat_id, run.task_id))
@@ -271,11 +281,10 @@ async def resume_parked_demand(compute):
 
 def _active_session_id(compute) -> str | None:
     try:
-        from .models import ComputeControl
+        from .controller import control_row
 
         with SessionLocal() as db:
-            control = db.get(ComputeControl, 1)
-            return control.active_session_id if control else None
+            return control_row(db).active_session_id
     except Exception:
         return None
 

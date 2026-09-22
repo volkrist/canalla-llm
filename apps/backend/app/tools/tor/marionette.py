@@ -145,14 +145,20 @@ class MarionetteClient:
             self.reader = self.writer = None
 
     async def _write(self, message):
+        writer = self.writer
+        if writer is None:  # pragma: no cover - the client only writes on a connected session
+            raise ToolError("tor_browser_not_ready")
         payload = json.dumps(message, ensure_ascii=False).encode("utf-8")
-        self.writer.write(f"{len(payload)}:".encode("ascii") + payload)
-        await self.writer.drain()
+        writer.write(f"{len(payload)}:".encode("ascii") + payload)
+        await writer.drain()
 
     async def _read(self):
+        reader = self.reader
+        if reader is None:  # pragma: no cover - the client only reads on a connected session
+            raise ToolError("tor_browser_not_ready")
         raw = b""
         while b":" not in raw:
-            chunk = await asyncio.wait_for(self.reader.read(1), self.timeout)
+            chunk = await asyncio.wait_for(reader.read(1), self.timeout)
             if not chunk:
                 raise ToolError("tor_browser_not_ready")
             raw += chunk
@@ -161,7 +167,7 @@ class MarionetteClient:
         length = int(raw.split(b":", 1)[0])
         body = b""
         while len(body) < length:
-            chunk = await asyncio.wait_for(self.reader.read(length - len(body)), self.timeout)
+            chunk = await asyncio.wait_for(reader.read(length - len(body)), self.timeout)
             if not chunk:
                 raise ToolError("tor_browser_not_ready")
             body += chunk

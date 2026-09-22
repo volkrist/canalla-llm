@@ -142,7 +142,7 @@ class OnionJsService:
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, directory=str(www), **kwargs)
 
-            def log_message(self, *_args):
+            def log_message(self, format, *_args):
                 return
 
         self.httpd = ThreadingHTTPServer(("127.0.0.1", self.http_port), BoundHandler)

@@ -84,6 +84,7 @@ def active_device(db: Session, user_id: str) -> PairedDevice | None:
     )
     cutoff = now() - timedelta(seconds=45)
     for row in rows:
-        if _aware(row.last_seen) and _aware(row.last_seen) >= cutoff:
+        seen = _aware(row.last_seen)
+        if seen and seen >= cutoff:
             return row
     return None

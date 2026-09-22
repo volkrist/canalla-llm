@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 
@@ -294,8 +295,6 @@ class ToolOrchestrator:
                             LocalTaskController().finish(db, context, "FAILED")
                     break
                 try:
-                    import asyncio
-
                     async with asyncio.timeout(context.limits.remaining):
                         decision = await provider.plan_tools(planning, tools, usage)
                 except asyncio.CancelledError:

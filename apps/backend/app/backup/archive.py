@@ -43,6 +43,7 @@ from .format import (
     new_backup_id,
     read_json,
     resolve_within,
+    safe_relative,
     sha256_file,
     sqlite_integrity,
     sqlite_revision,
@@ -497,7 +498,7 @@ def verify_backup(directory: Path, *, write_marker: bool = False) -> dict:
         nonlocal files_checked, bytes_checked
         if not isinstance(entry, dict):
             raise BackupError("backup_corrupt", "Некорректная запись в описании копии.")
-        relative = entry.get("path")
+        relative = safe_relative(entry.get("path"))
         target = resolve_within(directory, relative)
         assert_regular_file(target, code="backup_incomplete")
         size = target.stat().st_size

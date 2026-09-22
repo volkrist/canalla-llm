@@ -34,6 +34,7 @@ from .format import (
     assert_regular_file,
     read_json,
     resolve_within,
+    safe_relative,
     sha256_file,
     sqlite_integrity,
     sqlite_revision,
@@ -101,7 +102,11 @@ def _copy_verified(source: Path, target: Path, entry: dict) -> None:
     shutil.copy2(source, target)
     expected = entry.get("sha256")
     if expected and sha256_file(target) != expected:
-        raise BackupError("backup_tampered", "Файл копии изменился при восстановлении.", entry.get("path"))
+        raise BackupError(
+            "backup_tampered",
+            "Файл копии изменился при восстановлении.",
+            safe_relative(entry.get("path")),
+        )
 
 
 def _unique(path: Path) -> Path:

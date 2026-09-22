@@ -15,6 +15,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 
 def gateway_server(key, llm_port, port):
@@ -24,7 +25,7 @@ def gateway_server(key, llm_port, port):
     class Gateway(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.0"
 
-        def log_message(self, *args):
+        def log_message(self, format: str, *args: Any) -> None:
             pass  # Never log Authorization, prompts, paths or upstream bodies.
 
         def forward(self):

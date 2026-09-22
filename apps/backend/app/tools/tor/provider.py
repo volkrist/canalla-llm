@@ -101,7 +101,7 @@ def _links(text: str, limit=8, base_url=""):
     return extract_search_hits(base_url, text, limit)
 
 
-class TorSearchProvider(ToolProvider):
+class TorSearchProvider(ToolProvider[TorSearchArgs]):
     def __init__(self, transport=None):
         self.transport = transport
 
@@ -176,7 +176,7 @@ class TorSearchProvider(ToolProvider):
         )
 
 
-class TorFetchProvider(ToolProvider):
+class TorFetchProvider(ToolProvider[TorFetchArgs]):
     def __init__(self, transport=None):
         self.transport = transport
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import socket
 import sys
 import threading
 import time
@@ -115,15 +114,18 @@ async def main():
             last = getattr(getattr(controller.session, "marionette", None), "last_error", None)
             report["local_js"] = {"error": error.code, "marionette": last}
             raise
+        session = controller.session
+        if session is None:  # open() returned a snapshot, so the session must exist
+            raise RuntimeError("tor_browser_session_missing_after_open")
         report["local_js"] = {
             "url": snap.url,
             "title": snap.title,
             "marker": MARKER in (snap.visible_text or ""),
             "raw_had_marker": MARKER in visible_text(raw_initial),
             "links": len(snap.links),
-            "profile_temp": "alex-tor-browser-" in str(controller.session.profile),
+            "profile_temp": "alex-tor-browser-" in str(session.profile),
             "started_by_alex": True,
-            "pids": controller.session.pids(),
+            "pids": session.pids(),
         }
         if snap.links:
             followed = await controller.click("L1", wait_ms=400)

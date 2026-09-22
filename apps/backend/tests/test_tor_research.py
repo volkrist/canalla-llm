@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from app.tools.contracts import ToolResult
+from app.tools.contracts import ToolProvider, ToolResult
 from app.tools.registry import make_registry
 from app.tools.tor.browser import TorBrowserProvider, browser_status
 
@@ -22,7 +22,7 @@ def next_link(url: str) -> str:
     return CHILD
 
 
-class FakeTor:
+class FakeTor(ToolProvider):
     def __init__(self, capability):
         self.capability = capability
         self.calls = []

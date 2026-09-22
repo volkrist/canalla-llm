@@ -1,11 +1,12 @@
 import socket
 from datetime import timedelta, timezone
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select, update
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
@@ -467,6 +468,7 @@ def host_result(
         .execution_options(synchronize_session=False)
     )
     db.commit()
-    if changed.rowcount != 1:
+    # An UPDATE statement always runs on a cursor; the base Result type does not expose rowcount.
+    if cast("CursorResult[Any]", changed).rowcount != 1:
         raise HTTPException(409, "Результат уже принят")
     return {"status": "host_ready"}

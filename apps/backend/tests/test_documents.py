@@ -12,6 +12,7 @@ from app.documents.extract import ExtractionError, LocalExtractor, extract_local
 from app.documents.models import Document, DocumentChunk
 from app.documents.service import reconcile_jobs
 from app.documents.storage import LocalDocumentStorage
+from tests.db_helpers import require_row
 
 
 class TestEmbedding(EmbeddingProvider):
@@ -272,7 +273,7 @@ def test_reindex_atomic_failure_reconcile_and_offline(client, auth, monkeypatch)
     assert client.get(f"/documents/{key}", headers=a).json()["status"] == "failed"
     with SessionLocal() as db:
         assert db.scalar(select(DocumentChunk.id).where(DocumentChunk.document_id == key)) == replacement
-        row = db.get(Document, key)
+        row = require_row(db, Document, key)
         row.job_id, row.status = "stale", "embedding"
         db.commit()
     reconcile_jobs()

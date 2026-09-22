@@ -20,14 +20,17 @@ SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 
 spec = importlib.util.spec_from_file_location("real_e2e_08", SCRIPTS / "real_e2e_08.py")
+if spec is None or spec.loader is None:
+    raise SystemExit("cannot load the real_e2e_08.py harness")
 e2e = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(e2e)
 
-e2e.SESSION_BUDGET = 0.40
-e2e.GPU_COST_STOP = 0.36
-e2e.GPU_WALL = 25 * 60
-e2e.MAX_HOURLY = 1.10
-e2e.CATALOG_WAIT = 25 * 60
+# The harness is loaded by path, so its overrides go through the module namespace.
+vars(e2e)["SESSION_BUDGET"] = 0.40
+vars(e2e)["GPU_COST_STOP"] = 0.36
+vars(e2e)["GPU_WALL"] = 25 * 60
+vars(e2e)["MAX_HOURLY"] = 1.10
+vars(e2e)["CATALOG_WAIT"] = 25 * 60
 
 FOLDERID_DESKTOP = "B4BFCC3A-DB2C-424C-B029-7FE99A87C641"
 MARKER = "ALEX_SEARCH_MARKER_49127"
@@ -97,7 +100,7 @@ def wait_l40s_only(api, prefs):
     )
 
 
-e2e.wait_for_selectable_gpu = wait_l40s_only
+vars(e2e)["wait_for_selectable_gpu"] = wait_l40s_only
 _orig_compatible = e2e.compatible_gpus
 
 
@@ -105,7 +108,7 @@ def compatible_gpus_l40s(options):
     return [item for item in _orig_compatible(options) if item.get("id") == "NVIDIA L40S"]
 
 
-e2e.compatible_gpus = compatible_gpus_l40s
+vars(e2e)["compatible_gpus"] = compatible_gpus_l40s
 
 
 class GUID(ctypes.Structure):
@@ -803,7 +806,7 @@ def main():
                 "создай папку archive и перемести копию туда, затем проверь результат.",
                 read_timeout=300,
             )
-            copied = folder / "archive" / "copy.txt"
+            copied = (folder or hello.parent) / "archive" / "copy.txt"
             hello_after = hello.read_text(encoding="utf-8") if hello.exists() else ""
             finish_case(
                 "test3_edit_copy_move",

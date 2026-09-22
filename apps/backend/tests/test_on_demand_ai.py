@@ -21,6 +21,7 @@ from app.models import Chat, Message
 from app.runtime_log import RedactTicket
 from app.tools.local import machine
 from app.tools.models import LocalTask
+from tests.db_helpers import require_row, require_scalar
 
 
 def test_compact_ai_mock_is_honest_in_production():
@@ -93,7 +94,7 @@ def test_existing_compatible_pod_is_adopted(compute):
     assert result["kind"] == "starting"
     assert not supplier.creates
     with SessionLocal() as db:
-        row = db.scalar(select(ComputeSession))
+        row = require_scalar(db, select(ComputeSession))
         assert row.pod_id == "pod-test"
         assert row.managed is True
         assert row.adopted_by_alex is True
@@ -188,7 +189,7 @@ def test_loading_model_keeps_waiting_llm(compute):
         simple_chat=True,
     )
     with SessionLocal() as db:
-        row = db.scalar(select(LocalTask))
+        row = require_scalar(db, select(LocalTask))
         assert row.status == machine.WAITING_LLM
         assert row.original_user_request == "hello"
 
@@ -230,8 +231,8 @@ def test_ready_promotes_same_task(compute):
     )
     asyncio.run(continue_pending(None, Ready(), user_id=user.id))
     with SessionLocal() as db:
-        task = db.scalar(select(LocalTask))
-        saved = db.get(Message, assistant.id)
+        task = require_scalar(db, select(LocalTask))
+        saved = require_row(db, Message, assistant.id)
         assert saved.status == "complete"
         assert "OrcaRouter" in saved.content
         assert task.status == machine.COMPLETED
@@ -313,7 +314,7 @@ def test_budget_stop_is_structured(compute):
 
     asyncio.run(scenario())
     with SessionLocal() as db:
-        row = db.scalar(select(ComputeSession))
+        row = require_scalar(db, select(ComputeSession))
         assert row.stop_reason == "session_budget"
         assert row.error_code == "COMPUTE_BUDGET_REACHED"
     assert supplier.actions == [{"action": "terminate"}]
@@ -389,8 +390,8 @@ def test_waiting_llm_survives_recover(compute):
     )
     asyncio.run(controller.recover())
     with SessionLocal() as db:
-        saved = db.get(Message, assistant.id)
-        task = db.scalar(select(LocalTask))
+        saved = require_row(db, Message, assistant.id)
+        task = require_scalar(db, select(LocalTask))
         assert saved.status == "generating"
         assert task.status == machine.WAITING_LLM
 
@@ -458,7 +459,7 @@ def test_an_exact_gpu_preference_is_honoured(compute):
     controller, supplier, user = compute
     controller.save_preferences(
         user.id,
-        Prefs(selection="manual", gpu_id="NVIDIA L40S", max_hourly_price="1.20"),
+        Prefs(selection="manual", gpu_id="NVIDIA L40S", max_hourly_price=Decimal("1.20")),
     )
     result = asyncio.run(controller.ensure_on_demand(user, confirm=True))
     assert result["kind"] in {"starting", "ready"}
@@ -479,8 +480,8 @@ def test_confirmation_then_same_session_starts(compute):
     assert first["kind"] == "waiting_confirmation"
     assert not supplier.creates
     with SessionLocal() as db:
-        control = db.get(ComputeControl, 1)
-        run = db.get(ToolRun, control.confirmation_run_id)
+        control = require_row(db, ComputeControl, 1)
+        run = require_row(db, ToolRun, control.confirmation_run_id)
         run.status = "approved"
         db.commit()
     second = asyncio.run(controller.ensure_on_demand(user, chat_id=chat.id, confirm=False))

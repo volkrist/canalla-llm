@@ -22,6 +22,7 @@ from app.tools.contracts import RiskLevel, ToolDefinition, ToolError, ToolRegist
 from app.tools.executor import ExecutionContext, ToolExecutor
 from app.tools.models import ToolRun
 from app.tools.policy import ToolLimits
+from tests.db_helpers import require_row
 from tests.test_tools_core import FakeProvider, public_dns
 
 
@@ -98,7 +99,7 @@ def test_same_payload_allowed_once(setup):
     assert provider.called == 1
     assert result.sources
     with SessionLocal() as db:
-        row = db.get(ToolRun, context.run_id)
+        row = require_row(db, ToolRun, context.run_id)
         envelope = (row.result_metadata or {}).get("confirmation") or {}
         assert envelope.get("consumption_state") == CONSUMED
         assert envelope.get("canonical_payload", {}).get("path") == "a.txt"
@@ -122,7 +123,7 @@ def test_changed_field_rejected_before_side_effect(setup, field, value):
             == 200
         )
         with SessionLocal() as db:
-            row = db.get(ToolRun, key)
+            row = require_row(db, ToolRun, key)
             meta = dict(row.result_metadata or {})
             envelope = dict(meta.get("confirmation") or {})
             canonical = dict(envelope.get("canonical_payload") or {})
@@ -165,7 +166,7 @@ def test_expired_confirmation_rejected(setup):
         if value["status"] != "waiting_confirmation":
             return
         with SessionLocal() as db:
-            row = db.get(ToolRun, value["id"])
+            row = require_row(db, ToolRun, value["id"])
             row.started_at = now() - timedelta(minutes=6)
             db.commit()
         response = client.post(f"/tools/runs/{value['id']}/confirm", headers=headers, json={"allow": True})
@@ -237,5 +238,5 @@ def test_parallel_consume_race(setup):
     assert outcomes.count("ok") == 1
     assert all(item in {"ok", "confirmation_already_used"} for item in outcomes)
     with SessionLocal() as db:
-        row = db.get(ToolRun, run_id)
+        row = require_row(db, ToolRun, run_id)
         assert row.status == "consumed"

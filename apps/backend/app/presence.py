@@ -4,10 +4,11 @@ import asyncio
 import hashlib
 import secrets
 from contextlib import suppress
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from sqlalchemy import case, delete, func, or_, select, update
+from sqlalchemy import CursorResult, case, delete, func, or_, select, update
 
 from .compute.models import GenerationUsage
 from .config import get_settings
@@ -18,8 +19,12 @@ from .security import current_user
 router = APIRouter(tags=["presence"])
 
 
-def utc(value):
+def utc(value: datetime | None) -> datetime | None:
     return value.replace(tzinfo=timezone.utc) if value else None
+
+
+def isoformat_or_none(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
 
 
 class PresenceManager:
@@ -43,12 +48,10 @@ class PresenceManager:
         token = secrets.token_urlsafe(32)
         with SessionLocal() as db:
             db.execute(delete(PresenceTicket).where(PresenceTicket.expires_at <= self.clock()))
-            if (
-                db.scalar(
-                    select(func.count()).select_from(PresenceTicket).where(PresenceTicket.user_id == user_id)
-                )
-                >= 5
-            ):
+            tickets = db.scalar(
+                select(func.count()).select_from(PresenceTicket).where(PresenceTicket.user_id == user_id)
+            )
+            if (tickets or 0) >= 5:
                 raise HTTPException(429, "Слишком много запросов подключения")
             db.add(
                 PresenceTicket(
@@ -75,7 +78,8 @@ class PresenceManager:
                 .execution_options(synchronize_session=False)
             )
             db.commit()
-            return user_id if result.rowcount == 1 else None
+            # A DELETE always runs on a cursor; the base Result type does not expose rowcount.
+            return user_id if cast("CursorResult[Any]", result).rowcount == 1 else None
 
     def connect(self, user_id):
         with SessionLocal() as db:
@@ -123,13 +127,14 @@ class PresenceManager:
             sessions = {
                 uid: (utc(seen), utc(activity), utc(alive)) for uid, seen, activity, alive in aggregates
             }
-            counts = dict(
-                db.execute(
+            counts = {
+                user_id: total
+                for user_id, total in db.execute(
                     select(GenerationUsage.user_id, func.count())
                     .where(GenerationUsage.completed_at.is_(None))
                     .group_by(GenerationUsage.user_id)
                 ).all()
-            )
+            }
             return [
                 {
                     "key": hashlib.sha256(("presence:" + user.id).encode()).hexdigest()[:24],
@@ -142,7 +147,7 @@ class PresenceManager:
                     if (at - sessions[user.id][1]).total_seconds() >= self.settings.presence_idle_seconds
                     else "online",
                     "using_ai": counts.get(user.id, 0) > 0,
-                    "last_seen": sessions[user.id][0].isoformat() if user.id in sessions else None,
+                    "last_seen": isoformat_or_none(sessions[user.id][0]) if user.id in sessions else None,
                 }
                 for user in users
             ]

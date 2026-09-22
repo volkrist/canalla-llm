@@ -66,7 +66,7 @@ class FetchArgs(BaseModel):
     fresh: bool = False
 
 
-class TinyFishSearchProvider(ToolProvider):
+class TinyFishSearchProvider(ToolProvider[SearchArgs]):
     def __init__(self, client=None):
         self.client = client or get_tinyfish_client()
 
@@ -119,7 +119,7 @@ class TinyFishSearchProvider(ToolProvider):
         )
 
 
-class TinyFishFetchProvider(ToolProvider):
+class TinyFishFetchProvider(ToolProvider[FetchArgs]):
     def __init__(self, client=None):
         self.client = client or get_tinyfish_client()
 

@@ -134,7 +134,7 @@ def _http(
         connection.close()
 
 
-class LoopbackFormProvider(ToolProvider):
+class LoopbackFormProvider(ToolProvider[InspectUrlArgs | FillFormArgs | SubmitFormArgs]):
     async def execute(self, args, context):
         url, host, port, path = assert_loopback_http(args.url)
         session = _session(context.user_id, url)
@@ -195,7 +195,7 @@ class LoopbackFormProvider(ToolProvider):
         )
 
 
-class LoopbackPurchaseProvider(ToolProvider):
+class LoopbackPurchaseProvider(ToolProvider[InspectUrlArgs | CheckoutArgs]):
     async def execute(self, args, context):
         url, host, port, path = assert_loopback_http(args.url)
         session = _session(context.user_id, url)
@@ -253,7 +253,7 @@ class LoopbackPurchaseProvider(ToolProvider):
         )
 
 
-class UnconfiguredExternalProvider(ToolProvider):
+class UnconfiguredExternalProvider(ToolProvider[BaseModel]):
     def __init__(self, code: str, kind: str):
         self.code = code
         self.kind = kind

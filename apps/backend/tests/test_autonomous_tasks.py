@@ -21,6 +21,7 @@ from app.tools.models import LocalTask, PairedDevice, ToolRun
 from app.tools.orchestrator import ToolOrchestrator
 from app.tools.policy import ToolLimits, WebSettings
 from app.tools.registry import make_registry
+from tests.db_helpers import require_row
 from tests.fake_host import FakeHost
 from tests.fakes_web import FakeWebProvider
 
@@ -182,7 +183,7 @@ def test_open_queues_second_writer(setup):
         assert waiting.id != row.id
         LocalTaskController().finish(db, context, "COMPLETED")
         db.expire_all()
-        waiting = db.get(LocalTask, waiting.id)
+        waiting = require_row(db, LocalTask, waiting.id)
         assert waiting.status == machine.READY
         assert (waiting.facts or {}).get("promoted_from_queue") is True
 
@@ -206,13 +207,13 @@ def test_pause_blocks_new_tools_then_resume(setup):
         )
     )
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         assert row.status == machine.PAUSED
         assert row.tool_calls_used == 0
     assert getattr(context, "skip_final_stream", False) is True
     assert context.task_halt == "task_paused"
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         LocalTaskController().resume(db, row, context.user_id)
         context.resume_task_id = row.id
         context.resuming = True
@@ -224,7 +225,7 @@ def test_pause_blocks_new_tools_then_resume(setup):
     )
     assert "list_directory" in host.handled
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         assert row.status != machine.PAUSED
         assert row.tool_calls_used >= 1
 
@@ -263,7 +264,7 @@ def test_stop_halts_further_tools(setup):
         LocalTaskController().stop(db, context)
     thread.join(timeout=12)
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         assert row.status == machine.STOPPED
     assert "read_file" not in host.handled
 
@@ -284,7 +285,7 @@ def test_budget_exhausted_blocks_fourth_tool(setup):
         )
     )
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         assert row.last_error == "task_budget"
         assert row.status == machine.FAILED
         assert row.tool_calls_used == 3
@@ -301,7 +302,7 @@ def test_restart_does_not_rerun_completed_tools(setup, client):
         )
     )
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         completed = db.scalars(select_completed(row.id)).all()
         assert completed
         row.status = machine.EXECUTING
@@ -310,7 +311,7 @@ def test_restart_does_not_rerun_completed_tools(setup, client):
         task_id = row.id
     reconcile_tools()
     with SessionLocal() as db:
-        row = db.get(LocalTask, task_id)
+        row = require_row(db, LocalTask, task_id)
         assert row.status == machine.INTERRUPTED
         assert row.finished_at is None
         context.resume_task_id = row.id
@@ -445,7 +446,7 @@ def test_mock_e2e_fix_and_verify(setup):
     )
     assert "return a + b" in app_file.read_text(encoding="utf-8")
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         assert row.status == machine.COMPLETED
         assert (row.verification or {}).get("tests") == "passed"
         steps = LocalTaskController().steps(db, row.id)
@@ -508,7 +509,7 @@ def test_web_plus_coding_mock_e2e(setup, client):
     assert "return a + b" in text
     assert "TIMEOUT = 30" in text
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         assert row.status == machine.COMPLETED
         assert row.plan_revision >= 2
 
@@ -517,7 +518,7 @@ def test_device_disconnect_waits(setup, client):
     _headers, context, _events, root, host, device_headers = setup
     host.close()
     with SessionLocal() as db:
-        device = db.get(PairedDevice, device_headers["X-Alex-Device-Id"])
+        device = require_row(db, PairedDevice, device_headers["X-Alex-Device-Id"])
         device.last_seen = now() - timedelta(minutes=5)
         db.commit()
     orchestrator = ToolOrchestrator(make_registry(), ToolExecutor(make_registry()))
@@ -531,7 +532,7 @@ def test_device_disconnect_waits(setup, client):
         )
     )
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         assert row.status == machine.WAITING_DEVICE
         assert row.finished_at is None
 
@@ -561,7 +562,7 @@ def test_stale_patch_is_conflict(setup):
     )
     assert "return a - b" in app_file.read_text(encoding="utf-8")
     with SessionLocal() as db:
-        row = db.get(LocalTask, context.task_id)
+        row = require_row(db, LocalTask, context.task_id)
         assert row.status == machine.CONFLICT
         assert row.last_error == "conflict"
 

@@ -9,6 +9,7 @@ from app.tools.tor.classify import OFFICIAL_AND_REACHABLE, REACHABLE_UNVERIFIED,
 from app.tools.tor.provider import TorSearchArgs, TorSearchProvider, extract_search_hits
 from app.tools.tor.socks import Socks5hConnector, TorTransport
 from app.tools.tor.urls import validate_tor_url
+from tests.settings_factory import make_settings
 
 ONION = "duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion"
 OTHER = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion"
@@ -111,7 +112,7 @@ def test_tor_provider_json_allows_query_placeholder():
 
 
 def test_tor_providers_file_loads_when_env_list_empty(tmp_path, monkeypatch):
-    from app.config import Settings, get_settings
+    from app.config import get_settings
 
     path = tmp_path / "providers.json"
     path.write_text(
@@ -128,7 +129,7 @@ def test_tor_providers_file_loads_when_env_list_empty(tmp_path, monkeypatch):
     monkeypatch.delenv("TOR_SEARCH_PROVIDERS", raising=False)
     monkeypatch.setenv("TOR_SEARCH_PROVIDERS_FILE", str(path))
     get_settings.cache_clear()
-    settings = Settings()
+    settings = make_settings()
     assert settings.tor_search_providers[0]["name"] == "ahmia"
     get_settings.cache_clear()
 

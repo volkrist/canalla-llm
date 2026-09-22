@@ -4,10 +4,15 @@ import threading
 from abc import ABC, abstractmethod
 from functools import lru_cache
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from ..config import get_settings
+
+if TYPE_CHECKING:  # The model stack stays lazily imported: it is never loaded at startup.
+    from fastembed import TextEmbedding
+    from tokenizers import Tokenizer
 
 REVISION = "761b726dd34fb83930e26aab4e9ac3899aa1fa78"
 MODEL = "intfloat/multilingual-e5-small"
@@ -43,8 +48,8 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         self.settings = settings or get_settings()
         # Only the lifecycle manager supplies a staging root for its verification smoke.
         self._verified_root = verified_root
-        self._model = None
-        self._tokenizer = None
+        self._model: TextEmbedding | None = None
+        self._tokenizer: Tokenizer | None = None
         self._lock = threading.RLock()
 
     def load(self):
@@ -90,21 +95,26 @@ class LocalEmbeddingProvider(EmbeddingProvider):
                     "Embedding service unavailable. Проверьте локальную модель."
                 ) from error
 
-    def token_count(self, text):
+    def loaded(self) -> "tuple[TextEmbedding, Tokenizer]":
+        """The model and tokenizer, which `load()` either fills or fails on."""
         self.load()
-        return len(self._tokenizer.encode(text).ids)
+        if self._model is None or self._tokenizer is None:
+            raise EmbeddingUnavailable("Embedding service unavailable. Подготовьте локальную модель.")
+        return self._model, self._tokenizer
+
+    def token_count(self, text):
+        _model, tokenizer = self.loaded()
+        return len(tokenizer.encode(text).ids)
 
     def embed(self, texts, query=False):
-        self.load()
+        model, _tokenizer = self.loaded()
         prefix = "query: " if query else "passage: "
         prepared = [prefix + text for text in texts]
         if any(self.token_count(text) > 512 for text in prepared):
             raise ValueError("Embedding input exceeds 512 tokens")
         try:
             with self._lock:
-                return validate_vectors(
-                    list(self._model.embed(prepared, batch_size=8)), len(texts), self.dimension
-                )
+                return validate_vectors(list(model.embed(prepared, batch_size=8)), len(texts), self.dimension)
         except Exception as error:
             raise EmbeddingUnavailable(
                 "Embedding service unavailable. Не удалось вычислить векторы."

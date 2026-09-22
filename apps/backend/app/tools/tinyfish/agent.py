@@ -21,7 +21,7 @@ class AgentArgs(BaseModel):
     goal: str = Field(min_length=1, max_length=2000)
 
 
-class TinyFishAgentProvider(ToolProvider):
+class TinyFishAgentProvider(ToolProvider[AgentArgs]):
     # Current Agent REST contract has no enforceable read-only/action approval hook.
     # Prompt restrictions are defense-in-depth, not a permission boundary.
     read_only_enforced = False
@@ -125,7 +125,8 @@ class TinyFishAgentProvider(ToolProvider):
                             json.dumps(event.get("result") or {}, ensure_ascii=False), context.secrets, 6000
                         )
                         urls = []
-                        result_body = event.get("result") if isinstance(event.get("result"), dict) else {}
+                        result_value = event.get("result")
+                        result_body = result_value if isinstance(result_value, dict) else {}
                         for item in result_body.get("source_urls") or []:
                             if isinstance(item, str):
                                 urls.append(item)

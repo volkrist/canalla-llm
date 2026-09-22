@@ -1292,7 +1292,7 @@ class LocalTaskController:
         )
 
 
-def status_message(row) -> str:
+def status_message(row: LocalTask) -> str:
     mapping = {
         machine.WAITING_DEVICE: "Device offline",
         machine.WAITING_CONFIRMATION: "Waiting for confirmation",

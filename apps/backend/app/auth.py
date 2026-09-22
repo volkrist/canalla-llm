@@ -40,11 +40,14 @@ def _device_id(request: Request) -> str | None:
 
 def _session_payload(user: User, db: Session, device_id: str | None) -> TokenOut:
     session_id, raw = create_session(db, user, device_id)
+    session = db.get(AuthSession, session_id)
+    if session is None:  # pragma: no cover - create_session just inserted this row
+        raise RuntimeError("session row missing")
     return TokenOut(
         access_token=create_token(user.id),
         session_id=session_id,
         refresh_secret=raw,
-        expires_at=db.get(AuthSession, session_id).expires_at,
+        expires_at=session.expires_at,
         user=UserOut.model_validate(user),
     )
 

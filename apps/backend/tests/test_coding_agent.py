@@ -21,6 +21,7 @@ from app.tools.policy import ToolLimits, ToolPolicy, WebSettings, effective_risk
 from app.tools.registry import make_registry
 from app.tools.security import sanitized
 from app.tools.web_router import classify_web
+from tests.db_helpers import require_row
 
 
 def test_coding_tools_are_registered():
@@ -233,7 +234,7 @@ def test_patch_conflict_and_coding_loop(setup, client):
             if jobs:
                 job = jobs[0]
                 with SessionLocal() as db:
-                    digest_value = db.get(ToolRun, job["id"]).input_digest
+                    digest_value = require_row(db, ToolRun, job["id"]).input_digest
                 if job["tool_name"] == "patch_file":
                     client.post(
                         f"/tools/runs/{job['id']}/host-result",
@@ -286,7 +287,7 @@ def test_patch_conflict_and_coding_loop(setup, client):
         controller.note_command(context, "write_file", "abc", {"files_changed": 1})
         controller.checkpoint(db, context, "EXECUTING")
         controller.finish(db, context, "COMPLETED")
-        saved = db.get(LocalTask, row.id)
+        saved = require_row(db, LocalTask, row.id)
         assert saved.status == "COMPLETED"
         assert "commands" in saved.checkpoint
         assert "password" not in str(saved.checkpoint)

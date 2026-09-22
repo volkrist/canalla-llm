@@ -223,6 +223,8 @@ class RunPodAPI:
         dc = await self.request(
             "GET", "/catalog/datacenters/" + quote(self.settings.runpod_datacenter, safe="")
         )
+        if dc is None:  # the datacenter catalog did not return the JSON object we need
+            raise RunPodError("malformed_response")
         if volume.dataCenter != self.settings.runpod_datacenter or volume.type not in dc.get(
             "networkVolumeTypes", []
         ):
@@ -242,7 +244,7 @@ class RunPodAPI:
             },
         )
         try:
-            if not isinstance(data.get("gpus"), list):
+            if data is None or not isinstance(data.get("gpus"), list):
                 raise ValueError()
             options = []
             for gpu in data["gpus"]:
@@ -293,7 +295,7 @@ class RunPodAPI:
 
     async def list_pods(self):
         data = await self.request("GET", "/pods")
-        if not isinstance(data.get("pods"), list):
+        if data is None or not isinstance(data.get("pods"), list):
             raise RunPodError("malformed_response")
         return [self.parse_pod(pod) for pod in data["pods"]]
 
@@ -401,7 +403,7 @@ class RunPodAPI:
             },
         )
         try:
-            records = data["records"]
+            records = data["records"] if data else None
             if not isinstance(records, list):
                 raise ValueError()
             amounts = [Decimal(str(row["gpuAmount"])) for row in records if row["podId"] == pod_id]

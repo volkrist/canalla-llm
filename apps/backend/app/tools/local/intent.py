@@ -133,7 +133,8 @@ def select_local_route(prompt: str, context=None) -> LocalDecision:
     if re.search(r"(?i)windows|cpu|ram|свободное место|system info|информаци.{0,12}компьютер", text):
         return LocalDecision("get_system_info", {"purpose": "host summary"}, "system_info")
     if token and re.search(r"(?i)найди|find", text):
-        search_root = root or path or (PATH.search(text).group(0) if PATH.search(text) else "")
+        match = PATH.search(text)
+        search_root = root or path or (match.group(0) if match else "")
         if search_root:
             return LocalDecision(
                 "search_code",

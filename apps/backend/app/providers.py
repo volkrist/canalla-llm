@@ -2,7 +2,7 @@ import asyncio
 import json
 import re
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 
 import httpx
 
@@ -85,11 +85,11 @@ def Pathish(root, rel):
 class LLMProvider(ABC):
     supports_tools = False
 
-    async def plan_tools(self, messages, tools, usage):
+    async def plan_tools(self, messages, tools, usage) -> dict:
         raise LLMError("tools_unsupported")
 
     @abstractmethod
-    def stream_chat(self, messages: list[dict[str, str]]) -> AsyncIterator[str]: ...
+    def stream_chat(self, messages: list[dict[str, str]]) -> AsyncGenerator[str, None]: ...
 
     async def chat(self, messages: list[dict[str, str]]) -> str:
         return "".join([part async for part in self.stream_chat(messages)])

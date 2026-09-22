@@ -8,14 +8,13 @@ import os
 import sys
 import time
 from pathlib import Path
-from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "apps" / "backend"
 sys.path.insert(0, str(BACKEND))
 
-from dotenv import dotenv_values
-from pydantic import SecretStr
+from dotenv import dotenv_values  # noqa: E402 - the backend path is added above
+from pydantic import SecretStr  # noqa: E402 - the backend path is added above
 
 values = dotenv_values(BACKEND / ".env")
 for key, value in values.items():
@@ -26,8 +25,13 @@ from app.config import get_settings  # noqa: E402
 from app.tools.policy import ToolLimits, WebSettings  # noqa: E402
 from app.tools.tinyfish.agent import AgentArgs, TinyFishAgentProvider  # noqa: E402
 from app.tools.tinyfish.browser import TinyFishBrowserProvider, WebBrowserArgs  # noqa: E402
-from app.tools.tinyfish.client import SEARCH, TinyFishClient, WALLET  # noqa: E402
-from app.tools.tinyfish.web import FetchArgs, SearchArgs, TinyFishFetchProvider, TinyFishSearchProvider  # noqa: E402
+from app.tools.tinyfish.client import WALLET, TinyFishClient  # noqa: E402
+from app.tools.tinyfish.web import (  # noqa: E402
+    FetchArgs,
+    SearchArgs,
+    TinyFishFetchProvider,
+    TinyFishSearchProvider,
+)
 
 KEY = os.environ.get("TINYFISH_API_KEY") or ""
 REPORT = {
@@ -130,7 +134,7 @@ async def live_fetch(tf):
         "status": "PASS" if result.sources and excerpt else "FAIL",
         "sources": len(result.sources),
         "paid": False,
-        "title": (result.sources[0].get("title") if result.sources else "")[:120],
+        "title": (result.sources[0].get("title", "") if result.sources else "")[:120],
         "excerpt_chars": len(excerpt),
         "has_python": "python" in excerpt.casefold(),
         "errors": result.errors[:5],

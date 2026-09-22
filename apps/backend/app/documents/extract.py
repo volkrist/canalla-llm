@@ -80,7 +80,7 @@ def extract_local(path, extension, max_chars):
         document = Document(path)
         section = None
         for paragraph in document.paragraphs:
-            if paragraph.style and paragraph.style.name.startswith("Heading"):
+            if paragraph.style and (paragraph.style.name or "").startswith("Heading"):
                 section = paragraph.text[:255]
             append(paragraph.text, section=section)
         for table in document.tables:

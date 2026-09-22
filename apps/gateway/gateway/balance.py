@@ -71,15 +71,16 @@ class SharedBalance:
         return (self.clock() - utc(self._fetched_at)).total_seconds()
 
     def payload(self) -> dict:
-        available = self._balance is not None
+        balance = self._balance
+        available = balance is not None
         return {
             "configured": self.configured,
             # Money stays a string: Decimal precision never survives float JSON, and the
             # client decodes it back into Decimal.
             "available": available,
-            "balance_usd": None if not available else str(self._balance),
+            "balance_usd": None if not available else str(balance),
             "account_spend_per_hr": None if self._spend is None else str(self._spend),
-            "low": bool(available and self._balance < LOW_BALANCE_USD),
+            "low": bool(balance is not None and balance < LOW_BALANCE_USD),
             "low_threshold_usd": str(LOW_BALANCE_USD),
             "stale": bool(available and self._error_code is not None),
             "error_code": self._error_code,

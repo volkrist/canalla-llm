@@ -1,11 +1,14 @@
 """Local TinyFish spend accounting. Not a Wallet balance API."""
 
 from dataclasses import asdict, dataclass
+from typing import TypeVar
 
 from ..contracts import ToolError
 
+NumberT = TypeVar("NumberT", int, float)
 
-def _num(value, default=0.0):
+
+def _num(value, default: NumberT) -> NumberT:
     try:
         return type(default)(value)
     except (TypeError, ValueError):

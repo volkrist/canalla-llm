@@ -1,12 +1,15 @@
 import asyncio
 import hashlib
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import timedelta, timezone
 from decimal import Decimal
+from typing import Any
 
 from pydantic import ValidationError
 from sqlalchemy import select, update
+from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
 from ..models import Chat, Message, User, now
@@ -103,6 +106,14 @@ def public_source(row):
     }
 
 
+def _run_row(db: Session, run_id: str) -> ToolRun:
+    """Load a tool run the executor just created in this same request."""
+    row = db.get(ToolRun, run_id)
+    if row is None:  # pragma: no cover - create_run commits the row before any read
+        raise RuntimeError("tool run missing")
+    return row
+
+
 def reconcile_tools():
     from .local.task import recover_interrupted
 
@@ -116,13 +127,16 @@ def reconcile_tools():
     recover_interrupted()
 
 
+Emit = Callable[[str, Any], Awaitable[None]]
+
+
 @dataclass
 class ExecutionContext:
     user_id: str
     chat_id: str
     generation_id: str | None
     limits: object
-    emit: object
+    emit: Emit
     mode: str = "auto"
     computer_mode: str = "off"
     tor_enabled: bool = False
@@ -293,7 +307,7 @@ class ToolExecutor:
         with SessionLocal() as db:
             # Lock the user's budget across backend processes. SQLite obtains its writer lock
             # before reading the reservation ledger; PostgreSQL uses the user row lock.
-            if db.bind.dialect.name == "sqlite":
+            if db.get_bind().dialect.name == "sqlite":
                 db.connection().exec_driver_sql("BEGIN IMMEDIATE")
             user = db.scalar(select(User).where(User.id == context.user_id).with_for_update())
             chat = db.get(Chat, context.chat_id)
@@ -555,7 +569,7 @@ class ToolExecutor:
         try:
             async with asyncio.timeout(min(definition.timeout, context.limits.remaining)):
                 with SessionLocal() as db:
-                    row = db.get(ToolRun, run_id)
+                    row = _run_row(db, run_id)
                     await context.emit("tool", public_run(row))
                     waiting = row.status == "waiting_confirmation"
                 if waiting:
@@ -570,7 +584,7 @@ class ToolExecutor:
                 execution_payload = args.model_dump(mode="json")
                 execution_digest = payload_digest(definition.name, execution_payload)
                 with SessionLocal() as db:
-                    row = db.get(ToolRun, run_id)
+                    row = _run_row(db, run_id)
                     fresh = preferences(db, context.user_id)
                     if row.status == "stopped":
                         raise ToolError("cancelled")
@@ -581,7 +595,7 @@ class ToolExecutor:
                             user_id=context.user_id,
                             expected_digest=execution_digest,
                         )
-                        row = db.get(ToolRun, run_id)
+                        row = _run_row(db, run_id)
                     elif row.input_digest != execution_digest:
                         raise ToolError("confirmation_payload_changed")
                     host_args = (row.result_metadata or {}).get("host_args")
@@ -651,7 +665,7 @@ class ToolExecutor:
                 if definition.provider == "local_device":
                     await self.wait_host(run_id, context)
                     with SessionLocal() as db:
-                        hosted = db.get(ToolRun, run_id)
+                        hosted = _run_row(db, run_id)
                         context.preview = {
                             **context.preview,
                             "host_result": (hosted.result_metadata or {}).get("host_result", {}),
@@ -698,7 +712,7 @@ class ToolExecutor:
                     if getattr(args, "operation", "open") in {"click", "navigate"}:
                         context.tor_browser_navigated = True
                 with SessionLocal() as db:
-                    row = db.get(ToolRun, run_id)
+                    row = _run_row(db, run_id)
                     row.status, row.finished_at = "completed", now()
                     row.cost_actual = (
                         Decimal(str(result.cost_actual)) if result.cost_actual is not None else None

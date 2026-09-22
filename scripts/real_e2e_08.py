@@ -187,7 +187,7 @@ class Api:
     def __init__(self, base="http://127.0.0.1:8000"):
         self.base = base
         self.client = httpx.Client(base_url=base, timeout=120.0)
-        self.token = None
+        self.token: str | None = None
 
     def headers(self, extra=None):
         value = {"Authorization": f"Bearer {self.token}"} if self.token else {}
@@ -260,6 +260,8 @@ def collect_stream(
     )
 
     def arm_stop():
+        if abort_after is None:  # arm_stop only runs for callers that asked for a stall abort
+            raise RuntimeError("arm_stop_without_abort_after")
         time.sleep(abort_after)
         nonlocal stop_issued_at, aborted
         stop_issued_at = time.time()
@@ -971,6 +973,8 @@ def main():
         if not host_bin.exists():
             raise RuntimeError("host_bin_missing")
         host_env = os.environ.copy()
+        if api.token is None:  # the native host is started only after a successful registration
+            raise RuntimeError("native_host_without_token")
         host_env.update(
             {
                 "ALEX_BACKEND_URL": "http://127.0.0.1:8000",

@@ -128,7 +128,7 @@ def read_json(path: Path) -> dict:
     return payload
 
 
-def safe_relative(relative: str) -> str:
+def safe_relative(relative: object) -> str:
     """Validate a path stored in a manifest before it is used on disk."""
     if not isinstance(relative, str) or not relative:
         raise BackupError("restore_unsafe_path", "Путь внутри копии пуст.")
@@ -143,7 +143,7 @@ def safe_relative(relative: str) -> str:
     return "/".join(parts)
 
 
-def resolve_within(root: Path, relative: str) -> Path:
+def resolve_within(root: Path, relative: object) -> Path:
     """Resolve `relative` under `root`, refusing traversal and symlink escapes."""
     root = Path(root).resolve()
     clean = safe_relative(relative)
@@ -151,10 +151,10 @@ def resolve_within(root: Path, relative: str) -> Path:
     for part in PurePosixPath(clean).parts:
         target = target / part
         if target.is_symlink():
-            raise BackupError("restore_unsafe_path", "Символические ссылки внутри копии запрещены.", relative)
+            raise BackupError("restore_unsafe_path", "Символические ссылки внутри копии запрещены.", clean)
     resolved = target.resolve()
     if resolved != root and root not in resolved.parents:
-        raise BackupError("restore_unsafe_path", "Путь выходит за пределы копии.", relative)
+        raise BackupError("restore_unsafe_path", "Путь выходит за пределы копии.", clean)
     return resolved
 
 
@@ -178,7 +178,7 @@ def iter_files(root: Path) -> list[tuple[str, Path]]:
 
 
 def portable_path(path: Path) -> Path:
-    """Strip a Windows verbatim prefix (`\\\\?\C:\...`), which `Path.resolve()` can return
+    r"""Strip a Windows verbatim prefix (`\\?\C:\...`), which `Path.resolve()` can return
     and which would otherwise turn a SQLite `file:` URI into an invalid one
     (`file://?/C:/...`). Callers may pass a path produced by any tool, so this is enforced
     at the point every read-only URI is built.

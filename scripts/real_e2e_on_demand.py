@@ -6,11 +6,11 @@ import json
 import os
 import sqlite3
 import subprocess
-import sys
 import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -390,7 +390,9 @@ def main():
             raise RuntimeError("mock_ready")
         compute_status = api.client.get("/compute/status", headers=api.headers()).json()
         options = api.client.get("/compute/options", headers=api.headers())
-        option_body = options.json() if options.status_code == 200 else {"detail": options.text[:240]}
+        option_body: dict[str, Any] = (
+            options.json() if options.status_code == 200 else {"detail": options.text[:240]}
+        )
         report["compute_probe"] = {
             "configured": compute_status.get("configured"),
             "state": compute_status.get("state"),

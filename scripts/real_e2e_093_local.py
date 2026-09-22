@@ -20,6 +20,8 @@ SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 
 spec = importlib.util.spec_from_file_location("real_e2e_08", SCRIPTS / "real_e2e_08.py")
+if spec is None or spec.loader is None:
+    raise SystemExit("cannot load the real_e2e_08.py harness")
 e2e = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(e2e)
 

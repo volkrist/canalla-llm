@@ -2,6 +2,7 @@
 
 import asyncio
 import ssl
+from typing import Any, cast
 from urllib.parse import urljoin, urlsplit
 
 from ..contracts import ToolError
@@ -79,7 +80,9 @@ class Socks5hConnector:
                     context,
                     server_hostname=server_hostname or dest_host,
                 )
-                writer._transport = new_transport
+                # asyncio's StreamWriter keeps the transport private and the stub omits it;
+                # the swap is the documented way to adopt the TLS transport in place.
+                cast("Any", writer)._transport = new_transport
             return reader, writer
         except ToolError:
             writer.close()
@@ -96,6 +99,8 @@ class TorTransport:
     async def fetch(self, url: str, *, timeout=45, _hops=0) -> dict:
         parsed = urlsplit(url)
         host = parsed.hostname
+        if not host:
+            raise ToolError("unsafe_url")
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         path = parsed.path or "/"
         if parsed.query:

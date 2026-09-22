@@ -11,6 +11,7 @@ from app.database import SessionLocal
 from app.models import MessageContext
 from app.providers import LlamaCppProvider
 from app.tools.models import ToolRun
+from tests.db_helpers import require_row, require_scalar
 
 
 def test_llamacpp_tools_contract_and_usage():
@@ -82,7 +83,7 @@ def test_generation_usage_combines_planner_and_final_provider_counts(client, aut
     )
     assert "event: done" in response.text
     with SessionLocal() as db:
-        row = db.scalar(select(GenerationUsage).where(GenerationUsage.chat_id == chat))
+        row = require_scalar(db, select(GenerationUsage).where(GenerationUsage.chat_id == chat))
         assert (row.input_tokens, row.output_tokens, row.total_tokens) == (130, 30, 160)
 
 
@@ -112,8 +113,10 @@ def test_search_fetch_stream_snapshots_and_isolation(client, auth, fake_tools):
     other = auth("different@example.com")
     assert client.get(f"/messages/{key}/web-sources", headers=other).status_code == 404
     with SessionLocal() as db:
-        context = db.get(MessageContext, key).snapshot
-        assert context["web_source_count"] == 2 and context["web_mode"] == "on"
+        snapshot = require_row(db, MessageContext, key).snapshot
+        if snapshot is None:
+            raise AssertionError("the stream did not store a context snapshot")
+        assert snapshot["web_source_count"] == 2 and snapshot["web_mode"] == "on"
         assert db.scalars(select(ToolRun)).all()[0].status == "completed"
 
 
@@ -155,7 +158,7 @@ def test_planner_never_receives_private_memory_or_documents(client, auth, fake_t
     with SessionLocal() as db:
         from app.models import User
 
-        user = db.scalar(select(User))
+        user = require_scalar(db, select(User))
         user.custom_instructions = "private-context-marker"
         db.commit()
     chat = client.post("/chats", headers=headers, json={}).json()["id"]

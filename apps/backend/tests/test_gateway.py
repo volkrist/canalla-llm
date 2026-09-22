@@ -15,7 +15,7 @@ def gateway():
     interrupted = threading.Event()
 
     class Model(BaseHTTPRequestHandler):
-        def log_message(self, *args):
+        def log_message(self, format, *args):
             pass
 
         def do_GET(self):

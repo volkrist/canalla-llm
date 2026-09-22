@@ -15,6 +15,8 @@ SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 
 spec = importlib.util.spec_from_file_location("real_e2e_093", SCRIPTS / "real_e2e_093.py")
+if spec is None or spec.loader is None:
+    raise SystemExit("cannot load the real_e2e_093.py harness")
 gpu = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gpu)
 e2e = gpu.e2e

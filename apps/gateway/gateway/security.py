@@ -18,9 +18,10 @@ import hmac
 import secrets
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
+from typing import Any, cast
 
 import jwt
-from sqlalchemy import select, update
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.orm import Session
 
 from .config import GatewaySettings
@@ -94,7 +95,8 @@ def redeem_code(db: Session, code: str, installation: Installation) -> None:
         )
         .values(redeemed_at=now(), redeemed_by=installation.id)
     )
-    if result.rowcount == 1:
+    # An UPDATE always runs on a cursor; the base Result type does not expose rowcount.
+    if cast("CursorResult[Any]", result).rowcount == 1:
         return
     row = db.scalar(select(EnrollmentCode).where(EnrollmentCode.code_hash == digest))
     if row is None:

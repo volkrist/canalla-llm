@@ -11,6 +11,7 @@ from app.database import SessionLocal
 from app.main import app
 from app.models import Chat, Message, User, now
 from app.presence import PresenceManager
+from tests.db_helpers import require_row, require_scalar
 
 
 def make_memory(client, headers, **values):
@@ -126,8 +127,8 @@ def test_context_priority_budgets_and_usage(client, auth):
     used = client.get("/messages/" + rows[-1]["id"] + "/memory", headers=a).json()
     assert len(used) == 3 and all(m["use_count"] == 1 and m["last_used_at"] for m in used)
     with SessionLocal() as db:
-        user = db.scalar(select(User).where(User.email == "alice@example.com"))
-        c = db.get(Chat, chat)
+        user = require_scalar(db, select(User).where(User.email == "alice@example.com"))
+        c = require_row(db, Chat, chat)
         current = Message(id="current", chat_id=chat, role="user", content="FastAPI unique", created_at=now())
         settings = get_settings().model_copy(
             update={"memory_max_chars": 20, "memory_max_items": 1, "context_history_chars": 10}
@@ -257,7 +258,7 @@ def test_using_ai_counter_and_error_cleanup(client, auth):
 
 def test_capture_interface_has_no_automatic_side_effects():
     class TestExtractor(MemoryExtractor):
-        async def extract(self, *args):
+        async def extract(self, user_message, assistant_message, existing_memories):
             return [MemoryCandidate("Test only")]
 
     assert asyncio.run(TestExtractor().extract("a", "b", []))[0].content == "Test only"
@@ -363,8 +364,10 @@ def test_cancel_before_first_token_persists_honest_telemetry(client, auth, monke
         monkeypatch.setattr(app.state, "provider", Slow())
         request = SimpleNamespace(app=app, is_disconnected=disconnected)
         with SessionLocal() as db:
-            chat = db.get(Chat, key)
-            response = await stream_response(chat, "Wait then stop", request, db.get(User, chat.user_id), db)
+            chat = require_row(db, Chat, key)
+            response = await stream_response(
+                chat, "Wait then stop", request, require_row(db, User, chat.user_id), db
+            )
             iterator = response.body_iterator
             assert "event: meta" in await anext(iterator)
 
@@ -381,13 +384,18 @@ def test_cancel_before_first_token_persists_honest_telemetry(client, auth, monke
                 pass
             assert closed.is_set()
         with SessionLocal() as db:
-            answer = db.scalar(select(Message).where(Message.chat_id == key, Message.role == "assistant"))
+            answer = require_scalar(
+                db, select(Message).where(Message.chat_id == key, Message.role == "assistant")
+            )
             assert answer.status == "stopped" and answer.content == ""
             assert answer.first_token_at is None and answer.ttft_ms is None
             assert answer.completed_at is not None
-            assert answer.cancellation["application_cancelled"] is True
-            assert answer.cancellation["provider_stream_closed"] is True
-            assert answer.cancellation["upstream_cancel_confirmed"] is None
+            cancellation = answer.cancellation
+            if cancellation is None:
+                raise AssertionError("a stopped answer must record its cancellation")
+            assert cancellation["application_cancelled"] is True
+            assert cancellation["provider_stream_closed"] is True
+            assert cancellation["upstream_cancel_confirmed"] is None
 
     asyncio.run(scenario())
 
@@ -418,8 +426,8 @@ def _seed_city_memories(client, headers):
     with SessionLocal() as db:
         from app.models import Memory
 
-        db.get(Memory, old["id"]).updated_at = now() - timedelta(days=3)
-        db.get(Memory, new["id"]).updated_at = now()
+        require_row(db, Memory, old["id"]).updated_at = now() - timedelta(days=3)
+        require_row(db, Memory, new["id"]).updated_at = now()
         db.commit()
     return {
         "chat": chat,

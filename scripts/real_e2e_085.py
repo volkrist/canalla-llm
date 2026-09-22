@@ -10,13 +10,16 @@ import time
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location("real_e2e_08", Path(__file__).with_name("real_e2e_08.py"))
+if spec is None or spec.loader is None:
+    raise SystemExit("cannot load the real_e2e_08.py harness")
 e2e = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(e2e)
 
-e2e.SESSION_BUDGET = 0.30
-e2e.GPU_COST_STOP = 0.25
-e2e.GPU_WALL = 20 * 60
-e2e.MAX_HOURLY = 1.10
+# The harness is loaded by path, so its overrides go through the module namespace.
+vars(e2e)["SESSION_BUDGET"] = 0.30
+vars(e2e)["GPU_COST_STOP"] = 0.25
+vars(e2e)["GPU_WALL"] = 20 * 60
+vars(e2e)["MAX_HOURLY"] = 1.10
 
 
 def wait_l40s_only(api, prefs):
@@ -64,7 +67,7 @@ def wait_l40s_only(api, prefs):
     )
 
 
-e2e.wait_for_selectable_gpu = wait_l40s_only
+vars(e2e)["wait_for_selectable_gpu"] = wait_l40s_only
 
 PROMPT_A = (
     "Через Tor Browser открой официальный сайт проверки Tor, "

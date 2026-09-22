@@ -204,14 +204,15 @@ async def revoke(
     installation: InstallationDep,
     db: Annotated[Session, Depends(db_dependency)],
 ) -> dict:
-    installation.revoked_at = now()
+    revoked_at = now()
+    installation.revoked_at = revoked_at
     installation.revoked_reason = payload.reason[:200]
     db.add(AuditEvent(operation="revoke", result="ok", installation_id=installation.id, created_at=now()))
     db.commit()
     return {
         "revoked": True,
         "installation_id": installation.id,
-        "revoked_at": utc(installation.revoked_at).isoformat(),
+        "revoked_at": utc(revoked_at).isoformat(),
     }
 
 

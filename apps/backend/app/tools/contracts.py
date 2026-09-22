@@ -1,9 +1,11 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
+
+ArgsT = TypeVar("ArgsT", bound=BaseModel)
 
 
 class RiskLevel(StrEnum):
@@ -71,16 +73,16 @@ class ToolResult:
     metadata: dict = field(default_factory=dict)
 
 
-class ToolProvider(ABC):
+class ToolProvider(ABC, Generic[ArgsT]):
     @abstractmethod
-    async def execute(self, args: BaseModel, context) -> ToolResult: ...
+    async def execute(self, args: ArgsT, context) -> ToolResult: ...
 
 
 class ToolRegistry:
     def __init__(self):
-        self._tools: dict[str, tuple[ToolDefinition, ToolProvider]] = {}
+        self._tools: dict[str, tuple[ToolDefinition, ToolProvider[Any]]] = {}
 
-    def register(self, definition: ToolDefinition, provider: ToolProvider):
+    def register(self, definition: ToolDefinition, provider: ToolProvider[Any]):
         if definition.name in self._tools:
             raise ValueError("Duplicate tool")
         self._tools[definition.name] = (definition, provider)
@@ -95,5 +97,8 @@ class ToolRegistry:
 
     async def close(self):
         for _, provider in self._tools.values():
-            if hasattr(provider, "close_all"):
-                await provider.close_all()
+            # Only the browser providers expose a session teardown; typing it as a protocol
+            # would force every provider to grow the attribute.
+            close_all = getattr(provider, "close_all", None)
+            if close_all is not None:
+                await close_all()

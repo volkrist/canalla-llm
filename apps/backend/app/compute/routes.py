@@ -136,7 +136,10 @@ def usage_for(user_id, at):
             seconds = 0
             cost = Decimal(0)
             for row in sessions:
-                left, right = max(utc(row.started_at), since), min(utc(row.stopped_at or at), at)
+                started = row.started_at
+                if started is None:  # pragma: no cover - the query filters started_at IS NOT NULL
+                    continue
+                left, right = max(utc(started), since), min(utc(row.stopped_at or at), at)
                 duration = max(0, int((right - left).total_seconds()))
                 seconds += duration
                 cost += Decimal(duration) / 3600 * row.hourly_rate

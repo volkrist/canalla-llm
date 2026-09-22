@@ -41,6 +41,8 @@ def log(message):
 
 def load_e2e():
     spec = importlib.util.spec_from_file_location("real_e2e_08", SCRIPTS / "real_e2e_08.py")
+    if spec is None or spec.loader is None:
+        raise SystemExit("cannot load the real_e2e_08.py harness")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

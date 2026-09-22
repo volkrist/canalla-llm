@@ -45,8 +45,8 @@ class RunPodBalanceService:
         self.idle_interval = idle_interval
         self._lock = asyncio.Lock()
         self._task = None
-        self._balance = None
-        self._spend = None
+        self._balance: Decimal | None = None
+        self._spend: Decimal | None = None
         self._fetched_at = None
         self._last_success_at = None
         self._error_code = None
@@ -89,15 +89,16 @@ class RunPodBalanceService:
         }
 
     def payload(self):
-        available = self._balance is not None
+        balance = self._balance
+        available = balance is not None
         return {
             "configured": self.configured,
             # Money is serialized as a string: it never loses Decimal precision and it
             # cannot regress into the historical Decimal/datetime JSON failure.
             "available": available,
-            "balance_usd": None if not available else str(self._balance),
+            "balance_usd": None if not available else str(balance),
             "account_spend_per_hr": None if self._spend is None else str(self._spend),
-            "low": bool(available and self._balance < LOW_BALANCE_USD),
+            "low": bool(balance is not None and balance < LOW_BALANCE_USD),
             "low_threshold_usd": str(LOW_BALANCE_USD),
             "stale": bool(available and self._error_code is not None),
             "error_code": self._error_code,

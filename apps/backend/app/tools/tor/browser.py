@@ -11,6 +11,7 @@ import socket
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -20,7 +21,7 @@ from ..contracts import ToolError, ToolProvider, ToolResult
 from .classify import classify_authority
 from .marionette import MarionetteClient
 from .router import blocked_link, normalize_http_url
-from .snapshot import fetch_needs_browser, resolve_link_id, snapshot_from_html
+from .snapshot import BrowserPageSnapshot, fetch_needs_browser, resolve_link_id, snapshot_from_html
 from .socks import Socks5hConnector
 from .urls import is_onion, validate_tor_url
 
@@ -331,7 +332,7 @@ class TorBrowserSession:
         self.socks = socks
         self.allow_loopback = allow_loopback
         self.started_by_alex = True
-        self.snapshot = None
+        self.snapshot: BrowserPageSnapshot | None = None
         self.visited = set()
         self.depth = 0
         self.parent_source = None
@@ -443,8 +444,6 @@ class TorBrowserController:
             await asyncio.sleep(min(delay, 30000) / 1000)
         snapshot = await self._capture(parent_source=parent if follow else None, follow=follow)
         session.visited.add(normalize_http_url(snapshot.url) or snapshot.url)
-        if snapshot.downloads_blocked if hasattr(snapshot, "downloads_blocked") else False:
-            pass
         if session.downloads():
             for item in session.downloads():
                 try:
@@ -579,7 +578,7 @@ def _source_from_snapshot(snapshot, settings, *, session_id, pids):
     }
 
 
-class TorBrowserProvider(ToolProvider):
+class TorBrowserProvider(ToolProvider[TorBrowserArgs]):
     def __init__(self, controller=None):
         self.controller = controller
         self._own = controller is None
@@ -660,9 +659,10 @@ class TorBrowserProvider(ToolProvider):
                 self.controller = None
 
 
-class TorRoutedBrowserProvider(ToolProvider):
+class TorRoutedBrowserProvider(ToolProvider[Any]):
     """Not Tor Browser. A future SOCKS-routed engine must keep this name."""
 
+    # No input contract: the provider is a named placeholder that always fails closed.
     async def execute(self, args, context):
         raise ToolError("tor_routed_browser_not_implemented")
 

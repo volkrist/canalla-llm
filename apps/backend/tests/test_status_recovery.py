@@ -17,6 +17,7 @@ from app.models import Memory, User, now
 from app.status import snapshot as snap
 from app.status.balance import RunPodBalanceService
 from app.tools.models import PairedDevice
+from tests.db_helpers import require_row
 
 
 class Clock:
@@ -36,7 +37,7 @@ class FakeAccountAPI:
     def __init__(self, key="test-only-fake-key"):
         self.key = key
         self.balance = Decimal("8.73")
-        self.failure = None
+        self.failure: RunPodError | None = None
         self.delay = 0.0
         self.calls = 0
 
@@ -131,7 +132,7 @@ def test_ai_chip_reports_needs_setup_and_keeps_error_code():
 def test_computer_chip_uses_device_heartbeat_window():
     user_id = new_user()
     with SessionLocal() as db:
-        user = db.get(User, user_id)
+        user = require_row(db, User, user_id)
         prefs = snap.preferences(db, user_id)
         assert snap.computer_status(db, user, prefs)["state"] == "not_configured"
         row = PairedDevice(
@@ -158,7 +159,7 @@ def test_computer_chip_uses_device_heartbeat_window():
 def test_computer_chip_respects_disabled_mode():
     user_id = new_user(email="computer-off@example.com")
     with SessionLocal() as db:
-        user = db.get(User, user_id)
+        user = require_row(db, User, user_id)
         prefs = snap.preferences(db, user_id).model_copy(update={"computer_mode": "off"})
         result = snap.computer_status(db, user, prefs)
     assert result["state"] == "off"
@@ -234,7 +235,7 @@ def test_memory_chip_reflects_user_preference_and_never_downloads():
     user_id = new_user(email="memory@example.com")
     settings = get_settings()
     with SessionLocal() as db:
-        user = db.get(User, user_id)
+        user = require_row(db, User, user_id)
         off = snap.memory_status(db, user, settings)
         assert off["state"] == "ready" and off["details"]["items"] == 0
         db.add(Memory(user_id=user_id, category="note", content="hello"))

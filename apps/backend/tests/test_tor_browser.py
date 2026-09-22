@@ -122,7 +122,7 @@ def test_forms_are_detected_not_submitted():
 class FakeSession:
     def __init__(self):
         self.session_id = "sess1"
-        self.tool_run_id = "run1"
+        self.tool_run_id: str | None = "run1"
         self.socks = {"host": "127.0.0.1", "port": 9050}
         html = '<html><head><title>Rendered</title></head><body><p>TOR_BROWSER_JS_OK</p><a href="https://example.org/next">Next</a></body></html>'
         self.snapshot = snapshot_from_html(
@@ -136,10 +136,16 @@ class FakeSession:
 
 class FakeController:
     def __init__(self):
-        self.session = None
+        self.session: FakeSession | None = None
         self.closed = False
         self.opened = []
         self.clicked = []
+
+    def _open_session(self) -> FakeSession:
+        """The controller only ever runs with an open session; a closed one is a test bug."""
+        if self.session is None:
+            raise AssertionError("the fake Tor browser session is not open")
+        return self.session
 
     async def open(self, url, wait_ms=0, tool_run_id=None):
         self.opened.append(url)
@@ -149,12 +155,13 @@ class FakeController:
 
     async def click(self, link_id, wait_ms=0):
         self.clicked.append(link_id)
-        url = resolve_link_id(self.session.snapshot, link_id)
-        self.session.snapshot = snapshot_from_html(url, "<p>next page</p>", title="Next", text="next page")
-        return self.session.snapshot
+        session = self._open_session()
+        url = resolve_link_id(session.snapshot, link_id)
+        session.snapshot = snapshot_from_html(url, "<p>next page</p>", title="Next", text="next page")
+        return session.snapshot
 
     async def get_content(self):
-        return self.session.snapshot
+        return self._open_session().snapshot
 
     async def close(self):
         self.closed = True
@@ -184,7 +191,7 @@ def test_provider_creates_t_source_and_click_uses_link_id(monkeypatch):
 
 def test_routed_provider_is_not_pretending_to_be_tor_browser():
     with pytest.raises(ToolError) as error:
-        asyncio.run(TorRoutedBrowserProvider().execute(None, None))
+        asyncio.run(TorRoutedBrowserProvider().execute(TorBrowserArgs(operation="close"), None))
     assert error.value.code == "tor_routed_browser_not_implemented"
 
 

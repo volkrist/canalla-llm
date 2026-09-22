@@ -1,7 +1,8 @@
 import hashlib
 import threading
+from typing import Any, cast
 
-from sqlalchemy import select, update
+from sqlalchemy import CursorResult, select, update
 
 from ..config import get_settings
 from ..database import SessionLocal
@@ -31,7 +32,8 @@ class DocumentIndexJob:
                 .values(status=state, updated_at=now())
             )
             db.commit()
-            return result.rowcount == 1
+            # An UPDATE always runs on a cursor; the base Result type does not expose rowcount.
+            return cast("CursorResult[Any]", result).rowcount == 1
 
     def run(self, key, job):
         with index_lock:

@@ -25,6 +25,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 SIDECAR = REPO / "apps" / "desktop" / "src-tauri" / "sidecar" / "alex-backend" / "alex-backend.exe"
@@ -41,7 +42,9 @@ def check(name: str, condition: bool, detail: str = "") -> None:
         failures.append(name)
 
 
-def request(method: str, port: int, path: str, body: dict | None = None, headers: dict | None = None):
+def request(
+    method: str, port: int, path: str, body: dict | None = None, headers: dict | None = None
+) -> tuple[int, Any]:
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}{path}",
@@ -131,6 +134,7 @@ class Sidecar:
             except subprocess.TimeoutExpired:
                 self.process.kill()
         deadline = time.monotonic() + 10
+        listing = ""
         while time.monotonic() < deadline:
             listing = subprocess.run(
                 ["tasklist", "/FI", "IMAGENAME eq alex-backend.exe", "/FO", "CSV"],

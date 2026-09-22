@@ -163,7 +163,7 @@ class EmbeddingModelManager:
 
     def download(self, name, stage, progress):
         from huggingface_hub import hf_hub_download
-        from huggingface_hub.utils import tqdm
+        from huggingface_hub.utils.tqdm import tqdm
 
         manager = self
 
@@ -173,9 +173,9 @@ class EmbeddingModelManager:
                 super().__init__(*args, **kwargs)
                 progress(self.n)
 
-            def update(self, amount=1):
+            def update(self, n=1):
                 manager.check_cancel()
-                result = super().update(amount)
+                result = super().update(n)
                 progress(self.n)
                 return result
 

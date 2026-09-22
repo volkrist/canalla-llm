@@ -25,7 +25,10 @@ def test_resource_root_ignores_cwd(tmp_path, monkeypatch):
 def test_alembic_script_location_is_absolute(monkeypatch):
     monkeypatch.setenv("ALEX_APP_RESOURCE_DIR", str(BACKEND))
     config = alembic_config()
-    location = Path(config.get_main_option("script_location"))
+    raw_location = config.get_main_option("script_location")
+    if raw_location is None:
+        raise AssertionError("alembic.ini must set script_location")
+    location = Path(raw_location)
     assert location.is_absolute()
     assert location.is_dir()
     assert (location / "versions").is_dir()

@@ -75,8 +75,11 @@ def record(facts: dict, kind: str, data: dict, *, tool=None, tool_run_id=None, s
         "tool": tool,
         "source_tool_run_id": tool_run_id,
         "step_id": step_id,
-        **_clean(data),
     }
+    cleaned = _clean(data)
+    # _clean recurses over JSON values, so the checker cannot see that a mapping stays a mapping.
+    if isinstance(cleaned, dict):
+        entry.update(cleaned)
     items.append(entry)
     payload["verified"] = items[-80:]
     payload["verified_count"] = len(payload["verified"])

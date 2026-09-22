@@ -3,11 +3,14 @@ import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from typing import Any, cast
 from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from ..config import Settings
 from ..database import SessionLocal
@@ -39,6 +42,22 @@ def estimate(session: ComputeSession, at: datetime):
     return seconds, (Decimal(seconds) / 3600 * session.hourly_rate).quantize(Decimal("0.000001"))
 
 
+def control_row(db: Session) -> ComputeControl:
+    """The singleton compute-control row. Created by the migration, so it always exists."""
+    row = db.get(ComputeControl, 1)
+    if row is None:  # pragma: no cover - the row is created by the schema
+        raise RuntimeError("compute control row is missing")
+    return row
+
+
+def session_row(db: Session, session_id: str) -> ComputeSession:
+    """Load a compute session the caller already read or inserted in this same operation."""
+    row = db.get(ComputeSession, session_id)
+    if row is None:  # pragma: no cover - compute sessions are never deleted
+        raise RuntimeError("compute session row is missing")
+    return row
+
+
 class RunPodController:
     """Deployment-wide durable state machine; SQLite + PostgreSQL portable CAS lease.
 
@@ -64,12 +83,8 @@ class RunPodController:
         if self.settings.llm_connection_mode == "static":
             return self.settings.llm_base_url
         with self.sessions() as db:
-            control = db.get(ComputeControl, 1)
-            row = (
-                db.get(ComputeSession, control.active_session_id)
-                if control and control.active_session_id
-                else None
-            )
+            control = control_row(db)
+            row = db.get(ComputeSession, control.active_session_id) if control.active_session_id else None
             if not row or not row.managed or row.pending_stop or not row.pod_id or row.stopped_at:
                 return None
             if not re.fullmatch(r"[a-zA-Z0-9-]{1,64}", row.pod_id):
@@ -100,7 +115,8 @@ class RunPodController:
                     .values(lease_owner=owner, lease_until=self.clock() + timedelta(seconds=120))
                 )
                 db.commit()
-                if result.rowcount != 1:
+                # An UPDATE always runs on a cursor; the base Result type does not expose rowcount.
+                if cast("CursorResult[Any]", result).rowcount != 1:
                     raise HTTPException(409, "Операция compute уже выполняется. Дождитесь её завершения.")
             try:
                 async with asyncio.timeout(90):
@@ -139,7 +155,7 @@ class RunPodController:
         async with self.operation():
             preferences.enforce(self.settings)
             with self.sessions() as db:
-                control = db.get(ComputeControl, 1)
+                control = control_row(db)
                 row = db.get(ComputeSession, control.active_session_id) if control.active_session_id else None
                 if row and row.managed and (row.started_by_user_id == user.id or user.role == "admin"):
                     # Saving your own policy never rewrites somebody else's running session.
@@ -189,6 +205,8 @@ class RunPodController:
                     ComputeEvent.created_at >= self.clock() - timedelta(minutes=1),
                 )
             )
+            if count is None:  # pragma: no cover - an aggregate COUNT always returns a row
+                raise RuntimeError("compute event count is missing")
             if count >= 6:
                 raise HTTPException(429, "Слишком много операций compute. Повторите через минуту.")
             self.event(db, action + "_requested", actor=user_id)
@@ -240,8 +258,8 @@ class RunPodController:
     def active_session(self):
         """Read-only: the tracked compute session, if any. Never starts, adopts or stops anything."""
         with self.sessions() as db:
-            control = db.get(ComputeControl, 1)
-            if not control or not control.active_session_id:
+            control = control_row(db)
+            if not control.active_session_id:
                 return None
             return db.get(ComputeSession, control.active_session_id)
 
@@ -253,7 +271,7 @@ class RunPodController:
     def get_compute_status(self, user: User):
         self.initialize()
         with self.sessions() as db:
-            control = db.get(ComputeControl, 1)
+            control = control_row(db)
             session = db.get(ComputeSession, control.active_session_id) if control.active_session_id else None
             active = self.active_generations(db)
             state = session.status if session else control.search_state
@@ -326,7 +344,7 @@ class RunPodController:
         else:
             code = "price_limit"
         with self.sessions() as db:
-            control = db.get(ComputeControl, 1)
+            control = control_row(db)
             quote = ComputeQuote(
                 user_id=user_id,
                 options=[gpu.model_dump(mode="json") for gpu in options],
@@ -367,7 +385,7 @@ class RunPodController:
     async def search_gpu(self, user, prefs):
         async with self.operation():
             with self.sessions() as db:
-                control = db.get(ComputeControl, 1)
+                control = control_row(db)
                 if control.active_session_id:
                     return {"existing": True, "status": self.get_compute_status(user)}
             self.save_preferences(user.id, prefs)
@@ -380,7 +398,7 @@ class RunPodController:
         with self.sessions() as db:
             user = db.get(User, user_id)
             if not user or not can_start_compute(user):
-                control = db.get(ComputeControl, 1)
+                control = control_row(db)
                 control.next_search_at = None
                 control.search_state = "offline"
                 control.search_quote_id = None
@@ -409,7 +427,7 @@ class RunPodController:
     async def cancel_gpu_search(self, user):
         async with self.operation():
             with self.sessions() as db:
-                control = db.get(ComputeControl, 1)
+                control = control_row(db)
                 if control.search_user_id not in (None, user.id) and user.role != "admin":
                     raise HTTPException(403, "Поиск может отменить инициатор или администратор")
                 control.search_state, control.next_search_at, control.search_quote_id = "offline", None, None
@@ -463,7 +481,7 @@ class RunPodController:
     def resume_search(self, user_id, prefs):
         prefs = prefs.model_copy(update={"auto_search": True, "search_interval": 30})
         with self.sessions() as db:
-            control = db.get(ComputeControl, 1)
+            control = control_row(db)
             control.search_user_id = user_id
             control.search_settings = prefs.model_dump(mode="json")
             control.search_state = "searching"
@@ -482,7 +500,7 @@ class RunPodController:
         if self.llm and len(self.settings.llm_api_key) < 32:
             raise RunPodError("llm_key_missing", 422)
         with self.sessions() as db:
-            control = db.get(ComputeControl, 1)
+            control = control_row(db)
             existing = db.scalar(
                 select(ComputeSession).where(ComputeSession.idempotency_key == request.idempotency_key)
             )
@@ -541,7 +559,7 @@ class RunPodController:
             with self.sessions() as db:
                 db.add(session)
                 db.flush()
-                db.get(ComputeControl, 1).active_session_id = session.id
+                control_row(db).active_session_id = session.id
                 db.commit()
             return self.get_compute_status(user)
         fresh = await self.api.gpu_options(prefs)
@@ -561,14 +579,14 @@ class RunPodController:
         with self.sessions() as db:
             db.add(session)
             db.flush()
-            control = db.get(ComputeControl, 1)
+            control = control_row(db)
             control.active_session_id = session.id
             control.next_search_at, control.search_quote_id, control.error_code = None, None, None
             self.event(db, "creating", session, user.id)
             db.commit()
         for gpu in candidates[:3]:
             with self.sessions() as db:
-                row = db.get(ComputeSession, session.id)
+                row = session_row(db, session.id)
                 row.gpu_type, row.gpu_vram_mb, row.hourly_rate = (
                     gpu.id,
                     gpu.vram_gb * 1024,
@@ -582,7 +600,7 @@ class RunPodController:
                 if error.code == "placement_rejected" or error.status == 403:
                     continue
                 with self.sessions() as db:
-                    row = db.get(ComputeSession, session.id)
+                    row = session_row(db, session.id)
                     unknown = (
                         error.code in {"runpod_timeout", "runpod_unavailable", "malformed_response"}
                         or error.status >= 500
@@ -592,14 +610,14 @@ class RunPodController:
                     )
                     if not unknown:
                         row.stopped_at = self.clock()
-                        db.get(ComputeControl, 1).active_session_id = None
-                        db.get(ComputeControl, 1).error_code = error.code
-                        db.get(ComputeControl, 1).search_state = "error"
+                        control_row(db).active_session_id = None
+                        control_row(db).error_code = error.code
+                        control_row(db).search_state = "error"
                     self.event(db, row.status, row, user.id, row.error_code)
                     db.commit()
                 return self.get_compute_status(user)
             with self.sessions() as db:
-                row = db.get(ComputeSession, session.id)
+                row = session_row(db, session.id)
                 row.pod_id, row.status = pod.id, "starting_pod"
                 self.record_pod(row, pod)
                 self.event(db, "starting_pod", row, user.id)
@@ -608,9 +626,9 @@ class RunPodController:
                 await self._terminate(session.id, "price_violation")
             return self.get_compute_status(user)
         with self.sessions() as db:
-            row = db.get(ComputeSession, session.id)
+            row = session_row(db, session.id)
             row.status, row.error_code, row.stopped_at = "error", "placement_rejected", self.clock()
-            control = db.get(ComputeControl, 1)
+            control = control_row(db)
             control.active_session_id, control.search_state, control.error_code = (
                 None,
                 "no_gpu",
@@ -634,7 +652,7 @@ class RunPodController:
         row.updated_at = self.clock()
         if reason == "session_budget":
             row.error_code = "COMPUTE_BUDGET_REACHED"
-        control = db.get(ComputeControl, 1)
+        control = control_row(db)
         control.active_session_id, control.search_state = None, "stopped"
         control.error_code = row.error_code
         control.demand_idempotency_key = None
@@ -649,7 +667,7 @@ class RunPodController:
 
     async def _terminate(self, session_id, reason):
         with self.sessions() as db:
-            row = db.get(ComputeSession, session_id)
+            row = session_row(db, session_id)
             if not row.pod_id:
                 raise RunPodError("create_unknown", 409)
             row.pending_stop, row.stop_reason = True, reason
@@ -667,12 +685,12 @@ class RunPodController:
             await self.api.terminate_pod(pod_id)
         except RunPodError as error:
             with self.sessions() as db:
-                row = db.get(ComputeSession, session_id)
+                row = session_row(db, session_id)
                 row.error_code = error.code
                 db.commit()
             return
         with self.sessions() as db:
-            self.finish_stopped(db, db.get(ComputeSession, session_id), reason)
+            self.finish_stopped(db, session_row(db, session_id), reason)
             db.commit()
 
     async def stop_compute(self, user, request: StopRequest):
@@ -681,7 +699,7 @@ class RunPodController:
         async with self.operation():
             self.rate_limit(user.id, "stop")
             with self.sessions() as db:
-                control = db.get(ComputeControl, 1)
+                control = control_row(db)
                 row = db.get(ComputeSession, control.active_session_id) if control.active_session_id else None
                 if not row:
                     return self.get_compute_status(user)
@@ -704,7 +722,7 @@ class RunPodController:
                     )
                 ):
                     raise HTTPException(409, "В этом диалоге уже идёт генерация")
-                control = db.get(ComputeControl, 1)
+                control = control_row(db)
                 row = db.get(ComputeSession, control.active_session_id) if control.active_session_id else None
                 if row and (
                     row.pending_stop
@@ -737,9 +755,9 @@ class RunPodController:
                 for field, value in (tokens or {}).items():
                     if field in {"input_tokens", "output_tokens", "total_tokens"}:
                         setattr(usage, field, value)
-            control = db.get(ComputeControl, 1)
-            if control and control.active_session_id:
-                row = db.get(ComputeSession, control.active_session_id)
+            control = control_row(db)
+            if control.active_session_id:
+                row = session_row(db, control.active_session_id)
                 row.last_activity_at = self.clock()
             db.commit()
 
@@ -776,7 +794,7 @@ class RunPodController:
             return
         async with self.operation():
             with self.sessions() as db:
-                control = db.get(ComputeControl, 1)
+                control = control_row(db)
                 row = db.get(ComputeSession, control.active_session_id) if control.active_session_id else None
                 if not row:
                     if (
@@ -793,12 +811,14 @@ class RunPodController:
                 else:
                     user_id, prefs = None, None
             if not row:
+                if prefs is None:  # pragma: no cover - a parked search always has preferences
+                    raise RuntimeError("search preferences are missing")
                 try:
                     quote = await self._search(user_id, prefs)
                     await self.auto_connect(user_id, prefs, quote)
                 except RunPodError as error:
                     with self.sessions() as db:
-                        control = db.get(ComputeControl, 1)
+                        control = control_row(db)
                         control.error_code = error.code
                         control.next_search_at = self.clock() + timedelta(seconds=prefs.search_interval)
                         db.commit()
@@ -809,7 +829,7 @@ class RunPodController:
                     matches = [pod for pod in pods if pod.name == row.pod_name and self.matches_volume(pod)]
                     if len(matches) != 1:
                         with self.sessions() as db:
-                            saved = db.get(ComputeSession, row.id)
+                            saved = session_row(db, row.id)
                             saved.status, saved.error_code = (
                                 "create_unknown",
                                 "multiple_compute" if len(matches) > 1 else "create_unknown",
@@ -821,7 +841,7 @@ class RunPodController:
                     pod = await self.api.get_pod(row.pod_id)
             except RunPodError as error:
                 with self.sessions() as db:
-                    saved = db.get(ComputeSession, row.id)
+                    saved = session_row(db, row.id)
                     if error.code == "not_found" and row.pod_id:
                         self.finish_stopped(db, saved, saved.stop_reason or "external_stop")
                     else:
@@ -829,7 +849,7 @@ class RunPodController:
                     db.commit()
                 return
             with self.sessions() as db:
-                saved = db.get(ComputeSession, row.id)
+                saved = session_row(db, row.id)
                 saved.pod_id = pod.id
                 self.record_pod(saved, pod)
                 if pod.status in {"EXITED", "TERMINATED"}:
@@ -914,7 +934,7 @@ class RunPodController:
                         else "connection_failed"
                     )
             with self.sessions() as db:
-                saved = db.get(ComputeSession, row.id)
+                saved = session_row(db, row.id)
                 saved.error_code = llm_error
                 if saved.status != phase:
                     self.event(db, phase, saved)
@@ -941,9 +961,12 @@ class RunPodController:
                     .limit(20)
                 ).all()
             for row in rows:
-                actual = await self.api.actual_cost(row.pod_id, utc(row.started_at), utc(row.stopped_at))
+                started, stopped = row.started_at, row.stopped_at
+                if started is None or stopped is None:  # pragma: no cover - filtered in the query
+                    continue
+                actual = await self.api.actual_cost(row.pod_id, utc(started), utc(stopped))
                 with self.sessions() as db:
-                    saved = db.get(ComputeSession, row.id)
+                    saved = session_row(db, row.id)
                     saved.actual_cost, saved.actual_cost_at = actual, self.clock()
                     db.commit()
         return {"updated": len(rows)}
@@ -983,8 +1006,8 @@ class RunPodController:
         compute = self.get_compute_status(user)
         session = None
         with self.sessions() as db:
-            control = db.get(ComputeControl, 1)
-            if control and control.active_session_id:
+            control = control_row(db)
+            if control.active_session_id:
                 session = db.get(ComputeSession, control.active_session_id)
         ai, label = compact_ai(
             provider=self.settings.llm_provider,
@@ -1087,7 +1110,7 @@ class RunPodController:
         from .runtime import money_prompt
 
         with self.sessions() as db:
-            control = db.get(ComputeControl, 1)
+            control = control_row(db)
             session = db.get(ComputeSession, control.active_session_id) if control.active_session_id else None
             if session and session.status in {
                 "ready",
@@ -1124,13 +1147,13 @@ class RunPodController:
         pods = self.compatible_pods(await self.api.list_pods())
         if len(pods) > 1:
             with self.sessions() as db:
-                control = db.get(ComputeControl, 1)
+                control = control_row(db)
                 control.search_state = "multiple_compute"
                 control.error_code = "multiple_compute"
                 db.commit()
             return self._demand_result(user, "multiple_compute", "multiple_compute")
         with self.sessions() as db:
-            control = db.get(ComputeControl, 1)
+            control = control_row(db)
             session = db.get(ComputeSession, control.active_session_id) if control.active_session_id else None
             if session and session.status == "create_unknown":
                 if pods:
@@ -1198,7 +1221,7 @@ class RunPodController:
                         saved_quote.preferences = prefs_data
                         db.commit()
         with self.sessions() as db:
-            control = db.get(ComputeControl, 1)
+            control = control_row(db)
             pending = db.get(ToolRun, control.confirmation_run_id) if control.confirmation_run_id else None
             already = (
                 control.last_confirmed_gpu == gpu.id
@@ -1243,6 +1266,8 @@ class RunPodController:
             idem = control.demand_idempotency_key
         if pods:
             return await self._adopt_managed(user, pods[0])
+        if quote is None:  # pragma: no cover - the pod branch above always returns first
+            raise RuntimeError("compute quote is missing")
         request = StartRequest(
             quote_id=quote["quote_id"],
             gpu_id=gpu.id,
@@ -1308,12 +1333,12 @@ class RunPodController:
                 select(ComputeSession).where(ComputeSession.idempotency_key == request.idempotency_key)
             )
             if existing:
-                db.get(ComputeControl, 1).active_session_id = existing.id
+                control_row(db).active_session_id = existing.id
                 db.commit()
                 return self._demand_result(user, "starting")
             db.add(session)
             db.flush()
-            control = db.get(ComputeControl, 1)
+            control = control_row(db)
             control.active_session_id = session.id
             control.error_code = None
             db.commit()
@@ -1323,7 +1348,7 @@ class RunPodController:
         """Stop Alex-managed compute only. Never deletes the Network Volume. Never touches external Pods."""
         async with self.operation():
             with self.sessions() as db:
-                control = db.get(ComputeControl, 1)
+                control = control_row(db)
                 row = db.get(ComputeSession, control.active_session_id) if control.active_session_id else None
                 if not row or not row.managed:
                     return {"stopped": False, "managed": False}
@@ -1337,7 +1362,9 @@ class RunPodController:
         dummy.id = owner_id
         dummy.role = "admin"
         dummy.email = "runtime@local"
-        return {"stopped": True, "managed": True, "state": self.get_compute_status(dummy)}
+        # SimpleUser is the documented read-only stand-in for the runtime owner; it exposes
+        # exactly the attributes get_compute_status reads.
+        return {"stopped": True, "managed": True, "state": self.get_compute_status(cast("User", dummy))}
 
 
 class SimpleUser:

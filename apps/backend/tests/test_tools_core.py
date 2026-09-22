@@ -6,11 +6,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.database import SessionLocal
 from app.models import Message
-from app.tools.contracts import RiskLevel, ToolDefinition, ToolError, ToolRegistry, ToolResult
+from app.tools.contracts import RiskLevel, ToolDefinition, ToolError, ToolProvider, ToolRegistry, ToolResult
 from app.tools.executor import ExecutionContext, ToolExecutor
 from app.tools.models import ToolRun
 from app.tools.policy import ToolLimits, ToolPolicy, WebSettings
 from app.tools.security import sanitized, validate_url
+from tests.db_helpers import require_row
 
 
 class Args(BaseModel):
@@ -18,7 +19,7 @@ class Args(BaseModel):
     query: str = Field(max_length=100)
 
 
-class FakeProvider:
+class FakeProvider(ToolProvider):
     read_only_enforced = True
 
     def __init__(self):
@@ -180,12 +181,14 @@ def test_cancel_closes_provider_and_audit(setup):
     _, context, _ = setup
     closed = []
 
-    class Slow:
+    class Slow(ToolProvider):
         async def execute(self, args, context):
             try:
                 await asyncio.sleep(10)
             finally:
                 closed.append(True)
+            # Unreachable here: the test always cancels the provider while it sleeps.
+            return ToolResult()
 
     registry = ToolRegistry()
     registry.register(definition(), Slow())
@@ -200,7 +203,7 @@ def test_cancel_closes_provider_and_audit(setup):
     asyncio.run(run())
     assert closed
     with SessionLocal() as db:
-        row = db.get(ToolRun, context.run_id)
+        row = require_row(db, ToolRun, context.run_id)
         assert row.status == "stopped" and row.cancelled_at is not None
 
 

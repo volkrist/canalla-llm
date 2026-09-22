@@ -17,7 +17,7 @@ class VectorStore(ABC):
     @abstractmethod
     def search(
         self, db, user_id, project_id, vector, model, dimension, top_k, threshold, include_general
-    ): ...
+    ) -> list: ...
 
 
 class SQLVectorStore(VectorStore):

@@ -13,6 +13,7 @@ from app.tools.local.secrets import deny_secret
 from app.tools.models import ToolRun
 from app.tools.policy import ToolLimits, ToolPolicy, WebSettings
 from app.tools.registry import make_registry
+from tests.db_helpers import require_row
 
 
 def test_secret_and_path_policy():
@@ -232,7 +233,7 @@ def test_paired_device_host_result(setup, client):
             if jobs:
                 job = jobs[0]
                 with SessionLocal() as db:
-                    row = db.get(ToolRun, job["id"])
+                    row = require_row(db, ToolRun, job["id"])
                     digest_value = row.input_digest
                 response = client.post(
                     f"/tools/runs/{job['id']}/host-result",
@@ -419,7 +420,7 @@ def test_sensitive_explanation_and_immutable_digest(setup, client):
             if jobs:
                 job = jobs[0]
                 with SessionLocal() as db:
-                    row = db.get(ToolRun, job["id"])
+                    row = require_row(db, ToolRun, job["id"])
                     digest_value = row.input_digest
                     assert row.input_summary["reason"]
                     assert row.input_summary["risk_level"] == "SENSITIVE"
@@ -511,7 +512,7 @@ def test_explicit_execute_uses_preference_computer_mode(setup, client):
             if jobs:
                 job = jobs[0]
                 with SessionLocal() as db:
-                    digest_value = db.get(ToolRun, job["id"]).input_digest
+                    digest_value = require_row(db, ToolRun, job["id"]).input_digest
                 client.post(
                     f"/tools/runs/{job['id']}/host-result",
                     headers=device_headers,

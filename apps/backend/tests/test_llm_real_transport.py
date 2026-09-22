@@ -4,12 +4,13 @@ import json
 import httpx
 import pytest
 
-from app.config import Settings
 from app.providers import LlamaCppProvider, LLMError
+from tests.db_helpers import require_scalar
+from tests.settings_factory import make_settings
 
 
 def provider(handler):
-    return LlamaCppProvider(Settings(_env_file=None), transport=httpx.MockTransport(handler))
+    return LlamaCppProvider(make_settings(_env_file=None), transport=httpx.MockTransport(handler))
 
 
 @pytest.mark.parametrize(
@@ -49,7 +50,8 @@ def test_usage_is_reported_not_estimated():
 
 class SlowStream(httpx.AsyncByteStream):
     closed = False
-    waiting = None
+    # Armed by the test before the stream is iterated.
+    waiting: asyncio.Event
 
     async def __aiter__(self):
         yield b'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'
@@ -122,7 +124,7 @@ def test_target_is_resolved_for_each_request():
         return httpx.Response(503)
 
     llm = LlamaCppProvider(
-        Settings(_env_file=None), target=lambda: target[0], transport=httpx.MockTransport(response)
+        make_settings(_env_file=None), target=lambda: target[0], transport=httpx.MockTransport(response)
     )
     asyncio.run(llm.status())
     target[0] = "https://pod-two-9000.proxy.runpod.net"
@@ -159,7 +161,7 @@ def test_real_provider_api_persists_usage(client, auth, monkeypatch):
     result = client.post(f"/chats/{chat}/stream", headers=headers, json={"content": "Привет"})
     assert "event: done" in result.text
     with SessionLocal() as db:
-        usage = db.scalar(select(GenerationUsage))
+        usage = require_scalar(db, select(GenerationUsage))
         assert (usage.input_tokens, usage.output_tokens, usage.total_tokens) == (8, 3, 11)
         assert usage.provider == "llamacpp" and usage.message_id
     totals = client.get("/compute/usage/me", headers=headers).json()["periods"]["all"]
