@@ -291,6 +291,10 @@ def stream_once(
         "model": ALIAS,
         "messages": [{"role": "user", "content": prompt}],
         "stream": stream,
+        # The product's own payload (apps/backend/app/providers.py) disables thinking for
+        # Qwen3. Without it the first tokens are reasoning tokens, and a small max_tokens
+        # returns a valid stream with no content at all.
+        "chat_template_kwargs": {"enable_thinking": False},
     }
     if max_tokens:
         body["max_tokens"] = max_tokens
@@ -303,6 +307,8 @@ def stream_once(
         "generation_ids": 0,
         "events": 0,
         "saw_done": False,
+        "reasoning_chunks": 0,
+        "reasoning_characters": 0,
         "immediately_repeated_pieces": 0,
         "usage": None,
         "status": None,
@@ -335,6 +341,10 @@ def stream_once(
             result["finish_events"] = 1 if choice.get("finish_reason") else 0
             result["saw_done"] = True
             result["generation_ids"] = 1 if payload.get("id") else 0
+            reasoning = (choice.get("message") or {}).get("reasoning_content") or ""
+            if reasoning:
+                result["reasoning_chunks"] = 1
+                result["reasoning_characters"] = len(reasoning)
         else:
             result["error"] = response.text[:200]
         return result
@@ -383,6 +393,12 @@ def stream_once(
                 pieces.append(piece)
                 result["chunks"] += 1
                 result["characters"] += len(piece)
+            reasoning = (choice.get("delta") or {}).get("reasoning_content")
+            if reasoning:
+                # Reported, never counted as an answer: this is what a thinking-only
+                # generation looks like, and it must not pass as a real response.
+                result["reasoning_chunks"] += 1
+                result["reasoning_characters"] += len(reasoning)
             if cancel_after and result["chunks"] >= cancel_after:
                 break  # real client-side Stop: close the stream mid-generation
     result["finished_at"] = time.monotonic()
@@ -465,6 +481,7 @@ class FakeGateway:
         self.stops = 0
         self.revokes = 0
         self.completions: list[str] = []
+        self.thinking_flags: list = []
         self.session_ids_used: set[str] = set()
         self.offline_completions = 0
         self.yielded_chunks: dict[str, int] = {}
@@ -594,6 +611,9 @@ class FakeGateway:
         body = json.loads(request.content or b"{}")
         kind = self._kind(body)
         self.completions.append(kind)
+        self.thinking_flags.append(
+            (body.get("chat_template_kwargs") or {}).get("enable_thinking")
+        )
         if kind == "after_stop":
             # Stop proof: the cancelled stream was abandoned after the client's own chunks.
             self.yielded_stop_before_after_stop = self.yielded_chunks.get("stop", 0)
@@ -962,6 +982,14 @@ def lifecycle_matrix() -> int:
     )
     results.append(
         (
+            "21 every live case sends the product's own payload (thinking disabled)",
+            bool(fake.thinking_flags)
+            and all(flag is False for flag in fake.thinking_flags),
+            f"enable_thinking flags={fake.thinking_flags}",
+        )
+    )
+    results.append(
+        (
             "the happy path passes end to end",
             happy.exit_code == 0 and "CONSOLIDATED LIVE RC PASS" in happy.log,
             f"exit={happy.exit_code}",
@@ -1266,6 +1294,10 @@ def main(argv: list[str] | None = None, client_factory=None) -> int:
         f"· harness spend ceiling ${args.spend_ceiling:.2f}"
     )
     measure["path"] = "client -> public Gateway -> RunPod -> llama.cpp -> Qwen"
+    measure["request_template"] = (
+        "the product's own payload: chat_template_kwargs.enable_thinking=false "
+        "(apps/backend/app/providers.py)"
+    )
 
     code = operator_code(HOST, "live-rc-final")
     enrollment = api.post(
@@ -1453,11 +1485,6 @@ def main(argv: list[str] | None = None, client_factory=None) -> int:
                 break
             time.sleep(3)
         check("one Pod reached model readiness", ready, f"state={measure.get('state')}")
-        check(
-            "the Pod costs no more than the tested maximum",
-            0 < rate <= max(args.max_hourly, args.escalate_to),
-            f"{measure.get('gpu')} at ${rate}/h",
-        )
         if not ready:
             if payload.get("error_code") == "gpu_unavailable" or waits:
                 print(
@@ -1466,13 +1493,20 @@ def main(argv: list[str] | None = None, client_factory=None) -> int:
                 )
                 measure["blocked"] = "runpod_capacity"
             return 1
+        # Only a real session has a price to check: a blocked run must not pass this one.
+        check(
+            "the Pod costs no more than the tested maximum",
+            0 < rate <= max(args.max_hourly, args.escalate_to)
+            and bool(measure.get("gpu")),
+            f"{measure.get('gpu')} at ${rate}/h",
+        )
 
         watchdog = Watchdog(api, headers, fresh_token, rate, args.spend_ceiling)
         with watchdog:
             print("2. LIVE A — basic real response")
             mark = len(failures)
             basic = stream_once(
-                api, headers, "Reply with the single word: ready", max_tokens=16
+                api, headers, "Reply with the single word: ready", max_tokens=32
             )
             basic.update(
                 timings(
@@ -1488,7 +1522,19 @@ def main(argv: list[str] | None = None, client_factory=None) -> int:
             check(
                 "real response arrived",
                 basic["status"] == 200 and basic["chunks"] > 0,
-                f"status={basic['status']} chunks={basic['chunks']}",
+                (
+                    f"status={basic['status']} chunks={basic['chunks']} "
+                    f"reasoning_chunks={basic['reasoning_chunks']} "
+                    f"finish={basic['finish_reason']}"
+                ),
+            )
+            check(
+                "the product's enable_thinking=false is honoured (no thinking-only answer)",
+                not (basic["chunks"] == 0 and basic["reasoning_chunks"] > 0),
+                (
+                    f"content_chunks={basic['chunks']} "
+                    f"reasoning_chunks={basic['reasoning_chunks']}"
+                ),
             )
             check(
                 "a valid finish reason",
@@ -1714,7 +1760,7 @@ def main(argv: list[str] | None = None, client_factory=None) -> int:
                 headers,
                 "Reply with the single word: ready",
                 stream=False,
-                max_tokens=16,
+                max_tokens=32,
             )
             measure["after_stop"] = {
                 "status": after["status"],
