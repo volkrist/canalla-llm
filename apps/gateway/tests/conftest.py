@@ -48,6 +48,7 @@ class FakeRunPod:
         self.time = datetime(2026, 9, 21, tzinfo=timezone.utc)
         self.balance = balance
         self.price = price
+        self.availability = None  # None = as listed; a string overrides every row (capacity tests)
         self.pods: list[dict] = []
         self.creates: list[dict] = []
         self.actions: list[dict] = []
@@ -109,13 +110,13 @@ class FakeRunPod:
                             "secure": True,
                             "memory": memory,
                             "price": {"secure": price},
-                            "dataCenters": [{"id": "US-TX-3", "availability": availability}],
+                            "dataCenters": [{"id": "US-TX-3", "availability": self.availability or availability}],
                         }
                         for gid, memory, price, availability in [
                             ("gpu-cheap-unavailable", 48, 0.4, "NONE"),
                             ("gpu-small", 24, 0.3, "HIGH"),
                             ("gpu-48", 48, self.price, "LOW"),
-                            ("NVIDIA L40S", 48, 1.09, "HIGH"),
+                            ("NVIDIA L40S", 48, self.price if self.price > 1.20 else 1.09, "HIGH"),
                             ("gpu-80", 80, 1.60, "HIGH"),
                         ]
                     ]

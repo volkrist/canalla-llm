@@ -403,15 +403,14 @@ def test_idle_stop_never_touches_adopted_compute(gateway, client):
     assert gateway.runpod.pods[0]["status"] == "RUNNING"
 
 
-def test_insufficient_balance_denies_creation(gateway, client):
+def test_a_balance_below_the_budget_still_funds_the_session(gateway, client):
+    """A $3 session ceiling is a maximum, not a prepaid requirement (RC money semantics)."""
     installation = enroll(gateway, client)
     headers = auth_header(client, installation)
     gateway.runpod.balance = "1.00"
     body = ensure(client, headers, operation_id="op-money-0000001")
-    assert body["state"] == "offline"
-    assert body["error_code"] == "runpod_balance"
-    assert body["ai"] in {"off", "unavailable"}
-    assert gateway.runpod.creates == []
+    assert len(gateway.runpod.creates) == 1
+    assert float(body["session"]["budget_usd"]) == 1.00  # min($3 ceiling, $1.00 available)
     gateway.runpod.balance = "12.34"
 
 

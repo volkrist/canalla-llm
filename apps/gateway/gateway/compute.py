@@ -85,8 +85,18 @@ LEASE_SECONDS = 120
 OPERATION_TTL_SECONDS = 24 * 3600
 ALLOWED_AUTO_STOP = (0, 5, 10, 15, 30)
 
+# The provider only lets us schedule on these availability levels; anything else means the
+# hardware exists in the catalogue but cannot be booked right now. Capacity and price must
+# never be reported as the same thing.
+USABLE_STOCK = {"LOW", "MEDIUM", "HIGH"}
+
+# A user's session budget is a ceiling, not a prepaid requirement: a session may start as
+# long as the account can fund a *meaningful* positive amount of compute. Below one cent
+# there is nothing to buy, so the request is refused honestly.
+MIN_START_BUDGET = Decimal("0.01")
+
 # Conditions that describe the provider catalogue rather than a broken compute.
-SEARCH_ERRORS = {"no_compatible_gpu", "price_limit"}
+SEARCH_ERRORS = {"no_compatible_gpu", "price_limit", "gpu_unavailable"}
 
 MESSAGES = {
     "offline": "AI не запущен. GPU запускается только по запросу.",
@@ -736,10 +746,16 @@ class ComputeAuthority:
 
         balance = await self.balance.snapshot()
         available = decimal_or_none(balance.get("balance_usd"))
-        if balance.get("available") and available is not None and available < caps["session_budget"]:
-            with self.sessions() as db:
-                self._set_state(db, "offline", error_code="runpod_balance")
-            return self.status_payload()
+        if balance.get("available") and available is not None:
+            # The user's own ceiling and the money actually on the account both bound this
+            # session: min(budget, balance). A $3 budget next to a $0.81 balance starts fine —
+            # the session simply cannot spend more than $0.81. The saved preference is never
+            # rewritten; only this session's ceiling is.
+            if available < MIN_START_BUDGET:
+                with self.sessions() as db:
+                    self._set_state(db, "offline", error_code="runpod_balance")
+                return self.status_payload()
+            caps = {**caps, "session_budget": min(caps["session_budget"], available)}
 
         prefs = compute_preferences(
             selection=caps["selection"],
@@ -761,7 +777,15 @@ class ComputeAuthority:
             gpu for gpu in options if gpu.selectable and gpu.hourly_rate <= caps["max_hourly_price"]
         ]
         if not candidates:
-            reason = "price_limit" if any(gpu.compatible for gpu in options) else "no_compatible_gpu"
+            # Say what is actually missing: capacity, price, or a GPU that fits the model.
+            compatible = [gpu for gpu in options if gpu.compatible]
+            in_stock = [gpu for gpu in compatible if gpu.availability in USABLE_STOCK]
+            if not compatible:
+                reason = "no_compatible_gpu"
+            elif not in_stock:
+                reason = "gpu_unavailable"
+            else:
+                reason = "price_limit"
             with self.sessions() as db:
                 self._set_state(db, "searching", error_code=reason)
             return self.status_payload()

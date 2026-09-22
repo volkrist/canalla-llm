@@ -316,16 +316,15 @@ class RunPodController:
         await self.api.volume()
         options = await self.api.gpu_options(prefs)
         available = [gpu for gpu in options if gpu.selectable]
-        code = (
-            None
-            if available
-            else "price_limit"
-            if any(
-                gpu.compatible and gpu.availability != "NONE" and gpu.reason == "price_limit"
-                for gpu in options
-            )
-            else "no_compatible_gpu"
-        )
+        if available:
+            code = None
+        elif not any(gpu.compatible for gpu in options):
+            code = "no_compatible_gpu"
+        elif not any(gpu.compatible and gpu.availability != "NONE" for gpu in options):
+            # Compatible hardware exists but none of it can be booked: capacity, not price.
+            code = "gpu_unavailable"
+        else:
+            code = "price_limit"
         with self.sessions() as db:
             control = db.get(ComputeControl, 1)
             quote = ComputeQuote(

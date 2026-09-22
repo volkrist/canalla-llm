@@ -36,6 +36,7 @@ const CODE_CATEGORY: Record<string, ErrorCategory> = {
   llm_key_missing: "configuration",
   volume_mismatch: "configuration",
   price_limit: "configuration",
+  gpu_unavailable: "compute",
   session_budget: "configuration",
   COMPUTE_BUDGET_REACHED: "configuration",
   runpod_unavailable: "network",
