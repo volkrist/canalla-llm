@@ -77,6 +77,11 @@ Release candidate on `release/canalla-1.0-rc`. Installer artifact:
   `%LOCALAPPDATA%\Programs\Canalla LLM\`. The data root, credentials and enrollment keep their
   existing paths, so an upgrade from Alex LLM 0.9.3 keeps everything.
 - **Cloud copy** — UI and backend messages about the shared service say Canalla Cloud.
+- **Legacy programme install on upgrade** — the installer removes only a previous
+  `%LOCALAPPDATA%\Programs\Alex LLM\` *binary* installation (guarded by its `alex-llm.exe`),
+  its Start Menu and desktop shortcuts, its autostart value and its Apps & features entry, so an
+  upgrade leaves exactly one installed product. The data root, the Credential Manager entries
+  and the enrollment are never touched.
 
 ### Fixed
 
@@ -92,6 +97,29 @@ Release candidate on `release/canalla-1.0-rc`. Installer artifact:
   fact («Сейчас работает общий GPU за $X/час — это выше вашего предела $Y/час…») instead of
   staying silent — and it is never repaired automatically.
 
+### Verified on 22 September 2026 (the production path)
+
+The complete path was accepted against the deployed service, not against a mock:
+
+| Step | Measured |
+|---|---|
+| User policy `$0.52/hour` | `price_limit` — capacity existed, nothing fitted the user's own maximum |
+| RC escalation `$1.20/hour` | one NVIDIA L40S 48 GB at **$1.09/hour**, the cheapest *available* compatible card |
+| Session ceiling sent | `$3.00` (the user's saved budget) → session `budget_usd = 3.000000`, never the balance |
+| Cold start | Pod create → model ready in **29.1 s** (22.5 s after create) |
+| First answer | streaming, TTFT **0.95 s** after readiness, one terminal event, no replay |
+| Context ~70% | measured `prompt_tokens` **20 135** against the meter's estimate 22 957 (−14.0%) |
+| Context ~86% | measured `prompt_tokens` **24 743** (19 619 of them cached from the previous call) |
+| Over-window input | refused by the upstream — the client sees a typed `gateway_unavailable` with the upstream status in the detail, no crash |
+| Long answer | **1 400 chunks / 6 650 characters** in 45.4 s through Cloudflare and nginx, no buffering, normal completion |
+| Stop | cancelled after 5 chunks; the Pod stayed available and the **next request answered on the same Pod** |
+| Cleanup | managed stop accepted, no session, no Pod left, Network Volume `uwgeaie5b0` untouched |
+
+The same cut was accepted as an installer: `Canalla LLM_1.0.0_x64-setup.exe` installed over a
+legacy `Alex LLM` programme install left exactly one product, removed the legacy binaries,
+shortcut, autostart value and uninstall entry, and preserved the data root (identical database
+hash), all 28 Credential Manager entries and the Gateway enrollment.
+
 ### Known limitations
 
 - **The installer is unsigned.** Windows SmartScreen warns on first run and there is no
@@ -102,10 +130,13 @@ Release candidate on `release/canalla-1.0-rc`. Installer artifact:
   stale-SHA coverage debt remains.
 - **There is no central account or licensing service.** Enrollments come from one-time
   activation codes created by the operator CLI on the Gateway.
-- **The deployed Gateway has never driven real compute.** No Pod has been created through it,
-  so `POST /compute/ensure` and the deployed `/v1/chat/completions` proxy are unproven against
-  a real Pod; the money rules, the single-Pod lease and the create-unknown path are covered by
-  the FakeRunPod suite only.
+- **The deployed Gateway drives real compute**, and the operational edges that the first live
+  certification found are documented rather than fixed: the session label stays `generating`
+  after a finished generation until the next state change (the Pod is available and the next
+  request answers on it); an over-window *draft* is not trimmed by the context builder — history,
+  memory and documents have budgets, a single oversized draft does not — so the upstream refuses
+  it and the client sees a typed `gateway_unavailable` naming the upstream status; and the
+  provider's `currentSpendPerHr` keeps reporting a terminated Pod for a while after a stop.
 - **Web and Tor report `configured`, never `ready`** — a real provider health probe and a
   stored verified-Tor-chain proof do not exist yet.
 - A real backend restart with a live Pod has not been live-tested.

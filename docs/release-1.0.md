@@ -1,8 +1,9 @@
 # Canalla LLM 1.0 — release notes
 
-Canalla LLM **1.0.0** (release candidate on `release/canalla-1.0-rc`) is the Windows desktop
-product: a chat and work application with its own local backend, local data, and an optional
-shared cloud for compute. Installer artifact: `Canalla LLM_1.0.0_x64-setup.exe`.
+Canalla LLM **1.0.0** is the Windows desktop product: a chat and work application with its own
+local backend, local data, and an optional shared cloud for compute. Installer artifact:
+`Canalla LLM_1.0.0_x64-setup.exe` (87 180 763 bytes, SHA-256
+`3465e6405cd5817be584b75eb11238a86e36b958f44776f9583d6008d1d22362`).
 
 This page is written for two readers: a user installing or upgrading the app, and an operator
 running (or supporting) the shared service. Design details live in the linked documents.
@@ -56,8 +57,8 @@ Install the new build over the old one — nothing else is required.
 | Step | What happens |
 |---|---|
 | 1 | Quit Canalla LLM / Alex LLM (Quit, not just closing the window) so the owned backend is stopped and the binaries are not in use |
-| 2 | Run the new installer; it replaces binaries in `%LOCALAPPDATA%\Programs\Canalla LLM\` |
-| 3 | Remove the older `%LOCALAPPDATA%\Programs\Alex LLM\` folder from **Apps & features** when convenient. It only holds binaries, never user data |
+| 2 | Run the new installer; it replaces binaries in `%LOCALAPPDATA%\Programs\Canalla LLM\` and removes a legacy `%LOCALAPPDATA%\Programs\Alex LLM\` programme installation (its binaries, Start Menu/desktop shortcuts, autostart value and Apps & features entry) so exactly one product remains |
+| 3 | Nothing else to clean up: the legacy data root `%LOCALAPPDATA%\Alex LLM\`, the Credential Manager entries and the enrollment are untouched by design |
 | 4 | First launch: if a database migration is pending, the sidecar creates and verifies a `pre_upgrade` backup **before** migrating |
 
 What survives an over-install:
@@ -206,9 +207,15 @@ Format and semantics: [backup-format.md](backup-format.md),
   stale-SHA coverage debt remains.
 * **No central account or licensing service** — enrollment is a one-time activation code
   created by the operator CLI; there is no self-service cloud account.
-* **The deployed Gateway has never created a Pod** — its `/compute/ensure` and inference proxy
-  are unproven against real compute (covered by the FakeRunPod suite), so the first real shared
-  start is still a deliberate verification step.
+* **The deployed Gateway drives real compute.** It was certified on 22 Sep 2026: one NVIDIA
+  L40S 48 GB at `$1.09/hour` (the cheapest *available* compatible card inside the escalated RC
+  ceiling), a real Qwen answer streamed through the public endpoint, Stop and the following
+  request on the same Pod, then a clean stop with no Pod left. Three edges are documented rather
+  than fixed: the session label stays `generating` after a finished generation until the next
+  state change; a single over-window *draft* is not trimmed (history, memory and documents have
+  budgets, the draft does not), so the upstream refuses it and the client sees a typed
+  `gateway_unavailable` naming the upstream status; and the provider's `currentSpendPerHr` keeps
+  reporting a terminated Pod for a while after a stop.
 * **Web and Tor chips report `configured`, not `ready`** — no provider health proof and no
   stored verified-Tor-chain proof exist.
 * A real backend restart with a live Pod has not been live-tested.
@@ -234,14 +241,32 @@ Format and semantics: [backup-format.md](backup-format.md),
   `$1000/session`.
 * No `/runpod/*` or `/provider/raw` passthrough exists, and no response ever returns the
   RunPod master key, the installation secret or a direct llama.cpp endpoint.
-* Versions and stale text: the `1.0.0` version is applied by the release cut (the packaging
-  metadata in the repository is bumped there), which is what names the installer
-  `Canalla LLM_1.0.0_x64-setup.exe`. Some older documents in `docs/` still describe the 0.9.3
-  money ceilings or the `Alex Cloud` spelling — the current contract for money is
-  [compute-preferences.md](compute-preferences.md), and the Naming section of `AGENTS.md`
+* Versions: the repository, the packaged binaries, the installer and the deployed Gateway all
+  report `1.0.0`; the Gateway protocol version stays `1`. Some older documents in `docs/` still
+  describe the 0.9.3 money ceilings or the `Alex Cloud` spelling — the current contract for money
+  is [compute-preferences.md](compute-preferences.md), and the Naming section of `AGENTS.md`
   lists which identifiers keep the old spelling on purpose.
 
-## 12. Documentation map
+## 12. Live certification (22 September 2026)
+
+Measured on the production path `desktop client → https://gateway.12testers.store → RunPod →
+llama.cpp → Qwen`, one Pod for every step:
+
+| Step | Result |
+|---|---|
+| Policy `$0.52/hour` | `price_limit` (capacity existed, nothing fitted the user's own maximum) |
+| Escalation `$1.20/hour` | NVIDIA L40S 48 GB at `$1.09/hour` |
+| Session ceiling | `$3.00` sent by the user, applied as `budget_usd = 3.000000` |
+| Cold start | 29.1 s to model readiness |
+| First answer | streaming, TTFT 0.95 s after readiness |
+| Context 70% / 86% | 20 135 and 24 743 measured `prompt_tokens` vs the meter's 22 957 / 28 213 |
+| Over-window input | typed refusal, no crash |
+| Long answer | 1 400 chunks / 6 650 characters in 45.4 s, normal completion |
+| Stop | cancelled after 5 chunks, same Pod answered the next request |
+| Cleanup | stopped, no Pod, Network Volume `uwgeaie5b0` intact |
+| Upgrade | `Alex LLM` programme install → one `Canalla LLM 1.0.0`, data root, 28 credentials and enrollment preserved |
+
+## 13. Documentation map
 
 | Topic | Document |
 |---|---|

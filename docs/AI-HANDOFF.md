@@ -4,7 +4,12 @@ Canonical starting point for a new IDE/agent session. This is not a historical d
 
 ## 1. Product version
 
-**0.9.3 development.** Do not bump for installer or handoff work. Not a 1.0 release cut.
+**1.0.0** — released from `release/canalla-1.0-rc` as the annotated tag `v1.0.0`. The version is
+authoritative in: `apps/desktop/src-tauri/tauri.conf.json`, `apps/desktop/package.json`,
+`apps/desktop/src-tauri/Cargo.toml`, `apps/backend/pyproject.toml`,
+`apps/gateway/pyproject.toml`, `apps/backend/app/product.py`, the FastAPI app and
+`apps/gateway/gateway/config.py`. The deployed Gateway reports `version: 1.0.0` (protocol stays
+`1`). Bump only as a deliberate release act.
 
 User-facing product name: **Canalla LLM** (window title, installer, chat labels, onboarding,
 assistant name). Storage, credential and protocol names keep the `Alex LLM` spelling on
@@ -12,19 +17,19 @@ purpose — see the Naming section of `AGENTS.md`.
 
 ## 2. Main HEAD
 
-Recorded at handoff (sidecar installer, session restore, then this document):
+Recorded at the 1.0 release: `git rev-parse origin/main` is the live source of truth.
 
-- `origin/main` before the sidecar merge: `c6070b5460948dc865b29dd639d8b5297ac41f77`
-- `feat/backend-sidecar-installer`: `b52be3d3ea13463e0adf0ecd19e2d75ea51f6667`
+- RC branch: `release/canalla-1.0-rc`
+- Release cut: the RC branch was merged into `main` and tagged `v1.0.0` (annotated)
+- Deployed Gateway release: `/opt/alex-gateway/releases/999e00b19ebd` (rollback target
+  `/opt/alex-gateway/releases/5539b623e592`)
 
-After this document lands, `git rev-parse origin/main` is the live source of truth.
-
-Merge history kept as branches:
-
-- Session restore / first-run slice — fast-forward of `feat/session-first-run` (`e1f90d0`)
-- Status / recovery / balance slice — `feat/status-recovery-ux`, merged into `main` as a fast-forward after the Web/Tor truthfulness and live-balance gate
-
-(When the two hashes above no longer match `origin/main`, trust `git rev-parse origin/main`.)
+Release artifacts: `Canalla LLM_1.0.0_x64-setup.exe` (87 180 763 B, SHA-256
+`3465e6405cd5817be584b75eb11238a86e36b958f44776f9583d6008d1d22362`), desktop `alex-llm.exe`
+(SHA-256 `b662ebc830a034044096caca06d0f954f475de7618a8b58489e99e8b8170993f`; the installed copy is
+the NSIS-patched build), sidecar `alex-backend.exe`
+(`c80560ebdfac55ea46f0fe0ebd56336ba1da5c61a3ccff3c08e494b1aa7a8f01`), native host
+`alex-host-loop.exe` (`d10f6a1b2c15c2e1493dd49e7e09b116191171146101a8dc4c725a852a5bb29f`).
 
 ## 3. Architecture
 
@@ -49,7 +54,7 @@ Overview (partially stale on mock vs packaged llama.cpp defaults): [architecture
 | Five-chip status + error/recovery UX + shared RunPod balance | [status-recovery-audit.md](status-recovery-audit.md), [status-recovery-design.md](status-recovery-design.md) |
 | Central RunPod Gateway / Cloud Control Plane v2 (**deployed** at `https://gateway.12testers.store`, merged) | [central-runpod-gateway-audit.md](central-runpod-gateway-audit.md), [central-runpod-gateway-design.md](central-runpod-gateway-design.md), [gateway-deployment.md](gateway-deployment.md), [gateway-12testers-deploy-audit.md](gateway-12testers-deploy-audit.md) |
 | Canalla LLM user-facing brand + composer context meter | [context-usage.md](context-usage.md) |
-| RC / 1.0 final gates (**branch `release/canalla-1.0-rc`, not merged, version still 0.9.3**) | [release-1.0.md](release-1.0.md), [compute-preferences.md](compute-preferences.md), [../CHANGELOG.md](../CHANGELOG.md) |
+| RC / 1.0 final gates (**released as `v1.0.0`**, merged into `main`; live-certified on the production path) | [release-1.0.md](release-1.0.md), [compute-preferences.md](compute-preferences.md), [../CHANGELOG.md](../CHANGELOG.md) |
 
 Security invariants: [security.md](security.md).
 
@@ -201,22 +206,31 @@ Local leftover: `docs/screenshots/0.4/*.png` — do not commit or delete.
 
 ## 11. Current local test counts
 
-Recorded 22 Sep 2026, no GPU, no TinyFish (Canalla LLM brand, composer context meter and the merged upgrade / backup slice):
+Recorded 22 Sep 2026 at the 1.0.0 release cut (no GPU, no TinyFish), one suite at a time:
 
 | Suite | Result |
 |---|---|
-| gateway pytest | **95 passed** |
-| gateway Ruff check / format | PASS |
+| gateway pytest | **112 passed** |
+| gateway Ruff check / format | PASS (26 files formatted) |
 | gateway Alembic (fresh temp SQLite → `0001_gateway_core`, `alembic check` clean) | PASS |
-| backend pytest | **570 passed**, 1 skipped |
-| Ruff check / format | PASS |
+| backend pytest | **579 passed**, 1 skipped |
+| Ruff check / format | PASS (176 files formatted) |
 | Alembic check (fresh temp SQLite → 0015) | PASS |
-| Vitest | **119 passed** |
+| Vitest | **135 passed** |
 | TypeScript / Prettier / Vite | PASS |
-| Playwright | **20 passed** (incl. the context-meter spec) |
+| Playwright | **20 passed** |
 | cargo check / test | host **17**, desktop **50** |
 | npm audit --omit=dev | **0** |
 | pip-audit | **0** (local package skipped) |
+| **Consolidated live RC gate** (one Pod: capacity, basic, context 70/86, overflow, long stream, Stop, after-stop, cleanup) | **PASS** (`scripts/acceptance-live-rc-final.py --max-hourly 0.52 --budget-usd 3.00 --capacity-timeout 300 --spend-ceiling 0.10`) |
+| Harness self-test — 28-case lifecycle matrix, fake Gateway, virtual clock | **PASS** (`--self-test`) |
+| Harness dry run against the deployed Gateway (no Pod, no spend) | **PASS** (`--dry-run`) |
+| **Installer acceptance** (the real `Alex LLM_0.9.3_x64-setup.exe` → the final `Canalla LLM_1.0.0_x64-setup.exe`) | **PASS** (one product; the Alex programme dir, Start Menu/desktop shortcuts, autostart value and uninstall entry removed; data root hash, 31 credentials and the enrollment preserved) |
+| Installed GUI smoke of the final 1.0.0 (launch → owned sidecar up → clean quit) | **PASS** |
+
+The installed e2e harnesses below were accepted earlier in the same RC cycle on the 0.9.3
+candidate; the version bump does not touch them, and the final installer was re-accepted on the
+real machine (installer acceptance and GUI smoke rows above).
 | Installed GUI smoke (real Tauri app, CDP-driven) | **PASS** (`apps/desktop/e2e/gui-smoke.mjs`) |
 | Installed cloud GUI smoke (enroll → balance → user switch → restart → reinstall) | **PASS** (`apps/desktop/e2e/cloud-smoke.mjs`) |
 | Installed production-default check (shared, no silent direct fallback) | **13/13 PASS** (`apps/desktop/e2e/cloud-default-check.mjs`) |
