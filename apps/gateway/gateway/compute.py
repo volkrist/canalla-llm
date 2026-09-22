@@ -25,7 +25,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_DOWN, Decimal, InvalidOperation
 from uuid import uuid4
 
 import httpx
@@ -94,6 +94,10 @@ USABLE_STOCK = {"LOW", "MEDIUM", "HIGH"}
 # long as the account can fund a *meaningful* positive amount of compute. Below one cent
 # there is nothing to buy, so the request is refused honestly.
 MIN_START_BUDGET = Decimal("0.01")
+
+# Money values are quantized down to whole 1/100ths of a cent, the precision the shared
+# money schema accepts; rounding down never widens a spend bound.
+MONEY_QUANTUM = Decimal("0.0001")
 
 # Conditions that describe the provider catalogue rather than a broken compute.
 SEARCH_ERRORS = {"no_compatible_gpu", "price_limit", "gpu_unavailable"}
@@ -750,12 +754,18 @@ class ComputeAuthority:
             # The user's own ceiling and the money actually on the account both bound this
             # session: min(budget, balance). A $3 budget next to a $0.81 balance starts fine —
             # the session simply cannot spend more than $0.81. The saved preference is never
-            # rewritten; only this session's ceiling is.
+            # rewritten; only this session's ceiling is, quantized down to whole 1/100ths of a
+            # cent so the value always satisfies the money schema.
             if available < MIN_START_BUDGET:
                 with self.sessions() as db:
                     self._set_state(db, "offline", error_code="runpod_balance")
                 return self.status_payload()
-            caps = {**caps, "session_budget": min(caps["session_budget"], available)}
+            effective = min(caps["session_budget"], available).quantize(MONEY_QUANTUM, rounding=ROUND_DOWN)
+            if effective < MIN_START_BUDGET:
+                with self.sessions() as db:
+                    self._set_state(db, "offline", error_code="runpod_balance")
+                return self.status_payload()
+            caps = {**caps, "session_budget": effective}
 
         prefs = compute_preferences(
             selection=caps["selection"],

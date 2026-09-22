@@ -71,9 +71,7 @@ def test_case_e_no_compatible_capacity_anywhere_is_gpu_unavailable(gateway, clie
 def test_no_compatible_hardware_at_all_is_still_its_own_code(gateway, client):
     installation = enroll(gateway, client)
     headers = auth_header(client, installation)
-    body = ensure(
-        client, headers, operation_id="op-capacity-f001", max_hourly_price=1.20, min_vram_gb=1024
-    )
+    body = ensure(client, headers, operation_id="op-capacity-f001", max_hourly_price=1.20, min_vram_gb=1024)
     assert gateway.runpod.creates == []
     assert body["error_code"] == "no_compatible_gpu"
 
@@ -84,9 +82,7 @@ def test_a_small_balance_does_not_block_a_larger_user_ceiling(gateway, client):
     headers = auth_header(client, installation)
     gateway.runpod.balance = "0.81"
     gateway.runpod.price = 0.48
-    body = ensure(
-        client, headers, operation_id="op-money-000001", max_hourly_price=1.20, session_budget=3.00
-    )
+    body = ensure(client, headers, operation_id="op-money-000001", max_hourly_price=1.20, session_budget=3.00)
     assert len(gateway.runpod.creates) == 1
     assert body["state"] == "starting_pod"
     assert float(body["session"]["budget_usd"]) == 0.81  # what the account can actually fund
@@ -99,6 +95,17 @@ def test_the_users_own_ceiling_still_wins_over_a_larger_balance(gateway, client)
     body = ensure(client, headers, operation_id="op-money-000002", session_budget=3.00)
     assert float(body["session"]["budget_usd"]) == 3.00  # 12.34 available, $3 ceiling kept
     assert float(gateway.sessions_rows[0].session_budget) == 3.00
+
+
+def test_a_ten_decimal_balance_still_produces_a_valid_session(gateway, client):
+    """The provider reports long decimal balances; the session ceiling must stay schema-valid."""
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    gateway.runpod.balance = "0.7769473294"
+    body = ensure(client, headers, operation_id="op-money-000005", session_budget=3.00)
+    assert len(gateway.runpod.creates) == 1, body
+    assert body["state"] == "starting_pod"
+    assert float(body["session"]["budget_usd"]) == 0.7769  # quantized down, never rounded up
 
 
 def test_an_empty_account_is_refused_honestly(gateway, client):

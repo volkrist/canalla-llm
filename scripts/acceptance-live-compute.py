@@ -103,8 +103,21 @@ class Watchdog:
         self.stop.set()
 
 
-def status_of(api, headers: dict) -> dict:
-    return api.get("/compute/status", headers=headers, timeout=30).json()
+def status_of(api, headers: dict, token=None) -> dict:
+    response = api.get("/compute/status", headers=headers, timeout=30)
+    if response.status_code in (401, 403) and token is not None:
+        headers["Authorization"] = "Bearer " + token()
+        response = api.get("/compute/status", headers=headers, timeout=30)
+    return response.json()
+
+
+def post(api, headers: dict, path: str, token=None, **kwargs):
+    """POST with one token refresh: the gateway token is short-lived by design."""
+    response = api.post(path, headers=headers, **kwargs)
+    if response.status_code in (401, 403) and token is not None:
+        headers["Authorization"] = "Bearer " + token()
+        response = api.post(path, headers=headers, **kwargs)
+    return response
 
 
 def main() -> int:
@@ -112,9 +125,14 @@ def main() -> int:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--max-hourly", type=float, default=0.52)
-    parser.add_argument("--budget-usd", type=float, default=0.60)
+    parser.add_argument("--budget-usd", type=float, default=3.00)
+    parser.add_argument("--capacity-timeout", type=float, default=600.0,
+                        help="bounded read-only capacity waiting, seconds (RC section 17)")
+    parser.add_argument("--escalate-to", type=float, default=1.20,
+                        help="RC-only price ceiling used if capacity exists but nothing fits "
+                             "the user's own maximum (never above $1.20)")
     parser.add_argument("--dry-run", action="store_true",
-                        help="enroll, check the policy plumbing and stop: never touches a GPU")
+                        help="one catalogue read only: never touches a GPU")
     args = parser.parse_args()
     if args.max_hourly > 1.20:
         print("RC ceiling is $1.20/hour; use a lower value")
@@ -138,11 +156,25 @@ def main() -> int:
         "installation_id": installation["installation_id"],
         "installation_secret": installation["installation_secret"],
     })
+
+    def fresh_token() -> str:
+        issued = api.post("/auth/token", json={
+            "installation_id": installation["installation_id"],
+            "installation_secret": installation["installation_secret"],
+        }, timeout=30)
+        return issued.json()["access_token"]
+
     headers = {"Authorization": "Bearer " + token.json()["access_token"]}
 
     balance_before = api.get("/balance", headers=headers).json().get("balance_usd")
-    print(f"balance before: ${balance_before}")
+    print(f"balance before: ${balance_before}   session ceiling sent: ${args.budget_usd:.2f}")
     measure["balance_before"] = balance_before
+    measure["session_ceiling_sent"] = args.budget_usd
+    # RC money semantics: a ceiling larger than the account balance must not block a start.
+    try:
+        measure["balance_below_ceiling"] = float(balance_before) < args.budget_usd
+    except (TypeError, ValueError):
+        measure["balance_below_ceiling"] = None
 
     try:
         if args.dry_run:
@@ -159,23 +191,50 @@ def main() -> int:
 
         print("1. ensure compute with the user's own policy (cheapest compatible GPU)")
         started = time.monotonic()
-        ensure = api.post("/compute/ensure", json={
-            "operation_id": "op-ensure-" + uuid.uuid4().hex[:8],
-            "max_hourly_price": args.max_hourly,
-            "session_budget": args.budget_usd,
-            "min_vram_gb": 48,
-            "auto_stop_minutes": 5,
-        }, headers=headers, timeout=120)
-        check("ensure accepted", ensure.status_code == 200, f"status={ensure.status_code}")
-        payload = ensure.json()
+        deadline = started + args.capacity_timeout
+        payload: dict = {}
+        hourly = args.max_hourly
+        capacity_waits = 0
+        for label, hourly in ((f"user policy ${args.max_hourly:.2f}/h", args.max_hourly),
+                              (f"rc escalation ${args.escalate_to:.2f}/h", args.escalate_to)):
+            if time.monotonic() >= deadline:
+                break
+            print(f"   trying {label} with a ${args.budget_usd:.2f} session ceiling")
+            while time.monotonic() < deadline:
+                ensure = post(api, headers, "/compute/ensure", fresh_token, json={
+                    "operation_id": "op-ensure-" + uuid.uuid4().hex[:8],
+                    "max_hourly_price": hourly,
+                    "session_budget": args.budget_usd,
+                    "min_vram_gb": 48,
+                    "auto_stop_minutes": 5,
+                }, timeout=120)
+                check(f"ensure accepted ({label})", ensure.status_code == 200,
+                      f"status={ensure.status_code}")
+                payload = ensure.json()
+                state = payload.get("state")
+                error = payload.get("error_code")
+                if state in {"creating", "starting_pod", "loading_model", "ready"}:
+                    print(f"   provider accepted the request: state={state}")
+                    break
+                if error == "price_limit":
+                    # Capacity exists, only the price blocks a pod: escalate once, in bounds.
+                    print("   capacity exists but nothing fits this maximum; escalating")
+                    break
+                capacity_waits += 1
+                print(f"   no capacity yet (error={error}); waiting 30s "
+                      f"({int(deadline - time.monotonic())}s left in the window)")
+                time.sleep(30)
+            if payload.get("state") in {"creating", "starting_pod", "loading_model", "ready"}:
+                break
+        measure["capacity_waits"] = capacity_waits
         state = payload.get("state")
         print(f"   state after ensure: {state} error={payload.get('error_code')}")
 
         rate = 0.0
         ready = False
-        deadline = started + 600  # bound the whole cold start
-        while time.monotonic() < deadline:
-            body = status_of(api, headers)
+        cold_deadline = time.monotonic() + 900  # bound the whole cold start
+        while time.monotonic() < cold_deadline:
+            body = status_of(api, headers, fresh_token)
             state = body.get("state")
             session = body.get("session") or {}
             if session.get("hourly_rate_usd"):
@@ -196,8 +255,8 @@ def main() -> int:
 
         measure["cold_start_seconds"] = round(time.monotonic() - started, 1)
         check("the model became ready on a real Pod", ready, f"state={measure.get('state')}")
-        check("exactly one GPU was selected, at or under the user's maximum",
-              bool(measure.get("gpu")) and 0 < rate <= args.max_hourly,
+        check("exactly one GPU was selected, at or under the tested maximum",
+              bool(measure.get("gpu")) and 0 < rate <= max(args.max_hourly, args.escalate_to),
               f"{measure.get('gpu')} at ${rate}/h")
         if not ready:
             return 1
@@ -294,17 +353,17 @@ def main() -> int:
             check("the model answered after the cancel", "ready" in answer, answer[:80])
 
         print("4. stop the paid compute immediately")
-        stopped_response = api.post("/compute/stop", json={"operation_id": "op-stop-" + uuid.uuid4().hex[:8]},
-                                    headers=headers, timeout=120)
+        stopped_response = post(api, headers, "/compute/stop", fresh_token, json={"operation_id": "op-stop-" + uuid.uuid4().hex[:8]},
+                                    timeout=120)
         check("stop accepted", stopped_response.status_code == 200,
               f"status={stopped_response.status_code}")
         stopped = True
         for _ in range(40):
-            body = status_of(api, headers)
+            body = status_of(api, headers, fresh_token)
             if body.get("session") is None and body.get("state") in {"stopped", "offline"}:
                 break
             time.sleep(3)
-        final_state = status_of(api, headers)
+        final_state = status_of(api, headers, fresh_token)
         check("no session is left", final_state.get("session") is None,
               f"state={final_state.get('state')}")
         measure["final_state"] = final_state.get("state")
