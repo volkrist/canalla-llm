@@ -4,6 +4,8 @@
 
 import { useState } from "react";
 import {
+  CONTEXT_UNAVAILABLE_DETAIL,
+  CONTEXT_UNAVAILABLE_LABEL,
   contextHint,
   contextLevel,
   contextSentence,
@@ -60,10 +62,30 @@ export function ContextBreakdown({
 
 export default function ContextUsageMeter({
   usage,
+  failed = false,
 }: {
   usage: ContextUsage | null;
+  /** The last snapshot read failed: no number is shown rather than a stale one. */
+  failed?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  if (failed) {
+    return (
+      <div
+        className="context-row level-unavailable"
+        data-level="unavailable"
+        role="status"
+      >
+        <span
+          className="context-unavailable"
+          title={CONTEXT_UNAVAILABLE_DETAIL}
+        >
+          <span className="context-dot" aria-hidden="true" />
+          {CONTEXT_UNAVAILABLE_LABEL}
+        </span>
+      </div>
+    );
+  }
   if (!usage) return null;
 
   const level = contextLevel(usage.percent);

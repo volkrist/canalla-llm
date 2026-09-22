@@ -10,14 +10,17 @@ import ContextUsageMeter, {
 } from "../components/ContextUsageMeter";
 import {
   CONTEXT_DANGER_PERCENT,
+  CONTEXT_UNAVAILABLE_LABEL,
   CONTEXT_WARNING_PERCENT,
   contextHint,
   contextLevel,
   contextSentence,
+  contextUsageRequest,
   formatPercent,
   formatTokens,
   isEstimated,
   measuredLine,
+  meterState,
   ringDash,
   usedLabel,
   type ContextUsage,
@@ -164,6 +167,25 @@ describe("context meter rendering", () => {
     expect(renderToStaticMarkup(<ContextUsageMeter usage={null} />)).toBe("");
   });
 
+  it("shows a compact unavailable state instead of a stale number", () => {
+    const html = renderToStaticMarkup(
+      <ContextUsageMeter usage={null} failed />,
+    );
+    expect(html).toContain(CONTEXT_UNAVAILABLE_LABEL);
+    expect(html).toContain('data-level="unavailable"');
+    expect(html).not.toContain("context-ring-value");
+    expect(html).not.toContain("context-percent");
+  });
+
+  it("never shows the previous percent as current after a failure", () => {
+    // The hook drops the snapshot on a failed read; the component must not resurrect it.
+    const html = renderToStaticMarkup(
+      <ContextUsageMeter usage={usage} failed />,
+    );
+    expect(html).not.toContain("38%");
+    expect(html).toContain(CONTEXT_UNAVAILABLE_LABEL);
+  });
+
   it("shows label, used/limit and percentage", () => {
     const html = renderToStaticMarkup(<ContextUsageMeter usage={usage} />);
     expect(html).toContain("Context");
@@ -226,5 +248,47 @@ describe("context meter rendering", () => {
     );
     expect(html).toContain("обрезаны");
     expect(html).not.toContain("измерено");
+  });
+
+  it("keeps an overflow visible instead of clamping it into a reassuring number", () => {
+    const html = renderToStaticMarkup(<ContextUsageMeter usage={at(140)} />);
+    expect(html).toContain('data-level="danger"');
+    expect(html).toContain("140%");
+    expect(html).toContain(
+      'aria-label="Context: ~45 875 из 32 768 токенов, 140%"',
+    );
+  });
+});
+
+describe("preview transport", () => {
+  it("carries the draft in the body and never in the URL", () => {
+    const draft = "Почему важно проверять контекст перед отправкой? ".repeat(
+      700,
+    );
+    const request = contextUsageRequest("chat-1", draft);
+    expect(request.path).toBe("/chats/chat-1/context-usage");
+    expect(request.path.length).toBeLessThan(120);
+    expect(request.path).not.toContain("Почему");
+    expect(request.init.method).toBe("POST");
+    expect(JSON.parse(String(request.init.body))).toEqual({ prompt: draft });
+  });
+});
+
+describe("failure and recovery", () => {
+  it("drops the snapshot when the read fails", () => {
+    expect(meterState(null, false)).toEqual({ usage: null, failed: true });
+  });
+
+  it("publishes a fresh snapshot once the read succeeds again", () => {
+    expect(meterState(usage, true)).toEqual({ usage, failed: false });
+    expect(meterState(usage, true).failed).toBe(false);
+  });
+
+  it("recovers after a failure without keeping the unavailable flag", () => {
+    const failed = meterState(null, false);
+    expect(failed.failed).toBe(true);
+    const recovered = meterState(at(72), true);
+    expect(recovered.failed).toBe(false);
+    expect(recovered.usage?.percent).toBe(72);
   });
 });

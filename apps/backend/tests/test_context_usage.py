@@ -6,12 +6,15 @@ window the product serves the model with (``llm_context_window`` = llama.cpp
 ``--ctx-size``) and nothing else. No GPU, no secret, no memory-counter side effect.
 """
 
+from urllib.parse import urlencode
+
 from app import context_usage as usage
 from app.compute.models import GenerationUsage
 from app.config import get_settings
 from app.context_builder import ContextBuilder
 from app.database import SessionLocal
 from app.models import Chat, Memory, Message, User, now
+from tests.db_helpers import require_row
 
 CHAT = {"content": "hello"}
 PART_KEYS = set(usage.LABELS)
@@ -25,6 +28,13 @@ def make_chat(client, headers):
 
 def snapshot(client, headers, chat, prompt=""):
     response = client.get(f"/chats/{chat}/context-usage", headers=headers, params={"prompt": prompt})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def post_snapshot(client, headers, chat, prompt=""):
+    """The preview the composer actually uses: the draft travels in the body."""
+    response = client.post(f"/chats/{chat}/context-usage", headers=headers, json={"prompt": prompt})
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -145,7 +155,7 @@ def test_context_usage_does_not_touch_memory_counters(client, auth):
     for _ in range(3):
         snapshot(client, headers, chat, "Где я живу?")
     with SessionLocal() as db:
-        row = db.get(Memory, created["id"])
+        row = require_row(db, Memory, created["id"])
         assert row.use_count == 0 and row.last_used_at is None
 
 
@@ -156,6 +166,8 @@ def test_context_usage_returns_the_measured_prompt_size_when_known(client, auth)
 
     with SessionLocal() as db:
         user = db.query(User).first()
+        if user is None:
+            raise AssertionError("the registered user is missing")
         row = Message(id="seed-measured", chat_id=chat, role="user", content="seed", created_at=now())
         db.add(row)
         db.flush()
@@ -198,6 +210,48 @@ def test_context_usage_payload_has_no_secret_or_internal_fields(client, auth):
     for part in body["parts"]:
         assert set(part) == {"key", "label", "chars", "tokens"}
     assert "JWT" not in str(body) and "secret" not in str(body).lower()
+
+
+# ------------------------------------------------------------------ preview transport
+
+
+def test_the_preview_body_carries_the_draft_and_the_url_never_does(client, auth):
+    """D-3: a 32 000-character Cyrillic draft is a legitimate draft, not a URL.
+
+    The composer's own limit is 32 000 characters, so the preview endpoint must accept a draft
+    that size. Percent-encoded Cyrillic in a request line is roughly nine times the character
+    count, which is what used to fail before the product limit was reached at all.
+    """
+    headers = auth()
+    chat = make_chat(client, headers)
+    draft = "Почему важно проверять контекст перед отправкой? " * 660
+    assert len(draft) >= 32000  # the composer would refuse it; the endpoint must not lie
+
+    body = post_snapshot(client, headers, chat, draft[:32000])
+    part = next(item for item in body["parts"] if item["key"] == usage.PART_DRAFT)
+    assert part["chars"] == 32000
+    assert part["tokens"] > 0
+
+    # The same draft as a query string is what the old contract asked clients to send.
+    encoded = len(urlencode({"prompt": draft}))
+    assert encoded > 32000 * 3  # the request line is the wrong transport for this draft
+
+
+def test_the_preview_never_starts_compute(client, auth):
+    """Reading the meter costs nothing: no session, no Pod, no provider call."""
+    headers = auth()
+    chat = make_chat(client, headers)
+    before = client.get("/compute/status", headers=headers).json()
+
+    for _ in range(3):
+        post_snapshot(client, headers, chat, "Привет, посчитай контекст")
+
+    after = client.get("/compute/status", headers=headers).json()
+    assert before["state"] == after["state"]
+    assert before["configured"] == after["configured"]
+    assert after["session"] is None
+    assert after["active_generations"] == 0
+    assert after["next_search_at"] is None
 
 
 def test_preview_carries_the_same_usage_block(client, auth):

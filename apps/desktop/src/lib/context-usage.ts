@@ -37,6 +37,11 @@ export type ContextUsage = {
 
 export type ContextLevel = "ok" | "warning" | "danger";
 
+export type MeterSnapshot = {
+  usage: ContextUsage | null;
+  failed: boolean;
+};
+
 /** < 70 normal, 70–85 warning, > 85 danger. */
 export const CONTEXT_WARNING_PERCENT = 70;
 export const CONTEXT_DANGER_PERCENT = 85;
@@ -105,9 +110,48 @@ export function measuredLine(measured: MeasuredPrompt | null): string | null {
 }
 
 /**
+ * One answer from the snapshot endpoint, reduced to what the meter may show.
+ *
+ * A failed read keeps no number at all: the previous percent belongs to an older draft, so
+ * showing it as the current one would state something the backend did not say. The next
+ * successful answer replaces the unavailable state, so the meter recovers on its own.
+ */
+export function meterState(
+  incoming: ContextUsage | null,
+  ok: boolean,
+): MeterSnapshot {
+  if (!ok) return { usage: null, failed: true };
+  return { usage: incoming, failed: false };
+}
+
+/** The compact state the composer shows while no snapshot is available. */
+export const CONTEXT_UNAVAILABLE_LABEL = "Context недоступен";
+export const CONTEXT_UNAVAILABLE_DETAIL =
+  "Не удалось получить снимок контекста. Показатель вернётся сам.";
+
+/**
+ * The preview request. The draft is a body, never a URL: a 32 000-character Cyrillic draft is
+ * a legitimate draft (the composer's own limit), and percent-encoding it into a request line
+ * is what used to fail long before the product limit was reached.
+ */
+export function contextUsageRequest(
+  chatId: string,
+  draft: string,
+): { path: string; init: RequestInit } {
+  return {
+    path: `/chats/${chatId}/context-usage`,
+    init: { method: "POST", body: JSON.stringify({ prompt: draft }) },
+  };
+}
+
+/**
  * Reads the snapshot for the open chat. Debounced, sequence-guarded (a slow answer
  * never overwrites a newer one) and silent on failure: a meter must not raise errors
- * in the composer when the backend is busy.
+ * in the composer when the backend is busy — it says "unavailable" instead, and never
+ * keeps a stale percent on screen (see `meterState`).
+ *
+ * The draft travels in the request body: a 32 000-character Cyrillic draft is a legitimate
+ * draft, and a request line is not the place for one (it is what used to fail first).
  */
 export function useContextUsage(
   api: Api,
@@ -136,18 +180,19 @@ export function useContextUsage(
     const id = (sequence.current += 1);
     setLoading(true);
     const timer = setTimeout(() => {
+      const request = contextUsageRequest(chatId, draft);
       api
-        .json<ContextUsage>(
-          `/chats/${chatId}/context-usage?prompt=${encodeURIComponent(draft)}`,
-        )
+        .json<ContextUsage>(request.path, request.init)
         .then((value) => {
           if (sequence.current !== id) return;
-          setUsage(value);
+          setUsage(meterState(value, true).usage);
           setFailed(false);
         })
         .catch(() => {
           if (sequence.current !== id) return;
-          setFailed(true);
+          const next = meterState(null, false);
+          setUsage(next.usage);
+          setFailed(next.failed);
         })
         .finally(() => {
           if (sequence.current === id) setLoading(false);

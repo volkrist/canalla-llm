@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import timezone
 
 from fastapi import Depends, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
@@ -411,6 +412,37 @@ def usage_snapshot(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
+    """Read-only variant of the composer's meter, kept for compatibility.
+
+    Prefer ``POST``: a 32 000-character draft is a legitimate draft (the composer's own limit)
+    and a request line is the wrong place for it.
+    """
+    return usage_snapshot_for(key, prompt, user, db)
+
+
+class ContextUsageBody(BaseModel):
+    """The composer's draft for the meter. The bound matches the composer's own limit."""
+
+    prompt: str = Field(default="", max_length=32000)
+
+
+@router.post("/chats/{key}/context-usage")
+def usage_snapshot_post(
+    key: str,
+    body: ContextUsageBody,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """What the composer's context meter shows before a message is sent.
+
+    The draft travels in the body, never in a URL: a large Cyrillic draft used to hit the
+    request-line limit long before the real composer limit, so the meter reported a transport
+    failure for a prompt the product accepts.
+    """
+    return usage_snapshot_for(key, body.prompt, user, db)
+
+
+def usage_snapshot_for(key: str, prompt: str, user: User, db: Session) -> dict:
     """What the composer's context meter shows before a message is sent.
 
     The estimate covers the same parts ``build`` sends to the model; ``measured`` carries
