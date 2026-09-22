@@ -221,11 +221,48 @@ def post(api, headers: dict, path: str, token=None, **kwargs):
 
 
 def status_of(api, headers: dict, token=None) -> dict:
+    """The Gateway's compute status, tagged with the transport status.
+
+    A refused or rate-limited answer must never look like "no session": every caller checks
+    ``http_status`` before it trusts the body.
+    """
     response = api.get("/compute/status", headers=headers, timeout=30)
     if response.status_code in (401, 403) and token is not None:
         headers["Authorization"] = "Bearer " + token()
         response = api.get("/compute/status", headers=headers, timeout=30)
-    return response.json()
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    body["http_status"] = response.status_code
+    return body
+
+
+def managed_stop(api, headers: dict, token, label: str) -> tuple[int, str]:
+    """Stop managed compute with a *fresh* operation id, retrying once.
+
+    The Gateway rejects a reused operation id with 400 — that is not a success, and ignoring it
+    is how a Pod is left running. Every stop therefore goes through here and its status is
+    reported.
+    """
+    status, text = 0, ""
+    for _ in range(2):
+        response = post(
+            api,
+            headers,
+            "/compute/stop",
+            token,
+            json={"operation_id": f"{label}-" + uuid.uuid4().hex[:8]},
+            timeout=60,
+        )
+        status, text = response.status_code, response.text[:200]
+        if status == 200:
+            return status, text
+        print(f"   stop answered {status}: {text[:120]}", flush=True)
+        time.sleep(2)
+    return status, text
 
 
 def ensure_body(operation_id: str, hourly: float, budget: float) -> dict:
@@ -258,14 +295,10 @@ class Watchdog:
             flush=True,
         )
         try:
-            post(
-                self.api,
-                self.headers,
-                "/compute/stop",
-                self.token,
-                json={"operation_id": "op-stop-watchdog"},
-                timeout=60,
+            status, body = managed_stop(
+                self.api, self.headers, self.token, "op-stop-watchdog"
             )
+            print(f"WATCHDOG stop answered {status} {body[:120]}", flush=True)
         except Exception as error:  # noqa: BLE001 - the watchdog never raises
             print(f"WATCHDOG stop failed: {type(error).__name__}", flush=True)
 
@@ -458,6 +491,7 @@ class FakeGateway:
         chunk_seconds: float = 0.01,
         long_chunks: int = 940,
         cancel_chunks: int = 400,
+        refuse_stops: int = 0,
     ):
         self.clock = clock
         self.available_rate = available_rate
@@ -472,6 +506,7 @@ class FakeGateway:
         self.chunk_seconds = chunk_seconds
         self.long_chunks = long_chunks
         self.cancel_chunks = cancel_chunks
+        self.refuse_stops = refuse_stops
         # observations the matrix asserts on
         self.requests: list[tuple[str, str]] = []
         self.ensures: list[float] = []
@@ -479,6 +514,8 @@ class FakeGateway:
         self.creates = 0
         self.repeated_ensures = 0
         self.stops = 0
+        self.refuse_stops_seen = 0
+        self.stop_operation_ids: list = []
         self.revokes = 0
         self.completions: list[str] = []
         self.thinking_flags: list = []
@@ -523,6 +560,19 @@ class FakeGateway:
         if path == "/compute/ensure":
             return self._ensure(request)
         if path == "/compute/stop":
+            body = json.loads(request.content or b"{}")
+            self.stop_operation_ids.append(body.get("operation_id"))
+            if self.refuse_stops > 0:
+                # Exactly what a reused operation id looks like: 400, and no Pod is stopped.
+                self.refuse_stops -= 1
+                self.refuse_stops_seen += 1
+                return self._json(
+                    400,
+                    {
+                        "error_code": "gateway_invalid_request",
+                        "detail": "Идентификатор операции уже использован.",
+                    },
+                )
             self.stops += 1
             self.session = None
             self.state = "stopped"
@@ -1161,6 +1211,22 @@ def lifecycle_matrix() -> int:
         )
     )
 
+    # --- a refused stop is retried with a fresh id, never mistaken for success ---------------
+    clock = VirtualClock()
+    fake = FakeGateway(clock, refuse_stops=1)
+    retried = run_scenario(fake, happy_argv, clock)
+    results.append(
+        (
+            "22 a refused stop is retried with a fresh id and reported",
+            fake.stops == 1
+            and fake.refuse_stops_seen == 1
+            and len(set(fake.stop_operation_ids)) == len(fake.stop_operation_ids) == 2
+            and fake.session is None
+            and retried.exit_code == 0,
+            f"stop attempts={fake.stop_operation_ids}",
+        )
+    )
+
     # --- static safety: the harness itself can never reach a provider or delete anything ------
     with open(__file__, encoding="utf-8") as handle:
         source = handle.read()
@@ -1777,33 +1843,27 @@ def main(argv: list[str] | None = None, client_factory=None) -> int:
                 raise HarnessAbort("LIVE G after Stop failed")
 
         print("9. stopping paid compute immediately")
-        stop = post(
-            api,
-            headers,
-            "/compute/stop",
-            fresh_token,
-            json={"operation_id": "op-stop-" + uuid.uuid4().hex[:8]},
-            timeout=120,
-        )
+        stop_status, stop_body = managed_stop(api, headers, fresh_token, "op-stop")
         check(
             "managed stop accepted",
-            stop.status_code == 200,
-            f"status={stop.status_code}",
+            stop_status == 200,
+            f"status={stop_status} {stop_body[:80]}",
         )
         stopped = True
         for _ in range(40):
             body = status_of(api, headers, fresh_token)
-            if body.get("session") is None and body.get("state") in {
-                "stopped",
-                "offline",
-            }:
+            if (
+                body.get("http_status") == 200
+                and body.get("session") is None
+                and body.get("state") in {"stopped", "offline"}
+            ):
                 break
             time.sleep(3)
         final = status_of(api, headers, fresh_token)
         check(
             "no session remains",
-            final.get("session") is None,
-            f"state={final.get('state')}",
+            final.get("http_status") == 200 and final.get("session") is None,
+            f"status={final.get('http_status')} state={final.get('state')}",
         )
         measure["final_state"] = final.get("state")
         if stamps.get("compute_ready_at"):
@@ -1828,19 +1888,27 @@ def main(argv: list[str] | None = None, client_factory=None) -> int:
     finally:
         if not stopped:
             try:
-                post(
-                    api,
-                    headers,
-                    "/compute/stop",
-                    fresh_token,
-                    json={"operation_id": "op-stop-finally"},
-                    timeout=60,
+                stop_status, stop_body = managed_stop(
+                    api, headers, fresh_token, "op-stop-finally"
                 )
-                print("finally: managed stop requested", flush=True)
+                print(
+                    f"finally: managed stop answered {stop_status} {stop_body[:120]}",
+                    flush=True,
+                )
+                if stop_status != 200:
+                    failures.append(f"the finally stop was refused ({stop_status})")
                 for _ in range(20):
                     time.sleep(3)
-                    if status_of(api, headers, fresh_token).get("session") is None:
+                    body = status_of(api, headers, fresh_token)
+                    if body.get("http_status") == 200 and body.get("session") is None:
                         break
+                else:
+                    print(
+                        "finally: a compute session is still recorded — paid compute may still "
+                        "run until the Gateway's idle stop; check /compute/status and the pods",
+                        flush=True,
+                    )
+                    failures.append("a compute session survived the finally stop")
             except Exception as error:  # noqa: BLE001
                 print(f"finally stop failed: {type(error).__name__}", flush=True)
         try:
