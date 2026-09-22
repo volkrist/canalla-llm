@@ -94,7 +94,7 @@ externally blocked (section 7).
 | Gate | Result |
 |---|---|
 | BasedPyright (`npx basedpyright`) | 0 errors, 0 warnings, 226 files |
-| Backend pytest | 604 passed, 1 skipped |
+| Backend pytest | 606 passed, 1 skipped |
 | Backend ruff (`check` + `format --check`) | PASS |
 | Backend alembic (`upgrade head`, `check`) | PASS (head `0015`, no new operations) |
 | Gateway pytest | 130 passed (112 + 18 D-9 cases) |

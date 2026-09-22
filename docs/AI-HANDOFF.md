@@ -311,9 +311,9 @@ acceptance all landed on `release/canalla-1.1.0` in this cycle.
 
 | Gate | Result |
 |---|---|
-| `apps/backend/tests/test_tor_service.py` (deterministic: fake listener, fake binary, fake spawn, fake proof) | **16 passed** |
+| `apps/backend/tests/test_tor_service.py` (deterministic: fake listener, fake binary, fake spawn, fake proof) | **18 passed** (incl. recovery to ready and restart re-proof) |
 | `apps/backend/tests/test_status_recovery.py` (the new computer/tor contract) | **+7 cases** (3 computer, 4 Tor) |
-| Backend pytest / Ruff / BasedPyright | **604 passed, 1 skipped** / PASS / **0 errors, 0 warnings** |
+| Backend pytest / Ruff / BasedPyright | **606 passed, 1 skipped** / PASS / **0 errors, 0 warnings** |
 | Vitest / TypeScript / Prettier / Vite / Playwright | **161 passed** / clean / PASS / PASS / **20 passed** |
 | cargo check / cargo test | clean / **69 passed** (host 18, desktop 51, incl. the device-credential redirection test) |
 | Installed `e2e/always-ready.mjs` (real build, isolated root, no clicks) | **21/21 PASS** — Computer «Готово», Tor «Готово» with a proven circuit, popovers separating health from mode, and after a full Quit + relaunch the session and the **same `device_id`** come back with one device and no second pairing |

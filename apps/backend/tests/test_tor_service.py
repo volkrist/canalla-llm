@@ -191,6 +191,56 @@ def test_no_endpoint_and_no_binary_is_an_honest_missing_dependency(tmp_path, lis
     assert snapshot["binary"] is None
 
 
+def test_a_route_that_failed_recovers_to_ready(tmp_path, listener, binary):
+    """«Tor восстанавливается» → «Готово» happens by itself: the next proof through the same
+    endpoint is readiness. No restart, no second process and no manual action."""
+    listener["open"] = {"9050"}
+    write_log(tmp_path, "Sep 22 22:34:17.000 [notice] Bootstrapped 100% (done): Done")
+    exits = {"current": FakeTransport(is_tor=False)}
+    service = TorService(
+        make_settings(tmp_path),
+        transport_factory=lambda host, port: exits["current"],
+    )
+
+    broken = run(service.ensure(reason="startup"))
+    assert broken["state"] == "unavailable"
+    assert broken["reason"] == "tor_circuit_invalid"
+
+    # The exit answers as Tor again; the supervisor's next pass is what turns the chip green.
+    exits["current"] = FakeTransport(is_tor=True)
+    recovered = run(service.ensure(reason="supervise"))
+
+    assert recovered["state"] == "ready"
+    assert recovered["verified_chain"] is True
+    assert recovered["reason"] is None
+    assert recovered["endpoint"] == {"host": "127.0.0.1", "port": 9050}
+
+
+def test_a_restart_reproves_the_saved_endpoint_without_a_second_tor(tmp_path, listener, binary):
+    """The app-restart path: a new service over the same data root uses the endpoint it proved
+    before, never starts a second Tor, and never treats the stored proof as readiness on its own."""
+    listener["open"] = {"9050"}
+    binary["path"] = ("C:/Tor/tor.exe", "tor_browser")
+    spawns = []
+    first = build(tmp_path, spawn=lambda *args: spawns.append(args) or FakeProcess())
+    assert run(first.ensure(reason="startup"))["state"] == "ready"
+    assert spawns == []  # an endpoint that answers is used, never duplicated
+
+    transport = FakeTransport()
+    second = build(
+        tmp_path,
+        transport=transport,
+        spawn=lambda *args: spawns.append(args) or FakeProcess(),
+    )
+    snapshot = run(second.ensure(reason="startup"))
+
+    assert snapshot["state"] == "ready"
+    assert snapshot["endpoint"] == {"host": "127.0.0.1", "port": 9050}
+    assert snapshot["verified_chain"] is True
+    assert spawns == []  # nothing was started on the way back
+    assert transport.calls == 1  # the route is re-proven, not assumed from the file
+
+
 # ---------------------------------------------------------------------------- managed process
 
 
