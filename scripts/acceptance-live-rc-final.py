@@ -594,7 +594,10 @@ class FakeGateway:
     def _advance(self) -> None:
         if self.session is None:
             return
-        self.state = self.status_plan.pop(0) if self.status_plan else "ready"
+        # The label is sticky: a finished generation stays ``generating`` until something else
+        # changes it, exactly like the real Gateway.
+        if self.status_plan:
+            self.state = self.status_plan.pop(0)
 
     def _session_payload(self) -> dict:
         return {
@@ -672,6 +675,7 @@ class FakeGateway:
         if self.session is None:
             self.offline_completions += 1
             return self._json(409, {"error_code": "compute_offline"})
+        self.state = "generating"
         self.session_ids_used.add(self.session_id)
         if kind == self.interrupt_in:
             raise KeyboardInterrupt
@@ -1197,8 +1201,8 @@ def lifecycle_matrix() -> int:
         # A huge rate makes the envelope expire in milliseconds, so the watchdog really fires.
         watchdog = Watchdog(RecordingApi(), {}, None, 10000.0, 0.20)
         with watchdog:
-            for _ in range(200):
-                if watchdog.fired:
+            for _ in range(400):
+                if watchdog.fired and posted:
                     break
                 time.sleep(0.01)
     finally:
@@ -1811,9 +1815,12 @@ def main(argv: list[str] | None = None, client_factory=None) -> int:
                 f"chunks={cancelled['chunks']}",
             )
             check(
-                "the Pod stayed ready after the cancel",
-                state_after_cancel.get("state") == "ready"
-                and state_after_cancel.get("session") is not None,
+                "the Pod stayed available after the cancel",
+                # The Gateway keeps the session label at ``generating`` after a generation until
+                # the next state change, so readiness is proven by the *next* answer (LIVE G),
+                # and here only by the session still being there and not being dead.
+                state_after_cancel.get("session") is not None
+                and state_after_cancel.get("state") in {"ready", "generating"},
                 f"state={state_after_cancel.get('state')}",
             )
             if len(failures) > mark:
