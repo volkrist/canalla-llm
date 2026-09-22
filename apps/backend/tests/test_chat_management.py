@@ -19,6 +19,10 @@ def test_rename_pin_search_export_owner(client, auth):
     exported = client.get("/chats/export", headers=alice).json()
     assert {row["chat"]["id"] for row in exported} == {first, second}
     assert "Private text" in client.get(f"/chats/{first}/export?format=markdown", headers=alice).text
+    # The markdown header must name the roles in readable Russian, not mojibake.
+    markdown = client.get(f"/chats/{first}/export?format=markdown", headers=alice).text
+    assert "## Вы ·" in markdown and "Р’С‹" not in markdown
+    assert "## Canalla LLM ·" in markdown
 
 
 def test_edit_resend_and_regenerate_truncate_linear_history(client, auth):

@@ -83,7 +83,7 @@ def export_content(db, chats, format):
         parts.append("# " + item["chat"]["title"])
         for message in item["messages"]:
             parts.append(
-                f"## {'Р’С‹' if message['role'] == 'user' else 'Canalla LLM'} В· {message['created_at']}\n\n{message['content']}"
+                f"## {'Вы' if message['role'] == 'user' else 'Canalla LLM'} · {message['created_at']}\n\n{message['content']}"
             )
     return Response(
         "\n\n".join(parts),
