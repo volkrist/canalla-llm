@@ -13,13 +13,14 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..compute.runpod_api import ERROR_MESSAGES
-from ..config import Settings
-from ..models import Memory, User
-from ..tools.local.devices import active_device
+from ..config import Settings, get_settings
+from ..models import Memory, User, now
+from ..tools.local.devices import active_device, last_seen_seconds_ago, newest_device
 from ..tools.models import PairedDevice
 from ..tools.policy import WebSettings
 from ..tools.policy import preferences as tool_preferences
 from ..tools.tor.browser import socks_listening
+from ..tools.tor.service import CIRCUIT_INVALID, DISABLED, NO_ENDPOINT, NOT_INSTALLED
 
 READY = "ready"
 STARTING = "starting"
@@ -167,38 +168,64 @@ def ai_status(controller, user: User):
     )
 
 
-def computer_status(db: Session, user: User, prefs: WebSettings):
-    """Local computer-use readiness. Liveness is the device heartbeat window, not the Desktop."""
+def computer_status(db: Session, user: User, prefs: WebSettings, boot_time=None):
+    """Local computer-use readiness: the device heartbeat decides health, and nothing else.
+
+    ``ready`` needs a live heartbeat (the host loop's own signal, 45 s window). A host that was
+    alive moments ago - or an app that just started and is still waiting for its first heartbeat -
+    is ``starting`` ("подключается" / "восстанавливает соединение"), never a red failure: the
+    reconnect is already in flight and the chip must not demand a button for it. Only after those
+    windows does the honest ``host_offline`` with its manual recovery action appear. The computer
+    *mode* is policy and never changes the health answer.
+    """
     device = active_device(db, user.id)
     paired = bool(db.scalar(select(PairedDevice.id).where(PairedDevice.user_id == user.id).limit(1)))
+    latest = device if device is not None else newest_device(db, user.id)
+    age = last_seen_seconds_ago(latest) if latest is not None else None
     details = {
         "computer_mode": prefs.computer_mode,
         "paired": paired,
+        "heartbeat_age_seconds": None if age is None else round(age, 1),
+        "host_running": device is not None,
         "device": None,
     }
-    if device is not None:
+    if latest is not None:
         details["device"] = {
-            "display_name": device.display_name,
-            "platform": device.platform,
-            "last_seen": device.last_seen.isoformat() if device.last_seen else None,
-            "capabilities": device.capabilities,
+            "display_name": latest.display_name,
+            "platform": latest.platform,
+            "last_seen": latest.last_seen.isoformat() if latest.last_seen else None,
+            "capabilities": latest.capabilities,
         }
-    if prefs.computer_mode == "off":
-        return entry(
-            OFF,
-            "Работа с компьютером выключена в настройках.",
-            action="configure",
-            recoverable=True,
-            details=details,
-        )
     if device is not None:
         return entry(READY, "Компьютер готов.", details=details)
     if paired:
+        settings = get_settings()
+        gap = age is not None and age <= settings.host_reconnect_grace_seconds
+        booting = (
+            boot_time is not None
+            and (now() - boot_time).total_seconds() <= settings.host_connect_grace_seconds
+        )
+        if gap or booting:
+            return entry(
+                STARTING,
+                "Компьютер восстанавливает соединение…" if gap else "Компьютер подключается…",
+                action="retry",
+                recoverable=True,
+                details=details,
+            )
         return entry(
             UNAVAILABLE,
             "Подключённое устройство не отвечает.",
             detail_code="host_offline",
             action="reconnect",
+            recoverable=True,
+            details=details,
+        )
+    if prefs.computer_mode == "off":
+        return entry(
+            OFF,
+            "Работа с компьютером выключена в настройках.",
+            action="configure",
             recoverable=True,
             details=details,
         )
@@ -260,45 +287,87 @@ def web_status(settings: Settings, prefs: WebSettings):
     )
 
 
-def tor_status(settings: Settings, prefs: WebSettings):
-    """Tor routing state. Fail-closed, and never `ready` without a verified chain.
+def tor_status(settings: Settings, prefs: WebSettings, service=None):
+    """Tor routing state: the service's real health, never the usage policy.
 
-    An open SOCKS5 port is not a verified Tor route, so a listening endpoint is
-    reported as `configured` ("доступен, цепь ещё не проверена"). The architecture
-    stores no authoritative last-verified proof: `prove_socks5()` runs inside
-    TorBrowserController.start_session and its result lives only in that connection,
-    and this status path must not poll it. Therefore `ready` is intentionally never
-    produced for Tor, and no clearnet fallback exists at any point.
+    ``ready`` means the route was proven: a SOCKS5h round trip through the endpoint in use came
+    back as Tor (the proof is persisted, so this path stays read-only and never calls the network).
+    A listening port without a proof is ``configured``, a service that is coming up is
+    ``starting``/ ``reconnecting``, and everything else is ``unavailable`` with a typed reason.
+    ``tor_mode`` is policy, not health: it is reported in ``details.mode`` and never turns a
+    healthy service into an offline one. No clearnet fallback exists at any point.
     """
-    listening = socks_listening(settings.tor_socks_host, settings.tor_socks_port)
+    snapshot = service.snapshot() if service is not None else None
+    if snapshot is None:
+        # No service registered (tests, or a very old deployment): keep the historical answer.
+        listening = socks_listening(settings.tor_socks_host, settings.tor_socks_port)
+        snapshot = {
+            "state": "configured" if listening else "unavailable",
+            "reason": None if listening else "tor_no_endpoint",
+            "listening": listening,
+            "verified_chain": False,
+            "verified_at": None,
+            "endpoint": None,
+            "method": "socks5h",
+            "binary": None,
+            "proof_ttl_seconds": None,
+        }
+    endpoint = snapshot.get("endpoint") or {
+        "host": settings.tor_socks_host,
+        "port": settings.tor_socks_port,
+    }
     details = {
         "mode": prefs.tor_mode,
-        "proxy_host": settings.tor_socks_host,
-        "proxy_port": settings.tor_socks_port,
-        "socks_listening": listening,
-        "verified_chain": False,
-        "proof_store": "none",
+        "proxy_host": endpoint["host"],
+        "proxy_port": endpoint["port"],
+        "configured_port": settings.tor_socks_port,
+        "socks_listening": bool(snapshot.get("listening")),
+        "verified_chain": bool(snapshot.get("verified_chain")),
+        "verified_at": snapshot.get("verified_at"),
+        "proof_ttl_seconds": snapshot.get("proof_ttl_seconds"),
+        "method": snapshot.get("method"),
+        "managed": bool(snapshot.get("managed")),
+        "binary": snapshot.get("binary"),
+        "candidates": snapshot.get("candidates") or [],
         "required": prefs.tor_mode == "on",
         "fallback": "none",
     }
-    if prefs.tor_mode == "off":
+    state = str(snapshot.get("state") or UNAVAILABLE)
+    reason = snapshot.get("reason")
+    if state == READY:
         return entry(
-            OFF,
-            "Tor выключен в настройках.",
-            action="configure",
+            READY,
+            "Tor готов: цепь проверена."
+            + (" Использование Tor выключено в настройках." if prefs.tor_mode == "off" else ""),
+            details=details,
+        )
+    if state in {"starting", "reconnecting"}:
+        return entry(
+            STARTING,
+            "Tor подключается…" if state == "starting" else "Tor восстанавливается…",
+            action="retry",
             recoverable=True,
             details=details,
         )
-    if listening:
+    if state == "configured":
         return entry(
             CONFIGURED,
-            "Tor доступен, цепь ещё не проверена. Откат в clearnet не выполняется.",
+            "Tor отвечает, цепь ещё не проверена. Откат в clearnet не выполняется.",
             details=details,
         )
+    messages = {
+        NOT_INSTALLED: "Tor не найден на этом компьютере: установите Tor Browser или укажите tor.exe в настройках.",
+        CIRCUIT_INVALID: "SOCKS отвечает, но цепь Tor не подтверждена. Запросы через Tor выполняться не будут.",
+        DISABLED: "Управление Tor выключено в настройках сервера.",
+        "tor_managed_disabled": "Управление Tor выключено в настройках сервера.",
+        "tor_start_failed": "Не удалось запустить Tor.",
+        NO_ENDPOINT: "Tor запущен, но SOCKS не отвечает. Запросы через Tor выполняться не будут.",
+    }
+    detail_code = str(reason or NO_ENDPOINT)
     return entry(
         UNAVAILABLE,
-        "Tor не подтверждён. Запросы через Tor выполняться не будут, откат в clearnet не выполняется.",
-        detail_code="tor_unavailable",
+        messages.get(detail_code, "Tor не подтверждён. Запросы через Tor выполняться не будут"),
+        detail_code=detail_code,
         action="retry",
         recoverable=True,
         details=details,
@@ -341,12 +410,14 @@ def memory_status(db: Session, user: User, settings: Settings):
     return entry(READY, "Память включена.", details=details)
 
 
-def subsystem_status(db: Session, user: User, controller, settings: Settings):
+def subsystem_status(
+    db: Session, user: User, controller, settings: Settings, tor_service=None, boot_time=None
+):
     prefs = preferences(db, user.id)
     return {
         "ai": ai_status(controller, user),
-        "computer": computer_status(db, user, prefs),
+        "computer": computer_status(db, user, prefs, boot_time),
         "web": web_status(settings, prefs),
-        "tor": tor_status(settings, prefs),
+        "tor": tor_status(settings, prefs, tor_service),
         "memory": memory_status(db, user, settings),
     }

@@ -1,3 +1,4 @@
+import asyncio
 import socket
 from datetime import timedelta, timezone
 from typing import Any, cast
@@ -38,6 +39,45 @@ def _tor_connected(settings):
             return True
     except OSError:
         return False
+
+
+def tor_service(request: Request):
+    """The running Tor service, created on demand for a process that started without one."""
+    service = getattr(request.app.state, "tor", None)
+    if service is None:
+        from .tor.service import TorService
+
+        service = TorService(get_settings())
+        request.app.state.tor = service
+    return service
+
+
+def tor_snapshot(request: Request) -> dict:
+    """Read-only Tor health for the UI: state, endpoint, proof, binary. Never starts anything."""
+    return tor_service(request).snapshot()
+
+
+@router.get("/tools/tor")
+async def tor_health(request: Request, user: User = Depends(current_user)):
+    """The Tor service health the chip and its popover show. Read-only."""
+    return tor_snapshot(request)
+
+
+@router.post("/tools/tor/ensure")
+async def tor_ensure(request: Request, user: User = Depends(current_user)):
+    """Ask the service to (re)establish Tor now: the manual recovery action behind «Повторить».
+
+    It cannot widen a route: the same discovery, the same managed process and the same proof the
+    supervisor uses, with no clearnet fallback. A cold Tor bootstraps for a minute or more, so the
+    call returns the current state at once and the work continues in the background — the chip
+    shows «Tor подключается…» instead of a request that hangs for minutes.
+    """
+    service = tor_service(request)
+    snapshot = service.snapshot()
+    existing = getattr(request.app.state, "tor_ensure_task", None)
+    if existing is None or existing.done():
+        request.app.state.tor_ensure_task = asyncio.create_task(service.ensure(reason="manual"))
+    return {"requested": True, **snapshot}
 
 
 class ExplicitTool(BaseModel):
@@ -172,9 +212,10 @@ def put_preferences(body: WebSettings, user: User = Depends(current_user), db: S
 
 
 @router.get("/tools/status")
-def provider_status(user: User = Depends(current_user), db: Session = Depends(get_db)):
+def provider_status(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
     settings = get_settings()
     prefs = preferences(db, user.id)
+    tor = tor_snapshot(request)
     configured = bool(settings.tinyfish_api_key.get_secret_value())
     return {
         "provider": "TinyFish",
@@ -232,7 +273,8 @@ def provider_status(user: User = Depends(current_user), db: Session = Depends(ge
             "browser_mode": prefs.browser_mode,
         },
         "tor_search_configured": bool(settings.tor_search_providers),
-        "tor_status": "Connected" if _tor_connected(settings) else "Unavailable",
+        "tor_status": "Connected" if tor.get("state") == "ready" else "Unavailable",
+        "tor": tor,
         "limits": {
             "calls": settings.tools_max_calls,
             "searches": settings.tools_max_search,

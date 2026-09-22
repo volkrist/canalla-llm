@@ -24,6 +24,7 @@ from .config import get_settings
 from .documents.limits import UploadLimit
 from .documents.routes import router as documents_router
 from .documents.service import reconcile_jobs
+from .models import now
 from .personal import router as personal_router
 from .presence import PresenceManager
 from .presence import router as presence_router
@@ -51,7 +52,23 @@ async def lifespan(application):
     application.state.tools = getattr(application.state, "tools_override", None) or make_registry()
     application.state.presence = PresenceManager(settings)
     application.state.presence.reconcile()
+    # When this backend started: the host-connect grace window is measured from here, so a fresh
+    # app shows "Компьютер подключается…" instead of a red chip while the first heartbeat lands.
+    application.state.boot_time = now()
     presence_task = asyncio.create_task(application.state.presence.monitor())
+    # Tor is kept ready by the backend itself: discovery, a managed process when nothing answers,
+    # a verified route and bounded recovery. Nothing here starts compute or blocks startup.
+    from .tools.tor.service import TorService, set_active_service
+
+    application.state.tor = getattr(application.state, "tor_override", None) or TorService(settings)
+    set_active_service(application.state.tor)
+    # The first pass runs immediately, which is what makes Tor ready after a normal launch. Tests
+    # and the e2e stub backend never supervise: no test may spawn a real Tor or reach the network.
+    tor_task = (
+        asyncio.create_task(application.state.tor.supervise())
+        if settings.app_env != "test" and settings.tor_managed_enabled
+        else None
+    )
     compute = getattr(application.state, "compute_override", None) or RunPodController(settings)
     application.state.compute = compute
     if compute.llm:
@@ -112,6 +129,20 @@ async def lifespan(application):
     finally:
         await application.state.tools.close()
         presence_task.cancel()
+        tor = getattr(application.state, "tor", None)
+        if tor is not None:
+            try:
+                # Only the process we own is stopped; an external Tor is left alone.
+                await tor.stop()
+            except Exception:
+                logging.getLogger(__name__).warning("tor_stop_failed")
+            from .tools.tor.service import set_active_service
+
+            set_active_service(None)
+        if tor_task is not None:
+            tor_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await tor_task
         with suppress(asyncio.CancelledError):
             await presence_task
         cloud = getattr(application.state, "cloud", None)

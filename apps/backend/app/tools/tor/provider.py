@@ -9,6 +9,7 @@ from ..contracts import ToolError, ToolProvider, ToolResult
 from ..tinyfish.web import bounded_excerpt
 from .classify import classify_authority
 from .router import blocked_link, extract_page_links
+from .service import active_endpoint
 from .snapshot import fetch_needs_browser
 from .socks import TorTransportProvider
 from .urls import validate_tor_url
@@ -106,9 +107,8 @@ class TorSearchProvider(ToolProvider[TorSearchArgs]):
         self.transport = transport
 
     def _transport(self, settings):
-        return self.transport or TorTransportProvider(
-            host=settings.tor_socks_host, port=settings.tor_socks_port
-        )
+        host, port = active_endpoint(settings.tor_socks_host, settings.tor_socks_port)
+        return self.transport or TorTransportProvider(host=host, port=port)
 
     async def execute(self, args: TorSearchArgs, context):
         settings = get_settings()
@@ -181,9 +181,8 @@ class TorFetchProvider(ToolProvider[TorFetchArgs]):
         self.transport = transport
 
     def _transport(self, settings):
-        return self.transport or TorTransportProvider(
-            host=settings.tor_socks_host, port=settings.tor_socks_port
-        )
+        host, port = active_endpoint(settings.tor_socks_host, settings.tor_socks_port)
+        return self.transport or TorTransportProvider(host=host, port=port)
 
     async def execute(self, args: TorFetchArgs, context):
         settings = get_settings()

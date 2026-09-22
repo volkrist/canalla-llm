@@ -88,3 +88,20 @@ def active_device(db: Session, user_id: str) -> PairedDevice | None:
         if seen and seen >= cutoff:
             return row
     return None
+
+
+def newest_device(db: Session, user_id: str) -> PairedDevice | None:
+    """The most recent pairing, alive or not: the reconnect window needs its last sighting."""
+    return db.scalar(
+        select(PairedDevice)
+        .where(PairedDevice.user_id == user_id, PairedDevice.revoked_at.is_(None))
+        .order_by(PairedDevice.last_seen.desc())
+        .limit(1)
+    )
+
+
+def last_seen_seconds_ago(row: PairedDevice) -> float | None:
+    seen = _aware(row.last_seen)
+    if seen is None:
+        return None
+    return max(0.0, (now() - seen).total_seconds())

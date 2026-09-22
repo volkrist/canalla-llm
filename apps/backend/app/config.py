@@ -120,6 +120,21 @@ class Settings(BaseSettings):
     tools_max_tor_seconds: int = Field(default=180, ge=10, le=300)
     tor_socks_host: str = "127.0.0.1"
     tor_socks_port: int = Field(default=9050, ge=1, le=65535)
+    # Tor is a service the product keeps ready, not an on-demand hope: it is discovered (a
+    # running SOCKS on the configured port, 9050 or 9150), started when nothing answers and a
+    # Tor binary exists, and proven with a real SOCKS5h round trip before the chip turns green.
+    tor_managed_enabled: bool = True
+    tor_binary_path: str = ""
+    tor_extra_ports: list[int] = []
+    tor_check_url: str = "https://check.torproject.org/api/ip"
+    tor_proof_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    tor_startup_timeout_seconds: float = Field(default=300, ge=10, le=900)
+    tor_supervise_seconds: float = Field(default=20, ge=5, le=600)
+    # The host loop heartbeats every few seconds, so a freshly started app (or a host that just
+    # blinked) is "connecting", not broken: these windows keep the chip honest without demanding
+    # a button for a reconnect that is already in flight.
+    host_connect_grace_seconds: int = Field(default=60, ge=0, le=600)
+    host_reconnect_grace_seconds: int = Field(default=120, ge=0, le=900)
     tor_browser_automation_enabled: bool = True
     tor_search_providers: list[dict] = []
     tor_official_mapping: list[dict] = []

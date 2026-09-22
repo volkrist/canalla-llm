@@ -156,12 +156,90 @@ def test_computer_chip_uses_device_heartbeat_window():
         assert offline["detail_code"] == "host_offline"
 
 
+def test_a_host_that_just_blinked_is_reconnecting_not_broken():
+    """A host seen moments ago is being reconnected: the chip must not ask for a button yet."""
+    user_id = new_user(email="computer-reconnect@example.com")
+    with SessionLocal() as db:
+        user = require_row(db, User, user_id)
+        prefs = snap.preferences(db, user_id)
+        row = PairedDevice(
+            user_id=user_id,
+            display_name="Windows device",
+            platform="windows",
+            capabilities=["fs"],
+            credential_hash="0" * 64,
+            last_seen=now() - timedelta(seconds=70),
+        )
+        db.add(row)
+        db.commit()
+        result = snap.computer_status(db, user, prefs)
+
+    assert result["state"] == "starting"
+    assert "восстанавливает соединение" in result["message"]
+    assert result["recoverable"] is True
+    assert result["details"]["paired"] is True
+    assert result["details"]["host_running"] is False
+    assert result["details"]["heartbeat_age_seconds"] == pytest.approx(70, abs=5)
+
+
+def test_a_freshly_started_app_waits_for_the_first_heartbeat():
+    """Right after startup the host has not reported yet: "подключается", never a red chip."""
+    user_id = new_user(email="computer-boot@example.com")
+    with SessionLocal() as db:
+        user = require_row(db, User, user_id)
+        prefs = snap.preferences(db, user_id)
+        db.add(
+            PairedDevice(
+                user_id=user_id,
+                display_name="Windows device",
+                platform="windows",
+                capabilities=["fs"],
+                credential_hash="0" * 64,
+                last_seen=now() - timedelta(hours=6),
+            )
+        )
+        db.commit()
+        booting = snap.computer_status(db, user, prefs, boot_time=now() - timedelta(seconds=5))
+        settled = snap.computer_status(db, user, prefs, boot_time=now() - timedelta(minutes=30))
+
+    assert booting["state"] == "starting"
+    assert "подключается" in booting["message"]
+    # The grace is a window, not a way to hide a host that really is gone.
+    assert settled["state"] == "unavailable"
+    assert settled["detail_code"] == "host_offline"
+
+
+def test_computer_health_does_not_change_with_the_usage_mode():
+    user_id = new_user(email="computer-mode@example.com")
+    with SessionLocal() as db:
+        user = require_row(db, User, user_id)
+        db.add(
+            PairedDevice(
+                user_id=user_id,
+                display_name="Windows device",
+                platform="windows",
+                capabilities=["fs"],
+                credential_hash="0" * 64,
+                last_seen=now(),
+            )
+        )
+        db.commit()
+        base = snap.preferences(db, user_id)
+        for mode in ("ask", "auto", "off"):
+            prefs = base.model_copy(update={"computer_mode": mode})
+            result = snap.computer_status(db, user, prefs)
+            # The mode is policy: a live host stays ready, and the popover carries the mode.
+            assert result["state"] == "ready", mode
+            assert result["details"]["computer_mode"] == mode
+
+
 def test_computer_chip_respects_disabled_mode():
     user_id = new_user(email="computer-off@example.com")
     with SessionLocal() as db:
         user = require_row(db, User, user_id)
         prefs = snap.preferences(db, user_id).model_copy(update={"computer_mode": "off"})
         result = snap.computer_status(db, user, prefs)
+    # Never paired: there is no service to be healthy, so the policy is the honest answer.
     assert result["state"] == "off"
     assert result["action"] == "configure"
 
@@ -191,15 +269,16 @@ def test_web_chip_reports_configuration_state():
 
 @pytest.mark.parametrize("mode, listening", [("auto", True), ("on", True), ("auto", False), ("on", False)])
 def test_tor_chip_never_claims_ready_without_a_verified_chain(monkeypatch, mode, listening):
-    """An open SOCKS port is not a verified Tor route, and no proof store exists."""
+    """An open SOCKS port is not a verified Tor route; without the service, nothing is proven."""
     from app.tools.policy import WebSettings
 
     monkeypatch.setattr(snap, "socks_listening", lambda *args, **kwargs: listening)
     result = snap.tor_status(get_settings(), WebSettings.model_validate({"tor_mode": mode}))
     assert result["state"] != "ready"
     assert result["details"]["verified_chain"] is False
-    assert result["details"]["proof_store"] == "none"
+    assert result["details"]["verified_at"] is None
     assert result["details"]["fallback"] == "none"
+    assert result["details"]["method"] == "socks5h"
     if listening:
         assert result["state"] == "configured"
         assert "цепь ещё не проверена" in result["message"]
@@ -208,14 +287,108 @@ def test_tor_chip_never_claims_ready_without_a_verified_chain(monkeypatch, mode,
         assert result["action"] == "retry"
 
 
-@pytest.mark.parametrize("mode, listening, expected", [("off", True, "off"), ("auto", True, "configured")])
-def test_tor_chip_is_fail_closed(monkeypatch, mode, listening, expected):
+@pytest.mark.parametrize(
+    "mode, listening, expected", [("off", True, "configured"), ("auto", True, "configured")]
+)
+def test_tor_chip_is_health_not_policy(monkeypatch, mode, listening, expected):
+    """Tor Off/Auto/On is *usage policy*: it never turns a reachable service into an offline one."""
     from app.tools.policy import WebSettings
 
     monkeypatch.setattr(snap, "socks_listening", lambda *args, **kwargs: listening)
     settings = get_settings()
     prefs = WebSettings.model_validate({"tor_mode": mode})
-    assert snap.tor_status(settings, prefs)["state"] == expected
+    result = snap.tor_status(settings, prefs)
+    assert result["state"] == expected
+    assert result["details"]["mode"] == mode
+    assert result["details"]["required"] is (mode == "on")
+
+
+def test_a_proven_tor_service_turns_the_chip_green(monkeypatch):
+    """The service's proof is what makes Tor ready - and the mode stays a separate row."""
+    from app.tools.policy import WebSettings
+
+    class Proven:
+        def snapshot(self):
+            return {
+                "state": "ready",
+                "reason": None,
+                "managed": True,
+                "endpoint": {"host": "127.0.0.1", "port": 9050},
+                "listening": True,
+                "verified_chain": True,
+                "verified_at": "2026-09-22T13:36:39+00:00",
+                "proof_ttl_seconds": 900,
+                "method": "socks5h",
+                "binary": {"path": "C:/Tor/tor.exe", "source": "tor_browser"},
+                "candidates": [9050, 9150],
+            }
+
+    for mode, expected_mode in (("auto", "auto"), ("off", "off")):
+        result = snap.tor_status(get_settings(), WebSettings.model_validate({"tor_mode": mode}), Proven())
+        assert result["state"] == "ready"
+        assert result["details"]["verified_chain"] is True
+        assert result["details"]["managed"] is True
+        assert result["details"]["proxy_port"] == 9050
+        assert result["details"]["mode"] == expected_mode
+        assert result["details"]["fallback"] == "none"
+    # The policy is named in the message; the health is still green.
+    assert (
+        "выключено в настройках"
+        in snap.tor_status(get_settings(), WebSettings.model_validate({"tor_mode": "off"}), Proven())[
+            "message"
+        ]
+    )
+
+
+def test_a_starting_tor_service_is_transient_never_an_error(monkeypatch):
+    from app.tools.policy import WebSettings
+
+    class Booting:
+        def snapshot(self):
+            return {
+                "state": "starting",
+                "reason": None,
+                "managed": True,
+                "endpoint": None,
+                "listening": False,
+                "verified_chain": False,
+                "verified_at": None,
+                "proof_ttl_seconds": 900,
+                "method": "socks5h",
+                "binary": {"path": "C:/Tor/tor.exe", "source": "tor_browser"},
+                "candidates": [9050, 9150],
+            }
+
+    result = snap.tor_status(get_settings(), WebSettings.model_validate({"tor_mode": "auto"}), Booting())
+    assert result["state"] == "starting"
+    assert result["recoverable"] is True
+    assert "подключается" in result["message"].lower()
+
+
+def test_a_missing_tor_binary_is_an_honest_dependency(monkeypatch):
+    from app.tools.policy import WebSettings
+
+    class Missing:
+        def snapshot(self):
+            return {
+                "state": "unavailable",
+                "reason": "tor_not_installed",
+                "managed": False,
+                "endpoint": None,
+                "listening": False,
+                "verified_chain": False,
+                "verified_at": None,
+                "proof_ttl_seconds": 900,
+                "method": "socks5h",
+                "binary": None,
+                "candidates": [9050, 9150],
+            }
+
+    result = snap.tor_status(get_settings(), WebSettings.model_validate({"tor_mode": "auto"}), Missing())
+    assert result["state"] == "unavailable"
+    assert result["detail_code"] == "tor_not_installed"
+    assert "Tor Browser" in result["message"]
+    assert result["details"]["binary"] is None
 
 
 def test_tor_chip_never_reports_ready_without_socks(monkeypatch):

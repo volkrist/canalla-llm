@@ -44,6 +44,13 @@ async def status(
         await cloud.refresh()
     return {
         "generated_at": now().isoformat(),
-        "subsystems": subsystem_status(db, user, ai_source(request), settings),
+        "subsystems": subsystem_status(
+            db,
+            user,
+            ai_source(request),
+            settings,
+            getattr(request.app.state, "tor", None),
+            getattr(request.app.state, "boot_time", None),
+        ),
         "balance": await balance_service(request).snapshot(),
     }
