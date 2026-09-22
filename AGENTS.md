@@ -1,7 +1,8 @@
 # Alex LLM — agent instructions
 
 PROJECT: **Alex LLM** (user-facing name: **Canalla LLM** — see Naming)
-VERSION: **1.0.0** (released as tag `v1.0.0`; bump only as a deliberate release act)
+VERSION: **1.1.0** (release candidate on `release/canalla-1.1.0`; 1.0.0 stays released as tag
+`v1.0.0`. Bump only as a deliberate release act)
 
 Read `docs/AI-HANDOFF.md` before changing runtime, packaging, or compute.
 
@@ -67,6 +68,11 @@ Reliability stage: **CLOSED**. Do not reopen a broad reliability rewrite unless 
   the hard `$1.20` / `$3.00` server clamps, the `gpu_unavailable` vs `price_limit` split, the
   installer migration of a legacy programme install, and the live certification of the production
   path (`scripts/acceptance-live-rc-final.py`, one Pod for every live gate)
+- 1.1.0 release candidate — **COMPLETED and accepted** (`release/canalla-1.1.0`): the D-9 Gateway
+  startup deadline, the compact workspace and Settings shell, the POST context preview with an
+  honest failed-snapshot state, unified device state, strict project type checking, the hardened
+  release/acceptance tooling and the installed 1.0.0 → 1.1.0 upgrade. Not merged and not tagged
+  yet: the live GPU sanity is externally blocked by provider capacity (`docs/release-1.1.md`).
 
 ## Production package
 
@@ -192,6 +198,26 @@ the backups live under the data root, never in the install directory.
 
 Do not start LoRA yet. Before future LoRA: baseline + censorship/refusal + coding/tools/security + catastrophic-forgetting regression.
 
+## Startup deadline (D-9)
+
+A managed Pod that never becomes `ready` used to bill until the session budget ran out, because the
+idle policy only owns `ready`/`generating`. The Gateway now enforces its own deadline
+(`COMPUTE_STARTUP_TIMEOUT_SECONDS`, default **300 s**, configurable server-side only) over
+`creating` / `starting_pod` / `loading_model`. On expiry the Gateway classifies `startup_timeout`
+(recoverable), stops the Pod through the normal managed path, keeps the audit trail, clears the
+active session, never touches the Network Volume and never creates a second Pod. The deadline comes
+from persisted timestamps, so it protects the user even when the client or the harness is gone:
+**the Gateway is the authority, a `finally` block is not.** A refused termination stays visible on
+the control row and is retried on the next tick. Capacity (no Pod yet), startup (Pod exists, model
+not ready), idle (ready, unused) and the session budget (money) are four separate mechanisms.
+
+## Live-run capacity rule (absolute)
+
+A paid run may wait for GPU capacity for **at most 60 seconds** (one immediate check plus one or two
+short retries, never `--capacity-timeout 1200`, never a 20-minute window). If the provider answers
+`gpu_unavailable`, the run reports the typed external blocker, proves cleanup and stops. Do not sit
+and wait for hardware, and do not run repeating long cycles.
+
 ## Released
 
 Canalla LLM **1.0.0** — released from `release/canalla-1.0-rc` (annotated tag `v1.0.0`). The RC
@@ -199,6 +225,12 @@ slice is closed: branding, context meter, per-user Compute Preferences, the publ
 shared balance, backup/restore, upgrade protection, multi-user isolation and the live production
 path are all accepted. Code signing, the WM-07/CD-08 limitations and anything LoRA stay closed
 until separately tasked.
+
+Canalla LLM **1.1.0** — release candidate on `release/canalla-1.1.0`, built, installed and accepted
+against the deployed Gateway 1.1.0 (`/opt/alex-gateway/releases/adb568734430`). It carries the D-9
+startup deadline, the compact workspace and Settings shell, the POST context preview, and strict
+project type checking (BasedPyright 0/0). **Not merged and not tagged**: the live GPU sanity is
+externally blocked by provider capacity for now — see [docs/release-1.1.md](docs/release-1.1.md).
 
 ## Git safety
 
@@ -208,4 +240,4 @@ Do not commit `docs/screenshots/0.4/*.png` leftover noise.
 
 ## Tests
 
-No paid GPU or TinyFish unless the task explicitly requires REAL acceptance. Commands: `docs/AI-HANDOFF.md`. The consolidated live gate is `scripts/acceptance-live-rc-final.py`: `--self-test` proves the 28-case lifecycle matrix with a fake Gateway and no network, `--dry-run` exercises the real Gateway without creating a Pod, and the paid run uses one Pod for every live case with a spend ceiling.
+No paid GPU or TinyFish unless the task explicitly requires REAL acceptance. Commands: `docs/AI-HANDOFF.md`. The consolidated live gate is `scripts/acceptance-live-rc-final.py`: `--self-test` proves the 28-case lifecycle matrix with a fake Gateway and no network, `--dry-run` exercises the real Gateway without creating a Pod, and the paid run uses one Pod for every live case with a spend ceiling (`--core-only` restricts it to Basic → Stop → After Stop). `scripts/acceptance-post-release-1.1.0.py` is the installed-sidecar certification: `--self-test` is its 16-case lifecycle matrix and `--live` is the one-Pod sanity. `scripts/cloud-smoke-local.py` starts a temporary local Gateway so the installed cloud smoke runs from scratch.

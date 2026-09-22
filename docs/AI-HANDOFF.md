@@ -4,12 +4,15 @@ Canonical starting point for a new IDE/agent session. This is not a historical d
 
 ## 1. Product version
 
-**1.0.0** — released from `release/canalla-1.0-rc` as the annotated tag `v1.0.0`. The version is
-authoritative in: `apps/desktop/src-tauri/tauri.conf.json`, `apps/desktop/package.json`,
+**1.1.0** — release candidate on `release/canalla-1.1.0`. The version is authoritative in:
+`apps/desktop/src-tauri/tauri.conf.json`, `apps/desktop/package.json`,
 `apps/desktop/src-tauri/Cargo.toml`, `apps/backend/pyproject.toml`,
 `apps/gateway/pyproject.toml`, `apps/backend/app/product.py`, the FastAPI app and
-`apps/gateway/gateway/config.py`. The deployed Gateway reports `version: 1.0.0` (protocol stays
+`apps/gateway/gateway/config.py`. The deployed Gateway reports `version: 1.1.0` (protocol stays
 `1`). Bump only as a deliberate release act.
+
+**1.0.0** — released from `release/canalla-1.0-rc` as the annotated tag `v1.0.0`; frozen, and its
+installer stays as published.
 
 User-facing product name: **Canalla LLM** (window title, installer, chat labels, onboarding,
 assistant name). Storage, credential and protocol names keep the `Alex LLM` spelling on
@@ -19,17 +22,24 @@ purpose — see the Naming section of `AGENTS.md`.
 
 Recorded at the 1.0 release: `git rev-parse origin/main` is the live source of truth.
 
-- RC branch: `release/canalla-1.0-rc`
-- Release cut: the RC branch was merged into `main` and tagged `v1.0.0` (annotated)
-- Deployed Gateway release: `/opt/alex-gateway/releases/999e00b19ebd` (rollback target
-  `/opt/alex-gateway/releases/5539b623e592`)
+- Release candidate branch: `release/canalla-1.1.0` (NOT merged and NOT tagged: the live GPU sanity
+  is externally blocked by provider capacity, see [release-1.1.md](release-1.1.md) §7)
+- Previous release: `release/canalla-1.0-rc`, merged into `main` and tagged `v1.0.0` (annotated)
+- Deployed Gateway release: `/opt/alex-gateway/releases/adb568734430` (1.1.0, `current`, deployed
+  22 Sep 2026 12:35 UTC, service `alex-gateway.service`); rollback targets, newest first:
+  `/opt/alex-gateway/releases/9bd75486c34b` (the 1.0.0 release), then
+  `/opt/alex-gateway/releases/999e00b19ebd`, `/opt/alex-gateway/releases/5539b623e592`
 
-Release artifacts: `Canalla LLM_1.0.0_x64-setup.exe` (87 180 763 B, SHA-256
-`3465e6405cd5817be584b75eb11238a86e36b958f44776f9583d6008d1d22362`), desktop `alex-llm.exe`
-(SHA-256 `b662ebc830a034044096caca06d0f954f475de7618a8b58489e99e8b8170993f`; the installed copy is
-the NSIS-patched build), sidecar `alex-backend.exe`
-(`c80560ebdfac55ea46f0fe0ebd56336ba1da5c61a3ccff3c08e494b1aa7a8f01`), native host
-`alex-host-loop.exe` (`d10f6a1b2c15c2e1493dd49e7e09b116191171146101a8dc4c725a852a5bb29f`).
+Release artifacts: `Canalla LLM_1.1.0_x64-setup.exe` (87 172 470 B, SHA-256
+`3094793e5ece751b17d4ab69bfe5c34cc369a1408556b7b04cd7e4def379fdea`), desktop `alex-llm.exe`
+(SHA-256 `184ddf8d487161f5b45b8bf56c5d96d6696cc1e5988a7def798f005580694f4d`; the installed copy is
+the NSIS-patched build, `dc250ae11588a4b231402a599f442d62…`), sidecar `alex-backend.exe`
+(`52af9fe6acf2b49ac9ab0003c07b5d5b2a668ffa2845e0255e2a3f39aacb4a2b`), native host
+`alex-host-loop.exe` (`de615f11057cf7d6a73b9e012a10dc64ed76c34cd20bfc32a82990e17c6f27cb`).
+
+The 1.0.0 artifacts remain as published: `Canalla LLM_1.0.0_x64-setup.exe` (87 180 763 B, SHA-256
+`3465e6405cd5817be584b75eb11238a86e36b958f44776f9583d6008d1d22362`), sidecar
+`c80560ebdfac55ea46f0fe0ebd56336ba1da5c61a3ccff3c08e494b1aa7a8f01`.
 
 ## 3. Architecture
 
@@ -243,35 +253,87 @@ real machine (installer acceptance and GUI smoke rows above).
 
 A leftover `apps/backend/alex.db` at an old revision is **not** the product data root. Prefer a fresh `DATABASE_URL` for `alembic check`.
 
+### Post-release certification of the released 1.0.0 (22 Sep 2026)
+
+Recorded after the repo-wide type-checking cleanup; the release artifact itself is untouched.
+
+| Gate | Result |
+|---|---|
+| Type checking (BasedPyright, `pyrightconfig.json`, mode `standard`) | **0 errors, 0 warnings** (226 files) |
+| Backend pytest / Ruff / Alembic / pip-audit | **579 passed, 1 skipped** / PASS / head `0015`, no new operations / no known vulnerabilities |
+| Gateway pytest / Ruff / Alembic | **112 passed** / PASS / `0001_gateway_core`, no new operations |
+| Vitest / TypeScript / Prettier / Vite / Playwright / npm audit | **135 passed** / clean / PASS / PASS / **20 passed** / 0 vulnerabilities |
+| cargo check / cargo test | clean (re-verified from a fresh target dir) / **67 passed** (host 17, desktop 50) |
+| Post-release harness `--self-test` (fake lifecycle matrix) | **16/16** — assertion, transport reset, 5xx, 4xx and KeyboardInterrupt all still stop compute |
+| Post-release harness free phase (installed 1.0.0, isolated root) | **PASS** (clean first run, persistence, cloud, meter, restart) |
+| Installed GUI / backup / production-default / cloud smokes | **PASS (39)** / **PASS (27)** / **13/13** / **PASS** (50, one skip without `ALEX_SMOKE_SETUP`) |
+| Paid live sanity on the exact 1.0.0 (Basic → Stop → After Stop) | **INCOMPLETE — external blocker**: `ensure` answers `searching`/`gpu_unavailable` (compatible GPUs exist, none in stock in US-TX-3). One L40S did start the same day and reached ready in 90 s, so the product path is proven |
+
+### Acceptance of the 1.1.0 release candidate (22 Sep 2026)
+
+Everything below ran on the exact 1.1.0 artifact (`Canalla LLM_1.1.0_x64-setup.exe`, sidecar
+`52af9fe6…`). The candidate is **READY**; only the paid GPU sanity is externally blocked.
+
+| Gate | Result |
+|---|---|
+| Type checking (BasedPyright, `pyrightconfig.json`, mode `standard`) | **0 errors, 0 warnings** (226 files) |
+| Backend pytest / Ruff / Alembic / pip-audit | **581 passed, 1 skipped** / PASS / head `0015`, no new operations / no known vulnerabilities |
+| Gateway pytest / Ruff / Alembic | **130 passed** (112 + 18 new D-9 cases) / PASS / `0001_gateway_core` |
+| Vitest / TypeScript / Prettier / Vite / Playwright / npm audit | **150 passed** / clean / PASS / PASS / **20 passed** / 0 vulnerabilities |
+| cargo check / cargo test | clean / **67 passed** (host 17, desktop 50) |
+| Post-release harness `--self-test` (1.1.0 harness) | **16/16** — assertion, transport reset, 5xx, 4xx and KeyboardInterrupt all still stop compute |
+| Consolidated RC harness `--self-test` (+ new `--core-only`) | **28/28** |
+| Post-release harness free phase (installed 1.1.0, isolated root) | **PASS** (clean first run, persistence, cloud, meter, restart, logout keeps the enrollment) |
+| Installed GUI / backup / production-default / cloud smokes | **PASS** / **PASS** / **13/13** / **PASS** (Scenario J skipped without `ALEX_SMOKE_SETUP`) |
+| Upgrade 1.0.0 → 1.1.0 (real installer over the installed build, migration `0014` → `0015`) | **8/8 PASS** — data, session, enrollment, identity, verified pre-upgrade backup and balance preserved |
+| Gateway deployment 1.1.0 (verified snapshot → atomic `current` switch → service restart) | **PASS** — `/health` version 1.1.0, protocol 1, ready, database ok, provider configured; 12Testers site/API 200, nginx and its backend active, PM2 online |
+| Paid live sanity on the exact 1.1.0 (Basic → Stop → After Stop, 60 s capacity window) | **INCOMPLETE — external blocker**: two 60-second windows answered `searching`/`gpu_unavailable` (compatible GPUs exist, no usable stock). No Pod was created, nothing was spent, `active_pods=[]`, session `null`, Volume untouched |
+
 ## 12. Next slice
 
-**RC / 1.0 FINAL GATES**
+**CANALLA LLM 1.1.0 — LIVE SANITY ONLY**
 
-Status on the branch `release/canalla-1.0-rc` (22 Sep 2026):
+Status on the branch `release/canalla-1.1.0` (22 Sep 2026):
 
-- **Done and verified**: per-user Compute Preferences (defaults $0.52/h, $3.00/session, no product
-  ceilings, `compute_policy_invalid` instead of silent replacement, cheapest-compatible selection),
-  deployed to the production Gateway with a verified pre-deploy snapshot; Canalla Cloud user-facing
-  rename; composer context meter with `count_type`; the public compute-policy acceptance
-  (`scripts/acceptance-compute-policy.py`) PASSed on the deployed Gateway without spending anything.
-- **Open gate**: the live paid acceptance (`scripts/acceptance-live-compute.py`) could not run —
-  four attempts at $0.52/$0.79/$1.20 per hour produced `state=searching` and no Pod because every
-  48 GB+ NVIDIA GPU in US-TX-3 reported `stock=NONE` (read-only catalogue probe). Re-run that script
-  when provider capacity returns; it needs no other change. Because of this the version was **not**
-  bumped to 1.0.0, nothing was tagged and nothing was merged to `main`.
+- **Done and verified**: the D-9 startup deadline in the Gateway (with 18 deterministic cases), the
+  compact workspace and the Settings shell, the POST context preview with an honest failed-snapshot
+  state, strict project type checking (0/0 over 226 files), the release/acceptance tooling, the
+  1.1.0 build and its real upgrade over the installed 1.0.0, and the deployment of Gateway 1.1.0.
+- **Open**: only the **paid live sanity on the exact installed 1.1.0** — twice attempted, twice
+  blocked externally by RunPod capacity (`gpu_unavailable`, no Pod, no spend). The release branch is
+  ready; the next attempt is manual and must stay bounded:
+
+  ```
+  apps/backend/.venv/Scripts/python.exe scripts/acceptance-post-release-1.1.0.py --live --ceiling 1.20 --capacity-timeout 60
+  ```
+
+  Exit `3` = the typed external blocker (no Pod, no spend), exit `0` = the pass. Never widen
+  `--capacity-timeout` beyond 60 s: a capacity drought is reported, not waited out. The two 1.0.1
+  candidates from the 1.0.0 certification (draft preview in a POST body, a failed meter snapshot
+  instead of a stale ring) are **fixed in the 1.1.0 candidate**; the third finding
+  (`client_version` written only at enrollment) stays a documented limitation because fixing it
+  would add a field to the token request.
+
+The older 1.0.0 record, kept for history: the paid live sanity for the exact installed 1.0.0 was also
+blocked externally (18 attempts over 10 minutes on 22 Sep, 09:12-09:22 UTC — capacity was still
+being waited out then, which the 1.1.0 rule no longer allows). An L40S did start at 08:47 UTC that
+day and became `ready` 90 s later, so create → ready is proven on the production path.
 
 The upgrade / backup / data preservation slice is **complete and merged into `main`**; do not reopen
-it. Do not start RC either unless explicitly tasked. (Code signing, WM-07 and CD-08 stay closed until
-separately tasked; the Central RunPod Gateway is **deployed** at
-`https://gateway.12testers.store` and merged into `main` — its compute path
-(`/compute/ensure`, the inference proxy) is still unproven against a real Pod, which is the
-next verification step when a Pod is first started deliberately.)
+it. The Central RunPod Gateway is **deployed** at `https://gateway.12testers.store` and now runs the
+1.1.0 candidate; on 22 Sep 2026 it created a real L40S Pod, the model became ready and the
+pre-release live gates passed through it.
 
 ## 13. Normal test / build commands
 
 From repo root, PowerShell. No paid GPU/TinyFish unless a REAL task says so.
 
 ```powershell
+# Type checking (BasedPyright). The config is `pyrightconfig.json` in the repo root: mode "standard",
+# venv apps/backend/.venv, the project import roots, generated/build dirs excluded. Zed's language
+# server reads the same file, so the editor and this command always agree. Baseline: 0 errors, 0 warnings.
+npx basedpyright --outputjson
+
 # Backend
 cd apps\backend
 .\.venv\Scripts\python.exe -m pytest -q
@@ -296,6 +358,20 @@ cd src-tauri
 cargo check
 cargo test
 cd ..\..\..
+
+# Acceptance harnesses (free first, then the paid sanity). A capacity window is never longer
+# than 60 seconds: a drought is reported (`exit 3`, no Pod, no spend), not waited out.
+cd scripts
+..\apps\backend\.venv\Scripts\python.exe acceptance-post-release-1.1.0.py --self-test   # 16/16, no GPU
+..\apps\backend\.venv\Scripts\python.exe acceptance-live-rc-final.py --self-test       # 28/28, no GPU
+..\apps\backend\.venv\Scripts\python.exe acceptance-live-rc-final.py --dry-run          # real Gateway, no Pod
+cd ..
+# Installed-sidecar certification + one paid Pod (Basic → Stop → After Stop):
+apps\backend\.venv\Scripts\python.exe scripts\acceptance-post-release-1.1.0.py --live --ceiling 1.20 --capacity-timeout 60
+# A release sanity that skips the context/overflow/long-stream cases (already proven in 1.0.0):
+apps\backend\.venv\Scripts\python.exe scripts\acceptance-live-rc-final.py --max-hourly 1.20 --budget-usd 3.00 --capacity-timeout 60 --spend-ceiling 0.15 --core-only
+# The installed cloud smoke without a hand-made Gateway (temporary Gateway + database + code):
+apps\backend\.venv\Scripts\python.exe scripts\cloud-smoke-local.py
 
 # Gateway (its own service, own database, own Alembic history).
 # Deployed instance: https://gateway.12testers.store on the 12Testers VPS

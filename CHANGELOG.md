@@ -5,6 +5,89 @@ shared Canalla Cloud Gateway). Internal `Alex LLM` names — data root, credenti
 product/bundle ids, binaries, environment variables, `X-Alex-*` protocol headers and the
 public endpoint — are unchanged on purpose; see the Naming section of `AGENTS.md`.
 
+## [1.1.0]
+
+Release candidate on `release/canalla-1.1.0`. Installer artifact:
+`Canalla LLM_1.1.0_x64-setup.exe`. Runtime and Gateway protocols stay at `1`.
+
+### Fixed
+
+- **A Pod that never became ready no longer bills forever (D-9).** The Gateway now enforces a
+  server-side startup deadline (`COMPUTE_STARTUP_TIMEOUT_SECONDS`, 5 minutes by default): a
+  managed Pod still in `creating`, `starting_pod` or `loading_model` when the deadline closes is
+  stopped by the Gateway itself, classified `startup_timeout`, reported as recoverable, and the
+  Network Volume and any second Pod are untouched. The deadline is measured from persisted
+  timestamps, so it survives a vanished client, a Gateway restart or a killed process. A real
+  incident billed 39.5 minutes ($0.72) before this existed.
+- **The context meter works with long drafts.** The composer's preview travelled in a GET query
+  string, so a large Cyrillic draft failed at the request line (about 11 000 characters) long
+  before the composer's own 32 000 character limit. The draft now travels in a POST body, and the
+  read-only GET stays for compatibility.
+- **A failed meter read no longer shows a stale number.** The meter says «Context недоступен» and
+  recovers on the next successful read instead of presenting an older percent as current.
+- **A refused compute stop is never reported as a completed one.** A termination the provider
+  refuses stays visible on the control row and is retried on the next lifecycle tick.
+
+### Changed
+
+- **A compact workspace instead of a dashboard.** AI, Computer, Web, Tor and Memory are small
+  chips in the top bar next to Connected, with details in a popover; the balance is one thin
+  secondary line; an offline Computer is a single line with its Connect action; the startup banner
+  is a thin transient strip. The chat workspace starts about 170 px higher.
+- **Settings groups its 14 sections** (Общие, Личное, AI и инструменты, Данные, Система), and
+  Профиль, Пользователи, Проекты and Поиск по файлам (the embedding model) live inside the
+  Settings dialog instead of a panel over the app. One device snapshot feeds the chip, the
+  Computer bar and Settings, so they can no longer disagree.
+- **The composer is one control row** (Web, Tor, Computer, paperclip, device dot, send) without the
+  decorative helper texts; the context breakdown stays behind a click.
+
+### Internal
+
+- **Strict project type checking.** `pyrightconfig.json` with a checked project baseline (mode
+  `standard`, the real import roots, generated directories excluded) and the annotations and
+  None-narrowing that go with it: BasedPyright reports 0 errors and 0 warnings over 226 files
+  (previously 670 diagnostics), with four typed runtime edge cases fixed rather than silenced.
+- **Release and acceptance tooling.** `scripts/acceptance-post-release-1.1.0.py` certifies the
+  installed sidecar on an isolated root, always stops managed compute in a `finally` block and
+  keeps evidence when a run fails; its capacity window is 60 seconds, and a capacity drought is
+  reported as an external blocker instead of being waited out. `scripts/cloud-smoke-local.py`
+  makes the installed cloud smoke runnable from scratch (temporary local Gateway, temporary
+  database, throwaway activation code).
+
+### Known limitations
+
+- **The installer is unsigned.** Windows SmartScreen warns on first run and there is no
+  publisher name yet.
+- **There is no auto-updater.** Upgrading means running the newer installer over the existing
+  install; there is no network updater and no update channel.
+- **TinyFish Browser live execution/lifecycle (WM-07) is not closed**, and the CD-08 REAL
+  stale-SHA coverage debt remains.
+- **There is no central account or licensing service.** Enrollments come from one-time
+  activation codes created by the operator CLI on the Gateway.
+- **An installation's `client_version` is written once, at enrollment.** A token refresh updates
+  `last_seen_at` only, so the Gateway's installation list can name an older client after an
+  upgrade. It is operator metadata: nothing in routing, policy or security reads it, and updating
+  it would add a field to the token request, so it stays documented instead.
+- **The live GPU sanity for 1.1.0 is externally blocked by provider capacity** (RunPod reported
+  `gpu_unavailable` for every catalogue entry in two 60-second windows, so no Pod was created and
+  nothing was spent). The release candidate is otherwise fully accepted; see
+  [release-1.1.md](docs/release-1.1.md).
+- **The deployed Gateway drives real compute**, and the operational edges that the first live
+  certification found are documented rather than fixed: the session label stays `generating`
+  after a finished generation until the next state change (the Pod is available and the next
+  request answers on it); an over-window *draft* is not trimmed by the context builder — history,
+  memory and documents have budgets, a single oversized draft does not — so the upstream refuses
+  it and the client sees a typed `gateway_unavailable` naming the upstream status; and the
+  provider's `currentSpendPerHr` keeps reporting a terminated Pod for a while after a stop.
+- **Web and Tor report `configured`, never `ready`** — a real provider health probe and a
+  stored verified-Tor-chain proof do not exist yet.
+- A real backend restart with a live Pod has not been live-tested.
+- An access token stays valid until its short expiry after logout.
+- Shared compute has no quotes or GPU picker in the UI: the Gateway selects the cheapest GPU
+  inside the user's own policy, and the Canalla Cloud panel only offers «Запустить AI» /
+  «Остановить AI».
+- `Alex` remains in internal identifiers, protocol headers and tool descriptions.
+
 ## [1.0.0]
 
 Release candidate on `release/canalla-1.0-rc`. Installer artifact:
