@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "alex-llm-gateway"
-version = "0.9.3"
+version = "1.0.0"
 description = "Central Alex Gateway: the server-side authority for the shared RunPod account"
 requires-python = ">=3.12"
 dependencies = [

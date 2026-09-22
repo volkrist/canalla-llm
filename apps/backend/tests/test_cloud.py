@@ -68,7 +68,7 @@ class FakeGateway:
                 200,
                 json={
                     "product": "alex-llm-gateway",
-                    "version": "0.9.3",
+                    "version": "1.0.0",
                     "gateway_protocol_version": self.protocol,
                     "ready": True,
                     "database": "ok",

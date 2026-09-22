@@ -179,7 +179,7 @@ def test_health_and_mock_chat(client):
         "provider": "mock",
         "llm_ready": True,
         "product": "alex-llm",
-        "version": "0.9.3",
+        "version": "1.0.0",
         "runtime_protocol_version": 1,
         "instance": None,
     }
