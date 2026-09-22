@@ -37,7 +37,7 @@ STATES = (READY, STARTING, CONFIGURED, OFF, NOT_CONFIGURED, UNAVAILABLE, ERROR, 
 # and lets the existing controller reconciliation continue. Nothing here starts compute.
 AI_ERRORS = {
     "not_configured": (NOT_CONFIGURED, "configure", True),
-    # Alex Cloud (shared mode). An unreachable Gateway is recoverable; a rejected or
+    # Canalla Cloud (shared mode). An unreachable Gateway is recoverable; a rejected or
     # revoked installation needs the user to reconnect, not a retry.
     "gateway_not_connected": (NOT_CONFIGURED, "configure", True),
     "gateway_unavailable": (UNAVAILABLE, "retry", True),
@@ -87,11 +87,15 @@ AI_DEFAULTS = {
 }
 
 # Shared mode has no local RunPod credential to configure: the same states are explained
-# in terms of Alex Cloud instead of a provider key.
+# in terms of Canalla Cloud instead of a provider key.
 CLOUD_DEFAULTS = {
     **AI_DEFAULTS,
-    NOT_CONFIGURED: ("Alex Cloud не подключён. Подключите его в настройках Canalla LLM.", "configure", True),
-    UNAVAILABLE: ("Alex Cloud сейчас недоступен.", "retry", True),
+    NOT_CONFIGURED: (
+        "Canalla Cloud не подключён. Подключите его в настройках Canalla LLM.",
+        "configure",
+        True,
+    ),
+    UNAVAILABLE: ("Canalla Cloud сейчас недоступен.", "retry", True),
 }
 
 ACTION_KEYS = (None, "retry", "configure", "reconnect", "stop", "cancel_search")
@@ -117,7 +121,7 @@ def preferences(db: Session, user_id: str) -> WebSettings:
 def ai_status(controller, user: User):
     """AI readiness. `compact_ai` stays the single owner of the raw state machine.
 
-    In shared mode ``controller`` is the Alex Cloud adapter, which answers with the
+    In shared mode ``controller`` is the Canalla Cloud adapter, which answers with the
     Gateway's own compact state, so both modes render through this one mapping.
     """
     defaults = CLOUD_DEFAULTS if getattr(controller, "shared", False) else AI_DEFAULTS

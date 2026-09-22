@@ -40,18 +40,18 @@ CODES = {
 }
 
 DETAILS = {
-    "gateway_invalid_request": "Некорректный запрос к Alex Cloud.",
-    "gateway_auth_failed": "Не удалось авторизовать установку Alex в Alex Cloud.",
-    "gateway_protocol_mismatch": "Версия Alex Cloud несовместима с этой установкой Alex.",
-    "installation_revoked": "Эта установка Alex отключена от Alex Cloud.",
-    "installation_unknown": "Установка Alex не зарегистрирована в Alex Cloud.",
+    "gateway_invalid_request": "Некорректный запрос к Canalla Cloud.",
+    "gateway_auth_failed": "Не удалось авторизовать установку Canalla в Canalla Cloud.",
+    "gateway_protocol_mismatch": "Версия Canalla Cloud несовместима с этой установкой Canalla.",
+    "installation_revoked": "Эта установка Canalla отключена от Canalla Cloud.",
+    "installation_unknown": "Установка Canalla не зарегистрирована в Canalla Cloud.",
     "activation_code_rejected": "Код активации не принят.",
     "activation_code_expired": "Срок действия кода активации истёк.",
     "activation_code_used": "Код активации уже использован.",
     "gateway_rate_limited": "Слишком много запросов. Повторите позже.",
     "gateway_queue_full": "Очередь запросов AI заполнена. Повторите позже.",
     "gateway_busy": "AI занят другим запросом. Повторите позже.",
-    "gateway_unavailable": "Alex Cloud сейчас недоступен.",
+    "gateway_unavailable": "Canalla Cloud сейчас недоступен.",
     "gateway_budget_denied": "Запрос превышает установленные лимиты расходов.",
     "compute_policy_invalid": "Недопустимая политика расходов: проверьте максимум $/час и бюджет сессии.",
     "gateway_request_in_flight": "Этот запрос уже выполняется.",
@@ -59,10 +59,10 @@ DETAILS = {
     "compute_offline": "AI не запущен. Запустите его перед запросом.",
     "compute_unknown": "Результат запуска AI пока неизвестен. Выполняется сверка с провайдером.",
     "multiple_compute": "Обнаружено несколько compute для этого аккаунта. Требуется проверка оператора.",
-    "external_compute": "Обнаружен существующий compute, созданный не Alex Cloud.",
-    "not_configured": "Alex Cloud не настроен на сервере.",
+    "external_compute": "Обнаружен существующий compute, созданный не Canalla Cloud.",
+    "not_configured": "Canalla Cloud не настроен на сервере.",
     "malformed_response": "Провайдер вернул неподдерживаемый ответ. Операция остановлена.",
-    "gateway_internal_error": "Внутренняя ошибка Alex Cloud.",
+    "gateway_internal_error": "Внутренняя ошибка Canalla Cloud.",
 }
 
 

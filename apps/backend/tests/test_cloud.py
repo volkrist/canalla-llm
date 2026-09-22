@@ -1,4 +1,4 @@
-"""Client-side Alex Cloud integration (shared mode).
+"""Client-side Canalla Cloud integration (shared mode).
 
 The Gateway is doubled with ``httpx.MockTransport``: no test here can reach a real Gateway
 or create paid compute. What is verified is the *client contract* — one short-lived token
@@ -210,7 +210,7 @@ def test_loopback_plaintext_gateway_is_allowed_for_development():
 def test_shared_mode_without_a_url_reports_not_connected():
     """A production install is shared by default and may not be enrolled yet.
 
-    That state must boot and say "Alex Cloud не подключён" instead of failing to start or
+    That state must boot and say "Canalla Cloud не подключён" instead of failing to start or
     silently falling back to a local provider credential.
     """
     from app.config import Settings
@@ -230,7 +230,7 @@ def test_shared_mode_without_a_url_reports_not_connected():
     assert state.snapshot()["state"] == "not_connected"
     chip = ai_status(CloudAi(state), User())
     assert chip["state"] == "not_configured"
-    assert "Alex Cloud" in chip["message"]
+    assert "Canalla Cloud" in chip["message"]
     run(state.refresh(force=True))
     assert state.snapshot()["detail_code"] == "gateway_not_connected"
 
@@ -544,7 +544,7 @@ def test_not_enrolled_installation_says_cloud_not_connected(gateway):
 
     chip = ai_status(CloudAi(state), User())
     assert chip["state"] == "not_configured"
-    assert "Alex Cloud" in chip["message"]
+    assert "Canalla Cloud" in chip["message"]
 
 
 # ------------------------------------------------------------------- local compute guard
@@ -608,6 +608,6 @@ def test_shared_mode_refuses_the_local_compute_routes(gateway):
         start, stop, search = run(scenario())
         for response in (start, stop, search):
             assert response.status_code == 409, response.text
-            assert "Alex Cloud" in response.json()["detail"]
+            assert "Canalla Cloud" in response.json()["detail"]
     finally:
         settings.alex_ai_mode = original

@@ -23,12 +23,24 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const EXE = path.join(
-  process.env.LOCALAPPDATA,
-  "Programs",
-  "Alex LLM",
-  "alex-llm.exe",
-);
+// The product installs into Programs\Canalla LLM; a legacy Alex LLM install can still exist
+// during an upgrade acceptance, so prefer the current name and fall back to the old one.
+const EXE =
+  [
+    path.join(
+      process.env.LOCALAPPDATA,
+      "Programs",
+      "Canalla LLM",
+      "alex-llm.exe",
+    ),
+    path.join(process.env.LOCALAPPDATA, "Programs", "Alex LLM", "alex-llm.exe"),
+  ].find((candidate) => fs.existsSync(candidate)) ??
+  path.join(
+    process.env.LOCALAPPDATA,
+    "Programs",
+    "Canalla LLM",
+    "alex-llm.exe",
+  );
 const CDP_PORT = 9231;
 const EMAIL = "gateway-default@example.com";
 const PASSWORD = "gateway-default-12345";
@@ -246,8 +258,8 @@ async function scenario(page) {
     `ai=${status.subsystems.ai.state} message=${status.subsystems.ai.message}`,
   );
   check(
-    "C3 the AI message names Alex Cloud, not a local RunPod key",
-    String(status.subsystems.ai.message).includes("Alex Cloud"),
+    "C3 the AI message names Canalla Cloud, not a local RunPod key",
+    String(status.subsystems.ai.message).includes("Canalla Cloud"),
     status.subsystems.ai.message,
   );
 

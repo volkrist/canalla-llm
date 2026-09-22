@@ -26,12 +26,24 @@ import { chromium } from "playwright";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const EXE = path.join(
-  process.env.LOCALAPPDATA,
-  "Programs",
-  "Alex LLM",
-  "alex-llm.exe",
-);
+// The product installs into Programs\Canalla LLM; a legacy Alex LLM install can still exist
+// during an upgrade acceptance, so prefer the current name and fall back to the old one.
+const EXE =
+  [
+    path.join(
+      process.env.LOCALAPPDATA,
+      "Programs",
+      "Canalla LLM",
+      "alex-llm.exe",
+    ),
+    path.join(process.env.LOCALAPPDATA, "Programs", "Alex LLM", "alex-llm.exe"),
+  ].find((candidate) => fs.existsSync(candidate)) ??
+  path.join(
+    process.env.LOCALAPPDATA,
+    "Programs",
+    "Canalla LLM",
+    "alex-llm.exe",
+  );
 const CDP_PORT = 9224;
 const GATEWAY_URL = "http://127.0.0.1:9011";
 const GATEWAY_DB = path.join(os.tmpdir(), "alex-gateway-smoke", "gateway.db");

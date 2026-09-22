@@ -43,21 +43,21 @@ ERROR_MESSAGES = {
     "connection_auth_failed": "Не удалось авторизовать защищённое подключение AI.",
     "connection_failed": "Не удалось подключиться к AI. Backend продолжает проверку.",
     "model_mismatch": "Запущенная модель не совпадает с настроенным alias.",
-    # Alex Cloud (Central RunPod Gateway). RunPod becomes infrastructure of Alex: in shared
+    # Canalla Cloud (Central RunPod Gateway). RunPod becomes infrastructure of Canalla: in shared
     # mode a user never holds the provider credential, so these are the messages that
     # replace the provider ones.
-    "gateway_not_connected": "Alex Cloud не подключён. Подключите его в настройках Alex.",
-    "gateway_unavailable": "Alex Cloud сейчас недоступен. Повторите позже.",
-    "gateway_auth_failed": "Alex Cloud отклонил эту установку. Подключите её заново.",
-    "gateway_protocol_mismatch": "Версия Alex Cloud несовместима с этой установкой Alex.",
-    "installation_revoked": "Эта установка отключена от Alex Cloud. Нужен новый код активации.",
+    "gateway_not_connected": "Canalla Cloud не подключён. Подключите его в настройках Canalla LLM.",
+    "gateway_unavailable": "Canalla Cloud сейчас недоступен. Повторите позже.",
+    "gateway_auth_failed": "Canalla Cloud отклонил эту установку. Подключите её заново.",
+    "gateway_protocol_mismatch": "Версия Canalla Cloud несовместима с этой установкой Canalla.",
+    "installation_revoked": "Эта установка отключена от Canalla Cloud. Нужен новый код активации.",
     "gateway_busy": "AI занят другим запросом. Повторите позже.",
     "gateway_queue_full": "Очередь запросов AI заполнена. Повторите позже.",
     "gateway_budget_denied": "Запрос превышает установленные лимиты расходов.",
     "gateway_request_in_flight": "Этот запрос уже выполняется.",
     "gateway_request_completed": "Этот запрос уже завершён.",
     "gateway_managed_compute": (
-        "Compute управляется Alex Cloud. Запуск и остановка доступны через Alex Cloud."
+        "Compute управляется Canalla Cloud. Запуск и остановка доступны через Canalla Cloud."
     ),
 }
 

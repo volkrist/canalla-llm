@@ -22,12 +22,24 @@ import { chromium } from "playwright";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..", "..", "..");
-const EXE = path.join(
-  process.env.LOCALAPPDATA,
-  "Programs",
-  "Alex LLM",
-  "alex-llm.exe",
-);
+// The product installs into Programs\Canalla LLM; a legacy Alex LLM install can still exist
+// during an upgrade acceptance, so prefer the current name and fall back to the old one.
+const EXE =
+  [
+    path.join(
+      process.env.LOCALAPPDATA,
+      "Programs",
+      "Canalla LLM",
+      "alex-llm.exe",
+    ),
+    path.join(process.env.LOCALAPPDATA, "Programs", "Alex LLM", "alex-llm.exe"),
+  ].find((candidate) => fs.existsSync(candidate)) ??
+  path.join(
+    process.env.LOCALAPPDATA,
+    "Programs",
+    "Canalla LLM",
+    "alex-llm.exe",
+  );
 const PYTHON = path.resolve(
   REPO,
   "apps",
@@ -212,12 +224,12 @@ async function findBackendPort(timeoutMs = 180000) {
 
 async function firstRun(page) {
   await page
-    .getByRole("button", { name: "Создать владельца Alex" })
+    .getByRole("button", { name: "Создать владельца Canalla" })
     .waitFor({ timeout: 240000 });
   await page.getByLabel("Имя владельца (необязательно)").fill("Backup Owner");
   await page.getByLabel("Email", { exact: true }).fill(EMAIL);
   await page.getByLabel("Пароль", { exact: true }).fill(PASSWORD);
-  await page.getByRole("button", { name: "Создать владельца Alex" }).click();
+  await page.getByRole("button", { name: "Создать владельца Canalla" }).click();
   await page
     .getByRole("button", { name: "New Chat" })
     .waitFor({ timeout: 180000 });
