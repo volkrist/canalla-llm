@@ -60,6 +60,36 @@ const PYTHON = path.resolve(
   "Scripts",
   "python.exe",
 );
+// `ALEX_DEVICE_DIR` only moves `device.json`. The device credential itself is a machine-wide entry
+// (`Alex LLM/device-credential` by default), so this smoke borrows its own target for the whole run
+// and deletes it again: a smoke must never leave a device credential the real app would then load.
+const DEVICE_CREDENTIAL_TARGET = `Alex LLM/device-credential-gui-smoke-${Date.now().toString(36)}`;
+// One name for the whole run: every relaunch must look like the same installation, and the machine's
+// real Canalla Cloud enrollment must stay invisible to this smoke.
+const GATEWAY_CREDENTIAL_NAME = `gui-smoke-${Date.now().toString(36)}`;
+
+const CREDENTIAL_DELETER = `
+import ctypes, sys
+from ctypes import wintypes
+api = ctypes.WinDLL("advapi32", use_last_error=True)
+api.CredDeleteW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD]
+api.CredDeleteW.restype = wintypes.BOOL
+if api.CredDeleteW(sys.argv[1], 1, 0):
+    sys.exit(0)
+# ERROR_NOT_FOUND counts as clean: there is nothing of ours left to delete.
+sys.exit(0 if ctypes.get_last_error() == 1168 else 1)
+`;
+
+function deleteCredential(target) {
+  try {
+    execFileSync(PYTHON, ["-c", CREDENTIAL_DELETER, target], {
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 let failures = 0;
 let backendPort = 0;
@@ -84,14 +114,18 @@ function dbQuery(sql) {
   return JSON.parse(out);
 }
 
-/** The status bar renders `starting` until the first authoritative snapshot arrives. */
+/** The status bar renders `starting` until the first authoritative snapshot arrives.
+ *
+ * `data-pending` marks precisely that first-snapshot state. A chip that says "Подключается…" is a
+ * subsystem that is genuinely coming up (Tor bootstraps for a minute or more), so waiting for
+ * "no chip is starting" would wait for the network instead of for the snapshot. */
 async function waitForStatus(page) {
   await page.waitForFunction(
     () =>
       document.querySelectorAll(".status-chip").length === 5 &&
-      !document.querySelector(".status-chip.state-starting"),
+      !document.querySelector('.status-chip[data-pending="true"]'),
     null,
-    { timeout: 60000 },
+    { timeout: 120000 },
   );
 }
 
@@ -122,6 +156,13 @@ function credentialTargets() {
     .replace(/\s+/g, "");
   const matches = text.match(/AlexLLM\/session\/[A-Za-z0-9._-]+/g) || [];
   return [...new Set(matches)];
+}
+
+/** `AlexLLM/session/x` (as listed, whitespace-stripped) -> `Alex LLM/session/x` (as stored). */
+function realTarget(key) {
+  return key.startsWith("AlexLLM/")
+    ? `Alex LLM/${key.slice("AlexLLM/".length)}`
+    : key;
 }
 
 function sleep(ms) {
@@ -155,9 +196,10 @@ function launchApp() {
       ...process.env,
       ALEX_LLM_DATA_DIR: DATA_ROOT,
       ALEX_DEVICE_DIR: DEVICE_DIR,
+      ALEX_DEVICE_CREDENTIAL_TARGET: DEVICE_CREDENTIAL_TARGET,
       // Without this the smoke would read the machine's real Canalla Cloud enrollment and
       // its shared balance: the clean-state claim needs its own credential name.
-      ALEX_GATEWAY_CREDENTIAL_NAME: `gui-smoke-${Date.now().toString(36)}`,
+      ALEX_GATEWAY_CREDENTIAL_NAME: GATEWAY_CREDENTIAL_NAME,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
     },
     stdio: "ignore",
@@ -276,10 +318,25 @@ async function scenarioFreshInstall(page) {
   const settled = await page.locator(".status-chip").allInnerTexts();
   const webTor = settled.filter((row) => /^(WEB|TOR)/i.test(row.trim()));
   check(
-    "A14 Web/Tor never claim ready without a verified proof",
-    webTor.length === 2 && webTor.every((row) => !/Готово/.test(row)),
+    "A14 configuration alone never claims ready (Web), and a ready Tor is a proven Tor",
+    webTor.length === 2 && !/^WEB[\s\S]*Готово/.test(webTor.join(" | ")),
     webTor.join(" | ").replace(/\n/g, " "),
   );
+  // A green Tor chip must be backed by a verified circuit, not by "something is listening".
+  const torReady = /ГОТОВО/.test((webTor[1] || "").toUpperCase());
+  if (torReady) {
+    await page.locator(".status-chip", { hasText: "Tor" }).first().click();
+    const proof = (await page.getByTestId("status-detail").innerText()).replace(
+      /\s+/g,
+      " ",
+    );
+    check(
+      "A14b the ready Tor chip shows a verified circuit in its details",
+      /Цепь проверена/.test(proof) && /Цепь проверена\s*да/.test(proof),
+      proof.slice(0, 120),
+    );
+    await page.locator(".status-chip", { hasText: "Tor" }).first().click();
+  }
   check(
     "A9 five status chips with readable text (no colour-only status)",
     settled.length === 5 &&
@@ -303,6 +360,18 @@ async function scenarioFreshInstall(page) {
       "  [info] every chip is ready/enabled; no recovery card expected",
     );
   }
+  // The balance is a separate read (a shared, cached Gateway call): wait for it to settle before
+  // judging, instead of reading the "checking" placeholder as an answer.
+  await page
+    .waitForFunction(
+      () => {
+        const node = document.querySelector('[data-testid="runpod-balance"]');
+        return Boolean(node && !/проверяем/i.test(node.textContent || ""));
+      },
+      null,
+      { timeout: 120000 },
+    )
+    .catch(() => undefined);
   const balance = await page.getByTestId("runpod-balance").innerText();
   check(
     "A10 shared balance is honest without a key, never a fake $0.00",
@@ -534,6 +603,19 @@ async function main() {
   }
 
   console.log();
+  const deviceCredentialGone = deleteCredential(DEVICE_CREDENTIAL_TARGET);
+  check(
+    "F11 the smoke's own device credential is cleaned up",
+    deviceCredentialGone,
+    DEVICE_CREDENTIAL_TARGET,
+  );
+  const leftovers = sessionCredentialTargets(dbSessionIds()).map(realTarget);
+  const sessionsRemoved = leftovers.filter(deleteCredential).length;
+  check(
+    "F12 this smoke's own session credentials are cleaned up",
+    sessionCredentialTargets(dbSessionIds()).length === 0,
+    `removed=${sessionsRemoved}`,
+  );
   if (failures > 0) {
     console.error(`GUI SMOKE FAILED: ${failures} failing check(s)`);
     process.exit(1);

@@ -100,7 +100,10 @@ from ctypes import wintypes
 api = ctypes.WinDLL("advapi32", use_last_error=True)
 api.CredDeleteW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD]
 api.CredDeleteW.restype = wintypes.BOOL
-sys.exit(0 if api.CredDeleteW(sys.argv[1], 1, 0) else 1)
+if api.CredDeleteW(sys.argv[1], 1, 0):
+    sys.exit(0)
+# ERROR_NOT_FOUND counts as clean: there is nothing of ours left to delete.
+sys.exit(0 if ctypes.get_last_error() == 1168 else 1)
 `;
 
 function deleteCredential(target) {
@@ -114,14 +117,58 @@ function deleteCredential(target) {
   }
 }
 
+// `ALEX_DEVICE_DIR` only moves `device.json`; the device credential is a machine-wide entry
+// (`Alex LLM/device-credential` by default). Each phase borrows its own target and this run
+// deletes them all, so no phase can leave the real app a credential that is not its own.
+const deviceCredentials = new Set();
+
 function isolated(name) {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), `alex-backup-${name}-`));
+  const deviceCredentialTarget = `Alex LLM/device-credential-backup-${name}`;
+  deviceCredentials.add(deviceCredentialTarget);
   return {
     work,
     dataRoot: path.join(work, "data"),
     deviceDir: path.join(work, "cred"),
     credentialName: `backup-${name}-${Date.now().toString(36)}`,
+    deviceCredentialTarget,
   };
+}
+
+/** Every device credential this run wrote, so none survives it. */
+function cleanupDeviceCredentials() {
+  return [...deviceCredentials]
+    .map((target) => deleteCredential(target))
+    .every(Boolean);
+}
+
+// Session credentials are machine-wide too. Each phase notes the ids of its own isolated database
+// before removing it, so the run can delete exactly those entries and nothing of the real install.
+const sessionCredentials = new Map();
+
+function collectSessionCredentials(scope) {
+  const database = path.join(scope.dataRoot, "data", "alex.db");
+  if (!fs.existsSync(database)) return;
+  try {
+    const ids = JSON.parse(
+      execFileSync(
+        PYTHON,
+        [
+          "-c",
+          `import sqlite3,sys,json;db=sqlite3.connect(sys.argv[1]);print(json.dumps([row[0] for row in db.execute("SELECT id FROM auth_sessions")]))`,
+          database,
+        ],
+        { encoding: "utf8" },
+      ).trim(),
+    );
+    for (const id of ids) sessionCredentials.set(id, `Alex LLM/session/${id}`);
+  } catch {
+    /* a phase whose database never migrated has no sessions to clean */
+  }
+}
+
+function cleanupSessionCredentials() {
+  return [...sessionCredentials.values()].map(deleteCredential).every(Boolean);
 }
 
 function launchApp(scope) {
@@ -129,6 +176,7 @@ function launchApp(scope) {
     ...process.env,
     ALEX_LLM_DATA_DIR: scope.dataRoot,
     ALEX_DEVICE_DIR: scope.deviceDir,
+    ALEX_DEVICE_CREDENTIAL_TARGET: scope.deviceCredentialTarget,
     ALEX_GATEWAY_CREDENTIAL_NAME: scope.credentialName,
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
   };
@@ -529,6 +577,7 @@ async function phaseA() {
     return { scope, before };
   });
   deleteCredential(`Alex LLM/gateway/${scope.credentialName}`);
+  collectSessionCredentials(scope);
   fs.rmSync(scope.work, { recursive: true, force: true });
 }
 
@@ -627,6 +676,7 @@ async function phaseC() {
     return { scope };
   });
   deleteCredential(`Alex LLM/gateway/${scope.credentialName}`);
+  collectSessionCredentials(scope);
   fs.rmSync(scope.work, { recursive: true, force: true });
 }
 
@@ -760,6 +810,7 @@ print(db.execute("SELECT COUNT(*) FROM messages").fetchone()[0])`,
     files.join(","),
   );
   deleteCredential(`Alex LLM/gateway/${scope.credentialName}`);
+  collectSessionCredentials(scope);
   fs.rmSync(scope.work, { recursive: true, force: true });
 }
 
@@ -775,6 +826,18 @@ async function main() {
   await phaseC();
   await phaseD();
   console.log();
+  const cleaned = cleanupDeviceCredentials();
+  const sessionsCleaned = cleanupSessionCredentials();
+  check(
+    "E1 every device credential this run wrote is deleted again",
+    cleaned,
+    [...deviceCredentials].join(", "),
+  );
+  check(
+    "E2 every session credential this run wrote is deleted again",
+    sessionsCleaned,
+    `${sessionCredentials.size} session(s)`,
+  );
   if (skipped) console.log(`SKIPPED: ${skipped}`);
   if (failures) {
     console.error(`BACKUP ACCEPTANCE FAILED: ${failures} check(s)`);
@@ -792,5 +855,7 @@ main().catch((error) => {
   killTree(activeChild);
   if (active?.credentialName)
     deleteCredential(`Alex LLM/gateway/${active.credentialName}`);
+  cleanupDeviceCredentials();
+  cleanupSessionCredentials();
   process.exit(1);
 });

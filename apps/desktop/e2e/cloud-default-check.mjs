@@ -51,6 +51,9 @@ const DEVICE_DIR = fs.mkdtempSync(
   path.join(os.tmpdir(), "alex-gw-default-cred-"),
 );
 const CREDENTIAL_NAME = `default-${Date.now().toString(36)}`;
+// `ALEX_DEVICE_DIR` only moves `device.json`; the device credential itself is a machine-wide entry
+// (`Alex LLM/device-credential` by default), so this run borrows its own target and deletes it again.
+const DEVICE_CREDENTIAL_TARGET = `Alex LLM/device-credential-cloud-default-${Date.now().toString(36)}`;
 const EXPECTED_URL = "https://gateway.12testers.store";
 
 let failures = 0;
@@ -100,6 +103,7 @@ function launchApp() {
       ...process.env,
       ALEX_LLM_DATA_DIR: DATA_ROOT,
       ALEX_DEVICE_DIR: DEVICE_DIR,
+      ALEX_DEVICE_CREDENTIAL_TARGET: DEVICE_CREDENTIAL_TARGET,
       ALEX_GATEWAY_CREDENTIAL_NAME: CREDENTIAL_NAME,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
     },
@@ -179,6 +183,35 @@ print("deleted" if a.CredDeleteW("Alex LLM/gateway/${name}", 1, 0) else "absent"
     return execFileSync(python, ["-c", script], { encoding: "utf8" }).trim();
   } catch {
     return "error";
+  }
+}
+
+/** The device credential is not scoped by `ALEX_DEVICE_DIR`, so it is deleted by exact target. */
+function deleteDeviceCredential(target) {
+  const script = `
+import ctypes, sys
+from ctypes import wintypes
+a = ctypes.WinDLL("advapi32", use_last_error=True)
+a.CredDeleteW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD]
+a.CredDeleteW.restype = wintypes.BOOL
+if a.CredDeleteW(sys.argv[1], 1, 0):
+    sys.exit(0)
+# ERROR_NOT_FOUND counts as clean: there is nothing of ours left to delete.
+sys.exit(0 if ctypes.get_last_error() == 1168 else 1)`;
+  const python = path.resolve(
+    __dirname,
+    "..",
+    "..",
+    "backend",
+    ".venv",
+    "Scripts",
+    "python.exe",
+  );
+  try {
+    execFileSync(python, ["-c", script, target], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -341,6 +374,18 @@ async function main() {
   console.log(
     `credential=${CREDENTIAL_NAME}  expected gateway=${EXPECTED_URL}`,
   );
+  // Tauri's WebView2 uses one shared EBWebView folder, so a lingering instance would make this
+  // launch attach to the old browser process and silently lose the debugging port.
+  const stray = spawnSync("tasklist", ["/FI", "IMAGENAME eq alex-llm.exe"], {
+    encoding: "utf8",
+  }).stdout;
+  if (stray.includes("alex-llm.exe")) {
+    console.log("  [info] closing a leftover alex-llm.exe before the launch");
+    spawnSync("taskkill", ["/IM", "alex-llm.exe", "/T", "/F"], {
+      stdio: "ignore",
+    });
+    await sleep(2500);
+  }
   const child = launchApp();
   try {
     await waitCdp();
@@ -364,6 +409,14 @@ async function main() {
   }
   const removed = deleteCredential(CREDENTIAL_NAME);
   console.log(`  [info] throwaway enrollment credential: ${removed}`);
+  const deviceCredentialRemoved = deleteDeviceCredential(
+    DEVICE_CREDENTIAL_TARGET,
+  );
+  check(
+    "F2 the run's own device credential is deleted again",
+    deviceCredentialRemoved,
+    DEVICE_CREDENTIAL_TARGET,
+  );
   fs.rmSync(DATA_ROOT, { recursive: true, force: true });
   fs.rmSync(DEVICE_DIR, { recursive: true, force: true });
   console.log();

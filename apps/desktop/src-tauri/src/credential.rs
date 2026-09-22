@@ -332,4 +332,29 @@ mod tests {
         restore_device_dir(previous);
         let _ = fs::remove_dir_all(&temp);
     }
+
+    /// `ALEX_DEVICE_DIR` moves `device.json` only: the device credential is one machine-wide
+    /// Credential Manager entry, so an isolated run (an acceptance harness) must be able to point it
+    /// somewhere else or it would overwrite the credential the real installation pairs with.
+    #[test]
+    fn device_credential_target_redirects_the_machine_wide_entry() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+        let (temp, previous_dir) = isolated_device_dir();
+        let real = cred_read("Alex LLM/device-credential").ok();
+        let previous = std::env::var("ALEX_DEVICE_CREDENTIAL_TARGET").ok();
+        let target = format!("Alex LLM/device-credential-unit-{}", unique());
+        std::env::set_var("ALEX_DEVICE_CREDENTIAL_TARGET", &target);
+        assert_eq!(credential_target(), target);
+        store("isolated-value").unwrap();
+        assert_eq!(load().as_deref(), Some("isolated-value"));
+        assert_eq!(cred_read("Alex LLM/device-credential").ok(), real);
+        delete().unwrap();
+        assert!(load().is_none());
+        match previous {
+            Some(value) => std::env::set_var("ALEX_DEVICE_CREDENTIAL_TARGET", value),
+            None => std::env::remove_var("ALEX_DEVICE_CREDENTIAL_TARGET"),
+        }
+        restore_device_dir(previous_dir);
+        let _ = fs::remove_dir_all(&temp);
+    }
 }
