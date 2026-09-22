@@ -5,11 +5,13 @@ import jwt
 import pytest
 from sqlalchemy import func, select
 
-from app.config import Settings, get_settings
+from app.config import get_settings
 from app.database import SessionLocal
 from app.main import app
 from app.models import Message, User
 from app.providers import MockLLMProvider
+from tests.db_helpers import require_scalar
+from tests.settings_factory import make_settings
 
 
 def new_chat(client, headers):
@@ -24,7 +26,7 @@ def test_auth_hash_login_and_expiration(client, auth):
     assert me.status_code == 200 and me.json()["email"] == "alice@example.com"
     assert "password_hash" not in me.json()
     with SessionLocal() as db:
-        user = db.scalar(select(User))
+        user = require_scalar(db, select(User))
         assert user.password_hash.startswith("$argon2id$")
         user_id = user.id
     assert (
@@ -132,9 +134,9 @@ def test_cors(client):
 
 def test_production_config_rejects_insecure_defaults():
     with pytest.raises(ValueError):
-        Settings(_env_file=None, app_env="production", jwt_secret="x" * 64, cors_origins=["*"])
+        make_settings(_env_file=None, app_env="production", jwt_secret="x" * 64, cors_origins=["*"])
     with pytest.raises(ValueError):
-        Settings(
+        make_settings(
             _env_file=None, app_env="production", jwt_secret="x" * 64, cors_origins=["http://example.com"]
         )
 
@@ -179,7 +181,7 @@ def test_health_and_mock_chat(client):
         "provider": "mock",
         "llm_ready": True,
         "product": "alex-llm",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "runtime_protocol_version": 1,
         "instance": None,
     }

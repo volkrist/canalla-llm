@@ -173,7 +173,7 @@ def test_backup_is_verified_and_describes_itself(tmp_path, template_database):
     backup = Path(result["path"])
     manifest = json.loads((backup / MANIFEST_NAME).read_text(encoding="utf-8"))
     assert manifest["backup_format_version"] == BACKUP_FORMAT_VERSION
-    assert manifest["app_version"] == "1.0.0"
+    assert manifest["app_version"] == "1.1.0"
     assert manifest["kind"] == "manual"
     assert manifest["database"]["sha256"] == sha256_file(backup / "data" / "alex.db")
     assert manifest["documents"]["count"] == expected["documents"]

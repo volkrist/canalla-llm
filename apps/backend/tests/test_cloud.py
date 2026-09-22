@@ -21,12 +21,19 @@ from app.cloud.client import CloudError, GatewayClient, map_code
 from app.cloud.provider import GatewayBalanceSource, GatewayProvider
 from app.cloud.state import CloudAi, CloudState
 from app.config import get_settings
+from app.models import User
 from app.status.balance import RunPodBalanceService
 from app.status.snapshot import ai_status
 
 
 def run(coro):
     return asyncio.run(coro)
+
+
+def stub_user(**fields) -> User:
+    """A stand-in user for the status/compute calls; nothing here is persisted."""
+    values = {"id": "u1", "email": "stub@example.com", "password_hash": "unused", "role": "user"}
+    return User(**{**values, **fields})
 
 
 def sse(payload: dict) -> bytes:
@@ -68,7 +75,7 @@ class FakeGateway:
                 200,
                 json={
                     "product": "alex-llm-gateway",
-                    "version": "1.0.0",
+                    "version": "1.1.0",
                     "gateway_protocol_version": self.protocol,
                     "ready": True,
                     "database": "ok",
@@ -224,11 +231,8 @@ def test_shared_mode_without_a_url_reports_not_connected():
     assert client.configured is False
     state = CloudState(settings, client=client)
 
-    class User:
-        id = "u1"
-
     assert state.snapshot()["state"] == "not_connected"
-    chip = ai_status(CloudAi(state), User())
+    chip = ai_status(CloudAi(state), stub_user())
     assert chip["state"] == "not_configured"
     assert "Canalla Cloud" in chip["message"]
     run(state.refresh(force=True))
@@ -490,10 +494,6 @@ def test_revoked_installation_is_reported_as_revoked(gateway):
     ],
 )
 def test_shared_mode_reuses_the_five_chip_vocabulary(gateway, compute_state, compact, expected):
-    class User:
-        id = "u1"
-        use_memory = False
-
     gateway.compute = {
         "state": compute_state["state"],
         "ai": compute_state["ai"],
@@ -508,7 +508,7 @@ def test_shared_mode_reuses_the_five_chip_vocabulary(gateway, compute_state, com
     client = client_for(gateway)
     state = CloudState(client.settings, client=client, clock=lambda: gateway.time)
     run(state.refresh(force=True))
-    chip = ai_status(CloudAi(state), User())
+    chip = ai_status(CloudAi(state), stub_user(use_memory=False))
     assert chip["state"] == expected
     assert chip["details"]["compute_state"] == compute_state["state"]
 
@@ -519,10 +519,7 @@ def test_gateway_outage_is_honest_in_the_chip(gateway):
     state = CloudState(client.settings, client=client, clock=lambda: gateway.time)
     run(state.refresh(force=True))
 
-    class User:
-        id = "u1"
-
-    chip = ai_status(CloudAi(state), User())
+    chip = ai_status(CloudAi(state), stub_user())
     assert chip["state"] == "unavailable"
     assert chip["recoverable"] is True
     assert chip["details"]["configured"] is True
@@ -539,10 +536,7 @@ def test_not_enrolled_installation_says_cloud_not_connected(gateway):
     run(state.refresh(force=True))
     assert state.snapshot()["state"] == "not_connected"
 
-    class User:
-        id = "u1"
-
-    chip = ai_status(CloudAi(state), User())
+    chip = ai_status(CloudAi(state), stub_user())
     assert chip["state"] == "not_configured"
     assert "Canalla Cloud" in chip["message"]
 
@@ -553,18 +547,26 @@ def test_not_enrolled_installation_says_cloud_not_connected(gateway):
 def test_shared_mode_refuses_local_compute_lifecycle():
     from app.compute.controller import RunPodController
     from app.compute.runpod_api import RunPodError
+    from app.compute.schemas import StartRequest
 
     settings = shared_settings()
     controller = RunPodController(settings)
     with pytest.raises(RunPodError) as error:
-        run(controller.start_compute(None, None))
+        # The shared-mode guard fires before the request body is read.
+        run(
+            controller.start_compute(
+                stub_user(),
+                StartRequest(
+                    quote_id="00000000-0000-0000-0000-000000000000",
+                    gpu_id="gpu-48",
+                    idempotency_key="test-idempotency-key",
+                    confirmed=True,
+                ),
+            )
+        )
     assert error.value.code == "gateway_managed_compute"
 
-    class User:
-        id = "u1"
-        role = "admin"
-
-    result = run(controller.ensure_on_demand(User()))
+    result = run(controller.ensure_on_demand(stub_user(role="admin")))
     assert result["kind"] in {"unavailable", "waiting"}
     assert result["code"] == "gateway_managed_compute"
 
