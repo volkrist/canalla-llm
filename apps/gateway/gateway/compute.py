@@ -16,6 +16,8 @@ Rules this module must never break:
   are reported (``multiple_compute`` / ``external_compute``) and left untouched.
 * **server money.** ``$1.20/h`` and ``$3`` per session are ceilings: a client may only ask
   for something stricter.
+* **server startup deadline.** A Pod that never becomes ready is stopped by the Gateway, not
+  by a client that may already be gone: see ``startup_expired`` and the startup watchdog.
 * **read-only status.** Nothing in ``status()`` starts, resumes or stops compute.
 """
 
@@ -76,6 +78,17 @@ ACTIVE_STATES = {
 
 POD_STATES = {"PROVISIONING": "starting_pod", "STARTING": "starting_pod", "RUNNING": "loading_model"}
 
+# D-9: the startup phase is the window between the create intent and the proof of readiness.
+# A managed Pod still inside it when the server-side deadline closes is stopped by the Gateway.
+# This is deliberately separate from the three other timers, each with its own semantics:
+# capacity (no Pod yet), startup (Pod exists, model not ready), idle (ready, no traffic) and
+# the session budget (money).
+STARTUP_STATES = {"creating", "starting_pod", "loading_model"}
+
+# The reason a startup stop carries, front to back: the client already knows this code and
+# reports it as a recoverable model-startup failure.
+STARTUP_TIMEOUT = "startup_timeout"
+
 # An unresolved create is confirmed by provider evidence, then retried at most once per
 # attempt budget. The budget lives on the singleton control row, not on a session row, so
 # a resolved-and-retried create cannot reset it.
@@ -132,6 +145,11 @@ def iso(value: datetime | None) -> str | None:
     return None if value is None else value.isoformat()
 
 
+def utc_present(value: datetime) -> datetime:
+    """`utc()` for a timestamp the caller knows is present; `utc()` returns None only for None."""
+    return utc(value) or value
+
+
 def decimal_or_none(value) -> Decimal | None:
     try:
         result = Decimal(str(value))
@@ -145,7 +163,7 @@ def estimate(session: GatewaySession, at: datetime) -> tuple[int, Decimal]:
     start = utc(session.started_at)
     if start is None:
         return 0, Decimal("0")
-    end = utc(session.stopped_at) or utc(at)
+    end = utc(session.stopped_at) or utc_present(at)
     seconds = max(0, int((end - start).total_seconds()))
     return seconds, (Decimal(seconds) / Decimal(3600) * session.hourly_rate).quantize(Decimal("0.000001"))
 
@@ -422,6 +440,7 @@ class ComputeAuthority:
             "session": self.session_payload(session),
             "last_session": self.session_payload(last_session, final=True),
             "idle_deadline": self.idle_deadline(session),
+            "startup_deadline": self.startup_deadline(session),
             "updated_at": iso(control.updated_at),
         }
 
@@ -454,8 +473,54 @@ class ComputeAuthority:
     def idle_deadline(self, session: GatewaySession | None) -> str | None:
         if session is None or not session.auto_stop_minutes or session.state not in {"ready", "generating"}:
             return None
-        last = utc(session.last_activity_at) or utc(self.clock())
+        last = utc(session.last_activity_at) or utc_present(self.clock())
         return (last + timedelta(minutes=session.auto_stop_minutes)).isoformat()
+
+    def startup_reference(self, session: GatewaySession | None) -> datetime | None:
+        """Persisted baseline of the startup deadline: never an in-process timer.
+
+        Deriving it from the create intent is what makes the watchdog survive a Gateway
+        restart, a client that vanished, or a process that was killed mid-create.
+        """
+        if session is None:
+            return None
+        return utc(session.intent_at) or utc(session.created_at) or utc(session.started_at)
+
+    def startup_started(self, session: GatewaySession | None) -> bool:
+        """Is this managed session inside the startup phase the watchdog guards?"""
+        if session is None or not session.managed:
+            return False
+        if session.ready_at is not None:
+            # Readiness was proven, so the startup phase is over for good: from here the idle
+            # policy owns the Pod and the deadline must never fire again.
+            return False
+        if session.state in STARTUP_STATES:
+            return True
+        return self.startup_stop_pending(session)
+
+    def startup_stop_pending(self, session: GatewaySession | None) -> bool:
+        """A startup stop the provider refused is retried, never abandoned."""
+        return bool(
+            session is not None and session.state == "stopping" and session.stop_reason == STARTUP_TIMEOUT
+        )
+
+    def startup_expired(self, session: GatewaySession | None) -> bool:
+        """Has this session outlived the server-side startup deadline?"""
+        if not self.startup_started(session):
+            return False
+        reference = self.startup_reference(session)
+        if reference is None:
+            return False
+        elapsed = (utc_present(self.clock()) - reference).total_seconds()
+        return elapsed >= self.settings.compute_startup_timeout_seconds
+
+    def startup_deadline(self, session: GatewaySession | None) -> str | None:
+        if not self.startup_started(session):
+            return None
+        reference = self.startup_reference(session)
+        if reference is None:
+            return None
+        return (reference + timedelta(seconds=self.settings.compute_startup_timeout_seconds)).isoformat()
 
     async def status(self) -> dict:
         payload = self.status_payload()
@@ -580,8 +645,8 @@ class ComputeAuthority:
                 if session.pod_id:
                     self._finalize(db, session, "provider_missing", error_code="not_found")
                 elif session.state in {"creating", "create_unknown"}:
-                    intent = utc(session.intent_at) or utc(session.created_at) or utc(self.clock())
-                    age = (utc(self.clock()) - intent).total_seconds()
+                    intent = utc(session.intent_at) or utc(session.created_at) or utc_present(self.clock())
+                    age = (utc_present(self.clock()) - intent).total_seconds()
                     attempts = int(control.create_attempts or 0)
                     if age >= CREATE_RESOLVE_SECONDS and attempts < MAX_CREATE_ATTEMPTS:
                         # Evidence-based, bounded resolution: a successful provider read
@@ -881,6 +946,9 @@ class ComputeAuthority:
                 if self.active_inferences() and reason == "manual":
                     with self.sessions() as db:
                         row = self.session_row(db)
+                        # The same row was read a few lines above under this lease.
+                        if row is None:  # pragma: no cover
+                            raise GatewayError("not_found")
                         row.pending_stop = True
                         self._set_state(db, "stopping", error_code=None)
                 else:
@@ -904,6 +972,9 @@ class ComputeAuthority:
                 return
             row.state = "stopping"
             row.pending_stop = False
+            # The *request* reason is written before the provider call, so a refused termination
+            # can be retried from persisted state instead of being forgotten (D-9).
+            row.stop_reason = reason
             if reason == "session_budget":
                 row.error_code = "COMPUTE_BUDGET_REACHED"
             elif reason in {"price_violation", "startup_failed", "startup_timeout"}:
@@ -917,13 +988,68 @@ class ComputeAuthority:
         try:
             await self.api.terminate_pod(pod_id)
         except Exception as error:
+            code = getattr(error, "code", "runpod_unavailable")
             with self.sessions() as db:
                 row = db.get(GatewaySession, session_id)
-                row.error_code = getattr(error, "code", "runpod_unavailable")
+                control = self.control(db)
+                # A refused termination is never reported as a completed stop: the transport
+                # failure lands on the control row (what is wrong right now) while the session
+                # row keeps the request reason so the retry can find it again.
+                row.error_code = code
+                control.error_code = code
+                control.updated_at = self.clock()
                 db.commit()
+            logger.warning("compute_terminate_failed session=%s code=%s", session_id, code)
             return
         with self.sessions() as db:
             self._finalize(db, db.get(GatewaySession, session_id), reason)
+
+    async def startup_watchdog(self, session_id: str) -> None:
+        """D-9: stop a managed startup that outlived its deadline, and prove it, not assume it.
+
+        The deadline is re-read from persisted timestamps, so a Gateway restart, a vanished
+        client or a killed process cannot reset it. A Pod that exists is terminated through the
+        normal managed path; a create intent that never produced a Pod is decided by provider
+        evidence, never by a blind terminate and never by clearing the intent. Nothing here
+        creates compute, and a termination the provider refuses stays visible and is retried on
+        the next tick.
+        """
+        session = self.session_by_id(session_id)
+        if session is None or not self.startup_expired(session):
+            return
+        if session.pod_id is None:
+            # No provider object yet: ask the provider whether one exists before deciding.
+            await self._reconcile_locked()
+            session = self.session_by_id(session_id)
+            if session is None or not self.startup_expired(session):
+                return
+        if not self.startup_stop_pending(session):
+            with self.sessions() as db:
+                self.event(
+                    db,
+                    STARTUP_TIMEOUT,
+                    "error",
+                    error_code=STARTUP_TIMEOUT,
+                    detail=f"{session.state}:{session.pod_id or 'no_pod'}",
+                )
+                db.commit()
+        if not session.pod_id:
+            # Reconciliation could not turn the intent into a provider object (blind provider, or
+            # no Pod for this Volume). There is nothing to terminate, and clearing the intent
+            # would strand a Pod this read could not see: the existing create_unknown flow keeps
+            # it instead (no second Pod, no blind delete) and an operator's reconciliation owns
+            # the resolution. The deadline itself stays in the audit trail above.
+            with self.sessions() as db:
+                row = db.get(GatewaySession, session_id)
+                if row is None:  # pragma: no cover - the row was read under the same lease
+                    return
+                self._keep_intent(db, row, "create_unknown")
+            return
+        await self._terminate(session_id, STARTUP_TIMEOUT)
+
+    def session_by_id(self, session_id: str) -> GatewaySession | None:
+        with self.sessions() as db:
+            return db.get(GatewaySession, session_id)
 
     # ---------------------------------------------------------------------- background
 
@@ -945,6 +1071,11 @@ class ComputeAuthority:
                     db.commit()
                 return
             if pod is None:
+                # A monitored Pod that disappeared is the reconciler's business. A create intent
+                # that never produced a provider object is still guarded: D-9 gives it the same
+                # deadline, resolved by provider evidence rather than by guessing.
+                if session.pod_id is None and self.startup_expired(session):
+                    await self.startup_watchdog(session.id)
                 return
             with self.sessions() as db:
                 row = db.get(GatewaySession, session.id)
@@ -954,20 +1085,28 @@ class ComputeAuthority:
                         row.started_at = utc(datetime.fromisoformat(pod.started_at.replace("Z", "+00:00")))
                 seconds, cost = estimate(row, self.clock())
                 row.billable_seconds, row.estimated_cost = seconds, cost
-                state = POD_STATES.get(pod.status, row.state)
+                state = POD_STATES.get(pod.status)
+                if state is None:
+                    state = row.state
                 if pod.status == "RUNNING" and row.ready_at is not None:
                     # Readiness, once proven by the model gateway, is not downgraded by a
                     # later pod-status read.
                     state = row.state
                 if not row.managed and row.state != "ready":
                     state = "external_compute"
-                if state == "loading_model":
+                # D-9: a startup stop the provider refused is still in flight. It owns the state
+                # until a retry lands, so the Pod is never re-reported as a healthy startup.
+                startup_stop_pending = self.startup_stop_pending(row)
+                if state == "loading_model" and not startup_stop_pending:
                     row.state = "loading_model"
                 control = self.control(db)
+                if startup_stop_pending:
+                    state = "stopping"
                 if state != control.state:
                     control.revision += 1
                 control.state = state
-                control.error_code = None
+                if not startup_stop_pending:
+                    control.error_code = None
                 control.updated_at = self.clock()
                 db.commit()
 
@@ -982,15 +1121,18 @@ class ComputeAuthority:
                     None
                     if not auto_stop
                     else (
-                        utc(self.clock()) - (utc(row.last_activity_at) or utc(self.clock()))
+                        utc_present(self.clock()) - (utc(row.last_activity_at) or utc_present(self.clock()))
                     ).total_seconds()
                 )
                 control = self.control(db)
                 global_last = (
-                    utc(control.last_activity_at) or utc(row.last_activity_at) or utc(control.updated_at)
+                    utc(control.last_activity_at)
+                    or utc(row.last_activity_at)
+                    or utc_present(control.updated_at)
                 )
-                global_idle = (utc(self.clock()) - global_last).total_seconds()
+                global_idle = (utc_present(self.clock()) - global_last).total_seconds()
                 ready_state = row.state in {"ready", "generating"}
+                startup_expired = self.startup_expired(row)
             busy = bool(self.active_inferences())
             if not managed and not pending:
                 # Never terminate provider resources Alex Cloud does not own: an adopted or
@@ -1010,6 +1152,12 @@ class ComputeAuthority:
                 return
             if over_price:
                 await self._terminate(session.id, "price_violation")
+                return
+            if startup_expired and not busy:
+                # D-9: the Pod never proved readiness inside the server-side deadline, so it is
+                # stopped here — server-side, independently of any client. The reason stays
+                # recoverable: the user sees startup_timeout and may start again deliberately.
+                await self.startup_watchdog(session.id)
                 return
             if (
                 stale is not None

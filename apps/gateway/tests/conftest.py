@@ -56,6 +56,11 @@ class FakeRunPod:
         self.create_failure = None
         self.list_failure = None
         self.balance_failure = None
+        # Termination can be made to fail for the D-9 watchdog tests: a status code, or
+        # "timeout" for a transport error. ``action_failures`` fails that many calls, so a
+        # transient refusal followed by a success can be proven in one test.
+        self.action_failure = None
+        self.action_failures = 0
         self.volume_types = ["STANDARD"]
 
     # ------------------------------------------------------------------ fake pod model
@@ -151,6 +156,11 @@ class FakeRunPod:
             return httpx.Response(201, json=pod)
         if path.endswith("/action"):
             self.actions.append(json.loads(request.content))
+            if self.action_failures > 0:
+                self.action_failures -= 1
+                if self.action_failure == "timeout":
+                    raise httpx.ReadTimeout("provider detail must never surface")
+                return httpx.Response(self.action_failure or 503, json={"detail": "provider internal detail"})
             if self.pods:
                 self.pods[0]["status"] = "TERMINATED"
             return httpx.Response(204)
@@ -178,7 +188,7 @@ class FakeLlama:
         self.stream_closed = False
         self.failure = None
         self.expected_key = POD_KEY
-        self.gate = None
+        self.gate: asyncio.Event | None = None
         self.pending_second_chunk = False
 
     def handle(self, request: httpx.Request) -> httpx.Response:

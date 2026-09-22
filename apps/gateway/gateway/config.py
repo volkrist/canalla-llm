@@ -32,12 +32,13 @@ class GatewaySettings(BaseSettings):
     app_env: Literal["development", "production", "test"] = "development"
     gateway_protocol_version: int = 1
     product: str = "alex-llm-gateway"
-    version: str = "1.0.0"
+    version: str = "1.1.0"
 
     database_url: str = "sqlite:///./gateway.db"
 
-    # Signing key for short-lived installation access tokens. Required: no default.
-    jwt_secret: str = Field(min_length=32)
+    # Signing key for short-lived installation access tokens. Required at startup: an empty
+    # value fails validation, so a missing JWT_SECRET still cannot sign a token.
+    jwt_secret: str = Field(default="", min_length=32)
     jwt_expire_minutes: int = Field(default=15, ge=1, le=120)
     jwt_issuer: str = "alex-gateway"
     jwt_audience: str = "alex-installation"
@@ -62,6 +63,12 @@ class GatewaySettings(BaseSettings):
     runpod_llm_port: int = Field(default=8080, ge=1024, le=65535)
     runpod_gateway_port: int = Field(default=9000, ge=1024, le=65535)
     runpod_startup_timeout: int = Field(default=900, ge=60, le=3600)
+    # D-9: a managed Pod that never becomes ready must not bill indefinitely. This is the
+    # server-side watchdog deadline (default 5 minutes), *not* ``runpod_startup_timeout``
+    # (how long a direct-mode client waits on the provider). It is measured from the persisted
+    # create intent, so it survives a client or Gateway restart, and it is server-side only:
+    # no client may set, widen or disable it.
+    compute_startup_timeout_seconds: int = Field(default=300, ge=60, le=3600)
     llm_provider: Literal["mock", "llamacpp"] = "llamacpp"
     llm_model: str = "orcarouter-qwen38-27b-q5km"
     llm_api_key: str = ""
