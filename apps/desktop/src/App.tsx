@@ -17,6 +17,7 @@ import {
   type BackendRuntime,
 } from "./lib/backend";
 import { loadSettings } from "./lib/settings";
+import { reconcileAutostart } from "./lib/autostart";
 import { useBusy } from "./lib/busy";
 import { useUpdates } from "./hooks/useUpdates";
 import type { Health, LLMStatus, Settings, User } from "./types";
@@ -78,6 +79,9 @@ export default function App() {
         setPhase("anonymous");
         return;
       }
+      // The login entry follows the stored policy on every launch: a fresh installation registers
+      // itself (the default is on) and an explicit «off» removes an entry the machine still has.
+      void reconcileAutostart(settings.launchAtLogin);
       try {
         const next = await ensureBackend();
         if (cancelled || !next) return;

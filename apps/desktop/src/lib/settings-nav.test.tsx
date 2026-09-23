@@ -36,6 +36,7 @@ const settings: Settings = {
   timestamps: true,
   technicalDetails: false,
   autoCheckUpdates: true,
+  launchAtLogin: true,
 };
 
 describe("settings navigation", () => {

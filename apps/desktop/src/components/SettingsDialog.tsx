@@ -20,6 +20,13 @@ import EmbeddingModelStatus from "./EmbeddingModelStatus";
 import PersonalPanel from "./PersonalPanel";
 import { isSharedMode, useCloud } from "../lib/cloud";
 import { useBackups } from "../lib/backup";
+import {
+  autostartError,
+  readAutostart,
+  writeAutostart,
+  UNSUPPORTED,
+  type AutostartStatus,
+} from "../lib/autostart";
 import { version } from "../../package.json";
 
 /** The single navigation for account, workspace and device settings. */
@@ -97,6 +104,10 @@ export default function SettingsDialog({
   // The cloud state decides whether a RunPod key is still needed at all. While it
   // is unknown the local key path stays available.
   const cloud = useCloud(api ?? null);
+  // «Запускать Canalla вместе с Windows»: the machine's answer, not the stored setting.
+  const [autostart, setAutostart] = useState<AutostartStatus>(UNSUPPORTED);
+  const [autostartBusy, setAutostartBusy] = useState(false);
+  const [autostartMessage, setAutostartMessage] = useState("");
   const sharedGateway = isSharedMode(cloud.status);
   // The backup panel is props-free like the cloud panel, so the authenticated
   // client is registered here and the panel reuses it.
@@ -108,6 +119,20 @@ export default function SettingsDialog({
     window.addEventListener("alex-browser-advanced", onClose);
     return () => window.removeEventListener("alex-browser-advanced", onClose);
   }, [onClose]);
+  useEffect(() => {
+    // The registry is the source of truth: the toggle shows what Windows has, not what we stored.
+    void readAutostart().then(setAutostart);
+  }, []);
+  async function toggleAutostart(enabled: boolean) {
+    setAutostartBusy(true);
+    setAutostartMessage("");
+    const result = await writeAutostart(enabled);
+    setAutostart(result.status);
+    setAutostartMessage(result.error ? autostartError(result.error) : "");
+    // The stored policy follows a successful change only: a refused write must not look chosen.
+    if (!result.error) setOptions({ ...options, launchAtLogin: enabled });
+    setAutostartBusy(false);
+  }
   function connectDevice() {
     if (connect.event) window.dispatchEvent(new Event(connect.event));
     // Ask the one device loop for a fresh read: a user action, not a second poller.
@@ -298,6 +323,32 @@ export default function SettingsDialog({
                   <option value="ru">Русский</option>
                 </select>
               </label>
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={autostart.enabled}
+                  disabled={!autostart.supported || autostartBusy}
+                  data-testid="autostart-toggle"
+                  onChange={(event) =>
+                    void toggleAutostart(event.target.checked)
+                  }
+                />
+                <span>Запускать Canalla вместе с Windows</span>
+              </label>
+              <p className="field-help">
+                {autostart.supported
+                  ? "Состояние читается из Windows: при включении Canalla запускается при входе в систему, при выключении запись удаляется."
+                  : "Автозапуск доступен в установленном приложении."}
+              </p>
+              {autostart.error || autostartMessage ? (
+                <p
+                  className="settings-note"
+                  role="alert"
+                  data-testid="autostart-error"
+                >
+                  {autostartMessage || autostartError(autostart.error)}
+                </p>
+              ) : null}
             </>
           )}
           {section === "Чат" && (

@@ -40,6 +40,7 @@ const settings: Settings = {
   timestamps: true,
   technicalDetails: false,
   autoCheckUpdates: true,
+  launchAtLogin: true,
 };
 
 function jsonResponse(status: number, body: unknown): Response {

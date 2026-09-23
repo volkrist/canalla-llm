@@ -12,6 +12,7 @@ export function loadSettings(): Settings {
     timestamps: true,
     technicalDetails: false,
     autoCheckUpdates: true,
+    launchAtLogin: true,
   };
   try {
     const stored = JSON.parse(localStorage.getItem("alex-settings") || "{}");
@@ -23,6 +24,7 @@ export function loadSettings(): Settings {
       timestamps: stored.timestamps !== false,
       technicalDetails: stored.technicalDetails === true,
       autoCheckUpdates: stored.autoCheckUpdates !== false,
+      launchAtLogin: stored.launchAtLogin !== false,
       backendUrl: validateBackendUrl(stored.backendUrl || defaults.backendUrl),
       fontSize: [14, 15, 17, 19].includes(stored.fontSize)
         ? stored.fontSize

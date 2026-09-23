@@ -63,4 +63,7 @@ export interface Settings {
   /** Check for a new version on startup and every few hours. On by default; the install itself
    *  is always a confirmed action. */
   autoCheckUpdates: boolean;
+  /** «Запускать Canalla вместе с Windows»: the policy behind the login registration the Desktop
+   *  owns. On by default; the registry is what the UI shows. */
+  launchAtLogin: boolean;
 }
