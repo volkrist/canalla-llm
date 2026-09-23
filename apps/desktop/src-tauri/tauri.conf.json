@@ -36,7 +36,8 @@
     "resources": [
       "sidecar/README.txt",
       "sidecar/alex-backend",
-      "sidecar/alex-host-loop.exe"
+      "sidecar/alex-host-loop.exe",
+      "runtime/tor"
     ],
     "windows": {
       "nsis": {

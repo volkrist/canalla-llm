@@ -30,6 +30,10 @@ apps/desktop/src-tauri/sidecar/*.exe
 apps/desktop/src-tauri/sidecar/SHA256SUMS.txt
 apps/backend/build/
 
+# The bundled Tor runtime: fetched and verified by scripts/fetch-tor-runtime.py from the pin in
+# scripts/tor-runtime.json, never committed.
+apps/desktop/src-tauri/runtime/
+
 # Updater signing material: the private half never belongs in the tree. The public half lives in
 # tauri.conf.json and the test signature fixtures, and the real key stays outside the repository.
 *.key

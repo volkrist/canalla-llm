@@ -1,0 +1,41 @@
+{
+  "product": "tor",
+  "version": "15.0.23",
+  "license": "GPL-3.0",
+  "license_note": "The Tor Project builds its released binaries with --enable-gpl (configure.ac: 'allow the inclusion of GPL-licensed code, building a version of tor and libtor covered by the GPL rather than its usual 3-clause BSD license'), so the daemon Canalla ships is covered by the GPL. Tor's own code is BSD-3-Clause; the bundle's docs/tor.txt lists the components.",
+  "corresponding_source": "https://dist.torproject.org/tor-0.4.9.12.tar.gz",
+  "build_scripts": "https://gitlab.torproject.org/tpo/applications/tor-browser-build",
+  "homepage": "https://www.torproject.org/",
+  "source": "https://dist.torproject.org/torbrowser/15.0.23/",
+  "comment": "The Tor Project's official expert bundle: the tor daemon only. No browser, no pluggable transports and no control port are shipped. Every archive is pinned by size and SHA256 here, and scripts/fetch-tor-runtime.py refuses to stage anything that does not match.",
+  "license_texts": [
+    {
+      "name": "gpl-3.0.txt",
+      "url": "https://www.gnu.org/licenses/gpl-3.0.txt",
+      "bytes": 35149,
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    }
+  ],
+  "platforms": {
+    "windows-x86_64": {
+      "url": "https://dist.torproject.org/torbrowser/15.0.23/tor-expert-bundle-windows-x86_64-15.0.23.tar.gz",
+      "bytes": 22432027,
+      "sha256": "231dad6b9cb401a54c260db7046965ef04e4f72ff071b140d423fb5da281ab1e",
+      "binary": "tor/tor.exe",
+      "libraries": [],
+      "data": ["data/geoip", "data/geoip6"],
+      "notices": ["docs/tor.txt", "docs/openssl.txt", "docs/libevent.txt", "docs/zlib.txt"],
+      "daemon_version": "0.4.9.12"
+    },
+    "linux-x86_64": {
+      "url": "https://dist.torproject.org/torbrowser/15.0.23/tor-expert-bundle-linux-x86_64-15.0.23.tar.gz",
+      "bytes": 32339495,
+      "sha256": "08d49de27f542b8f73e2014e064d8320562b5d20019c03d4725c5a5249d97985",
+      "binary": "tor/tor",
+      "libraries": ["tor/libcrypto.so.3", "tor/libevent-2.1.so.7", "tor/libssl.so.3"],
+      "data": ["data/geoip", "data/geoip6"],
+      "notices": ["docs/tor.txt", "docs/openssl.txt", "docs/libevent.txt"],
+      "daemon_version": "0.4.9.12"
+    }
+  }
+}
