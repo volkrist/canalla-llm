@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 
@@ -127,8 +128,20 @@ def test_a_proven_endpoint_is_ready_and_reported_as_external(tmp_path, listener,
     proof = json.loads((tmp_path / "runtime" / "tor.json").read_text(encoding="utf-8"))
     assert proof["verified"] is True
     assert proof["method"] == "socks5h"
-    # The exit address is never stored; only the fact of a verified route is.
-    assert set(proof) == {"verified", "verified_at", "host", "port", "source", "method"}
+    # The exit address is never stored; only the fact of a verified route, which endpoint it is and
+    # (for a managed endpoint) which process serves it.
+    assert set(proof) == {
+        "verified",
+        "verified_at",
+        "host",
+        "port",
+        "source",
+        "method",
+        "pid",
+        "tor_version",
+    }
+    assert proof["source"] == "external"
+    assert proof["pid"] is None  # somebody else's process: we never claim it
 
 
 def test_a_second_port_is_used_when_the_first_is_silent(tmp_path, listener, binary):
@@ -405,3 +418,264 @@ def test_tools_route_through_the_endpoint_that_was_proven(tmp_path, listener, bi
     finally:
         tor_service.set_active_service(None)
     assert tor_service.active_endpoint("127.0.0.1", 9050) == ("127.0.0.1", 9050)
+
+
+# -------------------------------------------------------------------- the runtime Canalla ships
+
+
+def stage_runtime(tmp_path, *, with_binary: bool = True) -> Path:
+    """A staged bundled runtime: the daemon the installer ships plus the fetch step's metadata."""
+    runtime = tmp_path / "install" / "runtime" / "tor"
+    runtime.mkdir(parents=True, exist_ok=True)
+    if with_binary:
+        (runtime / "tor.exe").write_bytes(b"a staged daemon, not a real one")
+        (runtime / "geoip").write_text("geoip", encoding="utf-8")
+        (runtime / "geoip6").write_text("geoip6", encoding="utf-8")
+    (runtime / "runtime.json").write_text(
+        json.dumps(
+            {
+                "product": "tor",
+                "version": "15.0.23",
+                "daemon_version": "0.4.9.12",
+                "license": "GPL-3.0",
+                "source": "https://dist.torproject.org/torbrowser/15.0.23/",
+                "binary": "tor.exe",
+                "files": {"tor.exe": "0" * 64},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return runtime
+
+
+@pytest.fixture
+def ports(monkeypatch, listener):
+    """Port availability follows the listener fixture, so a port choice never depends on the host."""
+
+    def fake_available(host, port):
+        return str(port) not in listener["open"]
+
+    monkeypatch.setattr(tor_service, "port_available", fake_available)
+    return fake_available
+
+
+def bundled_service(tmp_path, runtime, *, transport=None, spawn=None, **overrides):
+    values = {"alex_tor_runtime_dir": str(runtime), "tor_startup_timeout_seconds": 10.0}
+    values.update(overrides)
+    return TorService(
+        make_settings(tmp_path, **values),
+        spawn=spawn,
+        transport_factory=transport or (lambda host, port: FakeTransport()),
+    )
+
+
+def test_the_bundled_daemon_is_preferred_over_anything_the_machine_has(tmp_path, monkeypatch):
+    runtime = stage_runtime(tmp_path)
+    monkeypatch.setattr(tor_service, "tor_binary_from_browser", lambda: Path("C:/Tor Browser/tor.exe"))
+    settings = make_settings(tmp_path, alex_tor_runtime_dir=str(runtime))
+
+    assert tor_service.bundled_tor_binary(settings) == (runtime / "tor.exe", "bundled")
+    assert tor_service.find_tor_binary(settings) == (runtime / "tor.exe", "bundled")
+
+
+def test_an_explicit_override_still_wins_over_the_bundle(tmp_path, monkeypatch):
+    runtime = stage_runtime(tmp_path)
+    mine = tmp_path / "my-own-tor.exe"
+    mine.write_bytes(b"chosen by the operator")
+    settings = make_settings(tmp_path, alex_tor_runtime_dir=str(runtime), tor_binary_path=str(mine))
+
+    assert tor_service.find_tor_binary(settings) == (mine, "configured")
+
+
+def test_a_runtime_directory_without_a_daemon_is_not_a_runtime(tmp_path):
+    runtime = stage_runtime(tmp_path, with_binary=False)
+    settings = make_settings(tmp_path, alex_tor_runtime_dir=str(runtime))
+
+    assert tor_service.bundled_runtime_dir(settings) == runtime
+    assert tor_service.bundled_tor_binary(settings) is None
+
+
+def test_a_packaged_backend_finds_the_runtime_next_to_its_own_executable(tmp_path, monkeypatch):
+    runtime = stage_runtime(tmp_path)
+    install = runtime.parent.parent
+    monkeypatch.delenv("ALEX_TOR_RUNTIME_DIR", raising=False)
+    monkeypatch.setenv("ALEX_PACKAGED", "1")
+    monkeypatch.setattr(
+        tor_service.sys, "executable", str(install / "sidecar" / "alex-backend" / "alex-backend.exe")
+    )
+    settings = make_settings(tmp_path)
+
+    assert tor_service.bundled_runtime_dir(settings) == runtime
+    assert tor_service.find_tor_binary(settings) == (runtime / "tor.exe", "bundled")
+
+
+def test_a_staged_runtime_reports_its_version_and_provenance(tmp_path):
+    runtime = stage_runtime(tmp_path)
+    settings = make_settings(tmp_path, alex_tor_runtime_dir=str(runtime))
+
+    metadata = tor_service.bundled_runtime_metadata(settings)
+    assert metadata is not None and metadata["license"] == "GPL-3.0"
+    assert tor_service.TorService(settings).runtime_version() == "0.4.9.12"
+    assert TorService(settings).snapshot()["runtime_version"] == "0.4.9.12"
+
+
+def test_the_bundled_runtime_becomes_ready_with_nothing_installed_by_the_user(
+    tmp_path, listener, ports, monkeypatch
+):
+    """The acceptance the product needs: no Tor Browser, no tor.exe in PATH, no Program Files Tor."""
+    runtime = stage_runtime(tmp_path)
+    monkeypatch.setattr(tor_service, "tor_binary_from_browser", lambda: None)
+    monkeypatch.setenv("PATH", str(tmp_path / "nothing-here"))
+    spawns = []
+
+    def spawn(path, port, data_dir, log_path):
+        spawns.append((path, port))
+        listener["open"] = {str(port)}
+        return FakeProcess()
+
+    snapshot = run(bundled_service(tmp_path, runtime, spawn=spawn).ensure(reason="startup"))
+
+    assert snapshot["state"] == "ready"
+    assert snapshot["managed"] is True
+    assert snapshot["binary"] == {"path": str(runtime / "tor.exe"), "source": "bundled"}
+    assert snapshot["runtime_version"] == "0.4.9.12"
+    assert snapshot["endpoint"] == {"host": "127.0.0.1", "port": 9050}
+    assert spawns == [(runtime / "tor.exe", 9050)]
+    proof = json.loads((tmp_path / "runtime" / "tor.json").read_text(encoding="utf-8"))
+    assert proof["source"] == "managed"
+    assert proof["tor_version"] == "0.4.9.12"
+
+
+def test_a_port_somebody_else_holds_is_never_taken(tmp_path, listener, ports, monkeypatch):
+    runtime = stage_runtime(tmp_path)
+    # A foreign endpoint that never proves itself is waited on for a moment, not for the whole window.
+    monkeypatch.setattr(tor_service, "DISCOVERY_PROOF_SECONDS", 0.2)
+    listener["open"] = {"9050"}  # a foreign listener that never proves itself
+    spawns = []
+
+    def spawn(path, port, data_dir, log_path):
+        spawns.append(port)
+        listener["open"] = listener["open"] | {str(port)}
+        return FakeProcess()
+
+    service = bundled_service(
+        tmp_path,
+        runtime,
+        spawn=spawn,
+        # The foreign endpoint never proves itself; only our own port does.
+        transport=lambda host, port: FakeTransport(is_tor=port != 9050),
+    )
+    snapshot = run(service.ensure(reason="startup"))
+
+    assert spawns == [9150], "a port somebody else holds must never be taken"
+    assert snapshot["state"] == "ready"
+    assert snapshot["port_conflict"] is True
+    assert snapshot["endpoint"] == {"host": "127.0.0.1", "port": 9150}
+    assert "9050" in listener["open"], "the foreign listener is left exactly as it was"
+
+
+def test_our_own_endpoint_is_probed_before_the_compatibility_ports(tmp_path, listener, ports):
+    """A foreign listener on 9050 must not make Canalla start a second daemon of its own."""
+    runtime = stage_runtime(tmp_path)
+    spawns = []
+
+    def spawn(path, port, data_dir, log_path):
+        spawns.append(port)
+        listener["open"] = listener["open"] | {str(port)}
+        return FakeProcess()
+
+    service = bundled_service(tmp_path, runtime, spawn=spawn)
+    assert run(service.ensure(reason="startup"))["state"] == "ready"
+    assert spawns == [9050]
+
+    # Somebody else starts listening on 9050 while our daemon keeps running on its own port.
+    service._process_port = 9150
+    listener["open"] = {"9150", "9050"}
+
+    snapshot = run(service.ensure(reason="supervise"))
+
+    assert snapshot["state"] == "ready"
+    assert snapshot["endpoint"] == {"host": "127.0.0.1", "port": 9150}
+    assert spawns == [9050], "our own endpoint is checked first: no second process"
+
+
+def test_a_crash_loop_backs_off_instead_of_spinning(tmp_path, listener, ports):
+    runtime = stage_runtime(tmp_path)
+
+    def spawn(path, port, data_dir, log_path):
+        return FakeProcess(exit_code=1)  # dies immediately, every time
+
+    service = bundled_service(tmp_path, runtime, spawn=spawn, tor_startup_timeout_seconds=10.0)
+    delays = []
+    for _ in range(4):
+        run(service.ensure(reason="supervise"))
+        delays.append(service._supervise_delay())
+
+    assert delays == [2.0, 5.0, 15.0, 30.0]
+
+
+def test_the_managed_daemon_gets_our_own_configuration(tmp_path, monkeypatch):
+    runtime = stage_runtime(tmp_path)
+    settings = make_settings(tmp_path, alex_tor_runtime_dir=str(runtime))
+    calls = []
+
+    class FakePopen:
+        def __init__(self, args, **kwargs):
+            calls.append((args, kwargs))
+
+    monkeypatch.setattr(tor_service.subprocess, "Popen", FakePopen)
+    service = TorService(settings)
+    data_dir = tmp_path / "tor"
+    log_path = tmp_path / "logs" / "tor.log"
+
+    service._spawn_tor(runtime / "tor.exe", 9151, data_dir, log_path)
+
+    torrc = (data_dir / "torrc").read_text(encoding="utf-8")
+    assert "ClientOnly 1" in torrc
+    assert "SocksPort 127.0.0.1:9151" in torrc
+    assert f"DataDirectory {data_dir}" in torrc
+    assert f"Log notice file {log_path}" in torrc
+    assert f"GeoIPFile {runtime / 'geoip'}" in torrc
+    assert "SafeSocks 1" in torrc, "a locally resolved destination must be refused"
+    assert (data_dir / "torrc-defaults").is_file()
+
+    args, kwargs = calls[0]
+    assert args == [
+        str(runtime / "tor.exe"),
+        "-f",
+        str(data_dir / "torrc"),
+        "--defaults-torrc",
+        str(data_dir / "torrc-defaults"),
+        "--ignore-missing-torrc",
+    ]
+    assert kwargs["cwd"] == str(runtime)
+
+
+def test_port_availability_reflects_a_real_listener(tmp_path):
+    import socket
+
+    with socket.socket() as held:
+        held.bind(("127.0.0.1", 0))
+        held.listen(1)
+        port = int(held.getsockname()[1])
+        assert tor_service.port_available("127.0.0.1", port) is False
+
+    assert tor_service.port_available("127.0.0.1", port) is True
+
+
+def test_a_quit_ends_the_process_it_owns_and_leaves_no_socks_port(tmp_path, listener, ports):
+    runtime = stage_runtime(tmp_path)
+    process = FakeProcess()
+
+    def spawn(path, port, data_dir, log_path):
+        listener["open"] = {str(port)}
+        return process
+
+    service = bundled_service(tmp_path, runtime, spawn=spawn)
+    run(service.ensure(reason="startup"))
+
+    run(service.stop())
+
+    assert process.terminated == 1
+    assert service.snapshot()["managed_port"] is None
+    assert service.snapshot()["state"] == "unavailable"

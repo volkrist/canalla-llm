@@ -69,6 +69,16 @@ const RELEASE_GATEWAY_CREDENTIAL = `always-ready-${STAMP}`;
 // A cold Tor needs a consensus before it can build any circuit: the window is generous, the
 // wait is passive (the chip is polled, nothing is clicked), and nothing is skipped on failure.
 const READY_TIMEOUT_MS = Number(process.env.ALWAYS_READY_TIMEOUT_MS || 420000);
+// The runtime the installer is supposed to carry: the product ships its own Tor daemon, so this run
+// proves the bundled one served the route (and recovers when it is killed) rather than trusting a
+// machine that happens to have Tor Browser installed.
+const TOR_PIN = JSON.parse(
+  fs.readFileSync(
+    path.resolve(__dirname, "..", "..", "..", "scripts", "tor-runtime.json"),
+    "utf8",
+  ),
+);
+const PINNED_TOR_DAEMON = TOR_PIN.platforms["windows-x86_64"].daemon_version;
 
 const failures = [];
 let child = null;
@@ -83,6 +93,24 @@ function check(name, ok, detail = "") {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Wait until the backend proved a route with a process we own again (a restart and a fresh proof). */
+async function waitForNewProof(previousPid, timeoutMs) {
+  const file = path.join(DATA_ROOT, "runtime", "tor.json");
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const proof = JSON.parse(fs.readFileSync(file, "utf8"));
+      if (proof.verified === true && proof.pid && proof.pid !== previousPid) {
+        return proof;
+      }
+    } catch {
+      // The proof is dropped while the daemon is down: absence is a state, not a failure.
+    }
+    await sleep(2000);
+  }
+  return null;
+}
 
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
@@ -202,6 +230,25 @@ async function devices() {
     token = null;
     return call();
   }
+}
+
+/**
+ * The device list, waited for instead of sampled.
+ *
+ * The host loop pairs the machine a moment *after* the app is usable (and the backend now also
+ * brings Tor up in the same lifespan), so a single read right after the first paint legitimately
+ * sees nothing. Readiness itself is asserted through the chip; this waits for the list to exist and
+ * then the checks below still require exactly one device with the same id.
+ */
+async function waitForDevices(timeoutMs = 120000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = [];
+  while (Date.now() < deadline) {
+    last = await devices();
+    if (Array.isArray(last) && last.length > 0) return last;
+    await sleep(2000);
+  }
+  return last;
 }
 
 /** The sidecar processes and their parents, straight from the OS: the kill must hit our child only. */
@@ -367,7 +414,7 @@ async function main() {
       backendPort !== 0,
       `port ${backendPort}`,
     );
-    const paired = await devices();
+    const paired = await waitForDevices();
     check(
       "the host pairs this device by itself — no «Подключить» was pressed",
       paired.length === 1,
@@ -432,6 +479,63 @@ async function main() {
       torAgain.includes("Готово"),
       torAgain,
     );
+
+    // The bundle, not the machine: the installer carries its own daemon and that daemon served the
+    // route. The operator's machine has a Tor Browser installed, so "Tor works" alone would prove
+    // nothing about self-containment.
+    const installedTor = path.join(
+      path.dirname(EXE),
+      "runtime",
+      "tor",
+      "tor.exe",
+    );
+    check(
+      "the installed app carries its own Tor runtime",
+      fs.existsSync(installedTor),
+      installedTor,
+    );
+    const facts = await fetchJson(`http://127.0.0.1:${backendPort}/tools/tor`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    check(
+      "the proven route is served by the bundled daemon",
+      facts?.binary?.source === "bundled",
+      `${facts?.binary?.source} ${facts?.binary?.path}`,
+    );
+    check(
+      "the bundled daemon reports the pinned version",
+      facts?.runtime_version === PINNED_TOR_DAEMON,
+      `${facts?.runtime_version} (pin ${PINNED_TOR_DAEMON})`,
+    );
+
+    // Kill the daemon: the supervisor must restart it and re-prove the route without a click.
+    const proofBefore = JSON.parse(
+      fs.readFileSync(path.join(DATA_ROOT, "runtime", "tor.json"), "utf8"),
+    );
+    process.kill(proofBefore.pid);
+    const proofAfter = await waitForNewProof(proofBefore.pid, 180000);
+    check(
+      "killing the bundled daemon is recovered by a new process",
+      Boolean(proofAfter) && proofAfter.pid !== proofBefore.pid,
+      `${proofBefore.pid} -> ${proofAfter?.pid}`,
+    );
+    check(
+      "the recovered daemon is the bundled one again",
+      proofAfter?.tor_version === PINNED_TOR_DAEMON &&
+        proofAfter?.source === "managed",
+      `${proofAfter?.source} ${proofAfter?.tor_version}`,
+    );
+    const torAfterKill = await waitForChip(
+      page,
+      "Tor",
+      ["Готово"],
+      READY_TIMEOUT_MS,
+    );
+    check(
+      "Tor turns green again after the daemon was killed",
+      torAfterKill.ready,
+      torAfterKill.text,
+    );
   } finally {
     await browser.close().catch(() => {});
     await quitApp();
@@ -487,7 +591,7 @@ async function main() {
     );
 
     backendPort = await findBackendPort();
-    const pairedAgain = await devices();
+    const pairedAgain = await waitForDevices();
     check(
       "exactly one paired device after two launches (the host does not duplicate itself)",
       pairedAgain.length === 1,
@@ -575,7 +679,7 @@ async function main() {
           .isVisible()
           .catch(() => false),
       );
-      const pairedAfterCrash = await devices();
+      const pairedAfterCrash = await waitForDevices();
       check(
         "still exactly one device, same id, after the crash",
         pairedAfterCrash.length === 1 &&
