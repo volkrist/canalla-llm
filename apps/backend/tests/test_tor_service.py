@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -649,6 +651,29 @@ def test_the_managed_daemon_gets_our_own_configuration(tmp_path, monkeypatch):
         "--ignore-missing-torrc",
     ]
     assert kwargs["cwd"] == str(runtime)
+
+
+def test_the_managed_daemon_can_find_the_libraries_beside_it(tmp_path, monkeypatch):
+    """The daemon Canalla ships carries its libraries next to itself and has no rpath, and a POSIX
+    loader does not search the executable's own directory: without `LD_LIBRARY_PATH` the process
+    dies at exec (exit 127) before Tor starts, which a supervisor can only report as a crash loop.
+    Windows needs no equivalent - its loader searches there already."""
+    runtime = stage_runtime(tmp_path)
+    settings = make_settings(tmp_path, alex_tor_runtime_dir=str(runtime))
+    calls = []
+
+    class FakePopen:
+        def __init__(self, args, **kwargs):
+            calls.append((args, kwargs))
+
+    monkeypatch.setattr(tor_service.subprocess, "Popen", FakePopen)
+    TorService(settings)._spawn_tor(runtime / "tor", 9050, tmp_path / "tor", tmp_path / "logs" / "tor.log")
+
+    _args, kwargs = calls[0]
+    if sys.platform == "win32":
+        assert kwargs["env"] is None, "Windows keeps the inherited environment as it always was"
+    else:
+        assert str(runtime) in kwargs["env"]["LD_LIBRARY_PATH"].split(os.pathsep)
 
 
 def test_port_availability_reflects_a_real_listener(tmp_path):

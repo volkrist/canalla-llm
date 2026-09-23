@@ -103,7 +103,9 @@ def bundled_runtime_dir(settings: Settings) -> Path | None:
     """
     configured = (settings.alex_tor_runtime_dir or "").strip()
     if configured:
-        path = Path(configured).expanduser()
+        # Resolved once, here: everything downstream (the spawn's cwd, the library path) needs an
+        # absolute directory, and a relative one made the failure look like a missing executable.
+        path = Path(configured).expanduser().resolve()
         return path if path.is_dir() else None
     if os.environ.get("ALEX_PACKAGED") == "1":
         install = Path(sys.executable).resolve().parent.parent.parent
@@ -464,12 +466,28 @@ class TorService:
             "--ignore-missing-torrc",
         ]
         creation = 0
+        # The daemon Canalla ships carries its libraries in its own directory and has no rpath. A
+        # Windows loader searches beside the executable, a POSIX one does not: without this the
+        # process dies at exec (exit 127) before Tor ever starts, and the supervisor can only report
+        # a crash loop. The value names that directory, not the caller's environment.
+        env = None
+        if sys.platform != "win32":  # pragma: no cover - exercised on the Linux acceptance run
+            env = {
+                **os.environ,
+                "LD_LIBRARY_PATH": os.pathsep.join(
+                    [
+                        str(binary.parent),
+                        *filter(None, [os.environ.get("LD_LIBRARY_PATH")]),
+                    ]
+                ),
+            }
         if sys.platform == "win32":  # pragma: no cover - Windows only
             creation = subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
         popen = getattr(subprocess, "Popen")
         return popen(
             args,
             cwd=str(binary.parent),
+            env=env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
