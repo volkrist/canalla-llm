@@ -59,10 +59,29 @@ pub fn device_headers(token: &str) -> Result<reqwest::header::HeaderMap, String>
     Ok(headers)
 }
 
+/// Every call to the local backend goes through this one bounded client.
+///
+/// A bounded timeout is a lifecycle requirement, not a style choice: the device loop talks to the
+/// backend every few seconds, and the WebView keeps only a small pool of connections for IPC. A
+/// request that never returns from a backend that died would hold those connections and block
+/// every later command - including the `ensure_backend` that would bring the backend back.
+pub(crate) fn local_client() -> reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(3))
+                .timeout(Duration::from_secs(5))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new())
+        })
+        .clone()
+}
+
 #[tauri::command]
 pub async fn pair_device(backend_url: String, token: String, display_name: String) -> Result<Value, String> {
     if let (Some(record), Some(_)) = (load_record(), crate::credential::load()) {
-        let client = reqwest::Client::new();
+        let client = local_client();
         let _ = client
             .post(format!("{backend_url}/tools/devices/heartbeat"))
             .headers(device_headers(&token)?)
@@ -75,7 +94,7 @@ pub async fn pair_device(backend_url: String, token: String, display_name: Strin
             "storage": crate::credential::storage_kind(),
         }));
     }
-    let client = reqwest::Client::new();
+    let client = local_client();
     let alias = {
         let trimmed = display_name.trim();
         if trimmed.is_empty() {
@@ -137,7 +156,7 @@ pub fn device_status() -> Value {
 #[tauri::command]
 pub async fn forget_device(backend_url: String, token: String) -> Result<Value, String> {
     if let Some(record) = load_record() {
-        let client = reqwest::Client::new();
+        let client = local_client();
         let _ = client
             .post(format!("{backend_url}/tools/devices/{}/forget", record.device_id))
             .bearer_auth(&token)
@@ -152,7 +171,7 @@ pub async fn forget_device(backend_url: String, token: String) -> Result<Value, 
 #[tauri::command]
 pub async fn rotate_device_credential(backend_url: String, token: String) -> Result<Value, String> {
     let record = load_record().ok_or("device_not_paired")?;
-    let client = reqwest::Client::new();
+    let client = local_client();
     let response = client
         .post(format!("{backend_url}/tools/devices/{}/rotate", record.device_id))
         .bearer_auth(&token)
@@ -195,7 +214,7 @@ fn inflight_jobs() -> &'static Mutex<HashSet<String>> {
 
 #[tauri::command]
 pub async fn execute_host_jobs(backend_url: String, token: String, roots: Vec<String>) -> Result<Value, String> {
-    let client = reqwest::Client::new();
+    let client = local_client();
     let headers = device_headers(&token)?;
     let response = client
         .get(format!("{backend_url}/tools/devices/jobs"))
@@ -239,7 +258,7 @@ pub async fn execute_host_jobs(backend_url: String, token: String, roots: Vec<St
             .await;
             if let Ok(result) = result {
                 if let Ok(headers) = device_headers(&token_post) {
-                    let _ = reqwest::Client::new()
+                    let _ = local_client()
                         .post(format!("{post_url}/tools/runs/{id}/host-result"))
                         .headers(headers)
                         .json(&json!({
