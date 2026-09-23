@@ -109,6 +109,7 @@ export default function StatusChips({
   onAction,
   api,
   compact = false,
+  stale = false,
 }: {
   snapshot: StatusSnapshot | null;
   error: string;
@@ -117,10 +118,15 @@ export default function StatusChips({
   /** The authenticated client, for the one chip action that is more than a re-read. */
   api?: Api;
   compact?: boolean;
+  /** The last read failed: the snapshot on screen is history, not a health claim. */
+  stale?: boolean;
 }) {
   const [open, setOpen] = useState<ChipKey | null>(null);
   const [ensuring, setEnsuring] = useState(false);
-  const alert = firstActionable(snapshot) ?? firstProblem(snapshot);
+  // A stale snapshot never speaks for health: the chips fall back to the reading state and the
+  // recovery alert stays the only thing that offers an action.
+  const current = stale ? null : snapshot;
+  const alert = firstActionable(current) ?? firstProblem(current);
   // In compact mode the computer warning has its own one-line bar and the balance its own thin
   // line, so this section keeps only the chips, their popover and every other alert.
   const showAlert = !!alert && !(compact && alert.chip === "computer");
@@ -132,7 +138,7 @@ export default function StatusChips({
         recoverable: alert!.status.recoverable,
       })
     : null;
-  const details = open ? snapshot?.subsystems[open] : undefined;
+  const details = open && !stale ? snapshot?.subsystems[open] : undefined;
 
   const ensureTor = useCallback(async () => {
     if (!api) return;
@@ -166,18 +172,19 @@ export default function StatusChips({
     >
       <div className="status-chips">
         {CHIP_ORDER.map((chip) => {
-          const state = chipState(snapshot, chip);
-          const text = chipText(snapshot, chip);
+          const state = chipState(current, chip);
+          const text = chipText(current, chip);
           const active = open === chip;
           // "No snapshot yet" is not "this subsystem is starting": the bar says so explicitly so a
           // reader (and an acceptance run) can tell the two apart.
-          const pending = snapshot === null;
+          const pending = current === null;
           return (
             <button
               key={chip}
               type="button"
               className={`status-chip state-${state}${active ? " active" : ""}`}
               data-pending={pending ? "true" : undefined}
+              data-stale={stale ? "true" : undefined}
               aria-expanded={active}
               aria-label={`${CHIP_TITLES[chip]}: ${text}`}
               title={`${CHIP_TITLES[chip]} · ${text}`}

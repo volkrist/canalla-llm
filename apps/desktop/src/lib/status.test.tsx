@@ -70,16 +70,61 @@ function snapshot(
   };
 }
 
-function render(value: StatusSnapshot | null, error = "", refreshing = false) {
+function render(
+  value: StatusSnapshot | null,
+  error = "",
+  refreshing = false,
+  stale = false,
+) {
   return renderToStaticMarkup(
     <StatusChips
       snapshot={value}
       error={error}
       refreshing={refreshing}
+      stale={stale}
       onAction={() => {}}
     />,
   );
 }
+
+describe("a lost backend is never rendered as health", () => {
+  it("keeps no ready chip on screen when the last read failed", () => {
+    const html = render(
+      snapshot(),
+      "Не удалось получить состояние",
+      false,
+      true,
+    );
+
+    expect(html).not.toContain(">Готово</span>");
+    expect((html.match(/data-stale="true"/g) || []).length).toBe(5);
+    expect((html.match(/>Проверяем…<\/span>/g) || []).length).toBe(5);
+    expect(html).toContain("Состояние недоступно");
+  });
+
+  it("offers no recovery card built from a snapshot it can no longer vouch for", () => {
+    const stale = snapshot(
+      {},
+      {
+        computer: chip("unavailable", {
+          detail_code: "host_offline",
+          action: "reconnect",
+          recoverable: true,
+        }),
+      },
+    );
+    expect(render(stale)).toContain("host_offline");
+    expect(
+      render(stale, "Не удалось получить состояние", false, true),
+    ).not.toContain("host_offline");
+  });
+
+  it("goes back to the real states as soon as a read succeeds", () => {
+    const html = render(snapshot(), "", false, false);
+    expect((html.match(/>Готово<\/span>/g) || []).length).toBe(4);
+    expect(html).not.toContain('data-stale="true"');
+  });
+});
 
 describe("five-chip status", () => {
   it("renders all five chips with a text state, never colour alone", () => {

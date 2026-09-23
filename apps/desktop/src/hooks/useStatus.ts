@@ -15,12 +15,17 @@ export function useStatus(api: Api, enabled: boolean) {
   const [error, setError] = useState("");
   const latest = useRef<StatusSnapshot | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  // A failed read leaves the last snapshot in place for the balance (which has its own timestamp),
+  // but that snapshot is no longer a statement about health: `stale` keeps the chips from showing
+  // an old «Готово» as if it were current.
+  const [stale, setStale] = useState(false);
 
   const request = useCallback(async () => {
     const next = await fetchStatus(api);
     latest.current = next;
     setSnapshot(next);
     setError("");
+    setStale(false);
     return next;
   }, [api]);
 
@@ -39,6 +44,7 @@ export function useStatus(api: Api, enabled: boolean) {
       } catch {
         if (alive) {
           setSnapshot(latest.current);
+          setStale(true);
           setError("Не удалось получить состояние");
         }
       } finally {
@@ -66,11 +72,12 @@ export function useStatus(api: Api, enabled: boolean) {
     try {
       await request();
     } catch {
+      setStale(true);
       setError("Не удалось получить состояние");
     } finally {
       setRefreshing(false);
     }
   }, [request]);
 
-  return { snapshot, error, refresh, refreshing };
+  return { snapshot, error, refresh, refreshing, stale };
 }

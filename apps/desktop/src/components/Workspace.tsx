@@ -229,6 +229,7 @@ export default function Workspace({
             refreshing={status.refreshing}
             onAction={statusAction}
             api={api}
+            stale={status.stale}
           />
           <div
             className={`connection ${health ? "connected" : ""}`}
@@ -241,7 +242,10 @@ export default function Workspace({
         <div className="status-line">
           <StatusBilling snapshot={status.snapshot} />
         </div>
-        <ComputerBar snapshot={status.snapshot} onAction={statusAction} />
+        <ComputerBar
+          snapshot={status.stale ? null : status.snapshot}
+          onAction={statusAction}
+        />
         <ComputeBar api={api} llm={llm} />
         <PersonalPanel
           api={api}
