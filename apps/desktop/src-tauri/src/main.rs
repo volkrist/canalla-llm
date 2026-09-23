@@ -15,6 +15,10 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        // Updates: check/download/verify against the bundled public key; install only when the user
+        // asks for it, and only then restart through the process plugin.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|_app| {
             // The Desktop owns the sidecar lifecycle: a child that dies is noticed and restarted
             // here, not by a window that may be closed, hidden or wedged.

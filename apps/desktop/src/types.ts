@@ -60,4 +60,7 @@ export interface Settings {
   autoScroll: boolean;
   timestamps: boolean;
   technicalDetails: boolean;
+  /** Check for a new version on startup and every few hours. On by default; the install itself
+   *  is always a confirmed action. */
+  autoCheckUpdates: boolean;
 }

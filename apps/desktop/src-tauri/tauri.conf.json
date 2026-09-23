@@ -32,6 +32,7 @@
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
     "shortDescription": "Canalla LLM desktop chat",
+    "createUpdaterArtifacts": true,
     "resources": [
       "sidecar/README.txt",
       "sidecar/alex-backend",
@@ -41,6 +42,17 @@
       "nsis": {
         "installMode": "currentUser",
         "installerHooks": "nsis/hooks.nsh"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI3OUZGOTBCNTJEMDBGMjQKUldRa0Q5QlNDL21mdDNHSXprOGZZZVZXa1U4SlZMRWs0UkpaVTNyOWVSN0orUGFBRTQ1SnJXbEYK",
+      "endpoints": [
+        "https://gateway.12testers.store/updates/latest?target={{target}}&arch={{arch}}&current_version={{current_version}}"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

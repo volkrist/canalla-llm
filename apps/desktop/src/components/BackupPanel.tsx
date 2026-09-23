@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { isTauriRuntime } from "../lib/backend";
+import { clearBusy, markBusy } from "../lib/busy";
 import {
   backupStatusLabel,
   createBackup,
@@ -58,7 +59,11 @@ export default function BackupPanel() {
   /** A failure is recorded by the module, so the panel renders it from the state
    *  and never shows the same sentence twice. */
   async function act(action: string, task: () => Promise<void>) {
+    // A backup, a verification or a restore is work the user waits for: an update install must not
+    // restart the app in the middle of it.
+    const kind = action.startsWith("restore") ? "restore" : "backup";
     setPending(action);
+    markBusy(kind);
     setMessage("");
     try {
       await task();
@@ -66,6 +71,7 @@ export default function BackupPanel() {
       // The module already published the reason.
     } finally {
       setPending("");
+      clearBusy(kind);
     }
   }
 

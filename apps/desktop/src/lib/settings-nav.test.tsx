@@ -22,6 +22,7 @@ const EXPECTED = [
   "Резервные копии",
   "Данные",
   "Дополнительно",
+  "Обновления",
   "О программе",
 ];
 
@@ -34,6 +35,7 @@ const settings: Settings = {
   autoScroll: true,
   timestamps: true,
   technicalDetails: false,
+  autoCheckUpdates: true,
 };
 
 describe("settings navigation", () => {

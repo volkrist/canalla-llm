@@ -42,6 +42,7 @@ const settings: Settings = {
   autoScroll: true,
   timestamps: true,
   technicalDetails: false,
+  autoCheckUpdates: true,
 };
 
 function jsonResponse(status: number, body: unknown): Response {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { X } from "lucide-react";
 import type { Settings } from "../types";
 import { validateBackendUrl } from "../lib/api";
+import type { UpdateStore } from "../hooks/useUpdates";
 import type { Api } from "../lib/api";
 import { exportChats } from "../lib/files";
 import { clearDrafts, draftPrefix } from "../lib/drafts";
@@ -9,6 +10,8 @@ import { recoveryPlan } from "../lib/errors";
 import { ACTION_TEXT } from "../lib/status";
 import { requestDeviceRefresh, useDeviceStatus } from "../lib/device";
 import type { DeviceStatus } from "../lib/host";
+import { useBusy } from "../lib/busy";
+import UpdatesPanel from "./UpdatesPanel";
 import WebToolsSettings from "./WebToolsSettings";
 import ProviderSecretPanel from "./ProviderSecretPanel";
 import AlexCloudPanel from "./AlexCloudPanel";
@@ -28,7 +31,7 @@ export const SETTINGS_GROUPS = [
     tabs: ["AI / Compute", "Canalla Cloud", "Computer", "Web / Tor"],
   },
   { title: "Данные", tabs: ["Резервные копии", "Данные"] },
-  { title: "Система", tabs: ["Дополнительно", "О программе"] },
+  { title: "Система", tabs: ["Дополнительно", "Обновления", "О программе"] },
 ] as const;
 
 const TABS = SETTINGS_GROUPS.flatMap((group) => group.tabs);
@@ -64,6 +67,7 @@ export default function SettingsDialog({
   api,
   userId,
   onLogout = () => {},
+  updates = null,
 }: {
   value: Settings;
   onSave: (settings: Settings) => void;
@@ -72,6 +76,8 @@ export default function SettingsDialog({
   userId?: string;
   /** The personal sections render here and reuse the workspace session handler. */
   onLogout?: () => void;
+  /** The app's single update store. */
+  updates?: UpdateStore | null;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [url, setUrl] = useState(value.backendUrl);
@@ -85,6 +91,9 @@ export default function SettingsDialog({
   // The connect action reuses the device loop the Computer chip already uses.
   const connect = recoveryPlan("reconnect");
   const person = personalTab(section);
+  // Anything the user is waiting for (a generation, a task, a backup, a restore) defers an
+  // update install: the installer must never restart the app in the middle of it.
+  const busy = useBusy();
   // The cloud state decides whether a RunPod key is still needed at all. While it
   // is unknown the local key path stays available.
   const cloud = useCloud(api ?? null);
@@ -239,6 +248,21 @@ export default function SettingsDialog({
               </label>
             </>
           )}
+          {section === "Обновления" &&
+            (updates ? (
+              <UpdatesPanel
+                autoCheck={options.autoCheckUpdates}
+                onAutoCheck={(value) =>
+                  setOptions({ ...options, autoCheckUpdates: value })
+                }
+                busy={busy}
+                updates={updates}
+              />
+            ) : (
+              <p className="muted">
+                Обновления доступны в установленном приложении.
+              </p>
+            ))}
           {section === "Общие" && (
             <>
               <label>

@@ -13,6 +13,10 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-opener = "2"
+# Signed, verified updates: the plugin checks every downloaded package against the public key in
+# tauri.conf.json before it may run the installer.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
@@ -37,6 +41,12 @@ path = "src/main.rs"
 [[bin]]
 name = "alex-host-loop"
 path = "src/bin/alex_host_loop.rs"
+
+[dev-dependencies]
+# The release gate verifies a real package signature with the same crates the updater plugin uses,
+# so "the key in the client accepts this artifact and refuses a tampered one" is a proven fact.
+base64 = "0.22"
+minisign-verify = "0.2"
 
 [profile.release]
 panic = "abort"

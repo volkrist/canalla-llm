@@ -16,6 +16,7 @@ import MessageList from "./MessageList";
 import Composer from "./Composer";
 import { draftPrefix, readDraft, writeDraft } from "../lib/drafts";
 import { useContextUsage } from "../lib/context-usage";
+import { markBusy, clearBusy } from "../lib/busy";
 import ComputePanel from "./ComputePanel";
 import ComputeBar from "./ComputeBar";
 import ComputerBar from "./ComputerBar";
@@ -57,6 +58,12 @@ export default function Workspace({
   onSettings: () => void;
 }) {
   const chat = useChat(api, onLogout);
+  // While the user is waiting for an answer, an update install must not restart the app.
+  useEffect(() => {
+    if (chat.busy) markBusy("generation");
+    else clearBusy("generation");
+    return () => clearBusy("generation");
+  }, [chat.busy]);
   const status = useStatus(api, true);
   const [sidebar, setSidebar] = useState(false);
   const [browser, setBrowser] = useState(false);

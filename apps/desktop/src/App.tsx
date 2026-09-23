@@ -17,6 +17,8 @@ import {
   type BackendRuntime,
 } from "./lib/backend";
 import { loadSettings } from "./lib/settings";
+import { useBusy } from "./lib/busy";
+import { useUpdates } from "./hooks/useUpdates";
 import type { Health, LLMStatus, Settings, User } from "./types";
 import AuthScreen from "./components/AuthScreen";
 import Workspace from "./components/Workspace";
@@ -35,6 +37,12 @@ export default function App() {
   const [runtime, setRuntime] = useState<BackendRuntime | null>(null);
   const [recovering, setRecovering] = useState(false);
   const recoveryAttempts = useRef(0);
+  // One owner for the update check: startup plus a periodic re-check, never blocking the app.
+  const updateBusy = useBusy();
+  const updates = useUpdates({
+    enabled: settings.autoCheckUpdates,
+    busy: updateBusy,
+  });
   const api = useMemo(
     () =>
       new Api(settings.backendUrl, session?.token || null, () =>
@@ -247,6 +255,7 @@ export default function App() {
           onSave={saveSettings}
           onClose={() => setShowSettings(false)}
           onLogout={logout}
+          updates={updates}
         />
       )}
     </>

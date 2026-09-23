@@ -1,12 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Export only to a path selected in the save dialog; open HTTP(S) links in the system browser.",
+  "description": "Export only to a path selected in the save dialog; open HTTP(S) links in the system browser; check, download and install signed updates.",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "dialog:allow-save",
     "fs:allow-write-text-file",
+    "updater:default",
+    "process:allow-restart",
     {
       "identifier": "opener:allow-open-url",
       "allow": [{ "url": "https://*" }, { "url": "http://*" }]
