@@ -22,6 +22,7 @@
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,7 +54,32 @@ const PYTHON = path.resolve(
   "Scripts",
   "python.exe",
 );
-const CDP_PORT = 9245;
+/**
+ * A CDP port the OS will actually let WebView2 bind.
+ *
+ * Windows reserves dynamic port ranges (Hyper-V, WSL and friends), and a reserved port makes the
+ * DevTools endpoint silently never appear: the browser process carries the argument, nothing
+ * listens, and the run cannot be observed. Asking the OS for a free port removes that whole class
+ * of failure instead of hard-coding a port that happens to work today.
+ */
+async function freePort() {
+  return await new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : 0;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+const CDP_PORT = await freePort();
+// Its own WebView2 profile: the operator's shared one can be held by a browser process from an
+// earlier run, and attaching to it silently loses the debugging port.
+const WEBVIEW_PROFILE = fs.mkdtempSync(
+  path.join(os.tmpdir(), "canalla-always-ready-webview-"),
+);
 const PASSWORD = "always-ready-passphrase-1";
 const DATA_ROOT = fs.mkdtempSync(
   path.join(os.tmpdir(), "canalla-always-ready-data-"),
@@ -169,6 +195,7 @@ function launchApp() {
       ALEX_DEVICE_CREDENTIAL_TARGET: DEVICE_CREDENTIAL_TARGET,
       ALEX_GATEWAY_CREDENTIAL_NAME: RELEASE_GATEWAY_CREDENTIAL,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
+      WEBVIEW2_USER_DATA_FOLDER: WEBVIEW_PROFILE,
     },
     stdio: "ignore",
     windowsHide: false,
