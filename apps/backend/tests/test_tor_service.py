@@ -257,7 +257,7 @@ def test_a_restart_reproves_the_saved_endpoint_without_a_second_tor(tmp_path, li
 # ---------------------------------------------------------------------------- managed process
 
 
-def test_a_managed_process_starts_when_nothing_answers(tmp_path, listener, binary):
+def test_a_managed_process_starts_when_nothing_answers(tmp_path, listener, ports, binary):
     binary["path"] = ("C:/Tor/tor.exe", "tor_browser")
     spawns = []
 
