@@ -16,6 +16,7 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
 from test_backup import BACKEND, connect, counts, make_root, migrate
 
 from app.backup.archive import BackupService, verify_backup
@@ -147,6 +148,11 @@ def test_migration_is_refused_when_the_backup_cannot_be_created(tmp_path, templa
 
 
 def test_a_failed_migration_keeps_the_database_and_the_backup(tmp_path, template_database):
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        # The deterministic trigger is a write-protected database, and root writes it anyway. This
+        # is a fact about the account, not about the product, so the case is skipped rather than
+        # weakened - it still runs for an ordinary user and on Windows.
+        pytest.skip("running as root: a read-only file stays writable")
     root = make_root(tmp_path, template_database, revision="0014")
     before = counts(root)
     database = root / "data" / "alex.db"

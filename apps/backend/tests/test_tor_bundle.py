@@ -131,7 +131,10 @@ def test_a_staged_runtime_matches_the_pin() -> None:
         assert staged.is_file(), name
         assert hashlib.sha256(staged.read_bytes()).hexdigest() == digest, name
 
-    # Everything the pin promises is there, and nothing else is about to ship.
+    # Everything the pin promises is there, and nothing else is about to ship. The shared
+    # libraries are part of that promise on the platforms that need them (the Linux daemon does not
+    # start without them); the list is empty on Windows, so this stays exact there too.
     promised = {Path(name).name for name in [entry["binary"], *entry["data"], *entry["notices"]]}
+    promised |= {Path(name).name for name in entry.get("libraries", [])}
     promised |= {text["name"] for text in manifest["license_texts"]}
     assert set(metadata["files"]) == promised

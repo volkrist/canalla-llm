@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 from app.data_paths import default_root, ensure_layout, load_or_create_jwt, sqlite_url
@@ -51,14 +52,21 @@ def os_environ(key: str) -> str:
 def test_prepare_without_env_ignores_repo_cwd(tmp_path, monkeypatch):
     monkeypatch.delenv("ALEX_LLM_DATA_DIR", raising=False)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "share"))
     monkeypatch.delenv("JWT_SECRET", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
     repo = tmp_path / "repo"
     repo.mkdir()
     monkeypatch.chdir(repo)
     layout = prepare()
-    assert layout["root"] == (tmp_path / "Local" / "Alex LLM").resolve()
-    assert layout["db"].is_relative_to(tmp_path / "Local")
+    if sys.platform == "win32":
+        assert layout["root"] == (tmp_path / "Local" / "Alex LLM").resolve()
+        assert layout["db"].is_relative_to(tmp_path / "Local")
+    else:
+        # Linux keeps its own layout under XDG. The invariant is the same on both: the checkout
+        # the process happens to be started in is never where product data lives.
+        assert layout["root"] == (tmp_path / "share" / "alex-llm").resolve()
+        assert layout["db"].is_relative_to(tmp_path / "share")
     assert not (repo / "data").exists()
     assert not (repo / "alex.db").exists()
 
