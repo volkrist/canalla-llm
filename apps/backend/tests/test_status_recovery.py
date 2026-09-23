@@ -439,6 +439,33 @@ def test_balance_not_configured_never_calls_upstream():
     assert api.calls == 0
 
 
+def test_no_background_loop_runs_without_a_key():
+    """A missing configuration is not a reason to poll. The service must not start a loop it could
+    only ever ask a question it already knows the answer to."""
+
+    async def scenario():
+        api = FakeAccountAPI(key="")
+        service = RunPodBalanceService(api, idle_interval=0.001)
+        await service.start()
+        await asyncio.sleep(0.05)  # many intervals' worth of waiting
+        await service.stop()
+        return api
+
+    assert run(scenario()).calls == 0
+
+
+def test_a_configured_balance_does_start_its_loop_and_stop_it():
+    async def scenario():
+        api = FakeAccountAPI()
+        service = RunPodBalanceService(api, idle_interval=0.001)
+        await service.start()
+        await asyncio.sleep(0.05)
+        await service.stop()
+        return api
+
+    assert run(scenario()).calls >= 1
+
+
 def test_balance_success_keeps_decimal_precision():
     api = FakeAccountAPI()
     api.balance = Decimal("8.731234")
