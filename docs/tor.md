@@ -9,6 +9,10 @@ Tor up and *proves* it, so «Tor Готово» is a real health statement inste
 configuration flag. See *Tor service (1.1.0)* at the end of this document — the
 routing rules below are unchanged by it.
 
+Since 1.2.0 the daemon itself **ships with Canalla** (see *Bundled Tor runtime
+(1.2.0)*). Installing the app is enough: no Tor Browser, no `tor.exe` on `PATH`
+and no manual Tor installation is required or expected.
+
 ## Modes
 
 - **Off** — no Tor tools for that request.
@@ -117,16 +121,20 @@ metadata.
 the backend lifespan (never in `app_env=test`), starts nothing on the GPU and
 never blocks startup.
 
-**Discovery order** — the configured endpoint first, then `127.0.0.1:9050`
-(standalone Tor), then `127.0.0.1:9150` (Tor Browser), plus any `tor_extra_ports`.
-The first endpoint that answers becomes the runtime route; nothing else is ever
-tried, so a stray proxy can never be adopted by accident.
+**Discovery order** — the endpoint this service already owns comes first, then the
+configured port, `127.0.0.1:9050` (standalone Tor), `127.0.0.1:9150` (Tor
+Browser), plus any `tor_extra_ports`. The first endpoint that answers becomes the
+runtime route; nothing else is ever tried, so a stray proxy can never be adopted
+by accident.
 
 **Managed start** — when nothing answers and `tor_managed_enabled` is on, the
-service starts its own process: `TOR_BINARY_PATH` if set, otherwise the Tor
-Browser bundle (`Browser/TorBrowser/Tor/tor.exe`), otherwise `tor` on `PATH`,
-otherwise `Program Files\Tor`. It uses its own `--DataDirectory` under the data
-root and logs to `<data root>/logs/tor.log`.
+service starts its own process. The daemon Canalla ships comes first, then
+`TOR_BINARY_PATH` for an operator override, then the Tor Browser bundle
+(`Browser/TorBrowser/Tor/tor.exe`), then `tor` on `PATH`, then `Program Files\Tor`.
+It runs with its own `torrc` in `<data root>/tor/torrc` (DataDirectory under the
+data root, `SafeSocks 1`, a loopback `SocksPort`, `Log notice file
+<data root>/logs/tor.log`) and reads no machine-wide torrc: the user's global
+configuration is never read, written or required.
 
 **Readiness is a proof, not a listener.** Tor opens its SOCKS listener at
 bootstrap 0 %, so an open port means nothing. The chip turns green only after a
@@ -150,21 +158,66 @@ popover (`Состояние` / `Режим` / `SOCKS` / `Порт отвеча�
 `Метод` / `Процесс` / `Последняя проверка` / `Откат`). `Off` or `Auto` never
 makes a healthy service look offline and never turns an unhealthy one green.
 
+**Port policy.** Our own daemon never takes a port somebody else holds: the first
+candidate that is free is used (otherwise a free loopback port), the endpoint that
+is actually used is the one that gets proven and saved, and `port_conflict` in the
+snapshot says whether the intended port was taken. A process Canalla did not start
+is never stopped, reconfigured or borrowed.
+
 **Recovery is automatic.** A supervisor re-probes on a bounded cadence
-(`tor_supervise_seconds`, `STARTING_DELAY_SECONDS` while bootstrapping), restarts
-the owned process when it died and re-proves the route. `POST /tools/tor/ensure`
-(«Проверить снова» / «Запустить Tor») is the manual fallback only: it returns the
-current snapshot immediately and continues the work in the background.
+(`tor_supervise_seconds`, `STARTING_DELAY_SECONDS` while bootstrapping, and a
+bounded backoff of 2 / 5 / 15 / 30 s after failed managed starts so a crash loop
+cannot spin), restarts the owned process when it died and re-proves the route.
+`POST /tools/tor/ensure` («Проверить снова» / «Запустить Tor») is the manual
+fallback only: it returns the current snapshot immediately and continues the work
+in the background.
 
 **No clearnet fallback, ever.** A request that requires Tor fails closed with its
 typed reason while Tor is unhealthy; it is never quietly sent over the direct
 network, and the recovery keeps running in the background.
 
-**Dependency.** Tor itself is not bundled. The managed start needs a local Tor:
-typically the Tor Browser installation or `tor.exe` on `PATH`; without one the
-honest state is `unavailable` / `tor_not_installed` with the manual path in the
-popover.
+**Dependency.** Tor is **bundled since 1.2.0** — see the next section. The
+compatibility paths above (a Tor Browser installation, a standalone `tor.exe`)
+remain useful on a machine that has one, but nothing in the product requires them:
+without any of them the bundled daemon is started and proven.
 
-`stop()` terminates **only** the process this service started, and the backend
-stops it again on shutdown. An external Tor is never killed, adopted or
+`stop()` terminates **only** the process this service started, waits for it in a
+bounded way and ends it if it has to, so a clean Quit leaves no orphan daemon and
+no listening SOCKS port. An external Tor is never killed, adopted or
 reconfigured.
+
+## Bundled Tor runtime (1.2.0)
+
+Canalla ships the Tor daemon, so the product is self-contained: install the app,
+launch it, and Tor becomes ready without Tor Browser, without `tor.exe` on `PATH`
+and without any technical setup.
+
+| Fact | Value |
+|---|---|
+| Source | The Tor Project's official **expert bundle** (the daemon only — no browser, no pluggable transports, no control port) |
+| Release | Tor Browser release `15.0.23`, daemon `0.4.9.12` |
+| Archive (Windows x86_64) | `https://dist.torproject.org/torbrowser/15.0.23/tor-expert-bundle-windows-x86_64-15.0.23.tar.gz` — SHA256 `231dad6b9cb401a54c260db7046965ef04e4f72ff071b140d423fb5da281ab1e`, 22 432 027 bytes |
+| Archive (Linux x86_64) | `https://dist.torproject.org/torbrowser/15.0.23/tor-expert-bundle-linux-x86_64-15.0.23.tar.gz` — SHA256 `08d49de27f542b8f73e2014e064d8320562b5d20019c03d4725c5a5249d97985`, 32 339 495 bytes |
+| License | **GPL-3.0**. The Tor Project builds released binaries with `--enable-gpl`; Tor's own code is BSD-3-Clause, and `docs/tor.txt` from the bundle lists the components |
+| Corresponding source | `https://dist.torproject.org/tor-0.4.9.12.tar.gz` (build scripts: `tor-browser-build`) |
+| Pin | `scripts/tor-runtime.json` (version, url, bytes, SHA256, licence, licence texts and the exact file list) |
+| Fetch and verify | `python scripts/fetch-tor-runtime.py` (optionally `--archive`, `--platform`, `--verify-only`, `--clean`) |
+| Windows path | `<install>\runtime\tor\tor.exe` (+ `geoip`, `geoip6`, the licence texts and `runtime.json`) |
+| Linux path | `<install>/runtime/tor/tor` (+ `libcrypto.so.3`, `libevent-2.1.so.7`, `libssl.so.3`, `geoip`, `geoip6`, licence texts) |
+| Runtime data | `<data root>/tor/` (`torrc`, `torrc-defaults`, the daemon's `DataDirectory`) and `<data root>/logs/tor.log` |
+| Proof | `<data root>/runtime/tor.json` — source, host, port, pid, daemon version, `verified_at`; never an exit address |
+| SocksPort | The configured `tor_socks_port` (9050 by default) when free, otherwise the next free candidate, otherwise a free loopback port: a port somebody else holds is never taken |
+| Update policy | The runtime is updated by shipping a new pinned version in a Canalla release. Nothing downloads Tor at run time, and there is no second updater for it |
+
+The backend finds the runtime through `ALEX_TOR_RUNTIME_DIR` (the Desktop resolves
+the installed path) and falls back to `<install>/runtime/tor` for a packaged
+backend. The fetch step is part of the build, not of the product: it refuses to
+stage an archive whose size or SHA256 does not match the pin, and refuses to
+finish if the licence text does not match either.
+
+**What a user sees.** A machine with no Tor Browser at all: `Starting` /
+«Подключается…» while the daemon bootstraps, then «Готово» only after a real
+SOCKS5h round trip proves the exit is Tor. Killing the daemon (or the whole
+machine) leads back to ready by itself: the supervisor restarts it, re-proves and
+updates the stored endpoint. See `docs/third-party-notices.md` for the bundled
+binaries, their licences and the source offer.
