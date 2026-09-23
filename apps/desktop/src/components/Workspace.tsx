@@ -21,6 +21,8 @@ import ComputePanel from "./ComputePanel";
 import ComputeBar from "./ComputeBar";
 import ComputerBar from "./ComputerBar";
 import StatusChips, { StatusBilling } from "./StatusChips";
+import AiConnectionBadge from "./AiConnectionBadge";
+import { useCloud } from "../lib/cloud";
 import { useStatus } from "../hooks/useStatus";
 import type { RecoveryAction } from "../lib/status";
 import { recoveryPlan } from "../lib/errors";
@@ -65,6 +67,13 @@ export default function Workspace({
     return () => clearBusy("generation");
   }, [chat.busy]);
   const status = useStatus(api, true);
+  // The same store the cloud panels read: the badge only reports it, it never polls it. The
+  // installation may be enrolled but still be unable to reach the Gateway, so both facts travel.
+  const cloudState = useCloud(api);
+  const cloud = {
+    state: cloudState.status?.state ?? null,
+    enrolled: Boolean(cloudState.status?.enrolled),
+  };
   const [sidebar, setSidebar] = useState(false);
   const [browser, setBrowser] = useState(false);
   const [device, setDevice] = useState<DeviceStatus>({
@@ -238,13 +247,13 @@ export default function Workspace({
             api={api}
             stale={status.stale}
           />
-          <div
-            className={`connection ${health ? "connected" : ""}`}
-            role="status"
-          >
-            <span className="tiny-dot" />
-            {health ? "Connected" : "Offline"}
-          </div>
+          <AiConnectionBadge
+            snapshot={status.snapshot}
+            stale={status.stale}
+            backendReady={Boolean(health)}
+            cloud={cloud}
+            onAction={statusAction}
+          />
         </header>
         <div className="status-line">
           <StatusBilling snapshot={status.snapshot} />

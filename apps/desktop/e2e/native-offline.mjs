@@ -18,7 +18,7 @@ await page
 await page
   .getByRole("button", { name: "Создать аккаунт", exact: true })
   .click();
-await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+await expect(page.getByTestId("ai-connection")).toBeVisible();
 await expect(
   page.getByText("orcarouter-qwen38-27b-q5km", { exact: false }).first(),
 ).toBeVisible();

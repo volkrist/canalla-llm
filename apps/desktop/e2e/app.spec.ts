@@ -8,7 +8,7 @@ async function register(page: Page, email: string) {
   await page
     .getByRole("button", { name: "Создать аккаунт", exact: true })
     .click();
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("ai-connection")).toBeVisible();
 }
 
 test("register, streamed markdown, copy, stop, history, isolation and delete", async ({
@@ -114,9 +114,25 @@ test("small window, settings and offline recovery", async ({ page }) => {
   ).toBe(true);
   await page.screenshot({ path: "test-results/mobile.png" });
   await page.route("**/health", (route) => route.abort());
-  await expect(page.getByText("Offline", { exact: true })).toBeVisible({
-    timeout: 18000,
-  });
+  // Both liveness and the authoritative snapshot go away, which is what a real outage looks like.
+  await page.route("**/status", (route) => route.abort());
+  await page.getByTestId("ai-connection").click();
+  // The badge speaks for the AI; a backend that stops answering is its own labelled row.
+  await expect(page.getByTestId("ai-connection-backend")).toHaveText(
+    "Не отвечает",
+    { timeout: 18000 },
+  );
+  // A read that failed is never health: the badge may not keep the green it was showing a moment
+  // ago, even though this fixture's own AI had answered. That is the whole point of the state.
+  await expect(page.getByTestId("ai-connection")).toHaveAttribute(
+    "data-code",
+    "snapshot_stale",
+    { timeout: 25000 },
+  );
+  await expect(page.getByTestId("ai-connection")).toHaveAttribute(
+    "data-state",
+    "disconnected",
+  );
   await page
     .getByRole("textbox", { name: "Сообщение", exact: true })
     .fill("Offline test");
@@ -124,7 +140,14 @@ test("small window, settings and offline recovery", async ({ page }) => {
     page.getByRole("button", { name: "Send", exact: true }),
   ).toBeDisabled();
   await page.unroute("**/health");
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible({
+  await page.unroute("**/status");
+  await expect(page.getByTestId("ai-connection-backend")).toHaveText("Готов", {
     timeout: 18000,
   });
+  // And back to reading a live snapshot: the state is again the AI's own, not a memory of one.
+  await expect(page.getByTestId("ai-connection")).not.toHaveAttribute(
+    "data-code",
+    "snapshot_stale",
+    { timeout: 25000 },
+  );
 });

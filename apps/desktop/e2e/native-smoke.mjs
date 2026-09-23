@@ -26,7 +26,7 @@ await page
 await page
   .getByRole("button", { name: "Создать аккаунт", exact: true })
   .click();
-await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+await expect(page.getByTestId("ai-connection")).toBeVisible();
 await expect(page.locator(".personal-nav").first()).toContainText("Online", {
   timeout: 15000,
 });

@@ -739,8 +739,11 @@ p {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.connection {
+.connection-slot {
+  position: relative;
   margin-left: auto;
+}
+.connection {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -750,11 +753,40 @@ p {
   padding: 6px 9px;
   border: 1px solid #3b3429;
   border-radius: 20px;
+  cursor: pointer;
 }
-.connection.connected {
+/* The three words carry the same colours as the chips, so one glance is enough and the text
+   never has to be the only signal. `disconnected` is the resting colour, not an alarm: an AI
+   nobody has configured yet is normal, and its popover says what to do about it. */
+.connection.state-connected {
   color: #9fc499;
   background: #1c2920;
   border-color: #2c3a2e;
+}
+.connection.state-connecting {
+  color: #d6c48a;
+  background: #2a261c;
+  border-color: #433b2a;
+}
+.connection.state-disconnected {
+  color: #f2b4ac;
+  background: #3a2422;
+  border-color: #5a3532;
+}
+.connection-detail {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: min(420px, 88vw);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  box-shadow: 0 14px 34px #0009;
+  background: #1d211e;
+}
+.connection-detail .connection-hint {
+  color: #9caaa2;
 }
 .status-bar {
   display: flex;

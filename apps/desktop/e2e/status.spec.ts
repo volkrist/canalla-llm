@@ -85,7 +85,7 @@ async function register(page: Page, email: string) {
   await page
     .getByRole("button", { name: "Создать аккаунт", exact: true })
     .click();
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("ai-connection")).toBeVisible();
 }
 
 test("five chips, live shared balance and a stale value that never becomes zero", async ({
