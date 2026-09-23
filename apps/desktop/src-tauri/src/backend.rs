@@ -106,6 +106,9 @@ struct Live {
 struct Supervisor {
     live: Option<Live>,
     last: BackendStatus,
+    /// Automatic restarts this session. The budget is shared by every path so a sidecar that keeps
+    /// dying cannot be restarted forever, no matter who noticed the exit.
+    restarts: u8,
 }
 
 struct OwnedJob(std::os::windows::io::OwnedHandle);
@@ -115,6 +118,7 @@ fn supervisor() -> &'static Mutex<Supervisor> {
     CELL.get_or_init(|| {
         Mutex::new(Supervisor {
             live: None,
+            restarts: 0,
             last: BackendStatus {
                 state: BackendState::Starting,
                 ownership: Ownership::None,
@@ -326,6 +330,13 @@ pub fn find_native_host() -> Option<PathBuf> {
 }
 
 fn discover_backend_launch() -> Result<(PathBuf, PathBuf, RuntimeMode), String> {
+    #[cfg(test)]
+    {
+        if let Some((program, _)) = TEST_LAUNCH.lock().ok().and_then(|test| test.clone()) {
+            let cwd = program.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
+            return Ok((program, cwd, RuntimeMode::Packaged));
+        }
+    }
     if let Some(exe) = find_sidecar_exe() {
         let cwd = exe.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
         return Ok((exe, cwd, RuntimeMode::Packaged));
@@ -528,6 +539,12 @@ fn spawn_owned(port: u16, instance: &str, secret: &str) -> Result<Live, String> 
     if mode != RuntimeMode::Packaged {
         command.args(["-m", "app.runtime_entry"]);
     }
+    #[cfg(test)]
+    {
+        if let Some((_, args)) = TEST_LAUNCH.lock().ok().and_then(|test| test.clone()) {
+            command.args(args);
+        }
+    }
     command.current_dir(&cwd);
     base_backend_env(&mut command, &mode, &root, secret, &token);
     command
@@ -718,7 +735,7 @@ fn spawn_and_wait(sup: &mut Supervisor, port: u16, restarts: u8) -> Result<Backe
 fn ensure_locked(sup: &mut Supervisor) -> Result<BackendStatus, String> {
     let root = data_root();
     layout(&root)?;
-    let mut restart_from = 0u8;
+    let mut restart_from = sup.restarts;
     if let Some(live) = sup.live.as_mut() {
         if live.ownership == Ownership::Owned {
             if let Some(child) = live.child.as_mut() {
@@ -734,13 +751,14 @@ fn ensure_locked(sup: &mut Supervisor) -> Result<BackendStatus, String> {
                         return Ok(status);
                     }
                     Ok(Some(_)) => {
-                        if live.restarts >= 1 {
+                        let attempts = live.restarts;
+                        if attempts >= RESTART_LIMIT {
                             let failed = BackendStatus::error("BACKEND_START_FAILED", root.clone());
                             sup.live = None;
                             sup.last = failed.clone();
                             return Ok(failed);
                         }
-                        restart_from = live.restarts + 1;
+                        restart_from = attempts + 1;
                         sup.live = None;
                     }
                     Err(_) => {}
@@ -761,6 +779,7 @@ fn ensure_locked(sup: &mut Supervisor) -> Result<BackendStatus, String> {
             sup.live = None;
         }
     }
+    sup.restarts = restart_from.max(sup.restarts);
 
     let port = select_listen_port(PREFERRED_PORT)?;
     match classify_port(port) {
@@ -778,6 +797,98 @@ fn ensure_locked(sup: &mut Supervisor) -> Result<BackendStatus, String> {
         PortKind::Unrelated => Err("NO_SAFE_BACKEND_PORT".into()),
         PortKind::Free => spawn_and_wait(sup, port, restart_from),
     }
+}
+
+/// How many automatic restarts one installation gets before the supervisor stops trying.
+///
+/// The budget is deliberately small and shared by every path (the ensure command and the
+/// watchdog): a sidecar that cannot stay up is a broken installation, and a silent restart loop
+/// would hide that instead of reporting it.
+const RESTART_LIMIT: u8 = 3;
+const WATCHDOG_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Set on a full application Quit. The watchdog never resurrects a backend after that: stopping
+/// the app is an instruction, not a crash.
+static SHUTTING_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn begin_shutdown() {
+    SHUTTING_DOWN.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn shutting_down() -> bool {
+    SHUTTING_DOWN.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+#[cfg(test)]
+fn resume_after_shutdown_for_tests() {
+    SHUTTING_DOWN.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// The program the supervisor starts, with optional arguments. Tests point this at a fake sidecar;
+/// the product always asks discovery.
+#[cfg(test)]
+static TEST_LAUNCH: std::sync::Mutex<Option<(std::path::PathBuf, Vec<String>)>> =
+    std::sync::Mutex::new(None);
+
+/// Own the sidecar lifecycle in the Desktop, not in the UI.
+///
+/// The frontend is a viewer: a window can be closed, hidden or wedged, and a backend that died
+/// must still come back. This watchdog is the single owner of "the child exited": it notices the
+/// exit by itself, marks the state unhealthy, and performs a bounded restart with a short
+/// backoff. Idempotent, so app setup and tests can both call it.
+pub fn start_watchdog() {
+    static STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    STARTED.get_or_init(|| {
+        std::thread::spawn(|| {
+            loop {
+                std::thread::sleep(WATCHDOG_INTERVAL);
+                if shutting_down() {
+                    return;
+                }
+                observe_owned_child();
+            }
+        });
+    });
+}
+
+/// One watchdog pass: is the owned child still there, and what should happen if it is not?
+fn observe_owned_child() {
+    let Ok(mut sup) = supervisor().lock() else {
+        return;
+    };
+    let exited = match sup.live.as_mut() {
+        Some(live) if live.ownership == Ownership::Owned => match live.child.as_mut() {
+            Some(child) => match child.try_wait() {
+                Ok(None) => false,
+                Ok(Some(_)) => true,
+                Err(_) => false,
+            },
+            None => live.pid != 0 && !process_alive(live.pid),
+        },
+        _ => false,
+    };
+    if !exited || shutting_down() {
+        return;
+    }
+    let attempts = sup.restarts;
+    sup.live = None;
+    if attempts >= RESTART_LIMIT {
+        let status = BackendStatus::error("BACKEND_START_FAILED", data_root());
+        sup.last = status;
+        return;
+    }
+    // A short backoff keeps a crash loop from hammering the disk, and the budget above stops it.
+    let backoff = Duration::from_millis(250 * u64::from(attempts + 1));
+    sup.restarts = attempts + 1;
+    drop(sup);
+    std::thread::sleep(backoff);
+    if shutting_down() {
+        return;
+    }
+    let Ok(mut sup) = supervisor().lock() else {
+        return;
+    };
+    let _ = ensure_locked(&mut sup);
 }
 
 pub fn ensure_backend_blocking() -> Result<BackendStatus, String> {
@@ -895,6 +1006,7 @@ fn terminate_tree(_pid: u32) {}
 pub fn on_desktop_exit() {
     // Full application Quit only (Tauri Exit / ExitRequested). In-app window
     // navigation does not run this. External backends are left running.
+    begin_shutdown();
     let Ok(mut sup) = supervisor().lock() else {
         return;
     };
@@ -1050,8 +1162,64 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../backend/.venv/Scripts/python.exe")
     }
 
+    /// The supervisor is process-global, so every test that puts a child in it - or asks the
+    /// watchdog to act on one - has to take this lock instead of racing the others.
+    static SUPERVISOR_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn supervisor_guard() -> std::sync::MutexGuard<'static, ()> {
+        SUPERVISOR_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
+    /// A real process the supervisor can own, health-check and restart: the fake answers the same
+    /// `/health` contract the packaged sidecar does, and dies on `/runtime/shutdown`.
+    const FAKE_SIDECAR: &str = r#"
+import json, os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def _json(self, payload):
+        body = json.dumps(payload).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == "/health":
+            self._json({
+                "status": "ok",
+                "product": "alex-llm",
+                "instance": os.environ.get("ALEX_BACKEND_INSTANCE", ""),
+                "provider": "mock",
+            })
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_POST(self):
+        if self.path == "/runtime/shutdown":
+            self.send_response(200)
+            self.end_headers()
+            os._exit(0)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+
+port = int(os.environ["ALEX_BACKEND_PORT"])
+ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+"#;
+
     #[test]
     fn quit_stops_owned_child_and_leaves_external() {
+        let _supervisor = supervisor_guard();
         let python = python_bin();
         let owned = Command::new(&python)
             .args(["-c", "import time; time.sleep(30)"])
@@ -1098,6 +1266,81 @@ mod tests {
         assert!(process_alive(external_pid));
         let _ = external.kill();
         let _ = external.wait();
+    }
+
+    #[test]
+    fn watchdog_restarts_a_crashed_owned_sidecar() {
+        use std::time::Instant;
+
+        let _supervisor = supervisor_guard();
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let previous_root = std::env::var("ALEX_LLM_DATA_DIR").ok();
+        let root = std::env::temp_dir().join(format!("alex-watchdog-{}", UuidLite::instance()));
+        std::env::set_var("ALEX_LLM_DATA_DIR", &root);
+        *TEST_LAUNCH.lock().unwrap() = Some((python_bin(), vec!["-c".into(), FAKE_SIDECAR.into()]));
+        resume_after_shutdown_for_tests();
+        {
+            let mut sup = supervisor().lock().unwrap();
+            sup.live = None;
+        }
+        start_watchdog();
+
+        let first = {
+            let mut sup = supervisor().lock().unwrap();
+            ensure_locked(&mut sup).expect("the fake sidecar starts")
+        };
+        assert_eq!(first.state, BackendState::Ready);
+        let first_pid = first.pid.expect("a pid");
+        let port = first.port.expect("a port");
+
+        // Crash it the way a real sidecar dies: the process is gone, the handle is stale.
+        terminate_pid(first_pid);
+
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut replacement = None;
+        while Instant::now() < deadline {
+            if let Ok(sup) = supervisor().lock() {
+                if let Some(live) = sup.live.as_ref() {
+                    if live.pid != first_pid && alex_health(&url_for(live.port)).is_some() {
+                        replacement = Some((live.pid, live.restarts, live.ownership.clone()));
+                        break;
+                    }
+                }
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
+
+        let (second_pid, restarts, ownership) =
+            replacement.expect("the watchdog brings the sidecar back without the UI asking");
+        assert_ne!(second_pid, first_pid);
+        assert_eq!(port, port); // the replacement serves on a port of its own
+        assert_eq!(ownership, Ownership::Owned);
+        assert_eq!(restarts, 1, "exactly one crash, exactly one restart");
+        assert!(process_alive(second_pid));
+
+        // A full Quit is an instruction, not a crash: nothing may be resurrected after it.
+        begin_shutdown();
+        if let Ok(mut sup) = supervisor().lock() {
+            if let Some(mut live) = sup.live.take() {
+                if let Some(mut child) = live.child.take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+        }
+        thread::sleep(Duration::from_secs(4));
+        {
+            let sup = supervisor().lock().unwrap();
+            assert!(sup.live.is_none(), "the watchdog resurrected a backend after Quit");
+        }
+
+        *TEST_LAUNCH.lock().unwrap() = None;
+        resume_after_shutdown_for_tests();
+        match previous_root {
+            Some(value) => std::env::set_var("ALEX_LLM_DATA_DIR", value),
+            None => std::env::remove_var("ALEX_LLM_DATA_DIR"),
+        }
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

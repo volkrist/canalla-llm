@@ -97,4 +97,34 @@ describe("crashed local backend recovery", () => {
       state: null,
     });
   });
+
+  it("never waits forever on one command", async () => {
+    const stuck = vi.fn(() => new Promise<never>(() => {}));
+
+    const result = await recoverBackend(0, {
+      ensure: stuck,
+      sleep: async () => {},
+      timeoutMs: 30,
+    });
+
+    expect(result).toEqual({ attempted: true, state: null });
+    expect(stuck).toHaveBeenCalledTimes(1);
+  });
+
+  it("a slow success still wins when it arrives inside the budget", async () => {
+    const slow = vi.fn(
+      () =>
+        new Promise<BackendRuntime>((done) =>
+          setTimeout(() => done({ ...ready, pid: 4242 }), 20),
+        ),
+    );
+
+    const result = await recoverBackend(0, {
+      ensure: slow,
+      sleep: async () => {},
+      timeoutMs: 500,
+    });
+
+    expect(result).toEqual({ attempted: true, state: "ready" });
+  });
 });

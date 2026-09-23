@@ -95,6 +95,22 @@ export interface RecoveryAttempt {
   state: BackendState | null;
 }
 
+/** A recovery step must never hang the UI: one stuck command cannot freeze the watchdog.
+ *
+ * The Rust side keeps working on the request after this gives up, so a slow spawn is not lost -
+ * the app simply stops *waiting* on it and re-reads the state instead. */
+export const RECOVERY_CALL_TIMEOUT_MS = 20000;
+
+export async function withTimeout<T>(
+  work: Promise<T>,
+  ms: number,
+): Promise<T | null> {
+  return Promise.race([
+    work.catch(() => null),
+    new Promise<null>((done) => setTimeout(() => done(null), ms)),
+  ]);
+}
+
 /** One bounded attempt to get the local backend back, with the seams a test needs.
  *
  * The first attempt asks the supervisor to re-ensure what it already owns; the later ones ask for
@@ -106,6 +122,7 @@ export async function recoverBackend(
     ensure?: () => Promise<BackendRuntime | null>;
     restart?: () => Promise<BackendRuntime | null>;
     sleep?: (ms: number) => Promise<void>;
+    timeoutMs?: number;
   } = {},
 ): Promise<RecoveryAttempt> {
   const delay = recoveryDelay(attempt);
@@ -118,6 +135,9 @@ export async function recoverBackend(
     attempt === 0
       ? (seams.ensure ?? ensureBackend)
       : (seams.restart ?? restartBackend);
-  const next = await call().catch(() => null);
+  const next = await withTimeout(
+    call(),
+    seams.timeoutMs ?? RECOVERY_CALL_TIMEOUT_MS,
+  );
   return { attempted: true, state: next?.state ?? null };
 }

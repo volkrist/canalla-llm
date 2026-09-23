@@ -77,7 +77,7 @@ def installed_sidecar() -> Path:
 
 
 SIDECAR = installed_sidecar()
-EXPECTED_SIDECAR_SHA256 = "eb87d277458f55de8881cc0dc85d26b8cf558e9ab3b98fc04ee3352c4668f2cd"
+EXPECTED_SIDECAR_SHA256 = "ffd8884d9ce01919ad60fdf862857af62171b2718092a0b8577dfcefa10a2cd3"
 PORT = 8123
 EMAIL = "cert-owner@example.com"
 PASSWORD = "cert-owner-1.1.0-passphrase"

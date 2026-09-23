@@ -15,6 +15,12 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .setup(|_app| {
+            // The Desktop owns the sidecar lifecycle: a child that dies is noticed and restarted
+            // here, not by a window that may be closed, hidden or wedged.
+            backend::start_watchdog();
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             host::pair_device,
             host::device_status,
