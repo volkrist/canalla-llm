@@ -1,0 +1,13 @@
+{
+  "version": "1.2.0",
+  "notes": "Компактный интерфейс, always-ready сервисы, автообновление.",
+  "channel": "stable",
+  "platforms": {
+    "windows-x86_64": {
+      "url": "https://gateway.12testers.store/downloads/Canalla%20LLM_1.2.0_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRa0Q5QlNDL21mdDdWVmt1YkNHRUJPZ2kxbUljUVh5R3lrSVRZYkZIVHZpVm5tQmcvL2swZlEzSjBsd2cxZ3VCWnN1SnhMaGRwd0l3UExtT0REYkM2VWlCaWl3Q0dUREFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMTU2MTU4CWZpbGU6Y2FuYWxsYS11cGRhdGUtZml4dHVyZS5iaW4KS0wrOEZkM2UwSVhxNnN6Z0s0WmROcms4WVRwL0lzeHRLdVdxMFlaTTQvSmRBQm1VdVRtSTV6UGluTFBRUEJBRW9QS2IrWlJpTVQ2WEVZNG9zUXZlQnc9PQo=",
+      "sha256": "0e242fb9b6507939812857aa514e4fd0e45042b53dc4211376fcbc245814a66c"
+    }
+  },
+  "pub_date": "2026-09-23T00:00:00Z"
+}

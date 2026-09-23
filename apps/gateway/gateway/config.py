@@ -87,6 +87,11 @@ class GatewaySettings(BaseSettings):
     inference_timeout_seconds: float = Field(default=900, ge=10, le=3600)
     inference_upstream_timeout_seconds: float = Field(default=120, ge=5, le=1800)
 
+    # Desktop updates: a published manifest file (or inline JSON for tests). Public data only -
+    # the signature lives in the manifest, the signing key never reaches this service.
+    updates_manifest_path: str = ""
+    updates_manifest_json: SecretStr = SecretStr("")
+
     @model_validator(mode="after")
     def validate_policy(self):
         if self.app_env == "production":

@@ -8,13 +8,16 @@ token-minting secret or a direct llama.cpp endpoint.
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
+from . import updates
 from .config import GatewaySettings
 from .errors import GatewayError
 from .models import AuditEvent, Installation
@@ -27,6 +30,8 @@ from .security import (
     redeem_code,
     utc,
 )
+
+logger = logging.getLogger("gateway.routes")
 
 router = APIRouter()
 
@@ -109,6 +114,35 @@ def database_state(request: Request) -> Literal["ok", "missing_schema", "error"]
     except Exception:
         return "error"
     return "ok" if REQUIRED_TABLES <= present else "missing_schema"
+
+
+@router.get("/updates/latest")
+async def updates_latest(
+    request: Request,
+    target: Annotated[str | None, Query()] = None,
+    arch: Annotated[str | None, Query()] = None,
+    current_version: Annotated[str | None, Query()] = None,
+) -> Response:
+    """The update manifest for one client. Read-only, unauthenticated, no compute involved.
+
+    No manifest published: 204 ("nothing for you"), which the updater reads as "no update".
+    A downgrade, an unknown platform or an unsigned entry is never offered.
+    """
+    settings = settings_of(request)
+    platform = f"{target or ''}-{arch or ''}"
+    try:
+        status, body = updates.latest(
+            path=settings.updates_manifest_path,
+            inline=settings.updates_manifest_json.get_secret_value(),
+            platform=platform,
+            current_version=current_version,
+        )
+    except updates.UpdateManifestError as error:
+        logger.warning("updates_manifest_refused reason=%s", error)
+        return JSONResponse({"detail": str(error)}, status_code=503)
+    if body is None:
+        return Response(status_code=status)
+    return JSONResponse(body, status_code=status)
 
 
 @router.get("/health")
