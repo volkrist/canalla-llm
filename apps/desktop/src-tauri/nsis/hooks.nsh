@@ -30,4 +30,9 @@ legacy_program_done:
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
+  ; The «start with Windows» entry belongs to the programme, not to the data: it is removed with
+  ; the programme. The user data root and every Credential Manager entry are never touched here -
+  ; they hold the database, documents, session and enrollment, and only an explicit choice in the
+  ; product removes them.
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Canalla LLM"
 !macroend

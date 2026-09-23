@@ -1,6 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use tauri::Manager;
+
 mod auth;
+mod autostart;
 mod backend;
 mod backup;
 mod credential;
@@ -12,6 +15,16 @@ mod process;
 
 fn main() {
     tauri::Builder::default()
+        // A second launch brings the running product forward instead of starting a second one: one
+        // desktop, one backend, one native host, one Tor. Registered first, because it has to
+        // decide before any of them exists.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -50,7 +63,9 @@ fn main() {
             gateway::gateway_enroll,
             gateway::gateway_disconnect,
             backup::restore_backup,
-            backup::backup_location
+            backup::backup_location,
+            autostart::autostart_status,
+            autostart::set_autostart
         ])
         .build(tauri::generate_context!())
         .expect("Unable to start Canalla LLM")

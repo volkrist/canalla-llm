@@ -14,6 +14,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+// The one removal an uninstall is allowed to make: the programme's own login entry. User data and
+// credentials live elsewhere and must survive.
+const LOGIN_ENTRY_REMOVAL =
+  /^DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Run" "Canalla LLM"$/;
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tauriRoot = path.resolve(here, "..", "..", "src-tauri");
 const hooksPath = path.join(tauriRoot, "nsis", "hooks.nsh");
@@ -67,8 +72,18 @@ describe("installer migration", () => {
         .split(/\r?\n/)
         .filter((line) => !line.trimStart().startsWith(";"))
         .join("\n");
-      expect(code).not.toMatch(/RMDir|Delete|cmdkey|CredDelete/i);
+      // The programme's own login entry is the one thing an uninstall may remove; anything that
+      // holds the user's data or credentials stays untouched.
+      const remaining = code
+        .split(/\r?\n/)
+        .filter((line) => !LOGIN_ENTRY_REMOVAL.test(line.trim()))
+        .join("\n");
+      expect(remaining).not.toMatch(/RMDir|Delete|cmdkey|CredDelete|CredRead/i);
     }
+    // ...and it is removed, not merely left behind.
+    expect(post).toContain(
+      'DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Run" "Canalla LLM"',
+    );
   });
 
   it("never asks NSIS to delete application data on uninstall", () => {

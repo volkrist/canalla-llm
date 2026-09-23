@@ -17,6 +17,9 @@ tauri-plugin-opener = "2"
 # tauri.conf.json before it may run the installer.
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# One product per machine: a second launch focuses the running window instead of starting a second
+# desktop with its own backend, native host and Tor.
+tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
@@ -29,6 +32,7 @@ windows = { version = "0.58", features = [
   "Win32_Storage_FileSystem",
   "Win32_System_Com",
   "Win32_System_JobObjects",
+  "Win32_System_Registry",
   "Win32_System_SystemInformation",
   "Win32_System_Threading",
   "Win32_UI_Shell",
