@@ -32,6 +32,7 @@ import json
 import logging
 import os
 import shutil
+import socket
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -65,6 +66,16 @@ BOOTSTRAP_POLL_SECONDS = 1.5
 STARTING_DELAY_SECONDS = 2.0
 STOP_TIMEOUT_SECONDS = 8.0
 BINARY_SEARCH_NAMES = ("tor.exe", "tor")
+# The runtime Canalla ships, relative to the installed application, and what the fetch step wrote
+# next to it (version, license, provenance).
+BUNDLED_SOURCE = "bundled"
+BUNDLED_RUNTIME_PARTS = ("runtime", "tor")
+RUNTIME_METADATA_NAME = "runtime.json"
+# Our own Tor never takes a port somebody else holds, and a restarting process backs off.
+PORT_PROBE_SECONDS = 0.3
+# How long an endpoint that is not ours gets to prove itself before our own runtime takes over.
+DISCOVERY_PROOF_SECONDS = 5.0
+RESTART_BACKOFF_SECONDS = (2.0, 5.0, 15.0, 30.0)
 
 
 def tor_binary_from_browser() -> Path | None:
@@ -84,16 +95,80 @@ def tor_binary_from_browser() -> Path | None:
     return None
 
 
+def bundled_runtime_dir(settings: Settings) -> Path | None:
+    """The Tor runtime Canalla ships, when this installation has one.
+
+    The Desktop hands the path over (``ALEX_TOR_RUNTIME_DIR``); a packaged backend can also find it
+    next to its own installation, which is where the installer puts it (``runtime/tor``).
+    """
+    configured = (settings.alex_tor_runtime_dir or "").strip()
+    if configured:
+        path = Path(configured).expanduser()
+        return path if path.is_dir() else None
+    if os.environ.get("ALEX_PACKAGED") == "1":
+        install = Path(sys.executable).resolve().parent.parent.parent
+        candidate = install.joinpath(*BUNDLED_RUNTIME_PARTS)
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def bundled_runtime_metadata(settings: Settings) -> dict[str, Any] | None:
+    """What the fetch step recorded about the bundled runtime: version, license, provenance."""
+    runtime = bundled_runtime_dir(settings)
+    if runtime is None:
+        return None
+    try:
+        data = json.loads((runtime / RUNTIME_METADATA_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def bundled_tor_binary(settings: Settings) -> tuple[Path, str] | None:
+    """The daemon Canalla ships: the path that requires nothing installed by the user."""
+    runtime = bundled_runtime_dir(settings)
+    if runtime is None:
+        return None
+    for name in BINARY_SEARCH_NAMES:
+        candidate = runtime / name
+        if candidate.is_file():
+            return candidate, BUNDLED_SOURCE
+    return None
+
+
+def port_available(host: str, port: int) -> bool:
+    """True when nothing answers on the loopback port and we can bind it ourselves."""
+    if socks_listening(host, port, PORT_PROBE_SECONDS):
+        return False
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind((host, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        probe.close()
+
+
 def find_tor_binary(settings: Settings) -> tuple[Path, str] | None:
-    """``(path, source)`` for the Tor daemon to manage, or ``None`` when there is none."""
+    """``(path, source)`` for the Tor daemon to manage, or ``None`` when there is none.
+
+    The runtime Canalla ships comes first: an installation must not depend on whatever the machine
+    happens to have. An explicit override stays available for an operator, and the compatibility
+    paths (the user's Tor Browser, a standalone Tor) stay for machines without a bundle.
+    """
     override = (settings.tor_binary_path or "").strip()
     if override:
         path = Path(override).expanduser()
         if path.is_file():
             return path, "configured"
-    bundled = tor_binary_from_browser()
+    bundled = bundled_tor_binary(settings)
     if bundled is not None:
-        return bundled, "tor_browser"
+        return bundled
+    from_browser = tor_binary_from_browser()
+    if from_browser is not None:
+        return from_browser, "tor_browser"
     found = shutil.which("tor")
     if found:
         return Path(found), "standalone"
@@ -149,6 +224,8 @@ class TorService:
         self._endpoint: tuple[str, int] | None = None
         self._listening = False
         self._managed_source = False
+        self._port_conflict = False
+        self._restarts = 0
         self._process: Any | None = None
         self._process_port: int | None = None
         self._proof: dict | None = self._load_proof()
@@ -184,7 +261,7 @@ class TorService:
             return None
         return data
 
-    def _save_proof(self, host: str, port: int, source: str) -> None:
+    def _save_proof(self, host: str, port: int, source: str, *, pid: int | None = None) -> None:
         proof = {
             "verified": True,
             "verified_at": self.clock().isoformat(),
@@ -192,6 +269,10 @@ class TorService:
             "port": port,
             "source": source,
             "method": "socks5h",
+            # Which endpoint this is, and (only when we own it) which process serves it. Never an
+            # exit address, never a fingerprint.
+            "pid": pid,
+            "tor_version": self.runtime_version(),
         }
         self._proof = proof
         try:
@@ -259,6 +340,9 @@ class TorService:
             "method": "socks5h",
             "candidates": self.candidate_ports(),
             "binary": ({"path": str(binary[0]), "source": binary[1]} if binary else None),
+            "runtime_version": self.runtime_version(),
+            "managed_port": self._process_port,
+            "port_conflict": self._port_conflict,
             "fallback": "none",
             "updated_at": self._updated_at.isoformat(),
         }
@@ -317,6 +401,30 @@ class TorService:
     def _log_path(self) -> Path:
         return application_data(self.settings) / "logs" / "tor.log"
 
+    def runtime_version(self) -> str | None:
+        """The version of the runtime this installation ships, as the fetch step recorded it."""
+        metadata = bundled_runtime_metadata(self.settings) or {}
+        for key in ("daemon_version", "version"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value:
+                return value
+        return None
+
+    def _process_pid(self) -> int | None:
+        pid = getattr(self._process, "pid", None)
+        return int(pid) if isinstance(pid, int) else None
+
+    def _discovery_proof_seconds(self) -> float:
+        """How long to wait for an endpoint that is not ours to prove itself.
+
+        A working endpoint proves within seconds, so this stays short when Canalla has a runtime of
+        its own: waiting a full window on somebody else's endpoint would delay the path that needs
+        nothing from the machine.
+        """
+        if find_tor_binary(self.settings) is not None:
+            return min(DISCOVERY_PROOF_SECONDS, self.settings.tor_startup_timeout_seconds)
+        return min(30.0, self.settings.tor_startup_timeout_seconds)
+
     def bootstrap_progress(self, *, since_seconds: float = 900.0) -> int | None:
         """The last bootstrap percentage Tor itself reported, or ``None`` when unknown.
 
@@ -346,25 +454,15 @@ class TorService:
         return progress
 
     def _spawn_tor(self, binary: Path, port: int, data_dir: Path, log_path: Path):
-        data_dir.mkdir(parents=True, exist_ok=True)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
+        torrc = self._write_configs(binary, port, data_dir, log_path)
         args = [
             str(binary),
-            "--SocksPort",
-            f"{self.host}:{port}",
-            "--DataDirectory",
-            str(data_dir),
-            "--ClientOnly",
-            "1",
-            "--Log",
-            f"notice file {log_path}",
+            "-f",
+            str(torrc),
+            "--defaults-torrc",
+            str(data_dir / "torrc-defaults"),
+            "--ignore-missing-torrc",
         ]
-        # The Tor Browser bundle keeps its geoip files next to the binary; pointing at them keeps
-        # the bootstrap clean and the path-of-least-surprise (no relative-path guessing).
-        for flag, name in (("--GeoIPFile", "geoip"), ("--GeoIPv6File", "geoip6")):
-            candidate = binary.parent / name
-            if candidate.is_file():
-                args += [flag, str(candidate)]
         creation = 0
         if sys.platform == "win32":  # pragma: no cover - Windows only
             creation = subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
@@ -378,10 +476,37 @@ class TorService:
             creationflags=creation,
         )
 
-    async def _start_managed(self, port: int) -> bool:
-        binary = find_tor_binary(self.settings)
-        if binary is None:
-            return False
+    def _write_configs(self, binary: Path, port: int, data_dir: Path, log_path: Path) -> Path:
+        """Write the configuration Canalla runs its own Tor with.
+
+        The managed daemon reads these two files and nothing else: the user's global torrc is never
+        read, never written and never needed. Paths are written natively, because Tor treats a
+        forward-slashed Windows path as relative.
+        """
+        data_dir.mkdir(parents=True, exist_ok=True)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        torrc = self._torrc_path(data_dir)
+        lines = [
+            "# Written by Canalla LLM for the Tor it manages. Nothing here is user input.",
+            "ClientOnly 1",
+            f"SocksPort {self.host}:{port}",
+            f"DataDirectory {data_dir}",
+            f"Log notice file {log_path}",
+            # Application connections must hand the hostname over: Tor refuses a local resolution.
+            "SafeSocks 1",
+        ]
+        for flag, name in (("GeoIPFile", "geoip"), ("GeoIPv6File", "geoip6")):
+            candidate = binary.parent / name
+            if candidate.is_file():
+                lines.append(f"{flag} {candidate}")
+        torrc.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        (data_dir / "torrc-defaults").write_text(
+            "# Exists so that no machine-wide defaults file can influence the Tor Canalla manages.\n",
+            encoding="utf-8",
+        )
+        return torrc
+
+    async def _start_managed(self, binary: tuple[Path, str], port: int) -> bool:
         path, source = binary
         data_dir = application_data(self.settings) / "tor"
         log_path = self._log_path()
@@ -394,7 +519,25 @@ class TorService:
             self._process = None
             return False
         self._process_port = port
+        self._restarts += 1
         return True
+
+    def _managed_port(self) -> int:
+        """The port our own Tor may use: the first candidate that nothing else holds.
+
+        A port somebody else is listening on is never taken: Canalla does not stop, reconfigure or
+        borrow a process it did not start. When every candidate is held, a free loopback port is
+        chosen instead - the endpoint that is actually used is the one that gets proven and saved.
+        """
+        candidates = self.candidate_ports()
+        for port in candidates:
+            if port_available(self.host, port):
+                self._port_conflict = port != candidates[0]
+                return port
+        self._port_conflict = True
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind((self.host, 0))
+            return int(probe.getsockname()[1])
 
     async def _wait_bootstrap(self, port: int) -> bool:
         """Is the managed SOCKS endpoint accepting connections at all (not yet a proof)?"""
@@ -410,6 +553,12 @@ class TorService:
         return False
 
     def _stop_managed(self) -> None:
+        """End the process we own. An external Tor is never touched here.
+
+        A clean Quit must not leave a listening SOCKS port or a stray daemon behind: the process gets
+        a bounded moment to exit and is then ended, so the next launch starts from a free port
+        instead of an orphan.
+        """
         process = self._process
         self._process = None
         self._process_port = None
@@ -420,8 +569,42 @@ class TorService:
             process.terminate()
         except Exception:
             pass
+        wait = getattr(process, "wait", None)
+        if wait is not None:
+            try:
+                wait(timeout=STOP_TIMEOUT_SECONDS)
+                return
+            except Exception:
+                pass
+        kill = getattr(process, "kill", None)
+        if kill is not None:
+            try:
+                kill()
+            except Exception:
+                pass
 
     # -------------------------------------------------------------------------------- ensure
+
+    def _probe_order(self) -> list[int]:
+        """The ports to look at, ours first.
+
+        An endpoint this service already owns is checked before the compatibility ports, so a
+        foreign listener can never make Canalla start a second process next to its own.
+        """
+        ports = self.candidate_ports()
+        own = self._process_port
+        if own is None:
+            return ports
+        return [own, *[port for port in ports if port != own]]
+
+    def _supervise_delay(self) -> float:
+        """How long to wait before the next upkeep pass: a crash loop backs off, it does not spin."""
+        if self._state in {STARTING, RECONNECTING}:
+            return STARTING_DELAY_SECONDS
+        if self._restarts:
+            index = min(self._restarts - 1, len(RESTART_BACKOFF_SECONDS) - 1)
+            return RESTART_BACKOFF_SECONDS[index]
+        return self.settings.tor_supervise_seconds
 
     async def ensure(self, *, reason: str = "supervise") -> dict[str, Any]:
         """Make the service ready, or say precisely why it is not.
@@ -430,7 +613,7 @@ class TorService:
         report readiness without a proof taken through the endpoint that is actually in use.
         """
         async with self._lock:
-            candidates = self.candidate_ports()
+            candidates = self._probe_order()
 
             # 1. An endpoint that already works (ours or somebody else's) is used as it is.
             unproven: int | None = None
@@ -441,9 +624,7 @@ class TorService:
                 if self.verified() and self._endpoint == (self.host, port):
                     self._set(READY, None)
                     return self.snapshot()
-                if await self._await_proof(
-                    port, deadline_seconds=min(30.0, self.settings.tor_startup_timeout_seconds)
-                ):
+                if await self._await_proof(port, deadline_seconds=self._discovery_proof_seconds()):
                     self._endpoint = (self.host, port)
                     self._listening = True
                     self._managed_source = self._process is not None and self._process_port == port
@@ -461,31 +642,31 @@ class TorService:
                 else:
                     self._set(UNAVAILABLE, CIRCUIT_INVALID)
 
-            # 2. A listening endpoint that is not proven is the story. Starting our own Tor next to
-            #    somebody else's (possibly still bootstrapping) one would be a second client on the
-            #    same route; the supervisor keeps watching this one instead.
-            if unproven is not None:
-                return self.snapshot()
-
-            # 3. Nothing answers: manage our own process when we are allowed and able to.
-            if not self.settings.tor_managed_enabled:
+            # 2. Nothing is proven. The runtime Canalla ships is the primary path: it is started on
+            #    a port nobody else holds. An endpoint that answers without proving a route (a
+            #    foreign Tor still bootstrapping, or a stray listener) is never taken over, never
+            #    killed and never claimed as ours - it is simply not readiness.
+            binary = find_tor_binary(self.settings)
+            if not self.settings.tor_managed_enabled or binary is None:
+                if unproven is not None:
+                    # Nothing to manage: the loop already told the story (bootstrapping or broken).
+                    return self.snapshot()
                 self._listening = False
-                self._set(UNAVAILABLE, DISABLED)
-                return self.snapshot()
-            if find_tor_binary(self.settings) is None:
-                self._listening = False
-                self._set(UNAVAILABLE, NOT_INSTALLED)
+                self._set(
+                    UNAVAILABLE,
+                    DISABLED if not self.settings.tor_managed_enabled else NOT_INSTALLED,
+                )
                 return self.snapshot()
 
             if self._process is not None and getattr(self._process, "poll", lambda: None)() is not None:
                 # The process we own died: recovery is a restart, not a red chip.
                 self._stop_managed()
-            if self._process is None or self._process_port not in candidates:
-                port = candidates[0]
-                if not await self._start_managed(port):
+            if self._process is None or self._process_port is None:
+                port = self._managed_port()
+                if not await self._start_managed(binary, port):
                     self._set(UNAVAILABLE, START_FAILED)
                     return self.snapshot()
-            port = int(self._process_port or candidates[0])
+            port = int(self._process_port or 0)
             starting_state = STARTING if reason == "startup" else RECONNECTING
             self._set(starting_state, None)
             if not await self._wait_bootstrap(port):
@@ -506,7 +687,8 @@ class TorService:
                 return self.snapshot()
             self._endpoint = (self.host, port)
             self._managed_source = True
-            self._save_proof(self.host, port, "managed")
+            self._restarts = 0
+            self._save_proof(self.host, port, "managed", pid=self._process_pid())
             self._set(READY, None)
             return self.snapshot()
 
@@ -521,10 +703,7 @@ class TorService:
         first = True
         while True:
             if not first:
-                delay = self.settings.tor_supervise_seconds
-                if self._state in {STARTING, RECONNECTING}:
-                    delay = STARTING_DELAY_SECONDS
-                await asyncio.sleep(delay)
+                await asyncio.sleep(self._supervise_delay())
             first = False
             try:
                 if self._process is not None and getattr(self._process, "poll", lambda: None)() is not None:

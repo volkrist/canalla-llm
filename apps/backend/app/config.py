@@ -125,6 +125,9 @@ class Settings(BaseSettings):
     # Tor binary exists, and proven with a real SOCKS5h round trip before the chip turns green.
     tor_managed_enabled: bool = True
     tor_binary_path: str = ""
+    # Where the Tor runtime Canalla ships lives: the Desktop resolves the installed path and passes
+    # it here, so the managed daemon never depends on what the machine happens to have.
+    alex_tor_runtime_dir: str = ""
     tor_extra_ports: list[int] = []
     tor_check_url: str = "https://check.torproject.org/api/ip"
     tor_proof_ttl_seconds: int = Field(default=900, ge=60, le=3600)

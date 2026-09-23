@@ -329,6 +329,27 @@ pub fn find_native_host() -> Option<PathBuf> {
     native_host_candidates().into_iter().find(|path| path.is_file())
 }
 
+/// Where the bundled Tor runtime lives, relative to the installed executable. The installer puts
+/// it there (`runtime/tor`); a dev checkout that never staged it simply has none.
+fn tor_runtime_candidates(dir: &Path) -> Vec<PathBuf> {
+    vec![
+        dir.join("runtime").join("tor"),
+        dir.join("resources").join("runtime").join("tor"),
+    ]
+}
+
+pub fn tor_runtime_dir() -> Option<PathBuf> {
+    if let Ok(raw) = std::env::var("ALEX_TOR_RUNTIME_DIR") {
+        if !raw.trim().is_empty() {
+            return Some(PathBuf::from(raw));
+        }
+    }
+    let exe = std::env::current_exe().ok()?;
+    tor_runtime_candidates(exe.parent()?)
+        .into_iter()
+        .find(|path| path.is_dir())
+}
+
 fn discover_backend_launch() -> Result<(PathBuf, PathBuf, RuntimeMode), String> {
     #[cfg(test)]
     {
@@ -393,6 +414,11 @@ pub(crate) fn base_backend_env(
     }
     for (name, value) in crate::gateway::gateway_env() {
         command.env(name, value);
+    }
+    // The Tor runtime Canalla ships, so the backend manages the daemon we bundle instead of
+    // whatever the machine happens to have (a missing bundle leaves the compatibility paths).
+    if let Some(dir) = tor_runtime_dir() {
+        command.env("ALEX_TOR_RUNTIME_DIR", dir);
     }
 }
 
@@ -1086,6 +1112,35 @@ mod tests {
     use std::path::PathBuf;
     use std::process::Command;
     use std::thread;
+
+    #[test]
+    fn the_bundled_tor_runtime_is_looked_for_next_to_the_application() {
+        // The installer puts the daemon at runtime/tor; Tauri's resource directory is the second
+        // candidate, so a packaged build finds it either way and a dev checkout finds nothing.
+        let candidates = tor_runtime_candidates(Path::new("C:/app"));
+
+        assert_eq!(candidates[0], Path::new("C:/app").join("runtime").join("tor"));
+        assert!(candidates.contains(
+            &Path::new("C:/app")
+                .join("resources")
+                .join("runtime")
+                .join("tor")
+        ));
+    }
+
+    #[test]
+    fn an_explicit_tor_runtime_path_wins_over_the_search() {
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let previous = std::env::var("ALEX_TOR_RUNTIME_DIR").ok();
+        let chosen = std::env::temp_dir().join(format!("alex-tor-{}", UuidLite::instance()));
+        std::env::set_var("ALEX_TOR_RUNTIME_DIR", &chosen);
+        let found = tor_runtime_dir();
+        match previous {
+            Some(value) => std::env::set_var("ALEX_TOR_RUNTIME_DIR", value),
+            None => std::env::remove_var("ALEX_TOR_RUNTIME_DIR"),
+        }
+        assert_eq!(found, Some(chosen));
+    }
 
     #[test]
     fn data_root_ignores_cwd() {
