@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { backendMessage, isTauriRuntime, type BackendRuntime } from "./backend";
+import { describe, expect, it, vi } from "vitest";
+import {
+  backendMessage,
+  isTauriRuntime,
+  recoverBackend,
+  recoveryDelay,
+  RECOVERY_DELAYS_MS,
+  type BackendRuntime,
+} from "./backend";
 
 const ready: BackendRuntime = {
   state: "ready",
@@ -36,5 +43,58 @@ describe("backend runtime copy", () => {
         error: "BACKEND_SIDECAR_MISSING",
       }),
     ).toContain("Переустановите");
+  });
+});
+
+describe("crashed local backend recovery", () => {
+  it("is bounded: the attempts run out instead of looping", () => {
+    expect(recoveryDelay(0)).toBe(0);
+    expect(recoveryDelay(RECOVERY_DELAYS_MS.length - 1)).toBeGreaterThanOrEqual(
+      0,
+    );
+    expect(recoveryDelay(RECOVERY_DELAYS_MS.length)).toBeNull();
+    expect(recoveryDelay(-1)).toBeNull();
+    expect(recoveryDelay(1.5)).toBeNull();
+  });
+
+  it("asks the Desktop to re-ensure the backend, then for an explicit restart", async () => {
+    const ensure = vi.fn(async () => ({
+      ...ready,
+      url: "http://127.0.0.1:8001",
+    }));
+    const restart = vi.fn(async () => ({ ...ready, state: "ready" as const }));
+    const sleep = vi.fn(async () => {});
+
+    const first = await recoverBackend(0, { ensure, restart, sleep });
+    const second = await recoverBackend(1, { ensure, restart, sleep });
+
+    expect(first).toEqual({ attempted: true, state: "ready" });
+    expect(second).toEqual({ attempted: true, state: "ready" });
+    expect(ensure).toHaveBeenCalledTimes(1);
+    expect(restart).toHaveBeenCalledTimes(1);
+    expect(sleep).toHaveBeenCalledWith(RECOVERY_DELAYS_MS[1]);
+  });
+
+  it("a failed attempt is reported, not thrown, and never fakes readiness", async () => {
+    const ensure = vi.fn(async () => {
+      throw new Error("no sidecar");
+    });
+    const restart = vi.fn(async () => {
+      throw new Error("no sidecar");
+    });
+
+    const result = await recoverBackend(0, {
+      ensure,
+      restart,
+      sleep: async () => {},
+    });
+
+    expect(result).toEqual({ attempted: true, state: null });
+    expect(
+      await recoverBackend(99, { ensure, restart, sleep: async () => {} }),
+    ).toEqual({
+      attempted: false,
+      state: null,
+    });
   });
 });

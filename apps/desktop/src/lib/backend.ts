@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+
 export type BackendState = "starting" | "ready" | "error";
 export type BackendOwnership = "none" | "owned" | "external";
 export type BackendRuntimeMode =
@@ -58,6 +60,64 @@ export function backendMessage(status: BackendRuntime | null): string {
 
 export async function ensureBackend(): Promise<BackendRuntime | null> {
   if (!isTauriRuntime()) return null;
-  const { invoke } = await import("@tauri-apps/api/core");
   return invoke<BackendRuntime>("ensure_backend");
+}
+
+/** Ask the Desktop to stop what it owns and start a fresh local backend.
+ *
+ * `ensure_backend` is the normal path (it restarts a sidecar it saw die). This one is the explicit
+ * recovery: it does not depend on the supervisor's own bookkeeping, so a crash that left it in a
+ * stale state still ends with a working backend. */
+export async function restartBackend(): Promise<BackendRuntime | null> {
+  if (!isTauriRuntime()) return null;
+  return invoke<BackendRuntime>("restart_backend");
+}
+
+/** How a crashed owned backend is brought back: a few bounded attempts, never a hot loop.
+ *
+ * The Desktop restarts an owned sidecar it saw die (`ensure_backend`), and it budgets one restart
+ * per session, so the watchdog must be equally bounded: three attempts, one of them immediate,
+ * then the honest failure stays on screen instead of a loop nobody can stop. */
+export const RECOVERY_DELAYS_MS: readonly number[] = [0, 2000, 6000];
+
+export function recoveryDelay(attempt: number): number | null {
+  if (
+    !Number.isInteger(attempt) ||
+    attempt < 0 ||
+    attempt >= RECOVERY_DELAYS_MS.length
+  )
+    return null;
+  return RECOVERY_DELAYS_MS[attempt];
+}
+
+export interface RecoveryAttempt {
+  attempted: boolean;
+  state: BackendState | null;
+}
+
+/** One bounded attempt to get the local backend back, with the seams a test needs.
+ *
+ * The first attempt asks the supervisor to re-ensure what it already owns; the later ones ask for
+ * an explicit restart, because a crashed sidecar can leave the supervisor reporting "starting"
+ * without anything actually coming up. */
+export async function recoverBackend(
+  attempt: number,
+  seams: {
+    ensure?: () => Promise<BackendRuntime | null>;
+    restart?: () => Promise<BackendRuntime | null>;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<RecoveryAttempt> {
+  const delay = recoveryDelay(attempt);
+  if (delay === null) return { attempted: false, state: null };
+  const wait =
+    seams.sleep ??
+    ((ms: number) => new Promise((done) => setTimeout(done, ms)));
+  if (delay > 0) await wait(delay);
+  const call =
+    attempt === 0
+      ? (seams.ensure ?? ensureBackend)
+      : (seams.restart ?? restartBackend);
+  const next = await call().catch(() => null);
+  return { attempted: true, state: next?.state ?? null };
 }

@@ -191,9 +191,51 @@ async function ownerToken() {
 }
 
 async function devices() {
-  return fetchJson(`http://127.0.0.1:${backendPort}/tools/devices`, {
-    headers: { Authorization: `Bearer ${await ownerToken()}` },
-  });
+  const call = async () =>
+    fetchJson(`http://127.0.0.1:${backendPort}/tools/devices`, {
+      headers: { Authorization: `Bearer ${await ownerToken()}` },
+    });
+  try {
+    return await call();
+  } catch {
+    // The sidecar restarted: the in-memory token may be stale, so ask for a fresh one once.
+    token = null;
+    return call();
+  }
+}
+
+/** The sidecar processes and their parents, straight from the OS: the kill must hit our child only. */
+function sidecarProcesses() {
+  const raw = spawnSync("powershell.exe", [
+    "-NoProfile",
+    "-Command",
+    `Get-CimInstance Win32_Process -Filter "Name='alex-backend.exe'" | Select-Object ProcessId,ParentProcessId | ConvertTo-Csv -NoTypeInformation`,
+  ]);
+  return (raw.stdout || Buffer.from(""))
+    .toString("utf8")
+    .trim()
+    .split(/\r?\n/)
+    .slice(1)
+    .map((line) =>
+      line
+        .replace(/"/g, "")
+        .split(",")
+        .map((value) => Number(value.trim())),
+    )
+    .filter(
+      ([pid, parent]) => Number.isInteger(pid) && Number.isInteger(parent),
+    )
+    .map(([pid, parent]) => ({ pid, parent }));
+}
+
+async function waitForNewSidecar(deadPid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const found = sidecarProcesses().find((item) => item.pid !== deadPid);
+    if (found) return found.pid;
+    await sleep(1000);
+  }
+  return null;
 }
 
 async function quitApp() {
@@ -461,6 +503,91 @@ async function main() {
       pairedAgain.length === 1 && pairedAgain[0].online === true,
       String(pairedAgain[0]?.online),
     );
+
+    // Crash recovery: the owned local service dies under a running app. Requirement: no button,
+    // no broken session - the app must bring a healthy backend back and both chips must recover.
+    console.log();
+    console.log(
+      "crash recovery — the owned sidecar is killed while the app runs",
+    );
+    const sidecars = sidecarProcesses();
+    check(
+      "exactly one sidecar serves this run (no duplicate, no orphan)",
+      sidecars.length === 1,
+      sidecars.map((item) => `${item.pid}<-${item.parent}`).join(", "),
+    );
+    const victim = sidecars[0];
+    if (victim) {
+      spawnSync("taskkill", ["/PID", String(victim.pid), "/T", "/F"], {
+        stdio: "ignore",
+      });
+      await sleep(3000);
+      check(
+        "the sidecar really died (the crash is real, not simulated)",
+        !sidecarProcesses().some((item) => item.pid === victim.pid),
+        `pid ${victim.pid}`,
+      );
+      const duringCrash = await chipState(page2, "Computer");
+      check(
+        "the Computer chip never tells the user to press a button during recovery",
+        !/Недоступно|Ошибка|Не настроено|Выключено/.test(duringCrash),
+        duringCrash,
+      );
+
+      const respawned = await waitForNewSidecar(victim.pid, 180000);
+      check(
+        "the app brings a new sidecar up by itself, without a click",
+        respawned !== null,
+        respawned ? `pid ${respawned}` : "no new sidecar",
+      );
+      backendPort = await findBackendPort();
+      check(
+        "the recovered backend answers /health on its own port",
+        backendPort !== 0,
+        `port ${backendPort}`,
+      );
+      const computerRecovered = await waitForChip(
+        page2,
+        "Computer",
+        ["Готово"],
+        180000,
+      );
+      check(
+        "COMPUTER is ready again after the crash, still without a click",
+        computerRecovered.ready,
+        computerRecovered.text,
+      );
+      const torRecovered = await waitForChip(
+        page2,
+        "Tor",
+        ["Готово"],
+        READY_TIMEOUT_MS,
+      );
+      check(
+        "TOR is ready again after the crash (fresh managed process, fresh proof)",
+        torRecovered.ready,
+        torRecovered.text,
+      );
+      check(
+        "the session survived the crash — no login, no first run",
+        await page2
+          .getByRole("textbox", { name: "Сообщение", exact: true })
+          .isVisible()
+          .catch(() => false),
+      );
+      const pairedAfterCrash = await devices();
+      check(
+        "still exactly one device, same id, after the crash",
+        pairedAfterCrash.length === 1 &&
+          pairedAfterCrash[0].device_id === firstDeviceId,
+        `${pairedAfterCrash.length} device(s), ${pairedAfterCrash[0]?.device_id || "—"}`,
+      );
+      check(
+        "the pairing is healthy again after the crash",
+        pairedAfterCrash[0]?.online === true,
+        String(pairedAfterCrash[0]?.online),
+      );
+    }
   } finally {
     await browser2.close().catch(() => {});
     await quitApp();

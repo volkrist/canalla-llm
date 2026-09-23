@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Api } from "./lib/api";
 import {
   authErrorMessage,
@@ -12,6 +12,8 @@ import {
   backendMessage,
   ensureBackend,
   isTauriRuntime,
+  recoverBackend,
+  recoveryDelay,
   type BackendRuntime,
 } from "./lib/backend";
 import { loadSettings } from "./lib/settings";
@@ -31,6 +33,8 @@ export default function App() {
   const [llm, setLlm] = useState<LLMStatus | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [runtime, setRuntime] = useState<BackendRuntime | null>(null);
+  const [recovering, setRecovering] = useState(false);
+  const recoveryAttempts = useRef(0);
   const api = useMemo(
     () =>
       new Api(settings.backendUrl, session?.token || null, () =>
@@ -119,12 +123,48 @@ export default function App() {
     let cancelled = false;
     const publicApi = new Api(settings.backendUrl, null);
     setHealth(null);
+    let recovering = false;
+    const recover = async () => {
+      if (!isTauriRuntime() || recovering) return;
+      const attempt = recoveryAttempts.current;
+      if (recoveryDelay(attempt) === null) return;
+      recoveryAttempts.current = attempt + 1;
+      recovering = true;
+      setRecovering(true);
+      try {
+        const result = await recoverBackend(attempt);
+        if (cancelled) return;
+        if (result.state === "ready") {
+          await check();
+          return;
+        }
+        if (recoveryDelay(recoveryAttempts.current) === null) {
+          setRuntime((prev) =>
+            prev?.state === "ready"
+              ? { ...prev, state: "error", error: "BACKEND_START_FAILED" }
+              : prev,
+          );
+          return;
+        }
+        recovering = false;
+        await recover();
+      } finally {
+        if (!cancelled) setRecovering(false);
+      }
+    };
+    // A local backend that died must come back by itself: the Desktop owns one restart per
+    // session and this asks for it. The attempts are bounded, so a permanent failure ends as an
+    // honest error on screen instead of a loop, and a recoverable crash needs no button.
     const check = async () => {
       try {
         const data = await publicApi.health();
-        if (!cancelled) setHealth(data);
+        if (cancelled) return;
+        setHealth(data);
+        recoveryAttempts.current = 0;
       } catch {
-        if (!cancelled) setHealth(null);
+        if (cancelled) return;
+        setHealth(null);
+        void recover();
       }
     };
     void check();
@@ -140,7 +180,7 @@ export default function App() {
     setSettings(next);
     setShowSettings(false);
   }
-  const banner = backendMessage(runtime);
+  const banner = recovering ? backendMessage(null) : backendMessage(runtime);
   const tauriBlocked = isTauriRuntime() && runtime?.state !== "ready";
   const retry = () => void startAuth(settings.backendUrl);
   return (
