@@ -1,0 +1,5 @@
+Canalla LLM updater signature fixture
+version=1.2.0
+target=windows-x86_64
+This file is not an installer. It exists so the release gate can prove that a package signed by
+the updater key is accepted and that a tampered one is refused, without downloading anything.
