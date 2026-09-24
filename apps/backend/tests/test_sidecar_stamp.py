@@ -50,9 +50,9 @@ def sidecar_dir(root: Path, *, payload: bytes = b"packaged-backend-binary") -> P
     return directory
 
 
-def run(action: str, backend: Path, stamp: Path) -> subprocess.CompletedProcess:
+def run(action: str, backend: Path, stamp: Path, *extra: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, str(TOOL), action, "--backend", str(backend), "--stamp", str(stamp)],
+        [sys.executable, str(TOOL), action, "--backend", str(backend), "--stamp", str(stamp), *extra],
         capture_output=True,
         text=True,
         timeout=120,
@@ -155,6 +155,50 @@ def test_tests_are_not_part_of_the_digest(tmp_path):
     (backend / "tests" / "test_whatever.py").write_text("def test_x():\n    assert True\n")
     run("write", backend, stamp)
     assert json.loads(stamp.read_text(encoding="utf-8"))["source_digest"] == before
+
+
+def test_the_stamp_verifies_the_binary_it_named_not_the_other_platform(tmp_path):
+    """A tree holding both platforms' binaries must not attest the wrong one.
+
+    Preferring `.exe` unconditionally is a hazard in both directions: a Linux tree that still holds a
+    Windows sidecar would be stamped and checked against the `.exe` while the bundle ships the ELF
+    (and vice versa), so the guard would bless an unchecked binary. The stamp names one file and the
+    check verifies that same file.
+    """
+    backend = backend_tree(tmp_path / "backend")
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    (staged / "alex-backend.exe").write_bytes(b"windows-sidecar")
+    (staged / "alex-backend").write_bytes(b"linux-sidecar")
+    stamp = staged / "build-stamp.json"
+
+    written = run("write", backend, stamp, "--binary", "alex-backend")
+    assert written.returncode == 0, written.stderr
+    assert json.loads(stamp.read_text(encoding="utf-8"))["backend_exe"] == "alex-backend"
+    assert run("check", backend, stamp).returncode == 0
+
+    # Replacing the file the stamp named must fail it, even though the other platform's binary is
+    # untouched and would still hash to what a `.exe`-first check would have recorded.
+    (staged / "alex-backend").write_bytes(b"a-different-linux-sidecar")
+    checked = run("check", backend, stamp)
+    assert checked.returncode == 3
+    assert STALE in checked.stderr
+    assert "changed_since_the_stamp" in checked.stderr
+
+
+def test_a_stamp_that_names_no_binary_is_refused(tmp_path):
+    """An older stamp shape cannot be re-derived safely, so it is refused rather than guessed at."""
+    backend = backend_tree(tmp_path / "backend")
+    stamp = sidecar_dir(tmp_path / "staged") / "build-stamp.json"
+    run("write", backend, stamp)
+    payload = json.loads(stamp.read_text(encoding="utf-8"))
+    del payload["backend_exe"]
+    stamp.write_text(json.dumps(payload), encoding="utf-8")
+
+    checked = run("check", backend, stamp)
+    assert checked.returncode == 3
+    assert STALE in checked.stderr
+    assert "records_no_backend_binary" in checked.stderr
 
 
 @pytest.mark.skipif(

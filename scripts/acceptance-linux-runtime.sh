@@ -7,6 +7,7 @@
 #
 # Usage:
 #   scripts/acceptance-linux-runtime.sh [--sidecar PATH] [--tor-runtime DIR] [--data DIR]
+#                                      [--product-source PATH]
 #
 # Every wait is bounded. Nothing is installed, nothing is downloaded, no GPU and no network
 # provider is involved: the only network use is Tor's own bootstrap.
@@ -16,6 +17,9 @@ set -u
 SIDECAR="apps/backend/dist/alex-backend/alex-backend"
 TOR_RUNTIME="apps/desktop/src-tauri/runtime/tor"
 DATA="/tmp/canalla-linux-acceptance"
+# The authoritative version, read from the source rather than pinned here: a literal would go stale
+# exactly the way the packaged backend once did, and then this file would bless a 1.1.0 sidecar.
+PRODUCT_SOURCE="apps/backend/app/product.py"
 HEALTH_TIMEOUT=90
 TOR_TIMEOUT=300
 RECOVERY_TIMEOUT=240
@@ -29,6 +33,7 @@ while [ $# -gt 0 ]; do
     --tor-runtime) TOR_RUNTIME="$2"; shift 2 ;;
     --data) DATA="$2"; shift 2 ;;
     --pin) PIN_FILE="$2"; shift 2 ;;
+    --product-source) PRODUCT_SOURCE="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -39,6 +44,7 @@ SIDECAR=$(realpath "$SIDECAR" 2>/dev/null || echo "$SIDECAR")
 TOR_RUNTIME=$(realpath "$TOR_RUNTIME" 2>/dev/null || echo "$TOR_RUNTIME")
 DATA=$(realpath -m "$DATA" 2>/dev/null || echo "$DATA")
 PINNED=$(sed -n "s/.*\"daemon_version\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$PIN_FILE" 2>/dev/null | head -1)
+EXPECTED_VERSION=$(sed -n 's/^VERSION[[:space:]]*=[[:space:]]*"\([^"]*\)"[[:space:]]*$/\1/p' "$PRODUCT_SOURCE" 2>/dev/null | head -1)
 
 failures=0
 check() { # check NAME OK DETAIL
@@ -68,6 +74,7 @@ echo "  sidecar  $SIDECAR"
 echo "  tor      $TOR_RUNTIME"
 echo "  data     $DATA"
 echo "  pinned   ${PINNED:-unknown}"
+echo "  version  ${EXPECTED_VERSION:-unknown} (from $PRODUCT_SOURCE)"
 echo
 
 rm -rf "$DATA"
@@ -103,6 +110,11 @@ check "the packaged backend answers /health with no PATH at all" \
 check "it reports the product, not a stand-in" \
   "$([ "$(value "$DATA/health.json" product)" = "alex-llm" ] && echo 1 || echo 0)" \
   "product=$(value "$DATA/health.json" product)"
+# The packaged binary has to be the one this source tree builds. Without this, a sidecar frozen on an
+# older revision passes every other check in this file while advertising the wrong release.
+check "it is the version this source tree builds, not an older sidecar" \
+  "$([ -n "$EXPECTED_VERSION" ] && [ "$(value "$DATA/health.json" version)" = "$EXPECTED_VERSION" ] && echo 1 || echo 0)" \
+  "version=$(value "$DATA/health.json" version) (expected $EXPECTED_VERSION)"
 
 # -------------------------------------------------------------------- bundled Tor, real proof
 proof="$DATA/runtime/tor.json"

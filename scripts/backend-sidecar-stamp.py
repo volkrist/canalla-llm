@@ -45,7 +45,15 @@ from pathlib import Path
 # The inputs that end up inside the packaged backend. `tests` is excluded on purpose: a test change
 # must not force a sidecar rebuild, because tests are not shipped.
 SOURCE_INPUTS = ("app", "alembic", "alembic.ini", "alex-backend.spec", "pyproject.toml")
-SKIP_DIRS = {"__pycache__", ".venv", "dist", "build", ".pytest_cache", ".mypy_cache", "tests"}
+SKIP_DIRS = {
+    "__pycache__",
+    ".venv",
+    "dist",
+    "build",
+    ".pytest_cache",
+    ".mypy_cache",
+    "tests",
+}
 SKIP_SUFFIXES = (".pyc", ".pyo", ".db", ".db-wal", ".db-shm")
 
 STALE = "BACKEND_SIDECAR_STALE"
@@ -100,19 +108,26 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def backend_executable(stamp_path: Path) -> Path:
-    """The sidecar binary the stamp sits beside (`<staged sidecar dir>/alex-backend.exe`)."""
+def backend_executable(stamp_path: Path, name: str | None = None) -> Path:
+    """The sidecar binary the stamp sits beside.
+
+    `name` is the binary the stamp recorded. Preferring a fixed order instead (`.exe` before the ELF)
+    is a hazard both ways: a Linux tree that still holds a Windows sidecar — or a Windows tree that
+    still holds a Linux one — would be stamped and verified against the *other* platform's binary,
+    and the bundle would ship an unchecked one. The stamp names one file; the check verifies that
+    same file.
+    """
     directory = stamp_path.parent
-    for name in ("alex-backend.exe", "alex-backend"):
-        candidate = directory / name
-        if candidate.is_file():
-            return candidate
+    candidates = (name,) if name else ("alex-backend.exe", "alex-backend")
+    for candidate in candidates:
+        if candidate and (directory / candidate).is_file():
+            return directory / candidate
     raise SystemExit(f"no packaged backend beside {stamp_path}")
 
 
-def write_stamp(backend: Path, stamp_path: Path) -> dict:
+def write_stamp(backend: Path, stamp_path: Path, binary: str | None = None) -> dict:
     digest, count = source_digest(backend)
-    executable = backend_executable(stamp_path)
+    executable = backend_executable(stamp_path, binary)
     stamp = {
         "product": "alex-llm",
         "product_version": product_version(backend),
@@ -145,10 +160,15 @@ def check_stamp(backend: Path, stamp_path: Path) -> str | None:
     if stamp.get("source_digest") != digest:
         return f"source_digest:stamped={stamp.get('source_digest')} current={digest} files={count}"
 
+    # Verify the binary the stamp names. A stamp that names nothing is an older format and cannot be
+    # re-derived safely, so it is refused instead of being guessed at.
+    recorded = stamp.get("backend_exe")
+    if not isinstance(recorded, str) or not recorded:
+        return "stamp_records_no_backend_binary"
     try:
-        executable = backend_executable(stamp_path)
+        executable = backend_executable(stamp_path, recorded)
     except SystemExit:
-        return "backend_executable_missing"
+        return f"backend_executable_missing:{recorded}"
     if stamp.get("backend_exe_sha256") != file_sha256(executable):
         return "backend_executable_changed_since_the_stamp_was_written"
     return None
@@ -160,6 +180,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--backend", required=True, type=Path)
     parser.add_argument("--stamp", required=True, type=Path)
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument(
+        "--binary",
+        default=None,
+        help=(
+            "the packaged backend's file name to stamp (default: the same order the loader uses, "
+            "`alex-backend.exe` then `alex-backend`). Pass it explicitly in a tree that holds both "
+            "platforms' binaries, so the stamp cannot describe the other one."
+        ),
+    )
     args = parser.parse_args(argv)
 
     backend = args.backend.resolve()
@@ -169,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.action == "write":
-        written = write_stamp(backend, stamp)
+        written = write_stamp(backend, stamp, args.binary)
         if not args.quiet:
             print(f"product_version={written['product_version']}")
             print(f"source_digest={written['source_digest']}")
