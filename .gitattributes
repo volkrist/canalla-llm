@@ -1,5 +1,13 @@
 * text=auto eol=lf
+# A shell script with CRLF line endings is not a shell script on Linux: the interpreter name in the
+# shebang and every `&&` end in a carriage return. The build scripts must reach a Linux checkout as
+# LF no matter which platform produced the commit.
+*.sh text eol=lf
 *.png binary
 *.ico binary
 *.pdf binary
 *.docx binary
+# The update fixture is a stand-in package: its bytes and the signature over them are the test, so
+# Git must never rewrite its line endings. A CRLF checkout with an LF-committed signature is exactly
+# the failure that was fixed in this cycle.
+*.bin binary
