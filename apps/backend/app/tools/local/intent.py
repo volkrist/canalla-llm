@@ -1,8 +1,10 @@
 """Deterministic Local Computer routing. Weak model does not rediscover obvious maps."""
 
+import os
 import re
 from dataclasses import dataclass, field
 
+from .paths import native_path
 from .plan import looks_like_computer
 from .targets import extract_absolute_paths, extract_filename, last_file_target, resolve_target
 
@@ -28,11 +30,11 @@ def quoted_path(prompt: str) -> str:
     if match and (
         "\\" in match.group(1) or "/" in match.group(1) or re.search(r"\.\w{1,8}$", match.group(1))
     ):
-        return match.group(1).replace("/", "\\")
+        return native_path(match.group(1))
     files = [
         item
         for item in extract_absolute_paths(prompt)
-        if extract_filename(item) or "." in item.rsplit("\\", 1)[-1]
+        if extract_filename(item) or "." in native_path(item).rsplit(os.sep, 1)[-1]
     ]
     if files:
         return files[-1]
@@ -68,11 +70,10 @@ def requested_file_content(prompt: str) -> str:
 def _join(root: str, name: str) -> str:
     if not name:
         return root or ""
-    if re.match(r"(?:[A-Za-z]:\\|\\\\|/)", name):
-        return name.replace("/", "\\")
+    if re.match(r"(?:[A-Za-z]:[\\/]|\\\\|/)", name):
+        return native_path(name)
     if root:
-        trimmed = root.rstrip("\\/")
-        return trimmed + "\\" + name
+        return os.path.join(native_path(root).rstrip(os.sep), native_path(name))
     return name
 
 

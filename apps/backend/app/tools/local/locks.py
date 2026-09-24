@@ -1,5 +1,7 @@
 """Exclusive workspace write lock plus a persistent FIFO waiter queue."""
 
+import os
+
 from sqlalchemy import func, select
 
 from ...models import now
@@ -7,10 +9,14 @@ from ..contracts import ToolError
 from ..models import LocalTask, WorkspaceLock, WorkspaceWaiter
 from .journal import append_event
 from .machine import PAUSED, READY, RECOVERING, TERMINAL, WAITING_WORKSPACE, can_transition, transition
+from .paths import native_path
 
 
 def normalize_workspace(path: str) -> str:
-    return (path or "").replace("/", "\\").rstrip("\\").casefold()
+    value = native_path(path).strip()
+    if not value:
+        return ""
+    return os.path.normcase(os.path.normpath(value))
 
 
 def busy_writer(db, workspace: str, task_id: str | None = None):

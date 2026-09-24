@@ -1,5 +1,6 @@
 """Secret-path denylist. Canonical path matching, not basename-only."""
 
+import os
 import re
 from pathlib import PureWindowsPath
 
@@ -13,25 +14,26 @@ SECRET_NAME = re.compile(
     r"masterkey\.key|ntuser\.dat|sam|system\.hive)$"
 )
 SECRET_DIR = re.compile(
-    r"(?i)(\\(\.ssh|\\.gnupg|\\.aws|\\.azure|password-store|1password|keepass|"
-    r"google\\chrome|microsoft\\edge|mozilla\\firefox|bravesoftware|"
-    r"microsoft\\credentials|microsoft\\protect)\\)"
+    r"(?i)([\\/](\.ssh|\.gnupg|\.aws|\.azure|password-store|1password|keepass|"
+    r"google[\\/]chrome|microsoft[\\/]edge|mozilla[\\/]firefox|bravesoftware|"
+    r"microsoft[\\/]credentials|microsoft[\\/]protect)[\\/])"
+)
+SECRET_FRAGMENT = re.compile(
+    r"[\\/]appdata[\\/]roaming[\\/]microsoft[\\/]credentials|"
+    r"[\\/]appdata[\\/]local[\\/]google[\\/]chrome[\\/]user data|"
+    r"[\\/]appdata[\\/]roaming[\\/]mozilla[\\/]firefox|"
+    r"[\\/]appdata[\\/]local[\\/]microsoft[\\/]edge[\\/]user data|"
+    r"[\\/]\.ssh[\\/]|"
+    r"[\\/]wallet",
+    re.I,
 )
 
 
 def deny_secret(canonical: str):
-    path = canonical.replace("/", "\\")
+    path = str(canonical or "")
     name = PureWindowsPath(path).name
-    if SECRET_NAME.match(name) or SECRET_DIR.search("\\" + path.strip("\\") + "\\"):
+    if SECRET_NAME.match(name) or SECRET_DIR.search(f"{os.sep}{path.strip('/\\')}{os.sep}"):
         raise ToolError("secret_path")
     lowered = path.casefold()
-    for fragment in (
-        "\\appdata\\roaming\\microsoft\\credentials",
-        "\\appdata\\local\\google\\chrome\\user data",
-        "\\appdata\\roaming\\mozilla\\firefox",
-        "\\appdata\\local\\microsoft\\edge\\user data",
-        "\\.ssh\\",
-        "\\wallet",
-    ):
-        if fragment in lowered:
-            raise ToolError("secret_path")
+    if SECRET_FRAGMENT.search(lowered):
+        raise ToolError("secret_path")

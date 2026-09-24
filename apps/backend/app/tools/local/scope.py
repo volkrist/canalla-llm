@@ -5,7 +5,9 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ...data_paths import default_root
 from ..contracts import ToolError
+from .paths import native_path
 
 WRITE_TOOLS = {
     "write_file",
@@ -33,21 +35,23 @@ class TaskScope:
 
 
 def _norm(path: str) -> str:
-    return (path or "").replace("/", "\\").rstrip("\\").casefold()
+    value = native_path(path).strip()
+    if not value:
+        return ""
+    return os.path.normcase(os.path.normpath(value))
 
 
 def _inside(path: str, root: str) -> bool:
     if not path or not root:
         return False
     child, base = _norm(path), _norm(root)
-    return child == base or child.startswith(base + "\\")
+    return child == base or child.startswith(base.rstrip(os.sep) + os.sep)
 
 
 def scratch_dir(task_id: str, *, create: bool = True) -> str:
     if not task_id or task_id == "pending":
         return ""
-    local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-    path = Path(local) / "Alex LLM" / "tasks" / task_id / "tmp"
+    path = default_root() / "tasks" / task_id / "tmp"
     if create:
         path.mkdir(parents=True, exist_ok=True)
     return str(path)
@@ -74,12 +78,12 @@ def infer_primary(prompt: str, roots: list[str], known_desktop: str = "") -> str
             return str(Path(value).parent)
         return value
     for root in roots or []:
-        name = Path(root).name
+        name = Path(native_path(root)).name
         if name and name.casefold() in text.casefold():
             return root
     folder = re.search(r"(Alex-LLM-E2E[\\/\w.\-]*)", text, re.I)
     if folder and known_desktop:
-        return str(Path(known_desktop) / folder.group(1).replace("/", "\\"))
+        return str(Path(known_desktop) / native_path(folder.group(1)))
     if re.search(r"(?i)этой папке|this folder", text) and roots:
         return roots[0]
     return (roots or [""])[0]

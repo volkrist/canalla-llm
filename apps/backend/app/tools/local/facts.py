@@ -1,7 +1,10 @@
 """Verified facts from successful tools. Secrets never stored."""
 
+import os
 import re
 from datetime import datetime, timezone
+
+from .paths import native_path
 
 SECRET_KEYS = {
     "password",
@@ -94,13 +97,13 @@ def latest(facts: dict, kind: str, path: str | None = None) -> dict | None:
 
 
 def _same_path(stored, needle) -> bool:
-    left = str(stored or "").replace("/", "\\").casefold().rstrip("\\")
-    right = str(needle or "").replace("/", "\\").casefold().rstrip("\\")
+    left = native_path(str(stored or "")).casefold().rstrip(os.sep)
+    right = native_path(str(needle or "")).casefold().rstrip(os.sep)
     if not right:
         return True
     if left == right:
         return True
-    if "\\" not in right and (left.endswith("\\" + right) or left.rsplit("\\", 1)[-1] == right):
+    if os.sep not in right and (left.endswith(os.sep + right) or left.rsplit(os.sep, 1)[-1] == right):
         return True
     return False
 

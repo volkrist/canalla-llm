@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 
 from ..contracts import ToolError
+from .paths import native_path
 
 FILE_OPS = {"read_file", "write_file", "hash_file", "patch_file", "delete_file"}
 FILE_EXT = (
@@ -22,18 +24,27 @@ CREATE = re.compile(
 )
 
 
+ABSOLUTE_POSIX = re.compile(r'(?<![\w:/\-.])/[^\s"<>|*?]{1,239}')
+
+
 def _norm(path: str) -> str:
-    return (path or "").replace("/", "\\").rstrip("\\").casefold()
+    value = native_path(path).strip()
+    if not value:
+        return ""
+    return os.path.normcase(os.path.normpath(value))
 
 
 def _join(root: str, name: str) -> str:
     if not name:
         return root or ""
-    cleaned = name.replace("/", "\\").strip("\\")
-    if re.match(r"(?:[A-Za-z]:\\|\\\\)", cleaned):
+    value = native_path(name)
+    cleaned = value.strip(os.sep)
+    if re.match(r"^[A-Za-z]:[\\/]", cleaned):
         return cleaned
+    if os.sep == "/" and value.startswith(os.sep):
+        return value
     if root:
-        return str(PureWindowsPath(root.rstrip("\\/")) / cleaned)
+        return os.path.join(native_path(root).rstrip(os.sep), cleaned)
     return cleaned
 
 
@@ -43,34 +54,37 @@ def extract_filename(prompt: str) -> str:
         value = match.group(1).strip()
         found = FILENAME.search(value)
         if found:
-            return found.group(1).replace("/", "\\")
+            return native_path(found.group(1))
         if re.search(rf"(?i)\.({FILE_EXT})$", value) and not re.match(r"(?:[A-Za-z]:\\|\\\\)", value):
-            return value.replace("/", "\\")
-    matches = [item.group(1).replace("/", "\\") for item in FILENAME.finditer(text)]
+            return native_path(value)
+    matches = [native_path(item.group(1)) for item in FILENAME.finditer(text)]
     if not matches:
         return ""
-    relative = [item for item in matches if "\\" in item]
+    relative = [item for item in matches if os.sep in item]
     return relative[-1] if relative else matches[-1]
 
 
 def extract_absolute_paths(prompt: str) -> list[str]:
+    text = prompt or ""
+    patterns = (ABSOLUTE, ABSOLUTE_POSIX) if os.sep == "/" else (ABSOLUTE,)
     found = []
-    for match in ABSOLUTE.finditer(prompt or ""):
+    matches = [match for pattern in patterns for match in pattern.finditer(text)]
+    for match in sorted(matches, key=lambda item: item.start()):
         value = match.group(0).rstrip(".,;:)")
         if value not in found:
             found.append(value)
     for match in QUOTED.finditer(prompt or ""):
         value = match.group(1).strip()
         if re.match(r"(?:[A-Za-z]:\\|\\\\)", value) and value not in found:
-            found.append(value.replace("/", "\\"))
+            found.append(native_path(value))
     return found
 
 
 def is_directory_path(path: str, roots: list[str] | None = None) -> bool:
-    value = (path or "").replace("/", "\\").strip()
+    value = native_path(path).strip()
     if not value:
         return False
-    if value.endswith("\\") or value.endswith("/"):
+    if value.endswith(os.sep):
         return True
     try:
         if Path(value).is_dir():
@@ -85,7 +99,7 @@ def is_directory_path(path: str, roots: list[str] | None = None) -> bool:
 
 
 def looks_like_file_path(path: str, roots: list[str] | None = None) -> bool:
-    value = (path or "").replace("/", "\\").strip()
+    value = native_path(path).strip()
     if not value or is_directory_path(value, roots):
         return False
     name = PureWindowsPath(value).name
@@ -132,12 +146,12 @@ def resolve_target(
     root = workspace_root or (roots[0] if roots else "")
     filename = extract_filename(prompt)
     text = prompt or ""
-    lowered = text.replace("/", "\\")
+    lowered = native_path(text)
     absolutes = extract_absolute_paths(text)
     for item in roots:
         if item and _norm(item) in _norm(lowered) and item not in absolutes:
             absolutes.append(item)
-    offered = (offered_path or "").replace("/", "\\").strip()
+    offered = native_path(offered_path).strip()
     file_abs = [item for item in absolutes if looks_like_file_path(item, roots)]
     dir_abs = [item for item in absolutes if is_directory_path(item, roots)]
     directory = root
