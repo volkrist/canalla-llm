@@ -6,13 +6,15 @@ import json
 import logging
 from datetime import timedelta
 from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import httpx
 from sqlalchemy import select
 from test_compute import Supplier, compute, start  # noqa: F401
 
 from app.compute.controller import RunPodController
-from app.compute.demand import park_waiting_llm, production_llm_required
+from app.compute.demand import park_waiting_llm, production_llm_required, wait_for_production
 from app.compute.models import ComputeSession
 from app.compute.runtime import compact_ai
 from app.config import get_settings
@@ -442,6 +444,77 @@ def test_llm_status_exposes_compact_ai(client, auth):
     assert body["ai_label"] == "AI Ready"
     assert "diagnostic" in body
     assert body["provider"] == "mock"
+
+
+def test_a_concluded_allocation_ends_the_turn_instead_of_waiting_for_hardware():
+    """Direct mode: a walk that concluded must not keep the turn open for the startup deadline.
+
+    `wait_for_production` used to treat every `unavailable` as a transient and loop until the
+    deadline — 900 seconds by default plus slack — running a fresh bounded search each time. With
+    no Pod and no progress that is exactly the «сижу в поиске GPU» the release forbids, and it
+    hammered the provider while doing it.
+
+    `SEARCH_FAILURES` is the product's own name for "this search concluded and waiting cannot
+    change it" (see `compute.runtime`), so the turn ends on the first one with the typed code.
+    """
+    from app.compute.runtime import SEARCH_FAILURES
+
+    assert SEARCH_FAILURES, "the test is meaningless without the set it pins"
+    calls = []
+
+    class Compute:
+        async def ensure_on_demand(self, user, *, chat_id=None, task_id=None):
+            calls.append(1)
+            return {"kind": "unavailable", "code": "price_limit"}
+
+        async def tick(self):  # pragma: no cover - never reached on a concluded walk
+            raise AssertionError("a concluded walk must not be ticked")
+
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(compute=Compute(), provider=None)),
+        is_disconnected=_never,
+    )
+    user = SimpleNamespace(id="u1")
+    chat = SimpleNamespace(id="c1")
+    message = SimpleNamespace(id="m1")
+    assistant = SimpleNamespace(id="a1")
+
+    async def run():
+        return [
+            item
+            async for item in wait_for_production(
+                request, user, chat, message, assistant, "привет", task_id="t1"
+            )
+        ]
+
+    settings = get_settings().model_copy(
+        update={
+            "llm_provider": "llamacpp",
+            "llm_connection_mode": "runpod",
+            "alex_ai_mode": "direct",
+        }
+    )
+    # Parking persists a local task, which needs rows this test has no reason to build: the subject
+    # here is the loop's control flow, so the persistence call is replaced and counted instead.
+    parked: list[str] = []
+    with (
+        patch("app.config.get_settings", return_value=settings),
+        patch(
+            "app.compute.demand.park_waiting_llm",
+            lambda **kwargs: parked.append(kwargs.get("reason", "")),
+        ),
+    ):
+        events = asyncio.run(asyncio.wait_for(run(), timeout=30))
+
+    assert calls == [1], f"the walk must run once, not once per retry: {len(calls)} calls"
+    assert parked == ["price_limit"]
+    assert events[-1] == ("_done", "parked")
+    error = next(item for item in events if item[0] == "progress" and item[1].get("state") == "error")
+    assert error[1]["code"] == "price_limit"
+
+
+async def _never() -> bool:
+    return False
 
 
 def test_on_demand_picks_the_cheapest_compatible_gpu(compute):

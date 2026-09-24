@@ -18,7 +18,7 @@ from ..tools.local.journal import append_event
 from ..tools.local.task import LocalTaskController
 from ..tools.models import LocalTask, ToolRun
 from ..tools.security import digest
-from .runtime import money_prompt
+from .runtime import SEARCH_FAILURES, money_prompt
 
 
 def production_llm_required(settings) -> bool:
@@ -221,27 +221,36 @@ async def wait_for_production(request, user, chat, user_message, assistant, cont
         if result.get("kind") == "denied":
             raise LLMError("confirmation_denied")
         if result.get("kind") in {"unavailable", "error", "multiple_compute"}:
+            code = result.get("code") or result["kind"]
             park_waiting_llm(
                 user=user,
                 chat_id=chat.id,
                 content=content,
                 assistant_id=assistant.id,
                 user_message_id=user_message.id,
-                reason=result.get("code") or result["kind"],
+                reason=code,
                 compute_session_id=_active_session_id(compute),
                 task_id=task_id,
             )
-            if result.get("kind") == "multiple_compute" or result.get("code") in {
-                "not_configured",
-                "multiple_compute",
-                "COMPUTE_BUDGET_REACHED",
-            }:
+            # A walk that concluded is not a transient. `SEARCH_FAILURES` is "the catalogue has no
+            # compatible card", "every card is above the user's own maximum" and
+            # `gpu_unavailable` — and that last one is transient only while a *bounded search
+            # operation is live* (`compute.runtime`). By the time `ensure_on_demand` returns, the
+            # 60-second allocation window is spent and no Pod exists, so there is nothing left to
+            # wait for: retrying here kept the turn open for the whole startup deadline — 900
+            # seconds by default — with no Pod and no progress, which is the «сижу в поиске GPU»
+            # the release forbids. The typed reason ends the turn instead.
+            if (
+                result.get("kind") == "multiple_compute"
+                or code in {"not_configured", "multiple_compute", "COMPUTE_BUDGET_REACHED"}
+                or code in SEARCH_FAILURES
+            ):
                 yield (
                     "progress",
                     {
                         "state": "error",
                         "text": "AI Unavailable",
-                        "code": result.get("code") or result["kind"],
+                        "code": code,
                     },
                 )
                 yield ("_done", "parked")
