@@ -374,3 +374,48 @@ def test_direct_mode_one_candidate_cannot_consume_the_whole_budget(direct):
     assert result["state"] == "searching"
     # One bounded provider call per candidate, never more than what is left of the budget.
     assert max(supplier.create_timeouts) <= policy.CANDIDATE_CALL_TIMEOUT_SECONDS
+
+
+def test_a_parked_retry_is_never_announced_as_a_transition(direct):
+    """A parked retry stays a *failure* on the chip, not a transition: the badge must not lie.
+
+    This is the defect the release user reported as an hour of «Ищем GPU»: `searching` is the
+    direct-mode state for "a retry is scheduled", and `llm_public_status` also reported it with
+    `search_active=True`, so the badge claimed a live allocation operation for as long as the retry
+    kept being rescheduled — `compact_ai` reads exactly that pair as a real transition.
+
+    The scheduled retry is a background availability probe, which the product may keep doing. What
+    it may not do is tell the user something is happening while nothing is.
+    """
+    from app.compute.runtime import compact_ai
+    from app.database import SessionLocal
+
+    controller, supplier = direct
+    supplier.refuse_gpus = {"gpu-48"}
+    run_start(controller)
+
+    with SessionLocal() as db:
+        user = db.query(User).one()
+
+    status = controller.get_compute_status(user)
+    # The retry is still on the clock — that part of the product is unchanged …
+    assert status["state"] == "searching"
+    assert status["next_search_at"] is not None
+    assert status["error_code"]
+
+    public = controller.llm_public_status(user)
+    diagnostic = public["diagnostic"]
+    # … and it is not an operation in flight, which is what the chip has to be told.
+    assert diagnostic["search_active"] is False
+    assert diagnostic["search_deadline"] == status["next_search_at"]
+
+    # The badge itself, derived from exactly what this controller reported: red, not amber.
+    ai, _label = compact_ai(
+        provider="llamacpp",
+        app_env="production",
+        configured=True,
+        compute_state=status["state"],
+        error_code=status["error_code"],
+        search_active=diagnostic["search_active"],
+    )
+    assert ai == "unavailable", ai

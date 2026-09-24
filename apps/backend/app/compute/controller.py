@@ -1123,10 +1123,12 @@ class RunPodController:
             control = control_row(db)
             if control.active_session_id:
                 session = db.get(ComputeSession, control.active_session_id)
-            # Direct mode schedules its own parked search: a live retry is a real transition,
-            # and a `searching` state without one is the failure it is.
+            # Direct mode schedules its own retry, but a scheduled retry is not an operation in
+            # flight: `search_active` means "an allocation is happening right now", and claiming it
+            # for a parked probe is what made the badge amber for an unbounded time. The deadline is
+            # still reported, because knowing when the next probe runs is useful; it is not a
+            # promise that something is happening.
             if control.next_search_at:
-                search_active = True
                 search_deadline = utc(control.next_search_at).isoformat()
         ai, label = compact_ai(
             provider=self.settings.llm_provider,
