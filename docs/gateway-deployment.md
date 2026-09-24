@@ -406,6 +406,8 @@ The complete variable list, defaults and comments are in `apps/gateway/.env.exam
 | `LLM_PROVIDER`, `LLM_MODEL` | `llamacpp` + the product alias in production; `mock` is a dev path and must never be presented as real AI |
 | `MAX_HOURLY_PRICE`, `MAX_SESSION_BUDGET` | Product ceilings `1.20` / `3.00`; anything higher makes startup fail |
 | `COMPUTE_IDLE_MINUTES` | Idle timeout applied to the global managed compute |
+| `COMPUTE_STARTUP_TIMEOUT_SECONDS` | Server-side D-9 deadline for a managed Pod to become ready (default 300 s) |
+| `COMPUTE_SEARCH_TIMEOUT_SECONDS` | Bound on one capacity search (default 60 s, hard-capped at 60 s); a search without an identity or past its deadline collapses to `offline` with its typed reason |
 | `INFERENCE_QUEUE_SIZE`, `INFERENCE_TIMEOUT_SECONDS` | Serialization (`--parallel 1`) and the total request budget |
 
 A knob that does not exist is not silently invented by this stack: the Gateway runs **one**

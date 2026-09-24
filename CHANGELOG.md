@@ -31,6 +31,25 @@ Release candidate on `release/canalla-1.1.0`. Installer artifact:
 
 ### Fixed
 
+- **Amber «Connecting…» without an operation behind it (release blocker).** An installed client sat
+  in `Connecting… Ищем GPU` for 481 s and still ~23 minutes later while no managed compute session,
+  no Pod and no search operation existed: the Gateway re-asserted `searching` from a stored error
+  code on every reconciliation, and the client rendered it as a transition. A capacity search is
+  now a bounded operation with an identity and a deadline (`COMPUTE_SEARCH_TIMEOUT_SECONDS`,
+  hard-bounded to 60 s, `search` in `GET /compute/status`); an expired or identity-less search
+  collapses to `offline` with its typed reason, and `compact_ai` reports it as `unavailable`, so
+  the badge is red `Disconnected` instead of endless `Connecting`.
+- **A chat that needs the model starts it itself, once (release blocker).** In shared mode the
+  model-needing path called the *local* RunPod lifecycle, which refuses with
+  `gateway_managed_compute`, so the only way to start shared compute was the Settings
+  «Запустить AI» button — and the user had to leave the chat, press it and resend. The chat now
+  performs the logical equivalent of `POST /compute/ensure` at the orchestration layer: one
+  single-flight bounded attempt (60 s, one immediate catalogue read plus at most two short
+  retries) shared with the optional prewarm button, amber only for real stages, then the original
+  message executes exactly once on readiness. On failure the request ends with a typed error
+  (`gpu_capacity_unavailable` and friends), no generation is attempted, no second Pod is created
+  and nothing is left billing; the model endpoint is never polled while compute is known not
+  ready.
 - **A Pod that never became ready no longer bills forever (D-9).** The Gateway now enforces a
   server-side startup deadline (`COMPUTE_STARTUP_TIMEOUT_SECONDS`, 5 minutes by default): a
   managed Pod still in `creating`, `starting_pod` or `loading_model` when the deadline closes is

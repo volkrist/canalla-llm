@@ -69,6 +69,11 @@ class GatewaySettings(BaseSettings):
     # create intent, so it survives a client or Gateway restart, and it is server-side only:
     # no client may set, widen or disable it.
     compute_startup_timeout_seconds: int = Field(default=300, ge=60, le=3600)
+    # The 60-second capacity rule, server-side: a search that found no bookable GPU is a real
+    # operation with an identity and this deadline — never a state that keeps answering
+    # `searching` forever. The hard ceiling is 60 s on purpose: a client cannot widen it, and a
+    # server operator cannot configure an unbounded "searching" (that is the defect this fixes).
+    compute_search_timeout_seconds: int = Field(default=60, ge=5, le=60)
     llm_provider: Literal["mock", "llamacpp"] = "llamacpp"
     llm_model: str = "orcarouter-qwen38-27b-q5km"
     llm_api_key: str = ""

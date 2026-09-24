@@ -117,7 +117,13 @@ Developer `tauri dev` may still use `apps/backend/.venv\Scripts\python.exe`.
   path.
 - Local users stay local: `user_id`/`email`/`role` are never cloud identity. While shared mode is
   active the local compute lifecycle refuses with `gateway_managed_compute`; starting/stopping
-  shared compute goes through the typed Gateway operations only.
+  shared compute goes through the typed Gateway operations only. A **chat request that needs the
+  model performs the logical equivalent of `POST /compute/ensure` itself** (one bounded attempt,
+  single-flight, at the orchestration layer — never a simulated UI click, never a trip to
+  Settings, never asking the user to resend): `app/cloud/demand.py` holds that one lifecycle, the
+  Settings «Запустить AI» button is an optional *prewarm* driving the same lifecycle, and the two
+  deduplicate against each other. On readiness the original request executes once; on failure it
+  ends typed with no generation, no second Pod and nothing left billing.
 - Do not add `/runpod/*` or `/provider/raw` passthrough endpoints, and never let a client widen a
   technical bound, set another installation's policy or claim compute ownership.
 - **Compute Preferences are the user's own money policy, not product caps.** Defaults for a new
@@ -207,6 +213,26 @@ the backups live under the data root, never in the install directory.
   user's own policy. The Settings → Canalla Cloud panel offers «Запустить AI» / «Остановить AI» only.
 
 Do not start LoRA yet. Before future LoRA: baseline + censorship/refusal + coding/tools/security + catastrophic-forgetting regression.
+
+## Capacity search deadline (hard-bounded 60 s)
+
+A search that finds no bookable GPU is a *bounded operation with an identity and a deadline*,
+never a state that keeps answering `searching`. The Gateway stamps `last_operation_id` and the
+window start when the state becomes `searching`, publishes `search: {operation_id, started_at,
+deadline, timeout_seconds, active}` on `GET /compute/status`, refuses to let an attempt inside a
+live window extend it, and collapses an expired or identity-less search to `offline` with the
+typed reason (`collect_expired_search` in `tick`, and the same derivation in `status_payload`,
+so even a read before the next tick is honest). `COMPUTE_SEARCH_TIMEOUT_SECONDS` is
+**server-side and hard-bounded to 60 s**: a client cannot widen it and an operator cannot
+configure an unbounded «searching».
+
+The 60-second rule is absolute in both directions: the *client* (`app/cloud/demand.py`) makes
+one immediate catalogue read plus at most two short retries inside the same window, and fails
+typed (`gpu_capacity_unavailable`, or the Gateway's own reason for a price/catalogue conclusion)
+instead of waiting for hardware. No repeated automatic capacity retry loop: only a later, new
+user request starts one new bounded attempt. Amber `Connecting` is legitimate only while such
+an operation is live — `compact_ai(..., search_active=...)` decides, and the frontend only
+refuses to promise a transition the snapshot itself contradicts.
 
 ## Startup deadline (D-9)
 

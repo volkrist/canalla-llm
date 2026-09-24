@@ -40,6 +40,13 @@ def sse(payload: dict) -> bytes:
     return ("data: " + json.dumps(payload, ensure_ascii=False) + "\n\n").encode("utf-8")
 
 
+def next_step(script: list[dict], current: dict) -> dict:
+    """One scripted Gateway answer per call; the last one keeps answering."""
+    if not script:
+        return current
+    return script.pop(0) if len(script) > 1 else script[0]
+
+
 class FakeGateway:
     def __init__(self, *, protocol=1, compute=None, balance="7.77"):
         self.protocol = protocol
@@ -55,12 +62,20 @@ class FakeGateway:
             "queue": {"depth": 0, "active": 0},
             "session": None,
             "idle_deadline": None,
+            "search": None,
         }
         self.token_calls = 0
         self.compute_calls = 0
         self.balance_calls = 0
         self.models_calls = 0
         self.chat_calls = 0
+        self.ensure_calls = 0
+        self.stop_calls = 0
+        self.ensure_bodies: list[dict] = []
+        # Scripted answers: one payload per call, and the last one keeps answering. A test can
+        # therefore pin the exact Gateway sequence a request produces without any timing.
+        self.ensure_results: list[dict] = []
+        self.compute_steps: list[dict] = []
         self.rejects_token = False
         self.fail_status = None
         self.models_status = None
@@ -108,6 +123,25 @@ class FakeGateway:
             return httpx.Response(self.fail_status, json={"detail": "gateway detail", "code": "gateway_busy"})
         if path == "/compute/status":
             self.compute_calls += 1
+            self.compute = next_step(self.compute_steps, self.compute)
+            return httpx.Response(200, json=self.compute)
+        if path == "/compute/ensure":
+            self.ensure_calls += 1
+            self.ensure_bodies.append(json.loads(request.content))
+            self.compute = next_step(self.ensure_results, self.compute)
+            return httpx.Response(200, json=self.compute)
+        if path == "/compute/stop":
+            self.stop_calls += 1
+            self.compute = {
+                **self.compute,
+                "state": "stopped",
+                "ai": "off",
+                "ai_label": "AI Off",
+                "error_code": None,
+                "managed": False,
+                "session": None,
+                "search": None,
+            }
             return httpx.Response(200, json=self.compute)
         if path == "/balance":
             self.balance_calls += 1

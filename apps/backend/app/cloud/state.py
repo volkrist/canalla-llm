@@ -22,6 +22,31 @@ ACTIVE_STATES = {"searching", "gpu_found", "creating", "starting_pod", "loading_
 CLOUD_STATES = ("connected", "connecting", "not_connected", "unavailable", "revoked", "protocol_mismatch")
 
 
+def search_active(compute: dict | None, *, at: datetime) -> bool:
+    """Does the Gateway report a *real* bounded search operation right now?
+
+    A `searching` state is only a transition while the Gateway can name the operation and its
+    deadline has not passed. Anything else — a state with no operation, an expired deadline, or
+    a Gateway that predates the field — is not proof that something is happening, and the
+    caller must treat it as the failure it is. Proof is never invented here.
+    """
+    search = (compute or {}).get("search")
+    if not isinstance(search, dict) or search.get("active") is not True:
+        return False
+    operation = search.get("operation_id")
+    if not isinstance(operation, str) or not operation:
+        # No identity: nothing to point at, so nothing is happening.
+        return False
+    deadline = search.get("deadline")
+    if not isinstance(deadline, str):
+        return True
+    try:
+        parsed = datetime.fromisoformat(deadline)
+    except ValueError:
+        return False
+    return utc(parsed) > utc(at)
+
+
 class CloudState:
     def __init__(self, settings: Settings, *, client: GatewayClient | None = None, clock=None):
         self.settings = settings
@@ -187,6 +212,12 @@ class CloudAi:
     ``subsystem_status``/``ai_status`` only need ``llm_public_status(user)`` and an
     ``api.configured`` flag; this provides exactly that, from the Gateway snapshot, so
     shared mode never invents a second status vocabulary.
+
+    The Gateway owns the compact ``ai`` value, and it is trusted *except* where it would claim
+    more than the raw state proves: a ``searching`` state with no live bounded operation is a
+    leftover, not a transition, and is reported as the capacity failure it is. That is what
+    kept an installed client amber for 23 minutes against a Gateway that only ever answered
+    ``searching``.
     """
 
     def __init__(self, cloud: CloudState):
@@ -201,26 +232,40 @@ class CloudAi:
     def configured(self) -> bool:
         return bool(self.cloud.configured and self.cloud.error_code not in {"installation_revoked"})
 
+    def search_active(self) -> bool:
+        return search_active(self.cloud.compute, at=self.cloud.clock())
+
     def llm_public_status(self, user) -> dict:
         compute = self.cloud.compute or {}
         last_error = self.cloud.error_code or compute.get("error_code")
-        ai = compute.get("ai")
+        search = compute.get("search") if isinstance(compute.get("search"), dict) else {}
+        state = compute.get("state")
+        live_search = self.search_active()
+        gateway_ai = compute.get("ai")
+        ai = gateway_ai
         if ai is None:
             # No successful Gateway read yet: an unenrolled or unreachable installation is
             # `unavailable` (which the chip layer renders as "Alex Cloud не подключён"),
             # never a bare `off` that would hide the reason.
             ai = "off" if self.cloud.configured and not last_error else "unavailable"
+        elif ai == "starting" and state == "searching" and not live_search:
+            # The Gateway (or an older one, which never reported the search operation at all)
+            # says `starting` for a search that is not running: never render that as amber.
+            ai = "unavailable"
         return {
             "ai": ai,
-            "ai_label": compute.get("ai_label"),
+            # Never relay a label that belongs to a state this adapter just corrected.
+            "ai_label": compute.get("ai_label") if ai == gateway_ai else None,
             "provider": "alex-cloud",
             "model": self.cloud.settings.llm_model,
             "diagnostic": {
-                "compute_state": compute.get("state"),
+                "compute_state": state,
                 "last_error": last_error,
                 "managed": compute.get("managed"),
                 "adopted": compute.get("adopted"),
                 "idle_deadline": compute.get("idle_deadline"),
+                "search_active": live_search,
+                "search_deadline": search.get("deadline"),
                 "datacenter": None,
                 "queue": compute.get("queue"),
                 "session": compute.get("session"),

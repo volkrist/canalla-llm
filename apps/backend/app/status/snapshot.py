@@ -68,6 +68,7 @@ AI_ERRORS = {
     "runpod_balance": (ERROR, "configure", False),
     "runpod_invalid_request": (ERROR, "configure", False),
     "no_compatible_gpu": (UNAVAILABLE, "retry", True),
+    "gpu_unavailable": (UNAVAILABLE, "retry", True),
     "price_limit": (UNAVAILABLE, "configure", True),
     "runpod_unavailable": (UNAVAILABLE, "retry", True),
     "runpod_timeout": (UNAVAILABLE, "retry", True),
@@ -154,6 +155,10 @@ def ai_status(controller, user: User):
         "configured": bool(getattr(controller.api, "configured", False)),
         "compute_state": compute_state,
         "compact_ai": compact,
+        # Is a real, bounded transition in flight? The frontend only shows amber while the
+        # owner of the lifecycle proved one: same value the mapping above just used.
+        "compute_search_active": bool(diagnostic.get("search_active")),
+        "compute_search_deadline": diagnostic.get("search_deadline"),
         "managed": diagnostic.get("managed"),
         "datacenter": diagnostic.get("datacenter"),
         "idle_deadline": diagnostic.get("idle_deadline"),

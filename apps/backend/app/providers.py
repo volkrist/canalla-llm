@@ -513,6 +513,15 @@ class LLMError(RuntimeError):
             "llm_timeout": "AI не ответил вовремя.",
             "stream_interrupted": "Поток AI прерван до completion marker. Полученный текст сохранён.",
             "llm_unavailable": "AI временно недоступен.",
+            # A capacity search that ran out of its 60-second window is a typed external blocker,
+            # not a broken model: the user is told what is missing and may simply ask again.
+            "gpu_capacity_unavailable": (
+                "Подходящих GPU сейчас нет в наличии. Попробуйте отправить сообщение ещё раз."
+            ),
+            "gateway_not_connected": "Canalla Cloud не подключён.",
+            "price_limit": "Подходящий GPU существует, но превышает ваш лимит.",
+            "no_compatible_gpu": "Подходящих GPU сейчас нет.",
+            "startup_timeout": "AI не успел запуститься вовремя. Попробуйте ещё раз.",
         }
         super().__init__(messages.get(code, messages["llm_unavailable"]))
 

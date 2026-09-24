@@ -165,12 +165,21 @@ def consume_start_confirmation(db, *, user_id: str, run_id: str, digest_value: s
 
 
 async def wait_for_production(request, user, chat, user_message, assistant, content, task_id=None):
-    """Yield SSE tuples until the production model is ready, or park the same task."""
+    """Yield SSE tuples until the production model is ready, or park the same task.
+
+    Two provider modes, one shape. Direct mode starts the local RunPod lifecycle; shared mode
+    drives the Gateway's own bounded ensure, so a chat request never needs the Settings button
+    and never leaves the user resending the same message.
+    """
     from ..config import get_settings
 
     settings = get_settings()
     if not production_llm_required(settings):
         yield ("_done", "ready")
+        return
+    if getattr(settings, "alex_ai_mode", "direct") == "shared":
+        async for item in shared_demand_events(request, user, task_id):
+            yield item
         return
     compute = request.app.state.compute
     provider = request.app.state.provider
@@ -258,6 +267,11 @@ async def resume_parked_demand(compute):
 
     if not production_llm_required(get_settings()):
         return
+    if getattr(get_settings(), "alex_ai_mode", "direct") == "shared":
+        # Shared mode parks nothing: a chat that needs the model waits inside its own request for
+        # the Gateway's bounded ensure, so there is no queue to re-drive here (and re-driving it
+        # every tick would be exactly the repeated automatic retry the product forbids).
+        return
     with SessionLocal() as db:
         jobs: list[tuple[User | None, str | None, str | None]] = [
             (db.get(User, row.user_id), row.chat_id, row.id)
@@ -277,6 +291,28 @@ async def resume_parked_demand(compute):
             await compute.ensure_on_demand(user, chat_id=chat_id, task_id=task_id)
         except Exception:
             continue
+
+
+async def shared_demand_events(request, user, task_id=None):
+    """The chat's shared-mode pre-generation phase: one bounded ensure, then readiness.
+
+    The logical equivalent of pressing «Запустить AI», performed by the orchestration layer:
+    the same single-flight attempt the button drives, so the two can never race into two Pods.
+    A failure is a typed ``LLMError`` — the caller shows the reason and keeps the user's
+    message; nothing is resent, replayed or charged twice.
+    """
+    from ..cloud.demand import SharedDemand, policy_caps
+
+    cloud = getattr(request.app.state, "cloud", None)
+    if cloud is None or not getattr(cloud, "shared", False):
+        raise LLMError("gateway_not_connected")
+    demand = getattr(request.app.state, "cloud_demand", None)
+    if demand is None:
+        demand = SharedDemand(cloud)
+        request.app.state.cloud_demand = demand
+    caps = policy_caps(getattr(request.app.state, "compute", None), user.id)
+    async for item in demand.wait_until_ready(task_id=task_id, caps=caps):
+        yield item
 
 
 def _active_session_id(compute) -> str | None:

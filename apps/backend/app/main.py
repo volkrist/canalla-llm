@@ -13,6 +13,7 @@ from .auth import router as auth_router
 from .backup.routes import router as backup_router
 from .chats import router as chats_router
 from .cloud.client import CloudError
+from .cloud.demand import SharedDemand
 from .cloud.provider import GatewayBalanceSource, GatewayProvider
 from .cloud.routes import router as cloud_router
 from .cloud.state import CloudAi, CloudState
@@ -80,6 +81,14 @@ async def lifespan(application):
         # RunPod credential is deliberately ignored (it stays as the private/direct path).
         application.state.provider = GatewayProvider(settings, cloud.client)
         application.state.ai_status_source = CloudAi(cloud)
+        # One bounded ensure lifecycle for the whole installation: the chat path and the manual
+        # «Запустить AI» share it, so they can never run two searches or create two Pods.
+        application.state.cloud_demand = getattr(
+            application.state, "cloud_demand_override", None
+        ) or SharedDemand(cloud)
+        # Readiness for a generation in shared mode is the Gateway's own state, never the
+        # local session row (which does not exist here).
+        compute.shared_ready = lambda: cloud.compute_state() in {"ready", "generating"}
         application.state.balance = getattr(
             application.state, "balance_override", None
         ) or RunPodBalanceService(GatewayBalanceSource(cloud.client), cloud.active, lambda: None)

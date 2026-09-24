@@ -87,6 +87,27 @@ function verdict(
   return { state, code, label: AI_CONNECTION_LABEL[state], reason, action };
 }
 
+/** The badge needs one extra fact from the backend to tell a real stage from a leftover: whether a
+ *  search operation with an identity and a deadline is actually running (`compute_search_active`),
+ *  or at least a deadline that has not passed yet. The backend stays the owner of the lifecycle —
+ *  this only refuses to promise a transition the snapshot itself contradicts. A backend that
+ *  reports neither field is taken at face value: the frontend does not invent a lifecycle. */
+function stageIsLive(
+  compute: string | null,
+  details: Record<string, unknown>,
+  generatedAt: string,
+): boolean {
+  if (compute !== "searching") return true;
+  const active = details.compute_search_active;
+  if (typeof active === "boolean") return active;
+  const deadline = detailText(details, "compute_search_deadline");
+  if (deadline === null) return true;
+  const limit = Date.parse(deadline);
+  const now = Date.parse(generatedAt);
+  if (!Number.isFinite(limit) || !Number.isFinite(now)) return true;
+  return limit > now;
+}
+
 /** `details` as the backend shaped it, without trusting any of it. */
 function detailText(
   details: Record<string, unknown>,
@@ -150,6 +171,19 @@ export function aiConnection({
   const configured =
     typeof details.configured === "boolean" ? details.configured : null;
   const stage = compute ? COMPUTE_STAGE_TEXT[compute] : null;
+  // Amber is only legitimate while a real, bounded transition exists. A search the backend
+  // cannot point at (no operation, no deadline) is the failure it is — never an endless
+  // «Connecting…»: that was the whole 481-second symptom.
+  const stageLive = stageIsLive(compute, details, snapshot.generated_at);
+  const stageVerdict = (): AiConnection =>
+    stageLive
+      ? verdict("connecting", "starting", stage ?? "Подключаем AI")
+      : verdict(
+          "disconnected",
+          "waiting",
+          ai.message || "AI не подтвердил готовность",
+          "retry",
+        );
 
   switch (ai.state) {
     case "ready":
@@ -160,12 +194,12 @@ export function aiConnection({
         compute === "generating" ? "AI отвечает" : "AI готов к диалогу",
       );
     case "starting":
-      return verdict("connecting", "starting", stage ?? "Подключаем AI");
+      return stageVerdict();
     case "degraded":
       // A degraded AI is only «connecting» while a transition is really in flight; a create whose
       // outcome is unknown, or a Pod somebody else brought up, is not a transition to green.
-      return compute && STARTING_COMPUTE.has(compute)
-        ? verdict("connecting", "starting", stage ?? "Подключаем AI")
+      return compute && STARTING_COMPUTE.has(compute) && stageLive
+        ? stageVerdict()
         : verdict(
             "disconnected",
             "waiting",

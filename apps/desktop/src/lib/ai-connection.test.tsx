@@ -376,6 +376,132 @@ describe("the global state is AI readiness, never infrastructure", () => {
   });
 });
 
+describe("a stage is only amber while a bounded operation is running", () => {
+  /** The AI chip as the backend shapes it while shared compute searches for a GPU. `active` is the
+   *  backend's own verdict about the search operation: an identity, a deadline, and no expiry. */
+  function searching(extra: Record<string, unknown> = {}) {
+    return aiChip("starting", {
+      provider: "alex-cloud",
+      model: "Qwen3.8-27B",
+      configured: true,
+      compact_ai: "starting",
+      compute_state: "searching",
+      compute_search_active: true,
+      compute_search_deadline: "2026-09-23T10:01:00+00:00",
+      ...extra,
+    });
+  }
+
+  it("a live bounded search is amber", () => {
+    const result = state({ ai: searching() });
+
+    expect(result.state).toBe("connecting");
+    expect(result.label).toBe("Connecting…");
+    expect(result.reason).toContain("Ищем GPU");
+  });
+
+  it("a search the backend cannot point at is red, never an endless Connecting", () => {
+    // This is the 481-second symptom: `searching` with no operation behind it. The backend now
+    // says so itself, and the badge must not turn that into amber.
+    const result = state({
+      ai: searching({
+        compute_search_active: false,
+        compute_search_deadline: null,
+      }),
+    });
+
+    expect(result.state).toBe("disconnected");
+    expect(result.code).toBe("waiting");
+    expect(result.label).not.toBe("Connecting…");
+    expect(result.action).toBe("retry");
+  });
+
+  it("a search whose deadline has passed is red", () => {
+    const result = state({
+      ai: searching({
+        compute_search_active: undefined,
+        compute_search_deadline: "2026-09-23T09:59:00+00:00",
+      }),
+    });
+
+    expect(result.state).toBe("disconnected");
+    expect(result.code).toBe("waiting");
+  });
+
+  it("carries the backend's typed capacity reason when the search is over", () => {
+    const result = state({
+      ai: aiChip(
+        "starting",
+        {
+          provider: "alex-cloud",
+          configured: true,
+          compact_ai: "unavailable",
+          compute_state: "searching",
+          compute_search_active: false,
+          compute_search_deadline: null,
+        },
+        {
+          message:
+            "Подходящих GPU сейчас нет в наличии. Поиск можно повторить.",
+        },
+      ),
+    });
+
+    expect(result.state).toBe("disconnected");
+    expect(result.reason).toContain("GPU");
+  });
+
+  it("a degraded search with no live operation is red too", () => {
+    const result = state({
+      ai: aiChip("degraded", {
+        provider: "alex-cloud",
+        configured: true,
+        compact_ai: "waiting",
+        compute_state: "searching",
+        compute_search_active: false,
+      }),
+    });
+
+    expect(result.state).toBe("disconnected");
+  });
+
+  it("a Pod that really is starting stays amber in every stage", () => {
+    for (const [compute, words] of [
+      ["creating", "Создаём Pod"],
+      ["starting_pod", "Запускаем Pod"],
+      ["mounting_storage", "Подключаем хранилище"],
+      ["loading_model", "Загружаем модель"],
+    ] as const) {
+      const result = state({
+        ai: aiChip("starting", {
+          provider: "alex-cloud",
+          configured: true,
+          compact_ai: "starting",
+          compute_state: compute,
+          compute_search_active: false,
+        }),
+      });
+
+      expect(result.state).toBe("connecting");
+      expect(result.reason).toContain(words);
+    }
+  });
+
+  it("a ready compute is green even if the last search flag is stale", () => {
+    const result = state({
+      ai: aiChip("ready", {
+        provider: "alex-cloud",
+        configured: true,
+        compact_ai: "ready",
+        compute_state: "ready",
+        compute_search_active: false,
+      }),
+    });
+
+    expect(result.state).toBe("connected");
+  });
+});
+
 describe("the global word belongs to the AI alone", () => {
   const cloud = { state: "connected", enrolled: true };
 

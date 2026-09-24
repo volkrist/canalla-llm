@@ -115,6 +115,13 @@ MONEY_QUANTUM = Decimal("0.0001")
 # Conditions that describe the provider catalogue rather than a broken compute.
 SEARCH_ERRORS = {"no_compatible_gpu", "price_limit", "gpu_unavailable"}
 
+# The state that says "a capacity search is in flight". It is legitimate only with an identity
+# and an unexpired deadline (see ``search_active``); without them it is a leftover and collapses
+# to the honest failure below, never to an indefinite «Connecting».
+SEARCH_STATE = "searching"
+SEARCH_COLLAPSED_STATE = "offline"
+CAPACITY_UNAVAILABLE = "gpu_unavailable"
+
 MESSAGES = {
     "offline": "AI не запущен. GPU запускается только по запросу.",
     "searching": "Ищу подходящую GPU…",
@@ -304,6 +311,106 @@ class ComputeAuthority:
             control.last_activity_at = control.last_activity_at or self.clock()
         db.commit()
 
+    # ---------------------------------------------------------------- bounded capacity search
+
+    def search_operation(self, control: GatewayCompute) -> str | None:
+        """The operation that owns the current search, or ``None``.
+
+        A `searching` state without an operation id is a leftover: it can never be a promise
+        that something is happening, so the status surface reports it as the failure it is.
+        """
+        value = getattr(control, "last_operation_id", None)
+        return value if isinstance(value, str) and value else None
+
+    def search_started(self, control: GatewayCompute) -> datetime | None:
+        """When the search window opened. Persisted (``updated_at``), never an in-process timer.
+
+        ``_set_state`` stamps it when the state becomes ``searching``; nothing inside a live
+        window is allowed to refresh it, so a search cannot renew its own deadline and become
+        an unbounded «searching» (the defect this module now refuses to reproduce).
+        """
+        if control.state != SEARCH_STATE:
+            return None
+        return utc(control.updated_at)
+
+    def search_deadline(self, control: GatewayCompute) -> str | None:
+        started = self.search_started(control)
+        if started is None:
+            return None
+        return (started + timedelta(seconds=self.settings.compute_search_timeout_seconds)).isoformat()
+
+    def search_active(self, control: GatewayCompute) -> bool:
+        """Is a real, bounded search in flight: an identity *and* an unexpired deadline?"""
+        if self.search_operation(control) is None:
+            return False
+        started = self.search_started(control)
+        if started is None:
+            return False
+        elapsed = (utc_present(self.clock()) - started).total_seconds()
+        return 0 <= elapsed < self.settings.compute_search_timeout_seconds
+
+    def search_payload(self, control: GatewayCompute) -> dict | None:
+        if control.state != SEARCH_STATE:
+            return None
+        return {
+            "operation_id": self.search_operation(control),
+            "started_at": iso(self.search_started(control)),
+            "deadline": self.search_deadline(control),
+            "timeout_seconds": self.settings.compute_search_timeout_seconds,
+            "active": self.search_active(control),
+            "reason": control.error_code,
+        }
+
+    def effective_state(self, control: GatewayCompute) -> str:
+        """What the state really is. A search that ran out of identity or deadline is over."""
+        if control.state == SEARCH_STATE and not self.search_active(control):
+            return SEARCH_COLLAPSED_STATE
+        return control.state
+
+    def _note_search(self, db, *, reason: str, operation_id: str | None, installation_id: str) -> None:
+        """Record one bounded capacity search, or reuse the live window without extending it."""
+        control = self.control(db)
+        if control.state == SEARCH_STATE and self.search_active(control):
+            # An attempt inside a live window keeps the existing identity and deadline: a search
+            # must never renew itself into an unbounded «searching».
+            if control.error_code != reason:
+                control.error_code = reason
+                db.commit()
+            return
+        if operation_id:
+            # Without an operation id the state would carry no identity, which is exactly the
+            # leftover `search_active` refuses to call a transition — so it is never claimed.
+            control.last_operation_id = operation_id
+        self._set_state(db, SEARCH_STATE, error_code=reason)
+        self.event(
+            db,
+            "search",
+            "error",
+            installation_id=installation_id,
+            error_code=reason,
+            detail=f"{self.settings.compute_search_timeout_seconds}s",
+        )
+        db.commit()
+
+    def collect_expired_search(self) -> bool:
+        """Collapse a search that outlived its deadline. Returns whether one was collapsed.
+
+        Server-side and independent of any client: the deadline is read from persisted
+        timestamps, so a vanished caller cannot leave `searching` on the control row.
+        """
+        with self.sessions() as db:
+            control = self.control(db)
+            if control.state != SEARCH_STATE or self.search_active(control):
+                return False
+            code = control.error_code or CAPACITY_UNAVAILABLE
+            control.state = SEARCH_COLLAPSED_STATE
+            control.error_code = code
+            control.revision += 1
+            control.updated_at = self.clock()
+            self.event(db, "search_expired", "error", error_code=code, detail=CAPACITY_UNAVAILABLE)
+            db.commit()
+            return True
+
     def _caps(self, caps: dict | None) -> dict:
         """Honour the caller's own policy; enforce only technical validity.
 
@@ -413,8 +520,9 @@ class ComputeAuthority:
                         last_session = db.scalar(
                             select(GatewaySession).order_by(GatewaySession.created_at.desc()).limit(1)
                         )
-        state = control.state
+        state = self.effective_state(control)
         error_code = control.error_code
+        search_active = state == SEARCH_STATE and self.search_active(control)
         configured = bool(getattr(self.api, "configured", False))
         ai, label = compact_ai(
             provider=self.settings.llm_provider,
@@ -422,6 +530,7 @@ class ComputeAuthority:
             configured=configured,
             compute_state=state,
             error_code=error_code,
+            search_active=search_active,
         )
         return {
             "state": state,
@@ -441,6 +550,8 @@ class ComputeAuthority:
             "last_session": self.session_payload(last_session, final=True),
             "idle_deadline": self.idle_deadline(session),
             "startup_deadline": self.startup_deadline(session),
+            # A search is only reported as one while it has an identity and a live deadline.
+            "search": self.search_payload(control),
             "updated_at": iso(control.updated_at),
         }
 
@@ -662,8 +773,14 @@ class ComputeAuthority:
                 return self.status_payload()
             control = self.control(db)
             search_error = control.error_code if control.error_code in SEARCH_ERRORS else None
-            # A failed GPU search stays visible until it is resolved or retried.
-            self._set_state(db, "searching" if search_error else "offline", error_code=search_error)
+            if control.state == SEARCH_STATE and self.search_active(control):
+                # A live bounded search is kept as it is — and deliberately *not* restamped:
+                # refreshing the timestamp here is what used to renew the window on every
+                # reconciliation and make «searching» immortal.
+                return self.status_payload()
+            # A failed GPU search stays visible (with its typed reason) until it is resolved or
+            # retried — as a failure with no search in flight, never as a transition to green.
+            self._set_state(db, SEARCH_COLLAPSED_STATE, error_code=search_error)
         return self.status_payload()
 
     def _adopt_pod(self, db, pod, session: GatewaySession | None) -> GatewaySession:
@@ -756,12 +873,12 @@ class ComputeAuthority:
         with self.sessions() as db:
             cached = self._operation(db, operation_id, installation_id, "ensure")
         if cached is not None:
-            return cached
+            return self._live_payload(cached)
         async with self.lease(installation_id):
             with self.sessions() as db:
                 cached = self._operation(db, operation_id, installation_id, "ensure")
             if cached is not None:
-                return cached
+                return self._live_payload(cached)
             payload = await self._reconcile_locked()
             state = payload["state"]
             with self.sessions() as db:
@@ -772,7 +889,7 @@ class ComputeAuthority:
             ):
                 # A create is allowed only when reconciliation proved that no Pod for this
                 # Volume is tracked or exists: an existing Pod is never duplicated.
-                payload = await self._create_locked(installation_id, caps, task_id)
+                payload = await self._create_locked(installation_id, caps, task_id, operation_id=operation_id)
                 state = payload["state"]
             with self.sessions() as db:
                 control = self.control(db)
@@ -797,7 +914,25 @@ class ComputeAuthority:
                 self._record_operation(operation_id, installation_id, "ensure", payload, digest)
             return payload
 
-    async def _create_locked(self, installation_id: str, caps: dict, task_id: str | None) -> dict:
+    def _live_payload(self, cached: dict) -> dict:
+        """An idempotent answer, re-derived only when it would claim a dead transition.
+
+        A recorded ``searching`` is a promise about a bounded window. Replaying it after that
+        window closed would be the very defect this fixes, so the live state is re-read and
+        overlaid. Every other recorded answer is returned exactly as it was recorded, which is
+        what operation idempotency means.
+        """
+        if cached.get("state") != SEARCH_STATE:
+            return cached
+        with self.sessions() as db:
+            control = self.control(db)
+            if control.state == SEARCH_STATE and self.search_active(control):
+                return cached
+        return {**cached, **self.status_payload(), "task_id": cached.get("task_id")}
+
+    async def _create_locked(
+        self, installation_id: str, caps: dict, task_id: str | None, *, operation_id: str | None = None
+    ) -> dict:
         key = self.settings.llm_api_key
         if self.settings.llm_provider == "llamacpp" and len(key) < 32:
             with self.sessions() as db:
@@ -862,7 +997,9 @@ class ComputeAuthority:
             else:
                 reason = "price_limit"
             with self.sessions() as db:
-                self._set_state(db, "searching", error_code=reason)
+                self._note_search(
+                    db, reason=reason, operation_id=operation_id, installation_id=installation_id
+                )
             return self.status_payload()
         gpu = min(candidates, key=lambda option: (option.hourly_rate, option.id))
 
@@ -1059,6 +1196,10 @@ class ComputeAuthority:
             with self.sessions() as db:
                 session = self.session_row(db)
             if session is None or session.state not in ACTIVE_STATES:
+                # No Pod to look after. The one thing left to own is a capacity search that
+                # outlived its deadline: it is collapsed here, server-side, so no client (and
+                # no vanished harness) can leave the control row answering `searching` forever.
+                self.collect_expired_search()
                 return
             try:
                 pod = await self.api.get_pod(session.pod_id) if session.pod_id else None

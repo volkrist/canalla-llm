@@ -1,5 +1,6 @@
 import asyncio
 import re
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -73,6 +74,9 @@ class RunPodController:
             clock,
         )
         self.local_lock = asyncio.Lock()
+        # Shared mode only: the Gateway owns the Pod, so readiness for a generation is the
+        # Gateway's own state, supplied by the lifespan. ``None`` means "not shared".
+        self.shared_ready: Callable[[], bool] | None = None
         self.llm = (
             LlamaCppProvider(settings, target=self.connection_target)
             if settings.llm_provider == "llamacpp"
@@ -730,12 +734,17 @@ class RunPodController:
                     or (row.managed and estimate(row, self.clock())[1] >= row.session_budget)
                 ):
                     raise HTTPException(409, "Compute останавливается или достигнут бюджет сессии")
-                if (
-                    provider == "llamacpp"
-                    and self.settings.llm_connection_mode == "runpod"
-                    and (not row or row.status != "ready")
-                ):
-                    raise HTTPException(409, "AI ещё не готов. Дождитесь загрузки модели.")
+                if provider == "llamacpp" and self.settings.llm_connection_mode == "runpod":
+                    # In shared mode the Pod belongs to Canalla Cloud, so the local session row
+                    # cannot prove readiness: the Gateway's own state does (``shared_ready``,
+                    # bound by the lifespan). A local row is never used as a substitute.
+                    ready = (
+                        self.shared_ready()
+                        if self.settings.alex_ai_mode == "shared" and self.shared_ready is not None
+                        else bool(row and row.status == "ready")
+                    )
+                    if not ready:
+                        raise HTTPException(409, "AI ещё не готов. Дождитесь загрузки модели.")
                 usage = GenerationUsage(
                     user_id=user_id,
                     chat_id=chat_id,
@@ -1005,16 +1014,24 @@ class RunPodController:
 
         compute = self.get_compute_status(user)
         session = None
+        search_deadline = None
+        search_active = False
         with self.sessions() as db:
             control = control_row(db)
             if control.active_session_id:
                 session = db.get(ComputeSession, control.active_session_id)
+            # Direct mode schedules its own parked search: a live retry is a real transition,
+            # and a `searching` state without one is the failure it is.
+            if control.next_search_at:
+                search_active = True
+                search_deadline = utc(control.next_search_at).isoformat()
         ai, label = compact_ai(
             provider=self.settings.llm_provider,
             app_env=self.settings.app_env,
             configured=self.api.configured,
             compute_state=compute["state"],
             error_code=compute.get("error_code"),
+            search_active=search_active,
         )
         payload = {
             "provider": self.settings.llm_provider,
@@ -1038,6 +1055,8 @@ class RunPodController:
                 "managed": (compute.get("session") or {}).get("managed"),
                 "last_error": compute.get("error_code"),
                 "compute_state": compute.get("state"),
+                "search_active": search_active,
+                "search_deadline": search_deadline,
             },
         }
         if self.settings.llm_provider == "llamacpp":

@@ -84,9 +84,7 @@ def test_a_changed_product_version_is_refused(tmp_path):
     stamp = sidecar_dir(tmp_path / "staged") / "build-stamp.json"
     run("write", backend, stamp)
 
-    (backend / "app" / "product.py").write_text(
-        'PRODUCT = "alex-llm"\nVERSION = "1.2.0"\n', encoding="utf-8"
-    )
+    (backend / "app" / "product.py").write_text('PRODUCT = "alex-llm"\nVERSION = "1.2.0"\n', encoding="utf-8")
     checked = run("check", backend, stamp)
     assert checked.returncode == 3
     assert STALE in checked.stderr

@@ -1,8 +1,10 @@
 """Alex Cloud status and Gateway-owned compute operations.
 
-Read-only by default: ``GET /cloud/status`` never starts anything. The two explicit
-operations are typed Gateway calls (``ensure``/``stop``) with a local operation id, and
-the Gateway stays the final authority for money, ownership and the global lease.
+Read-only by default: ``GET /cloud/status`` never starts anything. The two explicit operations
+are typed Gateway calls (``ensure``/``stop``) with a local operation id, and the Gateway stays
+the final authority for money, ownership and the global lease. The manual «Запустить AI» is an
+optional prewarm: it drives the *same* bounded lifecycle a chat request uses, so the button and
+the chat can never run two searches or create two Pods.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from ..database import get_db
 from ..models import User
 from ..security import current_user
 from .client import CloudError
+from .demand import SharedDemand, policy_caps
 from .state import CloudState
 
 router = APIRouter(prefix="/cloud", tags=["cloud"])
@@ -34,6 +37,14 @@ def cloud_of(request: Request) -> CloudState:
     if cloud is None:
         raise HTTPException(503, "Canalla Cloud недоступен в этой конфигурации")
     return cloud
+
+
+def demand_of(request: Request) -> SharedDemand:
+    demand = getattr(request.app.state, "cloud_demand", None)
+    if demand is None:
+        demand = SharedDemand(cloud_of(request))
+        request.app.state.cloud_demand = demand
+    return demand
 
 
 def raw(request: Request):
@@ -54,41 +65,42 @@ async def ensure_compute(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Ask the Gateway for shared compute. The Gateway owns whether a Pod is created."""
+    """Ask the Gateway for shared compute. The Gateway owns whether a Pod is created.
+
+    An optional prewarm: the answer is the live state, and the bounded attempt keeps running
+    in the background through the same single-flight lifecycle the chat path uses.
+    """
     cloud = cloud_of(request)
+    demand = demand_of(request)
     controller = getattr(request.app.state, "compute", None)
-    prefs = controller.preferences(user.id) if controller is not None else None
-    caps = {}
-    if prefs is not None:
-        caps = {
-            "max_hourly_price": float(prefs.max_hourly_price),
-            "session_budget": float(prefs.session_budget),
-            "min_vram_gb": int(prefs.min_vram_gb),
-            "selection": prefs.selection,
-            "gpu_id": prefs.gpu_id,
-        }
+    caps = policy_caps(controller, user.id)
     if body.auto_stop_minutes is not None:
         caps["auto_stop_minutes"] = body.auto_stop_minutes
     try:
-        payload = await cloud.client.ensure_compute(
-            operation_id="local-" + str(uuid4()), task_id=body.task_id, caps=caps
-        )
+        live = await demand.prewarm(task_id=body.task_id, caps=caps)
     except CloudError as error:
         raise _http(error) from None
-    cloud.compute = payload
-    cloud.fetched_at = cloud.clock()
+    if not live:
+        # Defensive only: no answer was ever cached, so the panel gets a real read instead of an
+        # empty compute object. Never a fabricated state.
+        await cloud.refresh(force=True)
+        live = cloud.compute
     result = cloud.snapshot()
-    result["compute"] = payload
+    result["compute"] = live
     return result
 
 
 @router.post("/compute/stop")
 async def stop_compute(request: Request, user: User = Depends(current_user)) -> dict:
+    """Stop shared compute. Authoritative: a pending search is cancelled with it."""
     cloud = cloud_of(request)
+    demand = demand_of(request)
     try:
         payload = await cloud.client.stop_compute(operation_id="local-" + str(uuid4()))
     except CloudError as error:
         raise _http(error) from None
+    # A pending automatic attempt must not resurrect compute the user just stopped.
+    demand.cancel_pending()
     cloud.compute = payload
     cloud.fetched_at = cloud.clock()
     result = cloud.snapshot()
