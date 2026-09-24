@@ -1,21 +1,22 @@
-//! Windows Job Object runner: children inherit the job; Stop closes only this job.
+//! Owned tool processes: one child, owned so that stopping it stops what it started.
+//!
+//! The desktop runs the tools the user asked for (a build, a script, a git command) and must be able
+//! to stop them again — including anything they started. How that ownership works is the platform's
+//! business (`crate::platform`): a kill-on-close Job Object on Windows, a process group plus a
+//! parent-death signal on Linux. Nothing in this file knows which one is in use.
 
 use crate::host::LocalOutcome;
+use crate::platform::OwnedJob;
 use serde_json::json;
 use std::collections::HashMap;
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
-use std::os::windows::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-const CREATE_UNICODE_ENVIRONMENT: u32 = 0x0000_0400;
-const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
-
 struct JobEntry {
+    /// Held for as long as the run is: dropping it is what stops the tree on Windows.
     #[allow(dead_code)]
-    job: OwnedHandle,
+    job: Option<OwnedJob>,
     child: Option<Child>,
     pid: u32,
 }
@@ -26,81 +27,9 @@ fn jobs() -> &'static Mutex<HashMap<String, JobEntry>> {
     JOBS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// The environment a tool may see: the machine's own variables, never this application's secrets.
 pub fn sanitized_env() -> HashMap<String, String> {
-    let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
-    let mut env = HashMap::new();
-    for key in [
-        "SystemRoot",
-        "SystemDrive",
-        "windir",
-        "TEMP",
-        "TMP",
-        "USERPROFILE",
-        "LOCALAPPDATA",
-        "OS",
-        "NUMBER_OF_PROCESSORS",
-        "PROCESSOR_ARCHITECTURE",
-    ] {
-        if let Ok(value) = std::env::var(key) {
-            env.insert(key.to_string(), value);
-        }
-    }
-    env.insert(
-        "PATH".into(),
-        {
-            let mut path = format!(
-                r"{root}\System32;{root}\System32\WindowsPowerShell\v1.0;{root}\System32\Wbem",
-                root = system_root
-            );
-            for git_dir in [r"C:\Program Files\Git\cmd", r"C:\Program Files (x86)\Git\cmd"] {
-                if std::path::Path::new(git_dir).exists() {
-                    path.push(';');
-                    path.push_str(git_dir);
-                }
-            }
-            if let Ok(local) = std::env::var("LOCALAPPDATA") {
-                let apps = std::path::PathBuf::from(local)
-                    .join("Microsoft")
-                    .join("WindowsApps");
-                if apps.is_dir() {
-                    path.push(';');
-                    path.push_str(&apps.to_string_lossy());
-                }
-            }
-            path
-        },
-    );
-    env.insert("GIT_TERMINAL_PROMPT".into(), "0".into());
-    env
-}
-
-fn create_kill_on_close_job() -> Result<OwnedHandle, String> {
-    use windows::Win32::System::JobObjects::{
-        CreateJobObjectW, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-        SetInformationJobObject, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    };
-
-    unsafe {
-        let job = CreateJobObjectW(None, windows::core::PCWSTR::null()).map_err(|e| e.to_string())?;
-        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        SetInformationJobObject(
-            job,
-            JobObjectExtendedLimitInformation,
-            std::ptr::addr_of!(info).cast(),
-            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-        )
-        .map_err(|e| e.to_string())?;
-        Ok(OwnedHandle::from_raw_handle(job.0))
-    }
-}
-
-fn assign(job: &OwnedHandle, process: std::os::windows::io::RawHandle) -> Result<(), String> {
-    use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::System::JobObjects::AssignProcessToJobObject;
-    unsafe {
-        AssignProcessToJobObject(HANDLE(job.as_raw_handle()), HANDLE(process)).map_err(|e| e.to_string())
-    }
+    crate::platform::sanitized_env()
 }
 
 pub fn run_job(
@@ -113,13 +42,14 @@ pub fn run_job(
     elevate: bool,
     wait: bool,
 ) -> LocalOutcome {
+    // A platform without an elevation helper the product may drive says so, instead of running the
+    // tool unelevated and reporting success.
+    if elevate && !crate::platform::elevation_available() {
+        return err("elevation_unavailable");
+    }
     if elevate {
         return run_elevated(exe, args, cwd);
     }
-    let job = match create_kill_on_close_job() {
-        Ok(job) => job,
-        Err(error) => return err(&error),
-    };
     let mut command = Command::new(exe);
     command
         .args(args)
@@ -127,15 +57,15 @@ pub fn run_job(
         .envs(sanitized_env())
         .stdin(Stdio::null())
         .stdout(if wait { Stdio::piped() } else { Stdio::null() })
-        .stderr(if wait { Stdio::piped() } else { Stdio::null() })
-        .creation_flags(CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | CREATE_BREAKAWAY_FROM_JOB);
+        .stderr(if wait { Stdio::piped() } else { Stdio::null() });
     if let Some(dir) = cwd {
         command.current_dir(dir);
     }
+    crate::platform::configure_spawn(&mut command);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(_) => {
-            command.creation_flags(CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT);
+            crate::platform::configure_spawn_plain(&mut command);
             match command.spawn() {
                 Ok(child) => child,
                 Err(error) => {
@@ -150,10 +80,7 @@ pub fn run_job(
             }
         }
     };
-    if assign(&job, child.as_raw_handle()).is_err() {
-        let _ = child.kill();
-        return err("job_assign_failed");
-    }
+    let job = crate::platform::own_child(&child);
     let pid = child.id();
     if !wait {
         jobs().lock().expect("job map").insert(
@@ -197,17 +124,13 @@ pub fn run_job(
                 metadata: json!({"status": "stopped", "pid": pid}),
             };
         }
-        use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
-        use windows::Win32::System::Threading::WaitForSingleObject;
-        let finished = unsafe { WaitForSingleObject(HANDLE(child.as_raw_handle()), 80) == WAIT_OBJECT_0 };
-        if finished {
-            break;
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => std::thread::sleep(Duration::from_millis(80)),
+            Err(_) => break,
         }
     }
-    jobs()
-        .lock()
-        .expect("job map")
-        .remove(tool_run_id);
+    jobs().lock().expect("job map").remove(tool_run_id);
     let output = child.wait_with_output().ok();
     let stdout: String = output
         .as_ref()
@@ -236,9 +159,16 @@ pub fn run_job(
 pub fn stop_job(tool_run_id: &str) -> Option<u32> {
     let mut entry = jobs().lock().ok()?.remove(tool_run_id)?;
     let pid = entry.pid;
+    let had_job = entry.job.is_some();
     if let Some(mut child) = entry.child.take() {
         let _ = child.kill();
         let _ = child.wait();
+    }
+    // Dropping the ownership handle stops the tree where the platform has one; where it does not
+    // (POSIX process groups), the group is stopped explicitly.
+    drop(entry.job);
+    if !had_job && pid != 0 {
+        crate::platform::terminate_tree(pid);
     }
     Some(pid)
 }
@@ -270,12 +200,13 @@ fn err(code: &str) -> LocalOutcome {
     }
 }
 
-fn ps_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
-}
-
+/// A Windows UAC prompt; Alex never stores an admin password or bypasses UAC. A platform without an
+/// equivalent the product may drive says so instead of pretending.
+#[cfg(windows)]
 fn run_elevated(exe: &str, args: &[String], cwd: Option<&str>) -> LocalOutcome {
-    // Windows UAC prompt. Alex never stores an admin password or bypasses UAC.
+    fn ps_quote(value: &str) -> String {
+        format!("'{}'", value.replace('\'', "''"))
+    }
     let mut command = format!("Start-Process -Verb RunAs -Wait -FilePath {}", ps_quote(exe));
     if !args.is_empty() {
         let list = args.iter().map(|item| ps_quote(item)).collect::<Vec<_>>().join(",");
@@ -295,6 +226,13 @@ fn run_elevated(exe: &str, args: &[String], cwd: Option<&str>) -> LocalOutcome {
         false,
         true,
     )
+}
+
+#[cfg(not(windows))]
+fn run_elevated(_exe: &str, _args: &[String], _cwd: Option<&str>) -> LocalOutcome {
+    // Linux has no elevation helper the product drives: a privileged action is the user's own
+    // business through their own tools, and Canalla never asks for a password.
+    err("elevation_unavailable")
 }
 
 #[cfg(test)]

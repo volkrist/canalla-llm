@@ -11,6 +11,7 @@ mod fs_guard;
 mod gateway;
 mod git;
 mod host;
+mod platform;
 mod process;
 
 fn main() {

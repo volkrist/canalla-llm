@@ -47,9 +47,19 @@ fn is_unc(value: &str) -> bool {
     trimmed.starts_with(r"\\") || trimmed.starts_with("//")
 }
 
-fn has_drive(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+/// Something this tool may touch: a drive-letter path on Windows, an absolute path on POSIX. A
+/// relative path is denied on both, because what it resolves to depends on a working directory the
+/// user never chose.
+fn is_local_absolute(value: &str) -> bool {
+    #[cfg(windows)]
+    {
+        let bytes = value.as_bytes();
+        bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+    }
+    #[cfg(not(windows))]
+    {
+        value.starts_with('/')
+    }
 }
 
 fn deny_secret(canonical: &Path) -> Result<(), String> {
@@ -79,10 +89,10 @@ fn canonicalize_existing(path: &Path) -> Result<PathBuf, String> {
         .map_err(|_| "path_denied".to_string())
 }
 
-/// Resolve a local drive-letter path. Trusted workspace roots do not restrict access.
+/// Resolve a local absolute path. Trusted workspace roots do not restrict access.
 pub fn resolve(path: &str, _roots: &[String]) -> Result<PathBuf, String> {
     let value = path.trim();
-    if value.is_empty() || is_unc(value) || value.contains('\0') || !has_drive(value) {
+    if value.is_empty() || is_unc(value) || value.contains('\0') || !is_local_absolute(value) {
         return Err("path_denied".into());
     }
     if Path::new(value)
@@ -133,12 +143,23 @@ mod tests {
     use std::env;
 
     #[test]
-    fn local_system_path_is_allowed() {
-        let roots = vec![r"C:\AlexWorkspace".to_string()];
-        assert!(resolve(r"C:\Windows", &roots).is_ok());
-        assert!(resolve(r"\\server\share\file", &[]).is_err());
-        assert!(resolve(r"C:\AlexWorkspace\..\Windows\win.ini", &roots).is_err());
-        assert!(resolve("notes.txt", &[]).is_err());
+    fn a_local_absolute_path_is_allowed() {
+        #[cfg(windows)]
+        {
+            let roots = vec![r"C:\AlexWorkspace".to_string()];
+            assert!(resolve(r"C:\Windows", &roots).is_ok());
+            assert!(resolve(r"\\server\share\file", &[]).is_err());
+            assert!(resolve(r"C:\AlexWorkspace\..\Windows\win.ini", &roots).is_err());
+            assert!(resolve("notes.txt", &[]).is_err());
+        }
+        #[cfg(not(windows))]
+        {
+            let tmp = env::temp_dir();
+            assert!(resolve(tmp.to_str().unwrap(), &[]).is_ok());
+            assert!(resolve("//server/share/file", &[]).is_err());
+            assert!(resolve("/tmp/../etc/passwd", &[]).is_err());
+            assert!(resolve("notes.txt", &[]).is_err());
+        }
     }
 
     #[test]

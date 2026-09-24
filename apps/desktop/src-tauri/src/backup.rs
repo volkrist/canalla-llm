@@ -98,13 +98,7 @@ fn sidecar_command(directory: &Path) -> Result<Command, String> {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        const CREATE_UNICODE_ENVIRONMENT: u32 = 0x0000_0400;
-        command.creation_flags(CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT);
-    }
+    crate::platform::configure_spawn_plain(&mut command);
     Ok(command)
 }
 

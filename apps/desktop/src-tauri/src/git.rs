@@ -1,16 +1,30 @@
 use crate::host::{critical_blocked, err_public, redact_text};
 use serde_json::{json, Value};
+#[cfg(windows)]
 use std::path::Path;
 use std::time::Duration;
 
 fn git_exe() -> Option<String> {
-    [
-        r"C:\Program Files\Git\cmd\git.exe",
-        r"C:\Program Files (x86)\Git\cmd\git.exe",
-    ]
-    .into_iter()
-    .map(str::to_string)
-    .find(|path| Path::new(path).exists())
+    // Windows installs Git in a fixed place; POSIX puts it on `PATH`, which is the same rule the
+    // user's own shell follows.
+    #[cfg(windows)]
+    {
+        [
+            r"C:\Program Files\Git\cmd\git.exe",
+            r"C:\Program Files (x86)\Git\cmd\git.exe",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .find(|path| Path::new(path).exists())
+    }
+    #[cfg(not(windows))]
+    {
+        let path = std::env::var_os("PATH")?;
+        std::env::split_paths(&path)
+            .map(|dir| dir.join("git"))
+            .find(|candidate| candidate.is_file())
+            .map(|candidate| candidate.to_string_lossy().into_owned())
+    }
 }
 
 fn str_arg(args: &Value, key: &str) -> String {

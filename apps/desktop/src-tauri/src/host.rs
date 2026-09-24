@@ -4,7 +4,6 @@ use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Write;
-use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -327,6 +326,12 @@ fn run_local_tool(
     tool_run_id: &str,
     should_stop: impl Fn() -> bool,
 ) -> LocalOutcome {
+    // The vocabulary is the same on every platform - the model is told about the same tool names -
+    // but a tool that only exists on Windows says so here instead of trying to run a Windows binary.
+    #[cfg(not(windows))]
+    if WINDOWS_ONLY_TOOLS.contains(&name) {
+        return windows_only_tool();
+    }
     match name {
         "get_system_info" => system_info(),
         "get_known_folders" => known_folders(),
@@ -400,24 +405,8 @@ fn argv_arg(args: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn known_folder_path(id: &windows::core::GUID) -> Option<String> {
-    unsafe {
-        let pwstr = windows::Win32::UI::Shell::SHGetKnownFolderPath(
-            id,
-            windows::Win32::UI::Shell::KNOWN_FOLDER_FLAG(0),
-            None,
-        )
-        .ok()?;
-        let value = pwstr.to_string().ok();
-        windows::Win32::System::Com::CoTaskMemFree(Some(pwstr.0 as *const _));
-        value.filter(|item| !item.is_empty())
-    }
-}
-
 fn known_folders() -> LocalOutcome {
-    let desktop = known_folder_path(&windows::Win32::UI::Shell::FOLDERID_Desktop);
-    let documents = known_folder_path(&windows::Win32::UI::Shell::FOLDERID_Documents);
-    let downloads = known_folder_path(&windows::Win32::UI::Shell::FOLDERID_Downloads);
+    let (desktop, documents, downloads) = crate::platform::known_folders();
     if desktop.is_none() && documents.is_none() && downloads.is_none() {
         return err_text("known_folder_unavailable");
     }
@@ -436,69 +425,25 @@ fn known_folders() -> LocalOutcome {
     out
 }
 
-#[repr(C)]
-struct OsVersionInfo {
-    dw_os_version_info_size: u32,
-    dw_major: u32,
-    dw_minor: u32,
-    dw_build: u32,
-    dw_platform: u32,
-    sz_csd: [u16; 128],
-}
-
-#[link(name = "ntdll")]
-extern "system" {
-    fn RtlGetVersion(info: *mut OsVersionInfo) -> i32;
-}
-
 fn system_info() -> LocalOutcome {
-    let mut version = OsVersionInfo {
-        dw_os_version_info_size: std::mem::size_of::<OsVersionInfo>() as u32,
-        dw_major: 0,
-        dw_minor: 0,
-        dw_build: 0,
-        dw_platform: 0,
-        sz_csd: [0; 128],
-    };
-    unsafe {
-        let _ = RtlGetVersion(&mut version);
-    }
-    let mut info = windows::Win32::System::SystemInformation::SYSTEM_INFO::default();
-    unsafe {
-        windows::Win32::System::SystemInformation::GetNativeSystemInfo(&mut info);
-    }
-    let mut memory = windows::Win32::System::SystemInformation::MEMORYSTATUSEX::default();
-    memory.dwLength = std::mem::size_of::<windows::Win32::System::SystemInformation::MEMORYSTATUSEX>() as u32;
-    let _ = unsafe { windows::Win32::System::SystemInformation::GlobalMemoryStatusEx(&mut memory) };
-    let mut free: u64 = 0;
-    let _ = unsafe {
-        windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW(
-            windows::core::w!("C:\\"),
-            Some(&mut free),
-            None,
-            None,
-        )
-    };
-    let ram_total_mb = memory.ullTotalPhys / (1024 * 1024);
-    let ram_avail_mb = memory.ullAvailPhys / (1024 * 1024);
-    let disk_free_gb = free / (1024 * 1024 * 1024);
+    let facts = crate::platform::system_info();
     let text = format!(
-        "platform=windows\nos_version={}.{}.{}\ncpu_logical_processors={}\nram_total_mb={}\nram_avail_mb={}\nsystem_disk_free_gb={}",
-        version.dw_major,
-        version.dw_minor,
-        version.dw_build,
-        info.dwNumberOfProcessors,
-        ram_total_mb,
-        ram_avail_mb,
-        disk_free_gb
+        "platform={}\nos_version={}\ncpu_logical_processors={}\nram_total_mb={}\nram_avail_mb={}\nsystem_disk_free_gb={}",
+        facts.platform,
+        facts.os_version,
+        facts.cpu_logical_processors,
+        facts.ram_total_mb,
+        facts.ram_avail_mb,
+        facts.disk_free_gb
     );
     let mut out = ok_text(text);
     out.metadata = json!({
-        "os_version": format!("{}.{}.{}", version.dw_major, version.dw_minor, version.dw_build),
-        "cpu_logical_processors": info.dwNumberOfProcessors,
-        "ram_total_mb": ram_total_mb,
-        "ram_avail_mb": ram_avail_mb,
-        "system_disk_free_gb": disk_free_gb,
+        "platform": facts.platform,
+        "os_version": facts.os_version,
+        "cpu_logical_processors": facts.cpu_logical_processors,
+        "ram_total_mb": facts.ram_total_mb,
+        "ram_avail_mb": facts.ram_avail_mb,
+        "system_disk_free_gb": facts.disk_free_gb,
     });
     out
 }
@@ -643,32 +588,7 @@ fn atomic_write(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 fn replace_file(tmp: &std::path::Path, dest: &std::path::Path) -> std::io::Result<()> {
-    if !dest.exists() {
-        return fs::rename(tmp, dest);
-    }
-    use windows::core::PCWSTR;
-    use windows::Win32::Storage::FileSystem::{ReplaceFileW, REPLACEFILE_WRITE_THROUGH};
-    let dest_w: Vec<u16> = dest
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    let tmp_w: Vec<u16> = tmp
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    unsafe {
-        ReplaceFileW(
-            PCWSTR(dest_w.as_ptr()),
-            PCWSTR(tmp_w.as_ptr()),
-            PCWSTR::null(),
-            REPLACEFILE_WRITE_THROUGH,
-            None,
-            None,
-        )
-        .map_err(|error| std::io::Error::other(error.to_string()))
-    }
+    crate::platform::replace_file(tmp, dest)
 }
 
 fn fs_create_dir(path: String, roots: &[String]) -> LocalOutcome {
@@ -876,6 +796,12 @@ fn run_exec(
     if exe.is_empty() {
         return err_text("invalid_arguments");
     }
+    // PowerShell is a Windows tool: on a platform that has no such thing the honest answer is that
+    // it does not exist here, rather than an attempt to run a Windows binary.
+    #[cfg(not(windows))]
+    if name == "run_powershell" {
+        return windows_only_tool();
+    }
     argv.extend(extra);
     let elevate = args.get("elevate").and_then(Value::as_bool).unwrap_or(false);
     let wait = args.get("wait").and_then(Value::as_bool).unwrap_or(true);
@@ -901,31 +827,50 @@ fn python_executable() -> String {
             return value;
         }
     }
-    if let Ok(local) = std::env::var("LOCALAPPDATA") {
-        let root = std::path::PathBuf::from(local).join("Programs").join("Python");
-        if let Ok(entries) = fs::read_dir(&root) {
-            let mut dirs: Vec<_> = entries.flatten().map(|e| e.path()).collect();
-            dirs.sort();
-            dirs.reverse();
-            for dir in dirs {
-                let candidate = dir.join("python.exe");
-                if candidate.is_file() {
-                    return candidate.to_string_lossy().into_owned();
+    #[cfg(windows)]
+    {
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            let root = std::path::PathBuf::from(local).join("Programs").join("Python");
+            if let Ok(entries) = fs::read_dir(&root) {
+                let mut dirs: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+                dirs.sort();
+                dirs.reverse();
+                for dir in dirs {
+                    let candidate = dir.join("python.exe");
+                    if candidate.is_file() {
+                        return candidate.to_string_lossy().into_owned();
+                    }
                 }
             }
         }
-    }
-    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
-    for candidate in [
-        format!(r"{root}\py.exe"),
-        format!(r"{root}\System32\py.exe"),
-        format!(r"{root}\SysWOW64\py.exe"),
-    ] {
-        if std::path::Path::new(&candidate).exists() {
-            return candidate;
+        let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        for candidate in [
+            format!(r"{root}\py.exe"),
+            format!(r"{root}\System32\py.exe"),
+            format!(r"{root}\SysWOW64\py.exe"),
+        ] {
+            if std::path::Path::new(&candidate).is_file() {
+                return candidate;
+            }
         }
+        return "python.exe".to_string();
     }
-    format!(r"{root}\py.exe")
+    // POSIX has no fixed install location: the interpreter is on `PATH`, and a distribution that
+    // ships one without `python3` is not a desktop anyone is using.
+    #[cfg(not(windows))]
+    {
+        which_on_path("python3").unwrap_or_else(|| "python3".to_string())
+    }
+}
+
+/// The first `name` on `PATH` that is a file, or `None`.
+#[cfg(not(windows))]
+fn which_on_path(name: &str) -> Option<String> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(name))
+        .find(|candidate| candidate.is_file())
+        .map(|candidate| candidate.to_string_lossy().into_owned())
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -965,6 +910,45 @@ fn fs_delete_dir(path: String, roots: &[String]) -> LocalOutcome {
     }
 }
 
+/// A Windows-only tool asked for on a platform that has no such thing: the honest answer is that
+/// the tool does not exist here, not a failed attempt to run a Windows binary.
+#[cfg_attr(windows, allow(dead_code))]
+fn windows_only_tool() -> LocalOutcome {
+    err_text("unsupported_platform")
+}
+
+/// The tools that describe a Windows machine: its registry, its services, `tasklist`/`wmic`,
+/// `schtasks`, `netsh`, `setx` and `winget`. On another platform they answer
+/// `unsupported_platform` rather than pretending.
+#[allow(dead_code)]
+const WINDOWS_ONLY_TOOLS: &[&str] = &[
+    "list_processes",
+    "inspect_process",
+    "list_volumes",
+    "list_installed_software",
+    "registry_read",
+    "read_registry",
+    "registry_write",
+    "write_registry",
+    "delete_registry_value",
+    "delete_registry_key",
+    "windows_service_status",
+    "query_service",
+    "windows_service_control",
+    "start_service",
+    "stop_service",
+    "restart_service",
+    "change_service_settings",
+    "scheduled_task",
+    "firewall_rule",
+    "install_software",
+    "uninstall_software",
+    "set_environment",
+    "system_shutdown",
+];
+
+/// The path of a Windows system binary. The *tools* that use it are Windows-only and are gated in
+/// [`run_local_tool`]; this is only the path builder, so it stays available on every platform.
 fn system32_exe(name: &str) -> String {
     let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
     format!(r"{root}\System32\{name}")
@@ -988,6 +972,21 @@ fn run_host_command(tool_run_id: &str, exe: &str, argv: &[String], elevate: bool
 }
 
 fn registry_op(action: &str, args: &Value, tool_run_id: &str) -> LocalOutcome {
+    #[cfg(not(windows))]
+    {
+        // There is no registry on this platform. The tool answers honestly instead of trying to run
+        // a Windows binary that does not exist here.
+        let _ = (action, args, tool_run_id);
+        return err_text("unsupported_platform");
+    }
+    #[cfg(windows)]
+    {
+        registry_op_windows(action, args, tool_run_id)
+    }
+}
+
+#[cfg(windows)]
+fn registry_op_windows(action: &str, args: &Value, tool_run_id: &str) -> LocalOutcome {
     let hive = str_arg(args, "hive");
     if hive != "HKCU" && hive != "HKLM" {
         return err_text("path_denied");
@@ -1036,6 +1035,19 @@ fn registry_op(action: &str, args: &Value, tool_run_id: &str) -> LocalOutcome {
 }
 
 fn service_op(args: &Value, tool_run_id: &str, control: bool) -> LocalOutcome {
+    #[cfg(not(windows))]
+    {
+        let _ = (args, tool_run_id, control);
+        return windows_only_tool();
+    }
+    #[cfg(windows)]
+    {
+        service_op_windows(args, tool_run_id, control)
+    }
+}
+
+#[cfg(windows)]
+fn service_op_windows(args: &Value, tool_run_id: &str, control: bool) -> LocalOutcome {
     let name = str_arg(args, "name");
     if name.is_empty() {
         return err_text("invalid_arguments");
@@ -1049,6 +1061,19 @@ fn service_op(args: &Value, tool_run_id: &str, control: bool) -> LocalOutcome {
 }
 
 fn service_named(tool: &str, args: &Value, tool_run_id: &str) -> LocalOutcome {
+    #[cfg(not(windows))]
+    {
+        let _ = (tool, args, tool_run_id);
+        return windows_only_tool();
+    }
+    #[cfg(windows)]
+    {
+        service_named_windows(tool, args, tool_run_id)
+    }
+}
+
+#[cfg(windows)]
+fn service_named_windows(tool: &str, args: &Value, tool_run_id: &str) -> LocalOutcome {
     let name = str_arg(args, "name");
     if name.is_empty() {
         return err_text("invalid_arguments");
@@ -1323,6 +1348,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    #[cfg(windows)]
     #[test]
     fn known_folders_use_windows_api() {
         let out = run_local_tool("get_known_folders", &json!({}), &[], "folders", || false);
@@ -1365,9 +1391,18 @@ mod tests {
             "test-run",
             || false,
         );
-        assert_eq!(shutdown.text, "critical_not_armed");
+        // The property is the same on every platform: nothing critical runs without an explicit
+        // arm. Windows refuses with `critical_not_armed`; a platform that has no such tool at all
+        // says so instead - never a success either way.
+        assert!(
+            matches!(shutdown.text.as_str(), "critical_not_armed" | "unsupported_platform"),
+            "{}",
+            shutdown.text
+        );
+        assert_ne!(shutdown.exit_code, Some(0));
     }
 
+    #[cfg(windows)]
     #[test]
     fn registry_hkcu_test_area_roundtrip() {
         let key = r"Software\AlexLLM\Test";

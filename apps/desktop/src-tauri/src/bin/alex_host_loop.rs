@@ -1,4 +1,4 @@
-//! Native Windows host loop for production-like E2E without a WebView.
+//! Native host loop for production-like E2E without a WebView.
 //! Uses the same host/credential/process/git modules as the Tauri app.
 #![allow(dead_code)]
 
@@ -10,6 +10,8 @@ mod fs_guard;
 mod git;
 #[path = "../host.rs"]
 mod host;
+#[path = "../platform/mod.rs"]
+mod platform;
 #[path = "../process.rs"]
 mod process;
 

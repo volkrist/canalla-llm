@@ -1,9 +1,11 @@
 //! Desktop-owned local backend supervisor.
 //!
-//! Owns at most one Alex backend process via a Job Object. Never kills by
-//! image name. An already-healthy Alex API is reused; an unrelated occupant of
-//! the preferred port is skipped instead of being terminated.
+//! Owns at most one Alex backend process, with the platform's own ownership mechanism: a
+//! kill-on-close Job Object on Windows, a process group plus a parent-death signal on Linux. Never
+//! kills by image name. An already-healthy Alex API is reused; an unrelated occupant of the
+//! preferred port is skipped instead of being terminated.
 
+use crate::platform::OwnedJob;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
@@ -110,8 +112,6 @@ struct Supervisor {
     /// dying cannot be restarted forever, no matter who noticed the exit.
     restarts: u8,
 }
-
-struct OwnedJob(std::os::windows::io::OwnedHandle);
 
 fn supervisor() -> &'static Mutex<Supervisor> {
     static CELL: std::sync::OnceLock<Mutex<Supervisor>> = std::sync::OnceLock::new();
@@ -283,7 +283,17 @@ fn packaged_required() -> bool {
     }
 }
 
+/// The packaged backend's own file name. Windows ships `.exe`, Linux does not.
+fn sidecar_name() -> String {
+    if cfg!(windows) {
+        "alex-backend.exe".to_string()
+    } else {
+        "alex-backend".to_string()
+    }
+}
+
 fn sidecar_candidates() -> Vec<PathBuf> {
+    let name = sidecar_name();
     let mut out = Vec::new();
     if let Ok(raw) = std::env::var("ALEX_BACKEND_SIDECAR") {
         if !raw.trim().is_empty() {
@@ -292,16 +302,16 @@ fn sidecar_candidates() -> Vec<PathBuf> {
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            out.push(dir.join("alex-backend").join("alex-backend.exe"));
-            out.push(dir.join("sidecar").join("alex-backend").join("alex-backend.exe"));
-            out.push(dir.join("resources").join("alex-backend").join("alex-backend.exe"));
+            out.push(dir.join("alex-backend").join(&name));
+            out.push(dir.join("sidecar").join("alex-backend").join(&name));
+            out.push(dir.join("resources").join("alex-backend").join(&name));
             out.push(
                 dir.join("resources")
                     .join("sidecar")
                     .join("alex-backend")
-                    .join("alex-backend.exe"),
+                    .join(&name),
             );
-            out.push(dir.join("alex-backend.exe"));
+            out.push(dir.join(&name));
         }
     }
     out
@@ -313,12 +323,17 @@ fn find_sidecar_exe() -> Option<PathBuf> {
 
 #[allow(dead_code)]
 fn native_host_candidates() -> Vec<PathBuf> {
+    let name = if cfg!(windows) {
+        "alex-host-loop.exe"
+    } else {
+        "alex-host-loop"
+    };
     let mut out = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            out.push(dir.join("alex-host-loop.exe"));
-            out.push(dir.join("sidecar").join("alex-host-loop.exe"));
-            out.push(dir.join("resources").join("alex-host-loop.exe"));
+            out.push(dir.join(name));
+            out.push(dir.join("sidecar").join(name));
+            out.push(dir.join("resources").join(name));
         }
     }
     out
@@ -445,6 +460,8 @@ fn discover_backend_python() -> Result<(PathBuf, PathBuf), String> {
             for rel in [
                 "apps/backend/.venv/Scripts/python.exe",
                 "backend/.venv/Scripts/python.exe",
+                "apps/backend/.venv/bin/python",
+                "backend/.venv/bin/python",
             ] {
                 let python = dir.join(rel);
                 if python.is_file() {
@@ -474,62 +491,8 @@ fn find_backend_cwd(python: &Path) -> Option<PathBuf> {
     None
 }
 
-fn create_job() -> Result<OwnedJob, String> {
-    use std::os::windows::io::{FromRawHandle, OwnedHandle};
-    use windows::Win32::System::JobObjects::{
-        CreateJobObjectW, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-        SetInformationJobObject, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    };
-    unsafe {
-        let job = CreateJobObjectW(None, windows::core::PCWSTR::null()).map_err(|e| e.to_string())?;
-        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        SetInformationJobObject(
-            job,
-            JobObjectExtendedLimitInformation,
-            std::ptr::addr_of!(info).cast(),
-            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-        )
-        .map_err(|e| e.to_string())?;
-        Ok(OwnedJob(OwnedHandle::from_raw_handle(job.0)))
-    }
-}
-
-fn assign_job(job: &OwnedJob, child: &Child) -> Result<(), String> {
-    use std::os::windows::io::AsRawHandle;
-    use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::System::JobObjects::AssignProcessToJobObject;
-    unsafe {
-        AssignProcessToJobObject(HANDLE(job.0.as_raw_handle()), HANDLE(child.as_raw_handle()))
-            .map_err(|e| e.to_string())
-    }
-}
-
-fn process_alive(pid: u32) -> bool {
-    use windows::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
-    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, GetExitCodeProcess};
-    unsafe {
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-        let Ok(handle) = handle else {
-            return false;
-        };
-        let mut code = 0u32;
-        let ok = GetExitCodeProcess(handle, &mut code).is_ok() && code == STILL_ACTIVE.0 as u32;
-        let _ = CloseHandle(handle);
-        ok
-    }
-}
-
-fn terminate_pid(pid: u32) {
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
-    unsafe {
-        if let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, pid) {
-            let _ = TerminateProcess(handle, 1);
-            let _ = CloseHandle(handle);
-        }
-    }
-}
+// Ownership, liveness and termination are the platform's business; see `crate::platform`.
+use crate::platform::{process_alive, terminate_pid, terminate_tree};
 
 fn write_lock(root: &Path, pid: u32, port: u16, instance: &str, owned: bool) {
     let path = root.join("runtime").join("backend.lock");
@@ -580,37 +543,20 @@ fn spawn_owned(port: u16, instance: &str, secret: &str) -> Result<Live, String> 
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(err));
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        const CREATE_UNICODE_ENVIRONMENT: u32 = 0x0000_0400;
-        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
-        command.creation_flags(CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | CREATE_BREAKAWAY_FROM_JOB);
-    }
+    // The platform decides how a child is owned: no console window and job breakaway on Windows,
+    // its own process group and a parent-death signal on Linux.
+    crate::platform::configure_spawn(&mut command);
     command.env("PYTHONUNBUFFERED", "1");
     let child = match command.spawn() {
         Ok(child) => child,
         Err(_) => {
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-                const CREATE_UNICODE_ENVIRONMENT: u32 = 0x0000_0400;
-                command.creation_flags(CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT);
-            }
+            crate::platform::configure_spawn_plain(&mut command);
             command
                 .spawn()
                 .map_err(|_| "BACKEND_START_FAILED".to_string())?
         }
     };
-    let job = create_job().ok().and_then(|job| {
-        if assign_job(&job, &child).is_ok() {
-            Some(job)
-        } else {
-            None
-        }
-    });
+    let job = crate::platform::own_child(&child);
     let pid = child.id();
     write_lock(&root, pid, port, instance, true);
     Ok(Live {
@@ -1015,20 +961,6 @@ fn stop_owned_locked(sup: &mut Supervisor, root: &Path) -> Result<Option<Backend
     Ok(None)
 }
 
-#[cfg(windows)]
-fn terminate_tree(pid: u32) {
-    // Terminates only the process tree rooted at our own spawned PID.
-    let _ = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-}
-
-#[cfg(not(windows))]
-fn terminate_tree(_pid: u32) {}
-
 pub fn on_desktop_exit() {
     // Full application Quit only (Tauri Exit / ExitRequested). In-app window
     // navigation does not run this. External backends are left running.
@@ -1213,8 +1145,42 @@ mod tests {
         assert_eq!(classify_port(port), PortKind::Free);
     }
 
+        fn python_bin_or_name() -> PathBuf {
+        // The development venv, whichever platform this checkout has: `Scripts/python.exe` on
+        // Windows, `bin/python` elsewhere. Without one, the system interpreter is enough for a test
+        // that only needs a process to own and stop.
+        let venv = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../backend/.venv");
+        let venv_python = if cfg!(windows) {
+            venv.join("Scripts").join("python.exe")
+        } else {
+            venv.join("bin").join("python")
+        };
+        if venv_python.is_file() {
+            return venv_python;
+        }
+        if let Ok(value) = std::env::var("ALEX_PYTHON") {
+            if PathBuf::from(&value).is_file() {
+                return PathBuf::from(value);
+            }
+        }
+        PathBuf::from(if cfg!(windows) { "python.exe" } else { "python3" })
+    }
+
+    /// The interpreter as an absolute path. A bare name makes the supervisor's working directory
+    /// empty, which a spawn refuses.
     fn python_bin() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../backend/.venv/Scripts/python.exe")
+        let direct = python_bin_or_name();
+        if direct.is_absolute() {
+            return direct;
+        }
+        let name = direct.to_string_lossy().into_owned();
+        for dir in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
+            let candidate = dir.join(&name);
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+        direct
     }
 
     /// The supervisor is process-global, so every test that puts a child in it - or asks the

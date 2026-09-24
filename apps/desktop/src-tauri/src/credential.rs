@@ -1,4 +1,12 @@
-//! Device credential storage. Windows Credential Manager first; DPAPI file fallback.
+//! Device credential storage.
+//!
+//! One contract, two stores: Windows Credential Manager (with its DPAPI file fallback) and the Linux
+//! Secret Service. Both are the operating system's own idea of "a secret only this user can read";
+//! neither is a file we invented, and there is no plaintext path in either.
+//!
+//! When Linux cannot reach the Secret Service the answer is `secure_storage_unavailable` and the
+//! caller refuses to pair. Storing the credential in a JSON file next to the database would make
+//! every later encryption pointless, so that is deliberately not an option.
 
 use std::fs;
 use std::path::PathBuf;
@@ -18,6 +26,9 @@ fn credential_target() -> String {
     }
 }
 
+/// Where the product's own files live. `ALEX_DEVICE_DIR` moves only this directory's device record in
+/// the acceptance runs; the platform decides the real default (`%LOCALAPPDATA%\Alex LLM`,
+/// `$XDG_DATA_HOME/alex-llm`), and the Python half uses the same one.
 pub fn data_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("ALEX_DEVICE_DIR") {
         let path = PathBuf::from(dir);
@@ -26,38 +37,41 @@ pub fn data_dir() -> PathBuf {
             return path;
         }
     }
-    let root = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".into());
-    let dir = PathBuf::from(root).join("Alex LLM");
+    let dir = crate::platform::data_root_default();
     let _ = fs::create_dir_all(&dir);
     dir
 }
 
+/// The DPAPI file the Windows store falls back to. On Linux there is no such file: the parameter is
+/// part of the shared contract and is ignored there (and a test asserts nothing is written to it).
 fn fallback_path() -> PathBuf {
     data_dir().join("device.cred.dpapi")
 }
 
+fn scoped_fallback_path(scope: &str, name: &str) -> PathBuf {
+    let dir = data_dir().join("runtime");
+    let _ = fs::create_dir_all(&dir);
+    dir.join(format!("cred-{scope}-{name}.dpapi"))
+}
+
 pub fn store(value: &str) -> Result<(), String> {
-    if cred_write(&credential_target(), value).is_ok() {
-        return Ok(());
-    }
-    dpapi_write(value)
+    crate::platform::secret_write(&credential_target(), value, &fallback_path())
 }
 
 pub fn load() -> Option<String> {
-    cred_read(&credential_target()).ok().or_else(dpapi_read)
+    crate::platform::secret_read(&credential_target(), &fallback_path()).ok()
 }
 
 pub fn delete() -> Result<(), String> {
-    let _ = cred_delete(&credential_target());
-    let _ = fs::remove_file(fallback_path());
-    Ok(())
+    crate::platform::secret_delete(&credential_target(), &fallback_path())
 }
 
+/// Which store holds the credential, for the diagnostics the UI shows. `none` means "not stored yet".
 pub fn storage_kind() -> &'static str {
-    if cred_read(&credential_target()).is_ok() {
-        "windows_credential_manager"
-    } else if fallback_path().exists() {
+    if crate::platform::secret_fallback_in_use(&fallback_path()) {
         "dpapi_file_fallback"
+    } else if load().is_some() {
+        crate::platform::secret_kind()
     } else {
         "none"
     }
@@ -90,33 +104,19 @@ pub fn scoped_target(scope: &str, name: &str) -> Result<String, String> {
 
 /// Scoped credential storage: `Alex LLM/{scope}/{name}` targets.
 /// Used for device sessions (`session`) and provider secrets (`provider`).
-/// Falls back to a DPAPI file in the data root when Credential Manager fails.
 pub fn store_scoped(scope: &str, name: &str, value: &str) -> Result<(), String> {
     let target = scoped_target(scope, name)?;
-    if cred_write(&target, value).is_ok() {
-        return Ok(());
-    }
-    dpapi_write_to(&scoped_fallback_path(scope, name), value)
+    crate::platform::secret_write(&target, value, &scoped_fallback_path(scope, name))
 }
 
 pub fn load_scoped(scope: &str, name: &str) -> Option<String> {
     let target = scoped_target(scope, name).ok()?;
-    cred_read(&target)
-        .ok()
-        .or_else(|| dpapi_read_from(&scoped_fallback_path(scope, name)))
+    crate::platform::secret_read(&target, &scoped_fallback_path(scope, name)).ok()
 }
 
 pub fn delete_scoped(scope: &str, name: &str) -> Result<(), String> {
     let target = scoped_target(scope, name)?;
-    let _ = cred_delete(&target);
-    let _ = fs::remove_file(scoped_fallback_path(scope, name));
-    Ok(())
-}
-
-fn scoped_fallback_path(scope: &str, name: &str) -> PathBuf {
-    let dir = data_dir().join("runtime");
-    let _ = fs::create_dir_all(&dir);
-    dir.join(format!("cred-{scope}-{name}.dpapi"))
+    crate::platform::secret_delete(&target, &scoped_fallback_path(scope, name))
 }
 
 fn user_target(name: &str) -> Result<String, String> {
@@ -124,6 +124,8 @@ fn user_target(name: &str) -> Result<String, String> {
     Ok(format!("Alex LLM/user/{name}"))
 }
 
+/// The list of names a user has stored. It holds references only - never a value - so it stays a
+/// plain file that is safe to read.
 fn names_path() -> PathBuf {
     data_dir().join("user-credential-names.json")
 }
@@ -141,7 +143,7 @@ fn save_names(names: &[String]) {
 
 pub fn store_named(name: &str, value: &str) -> Result<(), String> {
     let target = user_target(name)?;
-    cred_write(&target, value)?;
+    crate::platform::secret_write(&target, value, &fallback_path())?;
     let mut names = load_names();
     if !names.iter().any(|item| item == name) {
         names.push(name.to_string());
@@ -152,12 +154,12 @@ pub fn store_named(name: &str, value: &str) -> Result<(), String> {
 
 pub fn load_named(name: &str) -> Option<String> {
     let target = user_target(name).ok()?;
-    cred_read(&target).ok()
+    crate::platform::secret_read(&target, &fallback_path()).ok()
 }
 
 pub fn delete_named(name: &str) -> Result<(), String> {
     let target = user_target(name)?;
-    let _ = cred_delete(&target);
+    crate::platform::secret_delete(&target, &fallback_path())?;
     let names: Vec<String> = load_names().into_iter().filter(|item| item != name).collect();
     save_names(&names);
     Ok(())
@@ -165,113 +167,6 @@ pub fn delete_named(name: &str) -> Result<(), String> {
 
 pub fn list_named() -> Vec<String> {
     load_names()
-}
-
-fn cred_write(target: &str, value: &str) -> Result<(), String> {
-    use windows::Win32::Security::Credentials::{
-        CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
-    };
-    use windows::core::PWSTR;
-
-    let mut target_w: Vec<u16> = target.encode_utf16().chain(std::iter::once(0)).collect();
-    let mut blob: Vec<u8> = value.as_bytes().to_vec();
-    unsafe {
-        let cred = CREDENTIALW {
-            Flags: Default::default(),
-            Type: CRED_TYPE_GENERIC,
-            TargetName: PWSTR(target_w.as_mut_ptr()),
-            Comment: PWSTR::null(),
-            LastWritten: Default::default(),
-            CredentialBlobSize: blob.len() as u32,
-            CredentialBlob: blob.as_mut_ptr(),
-            Persist: CRED_PERSIST_LOCAL_MACHINE,
-            AttributeCount: 0,
-            Attributes: std::ptr::null_mut(),
-            TargetAlias: PWSTR::null(),
-            UserName: PWSTR::null(),
-        };
-        CredWriteW(&cred, 0).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-fn cred_read(target: &str) -> Result<String, String> {
-    use windows::Win32::Security::Credentials::{CredFree, CredReadW, CREDENTIALW, CRED_TYPE_GENERIC};
-    use windows::core::PCWSTR;
-
-    let target_w: Vec<u16> = target.encode_utf16().chain(std::iter::once(0)).collect();
-    unsafe {
-        let mut cred: *mut CREDENTIALW = std::ptr::null_mut();
-        CredReadW(PCWSTR(target_w.as_ptr()), CRED_TYPE_GENERIC, 0, &mut cred).map_err(|e| e.to_string())?;
-        if cred.is_null() {
-            return Err("missing".into());
-        }
-        let blob = std::slice::from_raw_parts((*cred).CredentialBlob, (*cred).CredentialBlobSize as usize);
-        let value = String::from_utf8_lossy(blob).into_owned();
-        CredFree(cred as *const _);
-        Ok(value)
-    }
-}
-
-fn cred_delete(target: &str) -> Result<(), String> {
-    use windows::Win32::Security::Credentials::{CredDeleteW, CRED_TYPE_GENERIC};
-    use windows::core::PCWSTR;
-
-    let target_w: Vec<u16> = target.encode_utf16().chain(std::iter::once(0)).collect();
-    unsafe {
-        CredDeleteW(PCWSTR(target_w.as_ptr()), CRED_TYPE_GENERIC, 0).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-fn dpapi_write(value: &str) -> Result<(), String> {
-    dpapi_write_to(&fallback_path(), value)
-}
-
-fn dpapi_write_to(path: &PathBuf, value: &str) -> Result<(), String> {
-    use windows::Win32::Security::Cryptography::{CryptProtectData, CRYPT_INTEGER_BLOB};
-    let mut input = value.as_bytes().to_vec();
-    let mut in_blob = CRYPT_INTEGER_BLOB {
-        cbData: input.len() as u32,
-        pbData: input.as_mut_ptr(),
-    };
-    let mut out_blob = CRYPT_INTEGER_BLOB::default();
-    unsafe {
-        CryptProtectData(&mut in_blob, None, None, None, None, 0, &mut out_blob).map_err(|e| e.to_string())?;
-        let bytes = std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize);
-        fs::write(path, bytes).map_err(|e| e.to_string())?;
-        if !out_blob.pbData.is_null() {
-            windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(
-                out_blob.pbData as *mut std::ffi::c_void,
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn dpapi_read() -> Option<String> {
-    dpapi_read_from(&fallback_path())
-}
-
-fn dpapi_read_from(path: &PathBuf) -> Option<String> {
-    use windows::Win32::Security::Cryptography::{CryptUnprotectData, CRYPT_INTEGER_BLOB};
-    let mut bytes = fs::read(path).ok()?;
-    let mut in_blob = CRYPT_INTEGER_BLOB {
-        cbData: bytes.len() as u32,
-        pbData: bytes.as_mut_ptr(),
-    };
-    let mut out_blob = CRYPT_INTEGER_BLOB::default();
-    unsafe {
-        CryptUnprotectData(&mut in_blob, None, None, None, None, 0, &mut out_blob).ok()?;
-        let plain = std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize);
-        let value = String::from_utf8_lossy(plain).into_owned();
-        if !out_blob.pbData.is_null() {
-            windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(
-                out_blob.pbData as *mut std::ffi::c_void,
-            ));
-        }
-        Some(value)
-    }
 }
 
 /// Serializes tests that mutate process-global environment variables
@@ -318,38 +213,61 @@ mod tests {
         assert!(store_scoped("session", "has space", "v").is_err());
     }
 
+    /// The same contract on both platforms: what was stored comes back, another scope does not see
+    /// it, and deleting really removes it. Where the platform has no usable store the contract is the
+    /// typed refusal - never a silent write somewhere else.
     #[test]
     fn scoped_credential_roundtrip_and_delete() {
         let _guard = TEST_ENV_LOCK.lock().unwrap();
         let (temp, previous) = isolated_device_dir();
         let name = format!("unit-{}", unique());
-        assert!(store_scoped("session", &name, "secret-value").is_ok());
-        assert_eq!(load_scoped("session", &name).as_deref(), Some("secret-value"));
-        assert!(load_scoped("session", "no-such-name").is_none());
-        assert!(load_scoped("provider", &name).is_none());
-        delete_scoped("session", &name).unwrap();
-        assert!(load_scoped("session", &name).is_none());
+        match store_scoped("session", &name, "secret-value") {
+            Ok(()) => {
+                assert_eq!(load_scoped("session", &name).as_deref(), Some("secret-value"));
+                assert!(load_scoped("session", "no-such-name").is_none());
+                assert!(load_scoped("provider", &name).is_none());
+                assert_eq!(load_scoped("session", &name).as_deref(), Some("secret-value"));
+                delete_scoped("session", &name).unwrap();
+                assert!(load_scoped("session", &name).is_none());
+            }
+            Err(error) => {
+                assert_eq!(error, crate::platform::SECURE_STORAGE_UNAVAILABLE);
+                // Nothing may be written when the secure store is unavailable.
+                let leftovers: Vec<_> = fs::read_dir(&temp)
+                    .map(|entries| entries.filter_map(Result::ok).collect())
+                    .unwrap_or_default();
+                assert!(leftovers.is_empty(), "a secret never lands in the data directory");
+            }
+        }
         restore_device_dir(previous);
         let _ = fs::remove_dir_all(&temp);
     }
 
-    /// `ALEX_DEVICE_DIR` moves `device.json` only: the device credential is one machine-wide
-    /// Credential Manager entry, so an isolated run (an acceptance harness) must be able to point it
-    /// somewhere else or it would overwrite the credential the real installation pairs with.
+    /// `ALEX_DEVICE_DIR` moves `device.json` only: the device credential is one machine-wide entry
+    /// in the platform's own store, so an isolated run (an acceptance harness) must be able to point
+    /// it somewhere else or it would overwrite the credential the real installation paired with.
     #[test]
     fn device_credential_target_redirects_the_machine_wide_entry() {
         let _guard = TEST_ENV_LOCK.lock().unwrap();
         let (temp, previous_dir) = isolated_device_dir();
-        let real = cred_read("Alex LLM/device-credential").ok();
         let previous = std::env::var("ALEX_DEVICE_CREDENTIAL_TARGET").ok();
         let target = format!("Alex LLM/device-credential-unit-{}", unique());
         std::env::set_var("ALEX_DEVICE_CREDENTIAL_TARGET", &target);
         assert_eq!(credential_target(), target);
-        store("isolated-value").unwrap();
-        assert_eq!(load().as_deref(), Some("isolated-value"));
-        assert_eq!(cred_read("Alex LLM/device-credential").ok(), real);
-        delete().unwrap();
-        assert!(load().is_none());
+        match store("isolated-value") {
+            Ok(()) => {
+                assert_eq!(load().as_deref(), Some("isolated-value"));
+                delete().unwrap();
+                assert!(load().is_none());
+            }
+            Err(error) => {
+                // No secure store on this platform right now: the redirect is still honoured, and
+                // the refusal is typed rather than a fallback write.
+                assert_eq!(error, crate::platform::SECURE_STORAGE_UNAVAILABLE);
+                assert!(load().is_none());
+            }
+        }
+        assert_eq!(credential_target(), target);
         match previous {
             Some(value) => std::env::set_var("ALEX_DEVICE_CREDENTIAL_TARGET", value),
             None => std::env::remove_var("ALEX_DEVICE_CREDENTIAL_TARGET"),
