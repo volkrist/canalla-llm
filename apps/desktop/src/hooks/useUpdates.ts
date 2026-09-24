@@ -13,15 +13,24 @@ import {
   installDecision,
   UPDATE_CHECK_INTERVAL_MS,
   type UpdateInfo,
+  type UpdateRefusal,
 } from "../lib/updates";
 
 export type UpdatePhase =
-  "idle" | "checking" | "available" | "downloading" | "ready" | "error";
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "ready"
+  | "refused"
+  | "error";
 
 export interface UpdateState {
   phase: UpdatePhase;
   current: string | null;
   available: UpdateInfo | null;
+  /** Set when the endpoint offered an artifact that is not bound to the version it declared. */
+  refusal: UpdateRefusal | null;
   progress: number;
   message: string;
   checkedAt: string | null;
@@ -31,6 +40,7 @@ const EMPTY: UpdateState = {
   phase: "idle",
   current: null,
   available: null,
+  refusal: null,
   progress: 0,
   message: "",
   checkedAt: null,
@@ -53,13 +63,19 @@ export function useUpdates(options: { enabled: boolean; busy: boolean }) {
       phase:
         result.status === "available"
           ? "available"
-          : result.status === "error"
-            ? "error"
-            : "idle",
+          : result.status === "refused"
+            ? "refused"
+            : result.status === "error"
+              ? "error"
+              : "idle",
       current: version,
       available: result.status === "available" ? result.update : null,
+      refusal: result.status === "refused" ? result.reason : null,
       progress: 0,
-      message: result.status === "error" ? result.message : "",
+      message:
+        result.status === "error" || result.status === "refused"
+          ? result.message
+          : "",
       checkedAt: new Date().toISOString(),
     };
     setState(next);

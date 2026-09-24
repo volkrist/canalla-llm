@@ -4,12 +4,17 @@ Read-only and cheap by construction: the manifest is a file (or an inline JSON s
 operator publishes, and this module only *serves* it. Nothing here starts compute, touches the
 provider, or needs a RunPod key - an update check must work even when the AI does not.
 
-Three rules matter more than the shape:
+Four rules matter more than the shape:
 
 * nothing private is ever served. The file is public data, and a manifest that looks like it carries
   a secret is refused instead of being passed on;
 * a client is never offered a version it already has, or an older one. Downgrades are rejected
   server-side, so a stale mirror cannot roll an installation back;
+* an entry is never served unless its artifact is *bound* to the version it advertises: the name
+  inside the signature's trusted comment has to be the file the `url` serves, and that name has to
+  carry the manifest version. Minisign covers the trusted comment with the signature's global
+  signature field, so this is the one authenticated name a release has - without the binding, a
+  genuine signature for an old artifact could be republished under a newer version;
 * what goes out must be what the *client* can parse. `tauri-plugin-updater` reads `pub_date` as an
   RFC 3339 timestamp, `url` as an absolute URL and `signature` as the base64 minisign signature, so
   a manifest that would fail in the client is refused here instead of being published broken.
@@ -24,6 +29,7 @@ import logging
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 logger = logging.getLogger("gateway.updates")
 
@@ -34,7 +40,13 @@ VERSION = re.compile(r"^\d+\.\d+\.\d+\s*$")
 # The shape the client parses with `OffsetDateTime::parse(..., Rfc3339)`.
 TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
+# A version-shaped token inside an artifact name, e.g. `Canalla LLM_1.2.0_x64-setup.exe`. The
+# optional suffix belongs to the token, so a pre-release name yields `1.2.0-beta.1` and can never be
+# mistaken for the `1.2.0` release it precedes.
+VERSION_IN_NAME = re.compile(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]*)?")
 SECRET_HINTS = ("secret", "api_key", "apikey", "token", "password", "private_key", "credential")
+TRUSTED_COMMENT = "trusted comment:"
+SIGNED_NAME_FIELD = "file:"
 
 
 class UpdateManifestError(Exception):
@@ -103,26 +115,75 @@ def _timestamp(value: Any) -> str | None:
     return value.strip()
 
 
-def _is_signature(value: Any) -> bool:
-    """Mirror what the client does: base64, then a minisign signature file inside.
+def _minisign_text(value: Any) -> str | None:
+    """Base64 -> the minisign signature *file* inside, or `None` if this is not one.
 
     Both minisign lines are required, and the trusted comment is matched from the start of its own
-    line: the word `trusted comment:` also occurs *inside* the untrusted one.
+    line: the word `trusted comment:` also occurs *inside* the untrusted one. The decoded text is
+    returned because the binding check has to read what the signature was made for.
     """
     if not isinstance(value, str) or not value:
-        return False
+        return None
     try:
         decoded = base64.b64decode(value, validate=True)
     except (ValueError, binascii.Error):
-        return False
+        return None
     try:
         text = decoded.decode("utf-8")
     except UnicodeDecodeError:
-        return False
-    return text.startswith("untrusted comment:") and "\ntrusted comment:" in text
+        return None
+    if text.startswith("untrusted comment:") and f"\n{TRUSTED_COMMENT}" in text:
+        return text
+    return None
 
 
-def _entry(platform: str, entry: Any) -> dict[str, str]:
+def _signed_name(text: str) -> str | None:
+    """The `file:` field of the trusted comment: the artifact this signature was made for.
+
+    Fields are tab separated (`timestamp:...\tfile:...`) and the name itself may contain spaces, so
+    the split is on tabs only.
+    """
+    for line in text.splitlines():
+        if not line.startswith(TRUSTED_COMMENT):
+            continue
+        for field in line[len(TRUSTED_COMMENT) :].split("\t"):
+            field = field.strip()
+            if field.startswith(SIGNED_NAME_FIELD):
+                name = field[len(SIGNED_NAME_FIELD) :].strip()
+                if name:
+                    return name
+    return None
+
+
+def _served_name(url: str) -> str:
+    """The file the `url` serves: the percent-decoded basename of its path."""
+    return unquote(urlsplit(url).path.rsplit("/", 1)[-1])
+
+
+def _assert_version_bound(platform: str, url: str, text: str, version: Any) -> None:
+    """The signed name must be the file the url serves, and it must carry this version.
+
+    Minisign covers its trusted comment with the signature's global signature field, so the `file:`
+    name is authenticated whenever the signature verifies. The release keeps its version in the
+    artifact's file name, so requiring the two to agree is what makes "version 1.2.0" mean "these
+    bytes": a validly signed older artifact cannot be republished as a newer release.
+    """
+    name = _signed_name(text)
+    served = _served_name(url)
+    bound = parse_version(version) if isinstance(version, str) else None
+    named = [parse_version(token) for token in VERSION_IN_NAME.findall(name)] if name else []
+    if name is None or name != served or not named or any(token != bound for token in named):
+        logger.warning(
+            "updates_entry_unbound platform=%s signed_name=%s served_name=%s version=%s",
+            platform,
+            name,
+            served,
+            version,
+        )
+        raise UpdateManifestError(f"updates_manifest_entry_unbound:{platform}")
+
+
+def _entry(platform: str, entry: Any, version: Any) -> dict[str, str]:
     """One platform's artifact, reduced to the fields the client reads and can trust."""
     if not isinstance(entry, dict):
         raise UpdateManifestError(f"updates_manifest_entry_invalid:{platform}")
@@ -130,8 +191,10 @@ def _entry(platform: str, entry: Any) -> dict[str, str]:
     if not isinstance(url, str) or not url.startswith("https://"):
         # The client refuses anything that is not a secure protocol, so this is a broken manifest.
         raise UpdateManifestError(f"updates_manifest_entry_insecure:{platform}")
-    if not _is_signature(entry.get("signature")):
+    text = _minisign_text(entry.get("signature"))
+    if text is None:
         raise UpdateManifestError(f"updates_manifest_entry_incomplete:{platform}")
+    _assert_version_bound(platform, url, text, version)
     described = {"url": url, "signature": entry["signature"]}
     digest = entry.get("sha256")
     if digest is not None:
@@ -168,7 +231,7 @@ def latest(
         logger.info("updates_no_newer_offer version=%s current=%s", version, current_version)
         return 204, None
 
-    described = _entry(platform, platforms[platform])
+    described = _entry(platform, platforms[platform], version)
     published = _timestamp(manifest.get("pub_date"))
 
     body: dict[str, Any] = {

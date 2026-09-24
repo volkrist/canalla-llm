@@ -1,10 +1,11 @@
 // Updates: check asynchronously, download only when asked, install only on a confirmed action and
 // never in the middle of work the user is waiting for.
 //
-// The security-critical part is not here: the Tauri updater plugin verifies every downloaded package
+// The cryptographic part is not here: the Tauri updater plugin verifies every downloaded package
 // against the public key compiled into the app, and refuses anything that does not match. What this
 // module owns is the *policy* around it - version ordering (a downgrade is never an update), the
-// deferral rules, and an honest state for the UI.
+// rule that the offered version must be the one the signature was made for, the deferral rules, and
+// an honest state for the UI.
 
 import { getVersion } from "@tauri-apps/api/app";
 import { check, type Update } from "@tauri-apps/plugin-updater";
@@ -57,9 +58,144 @@ export interface UpdateInfo {
   publishedAt: string | null;
 }
 
+/** Why an offered manifest was refused: its artifact is not bound to the version it declares. */
+export type UpdateRefusal =
+  | "manifest_incomplete"
+  | "signature_unreadable"
+  | "signature_unnamed"
+  | "artifact_name_mismatch"
+  | "version_unbound"
+  | "version_mismatch";
+
+const REFUSAL_MESSAGES: Record<UpdateRefusal, string> = {
+  manifest_incomplete:
+    "Обновление отклонено: манифест не описывает пакет для этой платформы.",
+  signature_unreadable: "Обновление отклонено: подпись пакета не читается.",
+  signature_unnamed:
+    "Обновление отклонено: подпись не называет пакет, который удостоверяет.",
+  artifact_name_mismatch:
+    "Обновление отклонено: имя в подписи не совпадает с адресом загрузки.",
+  version_unbound:
+    "Обновление отклонено: имя пакета в подписи не содержит версии.",
+  version_mismatch: "Обновление отклонено: подпись выдана не для этой версии.",
+};
+
+/** A refusal is never reported as "no update": it is a typed, user-visible decision. */
+export function refusalMessage(reason: UpdateRefusal): string {
+  return REFUSAL_MESSAGES[reason];
+}
+
+// The artifact's identity is the name inside the signature's *trusted comment*: minisign covers that
+// comment with the signature's global signature field, so the name there is authenticated material.
+// The release keeps its version in the file name (`Canalla LLM_1.2.0_x64-setup.exe`), which is what
+// stops a genuine signature for an old artifact from being advertised as a newer release: the
+// declared version has to be the version the signature was made for.
+const VERSION_IN_NAME = /\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]*)?/g;
+
+interface SignedArtifact {
+  url: string;
+  signature: string;
+}
+
+/** Every artifact the manifest describes, in both shapes the updater understands. */
+function signedArtifacts(raw: unknown): SignedArtifact[] {
+  const found: SignedArtifact[] = [];
+  const collect = (node: unknown) => {
+    if (!node || typeof node !== "object") return;
+    const entry = node as Record<string, unknown>;
+    if (typeof entry.url === "string" && typeof entry.signature === "string")
+      found.push({ url: entry.url, signature: entry.signature });
+  };
+  collect(raw);
+  const platforms =
+    raw && typeof raw === "object"
+      ? (raw as Record<string, unknown>).platforms
+      : null;
+  if (platforms && typeof platforms === "object")
+    for (const entry of Object.values(platforms as Record<string, unknown>))
+      collect(entry);
+  return found;
+}
+
+/** The minisign signature file inside the base64 field, or `null` if it is not one. */
+function decodeSignature(signature: string): string | null {
+  try {
+    const text = atob(signature);
+    return text.startsWith("untrusted comment:") &&
+      text.includes("\ntrusted comment:")
+      ? text
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The `file:` field of the trusted comment: the artifact this signature was made for. */
+function signedFileName(text: string): string | null {
+  for (const line of text.split("\n")) {
+    if (!line.startsWith("trusted comment:")) continue;
+    for (const field of line.slice("trusted comment:".length).split("\t")) {
+      const value = field.trim();
+      if (!value.startsWith("file:")) continue;
+      const name = value.slice("file:".length).trim();
+      if (name) return name;
+    }
+  }
+  return null;
+}
+
+/** The file the url serves: the percent-decoded basename of its path. */
+function servedFileName(url: string): string | null {
+  const path = url.split(/[?#]/)[0] ?? "";
+  try {
+    return decodeURIComponent(path.slice(path.lastIndexOf("/") + 1));
+  } catch {
+    return null;
+  }
+}
+
+function sameVersion(a: Version | null, b: Version | null): boolean {
+  if (!a || !b) return false;
+  return (
+    a.major === b.major &&
+    a.minor === b.minor &&
+    a.patch === b.patch &&
+    a.suffix === b.suffix
+  );
+}
+
+/** The typed reason this manifest may not be offered, or `null` when every artifact is bound. */
+export function artifactRefusal(
+  raw: unknown,
+  version: string,
+): UpdateRefusal | null {
+  const artifacts = signedArtifacts(raw);
+  if (artifacts.length === 0) return "manifest_incomplete";
+  const declared = parseVersion(version);
+  for (const artifact of artifacts) {
+    const text = decodeSignature(artifact.signature);
+    if (text === null) return "signature_unreadable";
+    const name = signedFileName(text);
+    if (!name) return "signature_unnamed";
+    if (name !== servedFileName(artifact.url)) return "artifact_name_mismatch";
+    const inName = name.match(VERSION_IN_NAME) ?? [];
+    if (inName.length === 0) return "version_unbound";
+    if (inName.some((token) => !sameVersion(parseVersion(token), declared)))
+      return "version_mismatch";
+  }
+  return null;
+}
+
 export type UpdateCheck =
   | { status: "none"; current: string }
   | { status: "available"; current: string; update: UpdateInfo }
+  | {
+      status: "refused";
+      current: string;
+      version: string;
+      reason: UpdateRefusal;
+      message: string;
+    }
   | { status: "unsupported"; reason: string }
   | { status: "error"; message: string };
 
@@ -97,6 +233,18 @@ export async function checkForUpdate(): Promise<UpdateCheck> {
   try {
     const update = await check();
     if (!update) return { status: "none", current };
+    // The signature has to name the file the url serves, and that name has to carry this version.
+    // Otherwise the version is unauthenticated metadata and an old signed package could be offered
+    // as a newer release - so a manifest that fails the binding is refused, visibly, never ignored.
+    const refusal = artifactRefusal(update.rawJson, update.version);
+    if (refusal)
+      return {
+        status: "refused",
+        current,
+        version: update.version,
+        reason: refusal,
+        message: refusalMessage(refusal),
+      };
     if (!isNewerVersion(update.version, current)) {
       // The server offered something that is not an update for this installation: ignore it.
       return { status: "none", current };
@@ -126,6 +274,13 @@ export async function downloadUpdate(
   try {
     const update = await check();
     if (!update)
+      return { ok: false, message: "Обновление больше не предлагается." };
+    // Re-checked here because this is the last point before bytes are fetched: a manifest that
+    // stopped being bound - or that is no longer newer - must not be downloaded either.
+    const refusal = artifactRefusal(update.rawJson, update.version);
+    if (refusal) return { ok: false, message: refusalMessage(refusal) };
+    const current = await getVersion().catch(() => null);
+    if (!isNewerVersion(update.version, current))
       return { ok: false, message: "Обновление больше не предлагается." };
     let total = 0;
     let received = 0;

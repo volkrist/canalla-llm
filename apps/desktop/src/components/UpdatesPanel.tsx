@@ -95,7 +95,14 @@ export default function UpdatesPanel({
       ) : null}
 
       {state.message ? (
-        <p className="settings-note" role="alert" data-testid="update-message">
+        <p
+          className="settings-note"
+          role="alert"
+          data-testid={
+            state.phase === "refused" ? "update-refused" : "update-message"
+          }
+          data-reason={state.refusal ?? undefined}
+        >
           {state.message}
         </p>
       ) : null}
