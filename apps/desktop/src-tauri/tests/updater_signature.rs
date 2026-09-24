@@ -39,12 +39,38 @@ const SERVED: &str = include_str!("../../../gateway/tests/fixtures/updates-respo
 /// The artifact name the released Windows package carries, and the one the fixture is signed for.
 const SERVED_ARTIFACT: &str = "Canalla LLM_1.2.0_x64-setup.exe";
 
+/// The identity the *fixtures* in this file were signed with. It is test-only by construction: its
+/// purpose is to exercise the verification path with real cryptography, and the shipped client must
+/// never trust it. `the_configured_key_is_the_production_identity_and_not_the_test_one` is what
+/// makes that a checked fact rather than a convention.
+const TEST_PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI3OUZGOTBCNTJEMDBGMjQKUldRa0Q5QlNDL21mdDNHSXprOGZZZVZXa1U4SlZMRWs0UkpaVTNyOWVSN0orUGFBRTQ1SnJXbEYK";
+
+/// The key id of the production signing identity the shipped client compiles in. Public
+/// information: the private half lives outside the repository and never enters it, and the
+/// password lives in the Windows Credential Manager (see `scripts/production-signing.ps1`).
+const PRODUCTION_KEY_ID: &str = "9B328EFF111D1FB2";
+
 fn configured_pubkey() -> String {
     let config: serde_json::Value =
         serde_json::from_str(CONFIG).expect("tauri.conf.json must be valid JSON");
     config["plugins"]["updater"]["pubkey"]
         .as_str()
         .expect("the updater public key must be configured")
+        .to_string()
+}
+
+/// The minisign key id a public key announces in its untrusted comment, e.g. `B79FF90B52D00F24`.
+fn key_id(pubkey_b64: &str) -> String {
+    let decoded = STANDARD
+        .decode(pubkey_b64.trim())
+        .expect("the key is base64");
+    let text = String::from_utf8(decoded).expect("the key is text");
+    text.lines()
+        .next()
+        .expect("a minisign public key starts with a comment")
+        .rsplit(' ')
+        .next()
+        .expect("the comment ends with the key id")
         .to_string()
 }
 
@@ -118,15 +144,29 @@ fn the_configured_key_parses_and_carries_a_minisign_comment() {
 }
 
 #[test]
+fn the_configured_key_is_the_production_identity_and_not_the_test_one() {
+    // Every fixture above verifies against TEST_PUBKEY, so this is the assertion that keeps the two
+    // identities apart. Shipping the test key would mean every released client trusts a key whose
+    // private half sits beside the test fixtures in a developer's home directory.
+    let configured = configured_pubkey();
+    assert_eq!(key_id(&configured), PRODUCTION_KEY_ID);
+    assert_ne!(
+        key_id(&configured),
+        key_id(TEST_PUBKEY),
+        "the test identity must never ship in the client"
+    );
+}
+
+#[test]
 fn a_package_signed_by_the_updater_key_is_accepted() {
-    let result = verify(&configured_pubkey(), FIXTURE_SIGNATURE, FIXTURE);
+    let result = verify(TEST_PUBKEY, FIXTURE_SIGNATURE, FIXTURE);
     assert_eq!(result, Ok(()));
 }
 
 #[test]
 fn the_second_platform_signature_is_also_signed_by_the_updater_key() {
     assert_eq!(
-        verify(&configured_pubkey(), FIXTURE_LINUX_SIGNATURE, FIXTURE),
+        verify(TEST_PUBKEY, FIXTURE_LINUX_SIGNATURE, FIXTURE),
         Ok(())
     );
     let signature = Signature::decode(&signature_text(FIXTURE_LINUX_SIGNATURE))
@@ -139,24 +179,20 @@ fn a_tampered_package_is_refused() {
     let mut corrupted = FIXTURE.to_vec();
     let last = corrupted.len() - 1;
     corrupted[last] ^= 0x01;
-    let result = verify(&configured_pubkey(), FIXTURE_SIGNATURE, &corrupted);
+    let result = verify(TEST_PUBKEY, FIXTURE_SIGNATURE, &corrupted);
     assert!(result.is_err(), "a changed byte must not verify");
 }
 
 #[test]
 fn a_truncated_package_is_refused() {
     let cut = &FIXTURE[..FIXTURE.len() - 1];
-    let result = verify(&configured_pubkey(), FIXTURE_SIGNATURE, cut);
+    let result = verify(TEST_PUBKEY, FIXTURE_SIGNATURE, cut);
     assert!(result.is_err(), "a truncated package must not verify");
 }
 
 #[test]
 fn a_signature_that_does_not_cover_this_package_is_refused() {
-    let result = verify(
-        &configured_pubkey(),
-        FIXTURE_SIGNATURE,
-        b"some other payload",
-    );
+    let result = verify(TEST_PUBKEY, FIXTURE_SIGNATURE, b"some other payload");
     assert!(
         result.is_err(),
         "the signature is bound to these exact bytes"
@@ -165,11 +201,7 @@ fn a_signature_that_does_not_cover_this_package_is_refused() {
 
 #[test]
 fn a_package_signed_by_another_key_is_refused() {
-    let result = verify(
-        &another_key(&configured_pubkey()),
-        FIXTURE_SIGNATURE,
-        FIXTURE,
-    );
+    let result = verify(&another_key(TEST_PUBKEY), FIXTURE_SIGNATURE, FIXTURE);
     assert!(
         result.is_err(),
         "another key must not accept this signature"
@@ -178,7 +210,7 @@ fn a_package_signed_by_another_key_is_refused() {
 
 #[test]
 fn a_missing_or_garbled_signature_is_refused() {
-    let key = configured_pubkey();
+    let key = TEST_PUBKEY;
     assert!(verify(&key, "", FIXTURE).is_err(), "an empty signature");
     assert!(
         verify(&key, "not base64 at all !!", FIXTURE).is_err(),
@@ -222,7 +254,7 @@ fn the_signature_served_for_the_release_verifies_against_the_package() {
     let signature = release
         .signature("windows-x86_64")
         .expect("the served signature is readable");
-    assert_eq!(verify(&configured_pubkey(), signature, FIXTURE), Ok(()));
+    assert_eq!(verify(TEST_PUBKEY, signature, FIXTURE), Ok(()));
 }
 
 #[test]
@@ -236,7 +268,7 @@ fn the_served_signature_names_the_artifact_the_url_serves() {
     let signature_b64 = release
         .signature("windows-x86_64")
         .expect("the served signature is readable");
-    assert_eq!(verify(&configured_pubkey(), signature_b64, FIXTURE), Ok(()));
+    assert_eq!(verify(TEST_PUBKEY, signature_b64, FIXTURE), Ok(()));
 
     let signature = Signature::decode(&signature_text(signature_b64))
         .expect("the served signature is a minisign signature");

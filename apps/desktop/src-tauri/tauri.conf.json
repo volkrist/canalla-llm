@@ -48,7 +48,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI3OUZGOTBCNTJEMDBGMjQKUldRa0Q5QlNDL21mdDNHSXprOGZZZVZXa1U4SlZMRWs0UkpaVTNyOWVSN0orUGFBRTQ1SnJXbEYK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlCMzI4RUZGMTExRDFGQjIKUldTeUh4MFIvNDR5bTB2aUxxcDhZUk1BVEY3eC9KdXhLSVpDcEVPU3g4dFR4NDZvS3dpZy9xVkUK",
       "endpoints": [
         "https://gateway.12testers.store/updates/latest?target={{target}}&arch={{arch}}&current_version={{current_version}}"
       ],
