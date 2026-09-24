@@ -389,31 +389,26 @@ async function main() {
       .getByRole("button", { name: "Проверить обновления" })
       .count()) > 0,
   );
-  // Check against the deployed Gateway, which does not serve a manifest yet. The response has to
-  // leave the app usable and honest — this is the live half of the «404 must be safe» case.
+  // Check against the deployed Gateway. It answers 204 while no manifest is published, which the
+  // client must read as «nothing for you»: the check settles, no update is offered, no error is
+  // invented, and the app stays usable. (An earlier expectation of «Не удалось проверить» was
+  // written before the endpoint existed — 404 is the failure case, 204 is the answer.)
   await updates
     .getByRole("button", { name: "Проверить обновления" })
     .click()
     .catch(() => {});
-  const updateNote = dialog.locator(
-    '[data-testid="update-message"], [data-testid="update-refused"]',
-  );
-  await updateNote
-    .first()
-    .waitFor({ timeout: 60000 })
-    .catch(() => {});
-  const noteText = (
-    await updateNote
-      .first()
-      .innerText()
-      .catch(() => "")
-  )
-    .replace(/\s+/g, " ")
-    .trim();
+  const settled = await page
+    .locator('dialog.settings-dialog button:has-text("Проверяю…")')
+    .waitFor({ state: "detached", timeout: 60000 })
+    .then(() => true)
+    .catch(() => false);
+  const facts = (await updates.innerText()).replace(/\s+/g, " ");
+  check("a check with no manifest settles instead of hanging", settled);
   check(
-    "a check with no manifest settles into a message instead of hanging",
-    noteText.length > 0,
-    noteText,
+    "no update is offered when the manifest says there is none",
+    (await dialog.locator('[data-testid="update-install"]').count()) === 0 &&
+      /Доступная версия нет/.test(facts),
+    facts.slice(0, 260),
   );
   check(
     "the app stays usable after a check that found nothing",
