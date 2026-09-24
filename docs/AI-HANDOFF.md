@@ -320,7 +320,53 @@ acceptance all landed on `release/canalla-1.1.0` in this cycle.
 | Installed GUI smoke / backup smoke / cloud-default-check / cloud smoke | **PASS** / **PASS** / **15/15** / **PASS** |
 | Operator's own installed 1.1.0 (real data root, normal launch) | Computer `ready` on a fresh heartbeat, Tor `ready` from a persisted `runtime/tor.json` proof (`source: managed`, full bootstrap in ~30 s), no orphan `tor.exe` or 9050 listener after Quit |
 
+### Ubuntu 24.04 Linux port, engineering closeout (24 Sep 2026)
+
+The port STEP 4 stopped at is **done on the branch**; what is left is a desktop-VM acceptance, not
+code. Ubuntu 24.04 LTS x86_64 is the 1.2 Linux baseline (22.04 is deliberately out of scope). Every
+measured number and the honest boundary live in [linux-ubuntu.md](linux-ubuntu.md).
+
+| Gate | Windows | Ubuntu 24.04 |
+|---|---|---|
+| `cargo check --all-targets` | clean | **clean, 0 errors** (was 59 + 44) |
+| `cargo test` | **91 passed** (21 + 58 + 12) | **99 passed** (25 + 62 + 12) |
+| Backend pytest | 630 passed, 1 skipped | **623 passed, 0 failed**, 8 skipped |
+| Installed `.deb` runtime acceptance | — | **9/9 PASS** against `/usr/lib/Canalla LLM/…` |
+
+* One platform module, `src/platform/{mod,windows,linux}.rs`: the Win32 Job Object becomes a POSIX
+  process group plus `PR_SET_PDEATHSIG`, Credential Manager becomes the Secret Service, `HKCU\…\Run`
+  becomes an XDG autostart entry. `windows.rs` is a verbatim move — no Windows behaviour changed.
+  The POSIX ownership guarantees are proven against the kernel, not asserted:
+  `an_owned_child_is_its_own_process_group`, `stopping_an_owned_child_takes_the_processes_it_started`,
+  and `an_armed_child_does_not_outlive_the_parent_that_died` (which re-invokes the test binary as a
+  parent that dies without cleaning up).
+* Four things were **wrong** on Linux rather than missing: `fs_guard` denied every POSIX path, `git`
+  only looked in `C:\Program Files\Git`, the updater fixture was CRLF in the working tree and LF in
+  the repository while its signature covered the CRLF bytes, and the Windows-only host tools failed
+  instead of answering `unsupported_platform`. All four are fixed and asserted.
+* The 16 Linux backend failures were one root cause (`app/tools/local/*` only understood `\`); they
+  are gone, and the three test-side assumptions are `sys.platform`-guarded rather than relaxed.
+* `tauri.linux.conf.json` (deb target, PNG icons, platform resource names, `libsecret-tools`) and
+  `stage-native-runtime.sh` (stages the pinned Tor, **fails the build** on a missing sidecar) — the
+  hook runs with the *frontend* directory as its cwd, which is why the command is
+  `bash src-tauri/stage-native-runtime.sh`.
+* Artifact: `Canalla LLM_1.1.0_amd64.deb`, 294 746 692 B, SHA-256
+  `1c52e24633d67f62d243b67ec9fc132b3beb11041b870738136cb99d91c980d2` — an intermediate STEP 4A
+  artifact, **not** a release. Its `Depends` repeats three clauses because Tauri's bundler appends
+  its own list after the configured one; a repeated clause is valid and `apt` resolves it.
+
 ## 12. Next slice
+
+**STEP 4B — Ubuntu desktop-VM acceptance — then the 1.2.0 release stage.**
+
+The Linux engineering port is done on the branch ([linux-ubuntu.md](linux-ubuntu.md)); what remains
+is the acceptance that needs a real Ubuntu **desktop** session, which nothing on this machine can
+provide: install the `.deb`, first launch, Computer/Tor ready with no click, keyring-backed
+credentials, a real logout/login with the XDG autostart entry, crash recovery, and no orphan
+processes. Until that run happens the correct state is **LINUX ENGINEERING PORT = PASS, DESKTOP VM
+ACCEPTANCE = PENDING**, and a green `.deb` install is not a Linux release.
+
+---
 
 **CANALLA LLM 1.1.0 — LIVE SANITY ONLY**
 
@@ -462,6 +508,37 @@ cd ..\..
 
 Dev loop: `.\scripts\setup-backend.ps1`, `.\scripts\start-desktop.ps1` (`tauri dev` may use venv Python).
 
+### Linux (Ubuntu 24.04 LTS x86_64 — the supported baseline)
+
+No shell equivalent of the PowerShell scripts exists; these are the commands that produced the STEP 4A
+artifact. `runtime/tor` must be staged before any `cargo` build, or `build.rs` fails on the missing
+resource. Remember `beforeBundleCommand` runs with the **frontend** directory as its cwd.
+
+```bash
+# sidecar and host loop
+cd apps/backend && .venv/bin/pyinstaller --noconfirm --log-level ERROR alex-backend.spec
+cd ../desktop/src-tauri && cargo build --release --bin alex-host-loop
+cp target/release/alex-host-loop sidecar/alex-host-loop
+
+# frontend, then the package
+cd apps/desktop && npm ci && npm run build
+CARGO_BUILD_JOBS=3 npx tauri build --bundles deb --no-sign   # --no-sign: never wait on a password
+
+# the runtime acceptance, against the INSTALLED tree
+sudo apt install './apps/desktop/src-tauri/target/release/bundle/deb/Canalla LLM_1.1.0_amd64.deb'
+bash scripts/acceptance-linux-runtime.sh \
+  --sidecar "/usr/lib/Canalla LLM/sidecar/alex-backend/alex-backend" \
+  --tor-runtime "/usr/lib/Canalla LLM/runtime/tor"
+```
+
+The desktop Rust tests need an unlocked Secret Service. Under a headless container that means a
+throwaway session, which tests the code path but is **not** a desktop acceptance:
+
+```bash
+dbus-run-session -- bash -c 'echo -n canalla-test | gnome-keyring-daemon --unlock --components=secrets --daemonize; \
+  sleep 3; cd apps/desktop/src-tauri && cargo test'
+```
+
 ## 14. Read before changing runtime
 
 1. `AGENTS.md` (this repo root)
@@ -476,6 +553,8 @@ Dev loop: `.\scripts\setup-backend.ps1`, `.\scripts\start-desktop.ps1` (`tauri d
 10. [central-runpod-gateway-design.md](central-runpod-gateway-design.md), [gateway-deployment.md](gateway-deployment.md)
 11. `apps/desktop/src-tauri/src/backend.rs`
 12. `apps/backend/app/runtime_entry.py`, `app/packaging.py`
+13. [linux-ubuntu.md](linux-ubuntu.md), [tor.md](tor.md) — before touching `src/platform/*`, the Tor
+    runtime or anything that has to behave the same on both operating systems
 
 ## 15. Permanent prohibitions / invariants
 
