@@ -122,9 +122,9 @@ class RunPodAPI:
             transport=self.transport,
         )
 
-    async def request(self, method: str, path: str, **kwargs):
+    async def request(self, method: str, path: str, *, timeout: float | None = None, **kwargs):
         try:
-            async with self.client() as client:
+            async with self.client(timeout or 15) as client:
                 response = await client.request(method, path, **kwargs)
         except httpx.TimeoutException:
             raise RunPodError("runpod_timeout", 504) from None
@@ -231,7 +231,36 @@ class RunPodAPI:
             raise RunPodError("volume_mismatch", 409)
         return volume
 
-    async def gpu_options(self, preferences: ComputePreferences):
+    @staticmethod
+    def parse_price(value, *, strict: bool) -> Decimal | None:
+        """A catalogue price. ``strict`` keeps the historic Secure-Cloud rule: a Secure row whose
+        price is missing, non-finite or non-positive is a malformed catalogue, not a cheap GPU.
+        An optional tier (Community) that is absent is simply not bookable.
+        """
+        if value is None:
+            if strict:
+                raise ValueError()
+            return None
+        try:
+            price = Decimal(str(value))
+        except (ArithmeticError, TypeError, ValueError):
+            if strict:
+                raise ValueError() from None
+            return None
+        if not price.is_finite() or price <= 0:
+            if strict:
+                raise ValueError()
+            return None
+        return price
+
+    async def gpu_offers(self):
+        """READ-ONLY catalogue slice: every cloud tier and datacenter the provider reports.
+
+        The allocator must never be pinned to one physical placement, so this read asks the
+        catalogue without the Secure-Cloud filter and keeps the per-tier price plus the
+        per-datacenter availability. Rows are plain, non-secret dicts so the shared candidate
+        policy (``app.compute.candidates``) can be the one place that decides what is bookable.
+        """
         data = await self.request(
             "GET",
             "/catalog/gpus",
@@ -239,30 +268,61 @@ class RunPodAPI:
                 "include": "AVAILABILITY",
                 "product": "POD",
                 "count": 1,
-                "cloud": "SECURE",
                 "minCudaVersion": self.settings.runpod_min_cuda_version,
             },
         )
         try:
             if data is None or not isinstance(data.get("gpus"), list):
                 raise ValueError()
-            options = []
+            offers = []
             for gpu in data["gpus"]:
-                if gpu["manufacturer"] != "NVIDIA" or not gpu["secure"]:
+                if gpu["manufacturer"] != "NVIDIA":
                     continue
                 memory = int(gpu["memory"])
-                price = Decimal(str(gpu["price"]["secure"]))
-                if not price.is_finite() or price <= 0:
-                    raise ValueError()
-                dc = next(
-                    (dc for dc in gpu.get("dataCenters", []) if dc["id"] == self.settings.runpod_datacenter),
-                    None,
+                secure = bool(gpu["secure"])
+                prices = gpu["price"]
+                offers.append(
+                    {
+                        "id": str(gpu["id"]),
+                        "name": str(gpu.get("name") or gpu["id"]),
+                        "vram_gb": memory,
+                        "secure": secure,
+                        "community": bool(gpu.get("community", False)),
+                        "price": {
+                            "secure": self.parse_price(prices["secure"], strict=secure),
+                            "community": self.parse_price(prices.get("community"), strict=False),
+                        },
+                        "data_centers": {
+                            str(center["id"]): str(center.get("availability") or "NONE")
+                            for center in gpu.get("dataCenters", [])
+                            if isinstance(center, dict) and center.get("id")
+                        },
+                    }
                 )
-                stock = dc["availability"] if dc else "NONE"
+            return offers
+        except (KeyError, TypeError, ValueError, InvalidOperation, ValidationError):
+            raise RunPodError("malformed_response") from None
+
+    def project_options(self, rows, preferences: ComputePreferences):
+        """The single-placement projection: Secure Cloud, the configured datacenter.
+
+        This is the shape the quote and the GPU table have always used, and it stays the
+        user-facing catalogue for a manual choice. The allocator itself walks the wider set from
+        ``gpu_offers`` through the shared candidate policy. Projecting in memory (instead of a
+        second provider read) keeps one catalogue read per decision.
+        """
+        try:
+            options = []
+            for row in rows:
+                if not row["secure"]:
+                    continue
+                price = row["price"]["secure"]
+                stock = row["data_centers"].get(self.settings.runpod_datacenter, "NONE")
+                memory = int(row["vram_gb"])
                 compatible = memory >= preferences.min_vram_gb
                 reason = (
                     "gpu_not_selected"
-                    if preferences.gpu_id and gpu["id"] != preferences.gpu_id
+                    if preferences.gpu_id and row["id"] != preferences.gpu_id
                     else "insufficient_vram"
                     if not compatible
                     else "price_limit"
@@ -273,8 +333,8 @@ class RunPodAPI:
                 )
                 options.append(
                     GpuOption(
-                        id=gpu["id"],
-                        name=gpu["name"],
+                        id=row["id"],
+                        name=row["name"],
                         vram_gb=memory,
                         hourly_rate=price,
                         availability=stock,
@@ -286,6 +346,10 @@ class RunPodAPI:
             return sorted(options, key=lambda gpu: (gpu.hourly_rate, gpu.id))
         except (KeyError, TypeError, ValueError, InvalidOperation, ValidationError):
             raise RunPodError("malformed_response") from None
+
+    async def gpu_options(self, preferences: ComputePreferences):
+        """One catalogue read, projected to the single-placement quote shape."""
+        return self.project_options(await self.gpu_offers(), preferences)
 
     def parse_pod(self, data):
         try:
@@ -302,7 +366,23 @@ class RunPodAPI:
     async def get_pod(self, pod_id):
         return self.parse_pod(await self.request("GET", "/pods/" + quote(pod_id, safe="")))
 
-    async def create_pod(self, name: str, gpu: GpuOption):
+    async def create_pod(
+        self,
+        name: str,
+        gpu: GpuOption,
+        *,
+        cloud: str | None = None,
+        datacenter: str | None = None,
+        volume_id: str | None = None,
+        timeout: float | None = None,
+    ):
+        """Create one Pod for one *candidate* placement.
+
+        A model-required allocation walks an ordered candidate set, so the tier, the datacenter
+        and the Volume it mounts are the candidate's, not a process-wide constant. Defaults keep
+        the historic direct-mode call shape (Secure Cloud, the configured datacenter, the
+        configured Volume).
+        """
         real = self.settings.llm_provider == "llamacpp"
         if real and len(self.settings.llm_api_key) < 32:
             raise RunPodError("llm_key_missing", 422)
@@ -327,15 +407,21 @@ class RunPodAPI:
         data = await self.request(
             "POST",
             "/pods",
+            timeout=timeout,
             json={
                 "name": name,
                 "image": self.settings.runpod_image,
-                "cloud": "SECURE",
+                "cloud": cloud or "SECURE",
                 "gpu": {"id": gpu.id, "count": 1, "minCudaVersion": self.settings.runpod_min_cuda_version},
-                "dataCenterIds": [self.settings.runpod_datacenter],
+                "dataCenterIds": [datacenter or self.settings.runpod_datacenter],
                 "disk": 10,
                 "mounts": {
-                    "network": [{"volumeId": self.settings.runpod_network_volume_id, "path": "/workspace"}]
+                    "network": [
+                        {
+                            "volumeId": volume_id or self.settings.runpod_network_volume_id,
+                            "path": "/workspace",
+                        }
+                    ]
                 },
                 "ports": [f"{self.settings.runpod_gateway_port}/http"] if real else [],
                 "env": environment,

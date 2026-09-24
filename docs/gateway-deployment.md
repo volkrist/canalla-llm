@@ -407,7 +407,9 @@ The complete variable list, defaults and comments are in `apps/gateway/.env.exam
 | `MAX_HOURLY_PRICE`, `MAX_SESSION_BUDGET` | Product ceilings `1.20` / `3.00`; anything higher makes startup fail |
 | `COMPUTE_IDLE_MINUTES` | Idle timeout applied to the global managed compute |
 | `COMPUTE_STARTUP_TIMEOUT_SECONDS` | Server-side D-9 deadline for a managed Pod to become ready (default 300 s) |
-| `COMPUTE_SEARCH_TIMEOUT_SECONDS` | Bound on one capacity search (default 60 s, hard-capped at 60 s); a search without an identity or past its deadline collapses to `offline` with its typed reason |
+| `COMPUTE_SEARCH_TIMEOUT_SECONDS` | Bound on one capacity search (default 60 s, hard-capped at 60 s); a search without an identity or past its deadline collapses to `offline` with its typed reason. It is the **total** allocation budget, never per candidate (`docs/gpu-allocation.md`) |
+| `RUNPOD_DATACENTERS` | Optional extra placements as `DC:VOLUME[:community]` pairs. The Volume's own datacenter is always first and is read from the provider; an entry that cannot be parsed fails at startup. A datacenter that cannot mount the model's Volume needs its own Volume there (docs/gpu-allocation.md §2) |
+| `RUNPOD_ALLOW_COMMUNITY_CLOUD` | `false` by default. The Community tier is only ever used when this is `true` **and** a placement is declared `:community` **and** the user opted in; a Community Pod cannot mount a Network Volume, so the default is off on purpose |
 | `INFERENCE_QUEUE_SIZE`, `INFERENCE_TIMEOUT_SECONDS` | Serialization (`--parallel 1`) and the total request budget |
 
 A knob that does not exist is not silently invented by this stack: the Gateway runs **one**

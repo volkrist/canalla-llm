@@ -87,7 +87,12 @@ def capacity_code(compute: dict) -> str:
 
 
 def policy_caps(controller, user_id: str) -> dict:
-    """The user's own money policy, in the shape the Gateway expects. Never widened here."""
+    """The user's own money policy, in the shape the Gateway expects. Never widened here.
+
+    ``allow_community`` carries the user's *own* opt-in for the second cloud tier: the Gateway
+    only honours it inside the deployment's own policy, so sending it can never widen what the
+    server offers.
+    """
     prefs = controller.preferences(user_id) if controller is not None else None
     if prefs is None:
         return {}
@@ -97,6 +102,7 @@ def policy_caps(controller, user_id: str) -> dict:
         "min_vram_gb": int(prefs.min_vram_gb),
         "selection": prefs.selection,
         "gpu_id": prefs.gpu_id,
+        "allow_community": bool(prefs.allow_community),
     }
 
 

@@ -18,6 +18,9 @@ interface Preferences {
   auto_connect?: boolean;
   auto_search: boolean;
   search_interval: number;
+  /** The user's own opt-in for the second provider cloud tier. Never a hidden switch: the
+   *  deployment's own policy decides whether the tier is on offer at all (see `Status.policy`). */
+  allow_community?: boolean;
 }
 interface GPU {
   id: string;
@@ -49,6 +52,16 @@ interface Status {
   datacenter: string;
   preferences?: Preferences;
   search_preferences?: Preferences | null;
+  /** What this deployment's allocator may use, and why. Read-only. */
+  policy?: {
+    cloud_tiers: string[];
+    community_allowed: boolean;
+    community_blocked_by: "policy" | "network_volume" | null;
+    datacenters?: Array<{ datacenter: string; volume_id: string }>;
+    candidate_limit?: number;
+    candidate_call_timeout_seconds?: number;
+    allocation_timeout_seconds?: number;
+  };
   limits?: {
     min_vram_gb: number;
     max_hourly_price: number;
@@ -105,6 +118,7 @@ const defaults: Preferences = {
   gpu_id: "NVIDIA L40S",
   auto_search: true,
   search_interval: 30,
+  allow_community: false,
 };
 const money = (value: number) => `$${Number(value).toFixed(3)}`;
 
@@ -659,6 +673,28 @@ export default function ComputePanel({
                   />{" "}
                   Повторять поиск каждые 30 секунд
                 </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    disabled={!status?.policy?.community_allowed}
+                    checked={Boolean(preferences.allow_community)}
+                    onChange={(e) => {
+                      setPreferences({
+                        ...preferences,
+                        allow_community: e.target.checked,
+                      });
+                      setQuote(null);
+                    }}
+                  />{" "}
+                  Искать также в Community Cloud (дешевле, менее защищённый)
+                </label>
+                {!status?.policy?.community_allowed && (
+                  <p className="muted">
+                    {status?.policy?.community_blocked_by === "network_volume"
+                      ? "Community Cloud здесь недоступен: Pod в Community Cloud не может подключить Network Volume, на котором лежит модель."
+                      : "Community Cloud отключён на этом развёртывании."}
+                  </p>
+                )}
               </div>
               <button
                 disabled={busy}

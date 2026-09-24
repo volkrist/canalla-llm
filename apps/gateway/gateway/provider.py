@@ -55,6 +55,29 @@ def load_core():
     return runpod_api, schemas, runtime
 
 
+@lru_cache
+def allocation_policy():
+    """The shared candidate policy: which placements may be booked, in which order.
+
+    Shared mode must not carry a second copy of "what is bookable": the same module decides
+    for direct mode and for the Gateway, so the two provider modes cannot drift apart.
+    """
+    lib = backend_lib_dir()
+    if lib is not None and str(lib) not in sys.path:
+        sys.path.insert(0, str(lib))
+    try:
+        from app.compute import candidates  # noqa: PLC0415 - deliberate late import
+    except ImportError as error:  # pragma: no cover - deployment error path
+        raise GatewayError(
+            "gateway_unavailable",
+            detail=(
+                "Провайдерская библиотека Alex недоступна на сервере. "
+                f"Задайте {BACKEND_LIB_ENV} с путём к apps/backend."
+            ),
+        ) from error
+    return candidates
+
+
 def provider_api(settings, transport=None):
     """The real RunPod client, configured from gateway settings (same attribute names)."""
     runpod_api, _, _ = load_core()
@@ -75,6 +98,12 @@ def compute_preferences(**values):
     """Shared pod search/creation schema, so the Gateway validates exactly like direct mode."""
     _, schemas, _ = load_core()
     return schemas.ComputePreferences(**values)
+
+
+def gpu_option(**values):
+    """The provider's own GPU row, so a chosen candidate is passed exactly as direct mode does."""
+    _, schemas, _ = load_core()
+    return schemas.GpuOption(**values)
 
 
 def compact_ai(**values) -> tuple[str, str]:

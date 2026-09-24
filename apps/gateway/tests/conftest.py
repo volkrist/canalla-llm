@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import httpx
@@ -62,6 +62,32 @@ class FakeRunPod:
         self.action_failure = None
         self.action_failures = 0
         self.volume_types = ["STANDARD"]
+        # ---- allocation-walk knobs. Every default keeps the historical single-placement
+        # catalogue, so no existing test changes behaviour because these exist.
+        self.datacenters = None  # None = one US-TX-3 row per GPU, as before
+        self.community = False  # advertise the second cloud tier (with its own price)
+        self.community_price = None
+        self.refuse_gpus: set[str] = set()  # creates refused for these GPU ids (400/404/409)
+        self.refuse_status = 400
+        self.create_refusal = None  # status code refusing every create (a "no capacity" host)
+        self.create_delay_seconds = 0  # mock seconds a create "takes" before answering
+        self.create_timeouts: list[float | None] = []  # httpx timeout of every create call
+        self.catalog_timeouts: list[float | None] = []
+
+    def _centers(self, availability: str) -> list[dict]:
+        if self.datacenters is None:
+            return [{"id": "US-TX-3", "availability": self.availability or availability}]
+        return [
+            {"id": dc, "availability": stock if self.availability is None else self.availability}
+            for dc, stock in self.datacenters
+        ]
+
+    @staticmethod
+    def _timeout_of(request: httpx.Request):
+        value = request.extensions.get("timeout")
+        if isinstance(value, dict):
+            return max(value.values()) if value else None
+        return value if isinstance(value, (int, float)) else None
 
     # ------------------------------------------------------------------ fake pod model
 
@@ -104,6 +130,7 @@ class FakeRunPod:
         assert request.headers["Authorization"] == "Bearer " + FAKE_KEY
         path = request.url.path
         if path.endswith("/catalog/gpus"):
+            self.catalog_timeouts.append(self._timeout_of(request))
             return httpx.Response(
                 200,
                 json={
@@ -113,11 +140,15 @@ class FakeRunPod:
                             "name": gid,
                             "manufacturer": "NVIDIA",
                             "secure": True,
+                            "community": self.community,
                             "memory": memory,
-                            "price": {"secure": price},
-                            "dataCenters": [
-                                {"id": "US-TX-3", "availability": self.availability or availability}
-                            ],
+                            "price": {
+                                "secure": price,
+                                "community": self.community_price
+                                if self.community_price is not None
+                                else price / 2,
+                            },
+                            "dataCenters": self._centers(availability),
                         }
                         for gid, memory, price, availability in [
                             ("gpu-cheap-unavailable", 48, 0.4, "NONE"),
@@ -145,13 +176,26 @@ class FakeRunPod:
         if path.endswith("/pods") and request.method == "POST":
             body = json.loads(request.content)
             self.creates.append(body)
+            self.create_timeouts.append(self._timeout_of(request))
+            if self.create_delay_seconds:
+                self.time += timedelta(seconds=self.create_delay_seconds)
             if self.create_failure == "timeout":
                 raise httpx.ReadTimeout("upstream detail must never surface")
             if self.create_failure == "server":
                 return httpx.Response(503, json={"detail": "provider internal detail"})
             if isinstance(self.create_failure, int):
                 return httpx.Response(self.create_failure, json={"detail": "private provider detail"})
-            pod = self.pod(body["name"], mounts=body["mounts"], pod_id=f"pod-{len(self.pods) + 1}")
+            if self.create_refusal or body["gpu"]["id"] in self.refuse_gpus:
+                # A host that cannot place this candidate: nothing is created, no Pod exists.
+                return httpx.Response(
+                    self.create_refusal or self.refuse_status,
+                    json={"detail": "no capacity for this placement"},
+                )
+            cost = self.price
+            if body.get("cloud") == "COMMUNITY" and self.community_price is not None:
+                cost = self.community_price
+            pod = self.pod(body["name"], mounts=body["mounts"], pod_id=f"pod-{len(self.pods) + 1}", cost=cost)
+            pod["dataCenterId"] = body["dataCenterIds"][0]
             self.pods.append(pod)
             return httpx.Response(201, json=pod)
         if path.endswith("/action"):

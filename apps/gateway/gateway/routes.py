@@ -94,6 +94,11 @@ class EnsureRequest(BaseModel):
     min_vram_gb: int | None = Field(default=None, ge=1, le=1024)
     selection: Literal["automatic", "manual"] | None = Field(default=None)
     gpu_id: str | None = Field(default=None, max_length=160)
+    # The caller's own opt-in for the second cloud tier. Only ever honoured inside the
+    # deployment's own policy (see the shared candidate policy): a client can never widen a
+    # technical or a product bound, and this is not a bound — it is a preference that the
+    # server, not the client, decides whether to offer.
+    allow_community: bool | None = Field(default=None)
 
 
 class StopRequest(BaseModel):
@@ -266,6 +271,7 @@ async def compute_ensure(request: Request, payload: EnsureRequest, installation:
         "min_vram_gb": payload.min_vram_gb,
         "selection": payload.selection,
         "gpu_id": payload.gpu_id,
+        "allow_community": payload.allow_community,
     }
     return await request.app.state.authority.ensure(
         installation.id,

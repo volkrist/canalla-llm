@@ -27,6 +27,10 @@ class ComputePreferences(BaseModel):
     auto_connect: bool = False
     auto_search: bool = True
     search_interval: int = Field(default=30, ge=15, le=300)
+    # The second provider cloud tier. A *visible* choice, never a hidden behaviour change: the
+    # default is off, and the allocator only admits the tier when the deployment's own policy
+    # permits it as well (see docs/compute-preferences.md §11).
+    allow_community: bool = False
 
     def enforce(self, settings: Settings):
         if self.min_vram_gb < settings.runpod_min_vram_gb:

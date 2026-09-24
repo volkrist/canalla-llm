@@ -57,6 +57,15 @@ class GatewaySettings(BaseSettings):
     runpod_graphql_url: str = "https://api.runpod.io/graphql"
     runpod_network_volume_id: str = "uwgeaie5b0"
     runpod_datacenter: str = "US-TX-3"
+    # Multi-placement scheduling. The datacenter of the Network Volume (read from the provider,
+    # never assumed) is always the first placement; this setting only *adds* datacenters, each
+    # with the Volume it mounts there, as ``DC:VOLUME`` pairs (optionally ``:community`` when the
+    # operator has proven that placement can be booked from the Community tier as well). Empty by
+    # default: RunPod scopes a Network Volume to one datacenter, and the model lives on it.
+    runpod_datacenters: str = ""
+    # The second cloud tier. Off by default and never enabled silently: the allocator only offers
+    # a Community candidate on a placement the operator declared community-capable.
+    runpod_allow_community_cloud: bool = False
     runpod_min_vram_gb: int = Field(default=48, ge=1, le=1024)
     runpod_min_cuda_version: str = "12.8"
     runpod_image: str = "runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404"
@@ -99,6 +108,17 @@ class GatewaySettings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_policy(self):
+        # Operator-side placement syntax fails closed at startup instead of being silently
+        # dropped (a dropped placement is an allocator pinned back to one slot). The parser
+        # itself lives in the shared candidate policy; without the provider library the
+        # Gateway cannot serve compute at all, and that is reported where compute is used.
+        from .errors import GatewayError
+        from .provider import allocation_policy
+
+        try:
+            allocation_policy().validate_placement_spec(self.runpod_datacenters)
+        except GatewayError:
+            pass
         if self.app_env == "production":
             if len(self.jwt_secret) < 48:
                 raise ValueError("Production JWT_SECRET must be at least 48 characters")

@@ -18,6 +18,7 @@ from ..database import SessionLocal
 from ..models import Message, User, now
 from ..providers import LlamaCppProvider
 from ..security import can_start_compute
+from . import candidates as candidate_policy
 from .models import (
     ComputeControl,
     ComputeEvent,
@@ -316,6 +317,9 @@ class RunPodController:
                     "session_budget": 1000,
                 },
                 "datacenter": self.settings.runpod_datacenter,
+                # What the allocator may use here, and why: the same shape the Gateway reports,
+                # so the panel can state the cloud-tier policy instead of guessing at it.
+                "policy": self.allocation_policy_payload(),
                 "model": self.settings.llm_model,
                 "technical": {
                     "runpod": "configured" if self.api.configured else "not_configured",
@@ -327,6 +331,32 @@ class RunPodController:
 
     get_current_compute = get_compute_status
     get_cost_status = get_compute_status
+
+    def allocation_policy_payload(self) -> dict:
+        """The allocation policy of this deployment, in the product's own words.
+
+        Read-only and never secret. Direct mode and the Gateway report the same shape, so a panel
+        can say whether the second cloud tier is available *here* and what blocks it, rather than
+        offering a switch that silently does nothing.
+        """
+        placements = candidate_policy.parse_placements(
+            self.settings.runpod_datacenters,
+            primary=candidate_policy.Placement(
+                datacenter=self.settings.runpod_datacenter,
+                volume_id=self.settings.runpod_network_volume_id,
+            ),
+        )
+        allow = bool(self.settings.runpod_allow_community_cloud)
+        blocked = candidate_policy.community_blocked_by(allow_community=allow, placements=placements)
+        return {
+            "cloud_tiers": list(candidate_policy.cloud_tiers(allow_community=allow)),
+            "community_allowed": blocked is None,
+            "community_blocked_by": blocked,
+            "datacenters": [item.audit() for item in placements],
+            "candidate_limit": candidate_policy.MAX_CANDIDATE_ATTEMPTS,
+            "candidate_call_timeout_seconds": candidate_policy.CANDIDATE_CALL_TIMEOUT_SECONDS,
+            "allocation_timeout_seconds": candidate_policy.ALLOCATION_WINDOW_SECONDS,
+        }
 
     async def list_gpu_options(self, user_id):
         prefs = self.preferences(user_id).enforce(self.settings)
@@ -566,19 +596,29 @@ class RunPodController:
                 control_row(db).active_session_id = session.id
                 db.commit()
             return self.get_compute_status(user)
+        # Two reads of the same catalogue, deliberately kept in this order. The first is the
+        # historical re-check of the *approved* card against the user's policy (a quote is a
+        # confirmation: a price that moved means a new confirmation, never a silent change), and
+        # it is the call site the direct-mode tests already exercise. The second is the wider
+        # placement-aware read the walk needs, because the quote projection discards the
+        # datacenter/tier detail by design.
         fresh = await self.api.gpu_options(prefs)
+        rows = await self.api.gpu_offers()
         selected = next((gpu for gpu in fresh if gpu.id == approved.id and gpu.selectable), None)
         if selected and selected.hourly_rate > approved.hourly_rate:
             raise RunPodError("price_changed", 409)
-        if not selected and any(gpu.id == approved.id for gpu in fresh):
-            # The GPU still exists but no longer fits the user's own policy: say so instead of
-            # silently going back to searching (no silent price escalation either way).
-            raise RunPodError("price_changed", 409)
-        candidates = [selected] if selected else []
+        # A quote is a confirmation bound to one GPU id at one price. The walk below may therefore
+        # only change the *slot* of that card (its datacenter, inside one tier order), while a
+        # price that moved up or a card that is affordable nowhere still means a new confirmation.
+        candidates = self.placement_candidates(rows, prefs, approved)
         if not candidates:
+            if any(gpu.id == approved.id for gpu in fresh):
+                # The GPU still exists but no longer fits the user's own policy: say so instead of
+                # silently going back to searching (no silent price escalation either way).
+                raise RunPodError("price_changed", 409)
             self.resume_search(user.id, prefs)
             return self.get_compute_status(user)
-        session = self.new_session(user, request, candidates[0], prefs)
+        session = self.new_session(user, request, candidates[0][0], prefs)
         session.max_hourly_price = min(prefs.max_hourly_price, approved.hourly_rate)
         with self.sessions() as db:
             db.add(session)
@@ -588,7 +628,13 @@ class RunPodController:
             control.next_search_at, control.search_quote_id, control.error_code = None, None, None
             self.event(db, "creating", session, user.id)
             db.commit()
-        for gpu in candidates[:3]:
+        # One total budget for the whole walk (never per candidate), and one bounded provider
+        # call at a time: a candidate can never consume the budget that belongs to the others.
+        deadline = self.clock() + timedelta(seconds=candidate_policy.ALLOCATION_WINDOW_SECONDS)
+        for gpu, candidate in candidates:
+            remaining = (deadline - self.clock()).total_seconds()
+            if remaining <= 0:
+                break
             with self.sessions() as db:
                 row = session_row(db, session.id)
                 row.gpu_type, row.gpu_vram_mb, row.hourly_rate = (
@@ -596,12 +642,26 @@ class RunPodController:
                     gpu.vram_gb * 1024,
                     gpu.hourly_rate,
                 )
+                row.datacenter, row.network_volume_id = candidate.datacenter, candidate.volume_id
                 row.status = "creating"
                 db.commit()
             try:
-                pod = await self.api.create_pod(session.pod_name, gpu)
+                pod = await self.api.create_pod(
+                    session.pod_name,
+                    gpu,
+                    cloud=candidate.cloud,
+                    datacenter=candidate.datacenter,
+                    volume_id=candidate.volume_id,
+                    timeout=min(float(candidate_policy.CANDIDATE_CALL_TIMEOUT_SECONDS), max(1.0, remaining)),
+                )
             except RunPodError as error:
-                if error.code == "placement_rejected" or error.status == 403:
+                if candidate_policy.create_verdict(error) == "walk":
+                    # Nothing was created, so the next placement of the *same* approved card is
+                    # tried at once: a start never waits for one machine, and never substitutes a
+                    # different GPU (the confirmation is bound to this card and this price).
+                    with self.sessions() as db:
+                        self.event(db, "placement_refused", session_row(db, session.id), user.id, error.code)
+                        db.commit()
                     continue
                 with self.sessions() as db:
                     row = session_row(db, session.id)
@@ -641,6 +701,49 @@ class RunPodController:
             db.commit()
         self.resume_search(user.id, prefs)
         return self.get_compute_status(user)
+
+    def placement_candidates(self, rows, prefs, approved) -> list[tuple[GpuOption, Any]]:
+        """The approved card in every placement the shared candidate policy allows.
+
+        Direct mode starts from a *confirmation*: the user approved one GPU id at one price, and
+        that payload is immutable (docs/compute-preferences.md). So the walk here never
+        substitutes a different card and never raises the price — it only refuses to wait for one
+        slot of the approved card, which is exactly what the shared policy orders.
+        """
+        placements = candidate_policy.parse_placements(
+            self.settings.runpod_datacenters,
+            primary=candidate_policy.Placement(
+                datacenter=self.settings.runpod_datacenter,
+                volume_id=self.settings.runpod_network_volume_id,
+            ),
+        )
+        plan = candidate_policy.build_plan(
+            rows,
+            min_vram_gb=prefs.min_vram_gb,
+            max_hourly_price=prefs.max_hourly_price,
+            placements=placements,
+            tiers=candidate_policy.cloud_tiers(
+                allow_community=bool(prefs.allow_community and self.settings.runpod_allow_community_cloud)
+            ),
+            selection="manual",
+            gpu_id=approved.id,
+        )
+        return [
+            (
+                GpuOption(
+                    id=item.gpu_id,
+                    name=item.gpu_name,
+                    vram_gb=item.vram_gb,
+                    hourly_rate=item.hourly_rate,
+                    availability=item.availability,
+                    compatible=True,
+                    selectable=True,
+                ),
+                item,
+            )
+            for item in plan.candidates
+            if item.hourly_rate <= approved.hourly_rate
+        ]
 
     def record_pod(self, row, pod):
         if not row.started_at and pod.started_at and pod.cost > 0:

@@ -244,3 +244,24 @@ Money conditions that are not request errors come back as a state plus `error_co
 | `apps/desktop/src/lib/compute.ts` | policy formatting and the truthful over-limit line |
 | `apps/desktop/src/components/ComputePanel.tsx` | the settings panel and its wording |
 | `apps/backend/tests/test_compute.py`, `apps/backend/tests/test_on_demand_ai.py`, `apps/gateway/tests/test_compute.py` | policy, bounds, selection, rejection and no-create coverage |
+
+## 11. Cloud tiers and the allocation candidate set (1.1.0)
+
+Two things are *policy the user can see*, not hidden behaviour:
+
+**Cloud tier.** A RunPod Community Cloud Pod cannot mount a Network Volume, and the model lives on
+one, so the product policy is Secure Cloud only by default (`RUNPOD_ALLOW_COMMUNITY_CLOUD=false`).
+A user's own `allow_community` preference exists, is sent as `allow_community` in the caps, and is
+decided by two gates: the deployment must permit the tier *and* the user must opt in — and even
+then only on a placement the operator declared Community-capable
+(`RUNPOD_DATACENTERS="US-TX-3:uwgeaie5b0:community"`). `GET /compute/status` reports the effective
+policy read-only (`policy.cloud_tiers`, `policy.community_allowed`, `policy.community_blocked_by`),
+and Settings → AI / Compute shows the choice with the reason it is unavailable, instead of a switch
+that silently does nothing.
+
+**Allocation candidates.** A model-required request no longer evaluates one physical placement: it
+walks an ordered candidate set (cheapest compatible GPU, Secure before Community, the model's own
+datacenter first) inside one **total** 60-second budget. A candidate that the provider refuses is
+left behind immediately and the next one is tried. The full contract — ordering, budget
+arithmetic, deduplication, the storage-topology audit and the deterministic test matrix — is
+[gpu-allocation.md](gpu-allocation.md).

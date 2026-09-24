@@ -1,24 +1,35 @@
 """Global compute authority.
 
-One RunPod account is shared by every installation, so the authority for "is there
-compute, who owns it, what may it cost and when does it stop" lives here, server-side,
-in the database — not in a client process and not in an asyncio lock.
+One RunPod account is shared by every installation, so the authority for "is there compute, who
+owns it, what may it cost and when does it stop" lives here, server-side, in the database — not
+in a client process and not in an asyncio lock.
 
 Rules this module must never break:
 
 * **one Pod.** A database lease plus a committed create intent means simultaneous
   ``ensure`` calls from different installations produce exactly one provider create.
+* **never pinned to one slot.** A model-required request walks an ordered *set* of compatible
+  placements (see the shared candidate policy ``app.compute.candidates``): one GPU id, one cloud
+  tier and one datacenter are not an allocation plan. A candidate that answers "no capacity",
+  "placement rejected" or "unavailable host" is left behind immediately, and the next compatible
+  candidate is tried at once.
+* **one total budget.** ``COMPUTE_SEARCH_TIMEOUT_SECONDS`` (60 s, server-side, hard-bounded) is
+  the whole user-facing allocation budget, never a per-candidate one: a walk re-reads the
+  remaining budget before every attempt and each provider call is capped by what is left.
 * **no blind retry.** An ambiguous create becomes ``create_unknown`` and is resolved by
   reconciling with the provider, never by firing another create. Retries are bounded by a
   server-side attempt budget, so a create that actually succeeded while answering with a
   timeout can never be followed by a second Pod.
 * **no destructive guessing.** Several Pods on the Volume, or a Pod Alex did not create,
-  are reported (``multiple_compute`` / ``external_compute``) and left untouched.
-* **server money.** ``$1.20/h`` and ``$3`` per session are ceilings: a client may only ask
-  for something stricter.
+  are reported (``multiple_compute`` / ``external_compute``) and left untouched. No code path
+  deletes the Network Volume.
+* **the user owns the money policy.** ``$0.52/h`` and ``$3`` per session are the *defaults* a new
+  user starts with; the caller's own values are honoured inside the technical bounds ($100/h,
+  $1000/session) and automatic mode always books the cheapest compatible GPU inside them.
 * **server startup deadline.** A Pod that never becomes ready is stopped by the Gateway, not
   by a client that may already be gone: see ``startup_expired`` and the startup watchdog.
-* **read-only status.** Nothing in ``status()`` starts, resumes or stops compute.
+* **read-only status.** Nothing in ``status()`` starts, resumes or stops compute, and it never
+  performs a provider round trip.
 """
 
 from __future__ import annotations
@@ -42,7 +53,14 @@ from .config import (
 )
 from .errors import GatewayError
 from .models import AuditEvent, GatewayCompute, GatewayOperation, GatewaySession, now
-from .provider import compact_ai, compute_preferences, provider_api, provider_error_messages
+from .provider import (
+    allocation_policy,
+    compact_ai,
+    compute_preferences,
+    gpu_option,
+    provider_api,
+    provider_error_messages,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,10 +116,8 @@ LEASE_SECONDS = 120
 OPERATION_TTL_SECONDS = 24 * 3600
 ALLOWED_AUTO_STOP = (0, 5, 10, 15, 30)
 
-# The provider only lets us schedule on these availability levels; anything else means the
-# hardware exists in the catalogue but cannot be booked right now. Capacity and price must
-# never be reported as the same thing.
-USABLE_STOCK = {"LOW", "MEDIUM", "HIGH"}
+# The provider's own usability vocabulary lives in the shared candidate policy
+# (``app.compute.candidates.USABLE_STOCK``); the Gateway must not keep a second copy of it.
 
 # A user's session budget is a ceiling, not a prepaid requirement: a session may start as
 # long as the account can fund a *meaningful* positive amount of compute. Below one cent
@@ -208,6 +224,9 @@ class ComputeAuthority:
         self.queue = queue
         self.lock = asyncio.Lock()
         self._last_activity_write: datetime | None = None
+        # The non-secret allocation record of the ensure call this process just served. The
+        # durable copy lives in the audit trail; this only saves the caller a second read.
+        self._last_allocation: dict | None = None
 
     # ------------------------------------------------------------------ infrastructure
 
@@ -392,22 +411,33 @@ class ComputeAuthority:
         )
         db.commit()
 
-    def collect_expired_search(self) -> bool:
+    def collect_expired_search(self, *, force: bool = False) -> bool:
         """Collapse a search that outlived its deadline. Returns whether one was collapsed.
 
         Server-side and independent of any client: the deadline is read from persisted
         timestamps, so a vanished caller cannot leave `searching` on the control row.
+
+        ``force`` closes a window whose allocation operation has *concluded* (every compatible
+        candidate was refused, or the budget ran out) before its deadline: `searching` may only
+        ever mean that a real allocation operation is active, so a finished one is closed here
+        instead of being left as amber until the deadline.
         """
         with self.sessions() as db:
             control = self.control(db)
-            if control.state != SEARCH_STATE or self.search_active(control):
+            if control.state != SEARCH_STATE or (not force and self.search_active(control)):
                 return False
             code = control.error_code or CAPACITY_UNAVAILABLE
             control.state = SEARCH_COLLAPSED_STATE
             control.error_code = code
             control.revision += 1
             control.updated_at = self.clock()
-            self.event(db, "search_expired", "error", error_code=code, detail=CAPACITY_UNAVAILABLE)
+            self.event(
+                db,
+                "search_closed" if force else "search_expired",
+                "error",
+                error_code=code,
+                detail=CAPACITY_UNAVAILABLE,
+            )
             db.commit()
             return True
 
@@ -444,6 +474,8 @@ class ComputeAuthority:
         selection = selection if selection in {"automatic", "manual"} else "automatic"
         selected = caps.get("gpu_id")
         selected = selected if isinstance(selected, str) and 1 <= len(selected) <= 160 else None
+        community = caps.get("allow_community")
+        community = bool(community) if isinstance(community, bool) else False
         return {
             "max_hourly_price": hourly,
             "session_budget": budget,
@@ -451,6 +483,10 @@ class ComputeAuthority:
             "min_vram_gb": max(vram, self.settings.runpod_min_vram_gb),
             "selection": selection,
             "gpu_id": selected if selection == "manual" else None,
+            # The user's own opt-in for the second cloud tier, *and* the deployment's policy: a
+            # preference can never switch on a tier the server does not offer (no hidden
+            # behaviour change — see docs/compute-preferences.md §11).
+            "allow_community": bool(community and self.settings.runpod_allow_community_cloud),
         }
 
     def _operation(self, db, operation_id: str, installation_id: str, kind: str) -> dict | None:
@@ -484,7 +520,24 @@ class ComputeAuthority:
             except IntegrityError:
                 db.rollback()
 
-    def event(self, db, operation: str, result: str, *, installation_id=None, error_code=None, detail=""):
+    def event(
+        self,
+        db,
+        operation: str,
+        result: str,
+        *,
+        installation_id=None,
+        error_code=None,
+        detail="",
+        record: dict | None = None,
+    ):
+        """Append one audit row.
+
+        ``record`` carries the structured, non-secret diagnostic payload (the ``cost`` JSON
+        column). It is what makes "why did Canalla fail to find a GPU?" answerable without
+        guessing: candidate, cloud tier, datacenter, attempt result, elapsed time, failure code.
+        Credentials, Pod keys and provider URLs never enter it.
+        """
         db.add(
             AuditEvent(
                 installation_id=installation_id,
@@ -492,6 +545,7 @@ class ComputeAuthority:
                 result=result,
                 error_code=error_code,
                 detail=str(detail)[:200],
+                cost=dict(record) if record else {},
                 created_at=self.clock(),
             )
         )
@@ -502,6 +556,164 @@ class ComputeAuthority:
             for row in db.scalars(select(GatewayOperation).where(GatewayOperation.created_at < cutoff)).all():
                 db.delete(row)
             db.commit()
+
+    # ------------------------------------------------------- allocation candidates (walking)
+
+    def candidate_limit(self) -> int:
+        return int(allocation_policy().MAX_CANDIDATE_ATTEMPTS)
+
+    def placements(self, volume=None) -> tuple:
+        """The placements a Pod may be created in, the Volume's own datacenter first.
+
+        The primary datacenter comes from the Network Volume the provider reports (the model
+        lives there), never from a constant, so scheduling is not restricted to one datacenter by
+        the code. Extra placements are the operator's own (``RUNPOD_DATACENTERS``), each with the
+        Volume it mounts there: adding a datacenter that cannot mount the model's Volume would
+        only produce Pods that cannot serve the configured model.
+        """
+        policy = allocation_policy()
+        datacenter = str(getattr(volume, "dataCenter", "") or self.settings.runpod_datacenter)
+        primary = policy.Placement(datacenter=datacenter, volume_id=self.settings.runpod_network_volume_id)
+        return policy.parse_placements(self.settings.runpod_datacenters, primary=primary)
+
+    def policy_payload(self) -> dict:
+        """What the allocator may use, in the product's own words. Read-only, never secret."""
+        policy = allocation_policy()
+        placements = self.placements()
+        allow = bool(self.settings.runpod_allow_community_cloud)
+        blocked = policy.community_blocked_by(allow_community=allow, placements=placements)
+        return {
+            "cloud_tiers": list(policy.cloud_tiers(allow_community=allow)),
+            "community_allowed": blocked is None,
+            "community_blocked_by": blocked,
+            "datacenters": [placement.audit() for placement in placements],
+            "candidate_limit": self.candidate_limit(),
+            "candidate_call_timeout_seconds": int(policy.CANDIDATE_CALL_TIMEOUT_SECONDS),
+            "allocation_timeout_seconds": int(self.settings.compute_search_timeout_seconds),
+        }
+
+    async def allocation_plan(self, caps: dict, *, volume=None):
+        """The ordered, bounded candidate set for this request, from the provider catalogue.
+
+        Derived from the product's own configuration: the model's CUDA floor (the catalogue
+        query), the VRAM floor, the user's own maximum $/hour and selection, the cloud-tier
+        policy and the placements that can mount the model's Network Volume. Never from guesses.
+        """
+        policy = allocation_policy()
+        placements = self.placements(volume)
+        offers = await self.api.gpu_offers()
+        return policy.build_plan(
+            offers,
+            min_vram_gb=int(caps["min_vram_gb"]),
+            max_hourly_price=caps["max_hourly_price"],
+            placements=placements,
+            tiers=policy.cloud_tiers(allow_community=bool(caps.get("allow_community"))),
+            selection=str(caps.get("selection") or "automatic"),
+            gpu_id=caps.get("gpu_id"),
+        )
+
+    def allocation_window(self, control: GatewayCompute | None = None) -> tuple[datetime, datetime]:
+        """The open bounded window: ``(started, deadline)``. Reused, never extended.
+
+        An existing live search window owns the remaining budget, so a second attempt inside it
+        cannot get another 60 s: that is what makes the timeout a *total* budget rather than one
+        budget per candidate.
+        """
+        if control is None:
+            with self.sessions() as db:
+                control = self.control(db)
+        started = self.search_started(control) or utc_present(self.clock())
+        return started, started + timedelta(seconds=self.settings.compute_search_timeout_seconds)
+
+    def candidate_call_timeout(self, deadline: datetime) -> float:
+        """How long one candidate's provider call may take: never more than what is left."""
+        remaining = (deadline - utc_present(self.clock())).total_seconds()
+        cap = float(allocation_policy().CANDIDATE_CALL_TIMEOUT_SECONDS)
+        return min(cap, max(1.0, remaining))
+
+    def allocation_record(
+        self,
+        *,
+        started: datetime,
+        deadline: datetime,
+        outcome: str,
+        reason: str | None,
+        attempts: list[dict],
+        selected: dict | None = None,
+        plan=None,
+    ) -> dict:
+        """The non-secret record of one allocation walk: the answer to "why no GPU?".
+
+        Deliberately carries no request metadata (no operation id, no task id) and nothing
+        secret: it describes *placements* — candidate GPU, cloud tier, datacenter, attempt
+        result, elapsed time, failure code — and the client-facing copy stays free of request
+        identifiers. The durable audit copy adds the operation id.
+        """
+        finished = utc_present(self.clock())
+        record = {
+            "outcome": outcome,
+            "reason": reason,
+            "started_at": utc_present(started).isoformat(),
+            "finished_at": finished.isoformat(),
+            "elapsed_seconds": round((finished - utc_present(started)).total_seconds(), 3),
+            "budget_seconds": int(self.settings.compute_search_timeout_seconds),
+            "deadline": deadline.isoformat(),
+            "candidate_limit": self.candidate_limit(),
+            "attempts": attempts,
+            "selected": selected,
+            "policy": self.policy_payload(),
+        }
+        if plan is not None:
+            record["plan"] = plan.audit()
+        return record
+
+    def record_allocation(
+        self,
+        installation_id,
+        record: dict,
+        *,
+        operation_id: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        """Persist one allocation walk (one audit row, structured and non-secret)."""
+        summary = "; ".join(
+            f"{item.get('cloud')}/{item.get('datacenter')}/{item.get('gpu')} "
+            f"{item.get('result')}" + (f"={item.get('error_code')}" if item.get("error_code") else "")
+            for item in record.get("attempts") or []
+        )
+        self._last_allocation = dict(record)
+        durable = dict(record, operation_id=operation_id)
+        with self.sessions() as db:
+            self.event(
+                db,
+                "allocation",
+                "ok" if record.get("outcome") == "selected" else "error",
+                installation_id=installation_id,
+                error_code=reason or record.get("reason"),
+                detail=summary or (record.get("outcome") or ""),
+                record=durable,
+            )
+            db.commit()
+
+    def allocation_for_operation(self, operation_id: str | None) -> dict | None:
+        """The allocation record of one operation id. The PK makes it unambiguous."""
+        if not operation_id:
+            return None
+        with self.sessions() as db:
+            row = db.get(GatewayOperation, operation_id)
+            payload = dict(row.result or {}) if row is not None else {}
+        record = payload.get("allocation")
+        return record if isinstance(record, dict) else None
+
+    @staticmethod
+    def create_verdict(error) -> str:
+        """What a failed create means for the candidate walk (shared with direct mode)."""
+        return allocation_policy().create_verdict(error)
+
+    @staticmethod
+    def refusal_reason(error) -> str:
+        """The product code a walked-past refusal ends with (shared with direct mode)."""
+        return allocation_policy().refusal_reason(error)
 
     # ------------------------------------------------------------------------- status
 
@@ -552,6 +764,10 @@ class ComputeAuthority:
             "startup_deadline": self.startup_deadline(session),
             # A search is only reported as one while it has an identity and a live deadline.
             "search": self.search_payload(control),
+            # What the allocator may use, and what the last operation actually tried. Both are
+            # read-only, non-secret, and answer "why did Canalla fail to find a GPU?".
+            "policy": self.policy_payload(),
+            "allocation": self.allocation_for_operation(control.last_operation_id),
             "updated_at": iso(control.updated_at),
         }
 
@@ -879,6 +1095,7 @@ class ComputeAuthority:
                 cached = self._operation(db, operation_id, installation_id, "ensure")
             if cached is not None:
                 return self._live_payload(cached)
+            self._last_allocation = None
             payload = await self._reconcile_locked()
             state = payload["state"]
             with self.sessions() as db:
@@ -908,6 +1125,8 @@ class ComputeAuthority:
             payload = self.status_payload()
             payload["balance"] = await self.balance.snapshot()
             payload["task_id"] = task_id
+            if self._last_allocation is not None:
+                payload["allocation"] = self._last_allocation
             # Ambiguous states are deliberately not cached: the client retries the same
             # operation id to learn the reconciled answer, and never to trigger a create.
             if state not in {"create_unknown", "multiple_compute", "error", "not_configured"}:
@@ -967,102 +1186,267 @@ class ComputeAuthority:
                 return self.status_payload()
             caps = {**caps, "session_budget": effective}
 
-        prefs = compute_preferences(
+        # The shared schema still validates exactly like direct mode (one policy vocabulary).
+        compute_preferences(
             selection=caps["selection"],
             min_vram_gb=caps["min_vram_gb"],
             max_hourly_price=caps["max_hourly_price"],
             session_budget=caps["session_budget"],
             auto_stop_minutes=caps["auto_stop_minutes"],
             gpu_id=caps["gpu_id"],
+            allow_community=caps["allow_community"],
         )
+        started, deadline = self.allocation_window()
         try:
-            await self.api.volume()
-            options = await self.api.gpu_options(prefs)
+            volume = await self.api.volume()
+            plan = await self.allocation_plan(caps, volume=volume)
         except Exception as error:
             code = getattr(error, "code", "runpod_unavailable")
             with self.sessions() as db:
                 self._set_state(db, "error", error_code=code)
             return self.status_payload()
-        candidates = [
-            gpu for gpu in options if gpu.selectable and gpu.hourly_rate <= caps["max_hourly_price"]
-        ]
-        if not candidates:
+        if not plan:
             # Say what is actually missing: capacity, price, or a GPU that fits the model.
-            compatible = [gpu for gpu in options if gpu.compatible]
-            in_stock = [gpu for gpu in compatible if gpu.availability in USABLE_STOCK]
-            if not compatible:
-                reason = "no_compatible_gpu"
-            elif not in_stock:
-                reason = "gpu_unavailable"
-            else:
-                reason = "price_limit"
             with self.sessions() as db:
                 self._note_search(
-                    db, reason=reason, operation_id=operation_id, installation_id=installation_id
+                    db, reason=plan.reason, operation_id=operation_id, installation_id=installation_id
                 )
+            self.record_allocation(
+                installation_id,
+                self.allocation_record(
+                    started=started,
+                    deadline=deadline,
+                    outcome="no_candidates",
+                    reason=plan.reason,
+                    attempts=[],
+                    plan=plan,
+                ),
+                operation_id=operation_id,
+                reason=plan.reason,
+            )
             return self.status_payload()
-        gpu = min(candidates, key=lambda option: (option.hourly_rate, option.id))
+        return await self._walk_candidates(
+            installation_id, caps, task_id, plan, deadline=deadline, operation_id=operation_id
+        )
 
+    async def _walk_candidates(
+        self,
+        installation_id: str,
+        caps: dict,
+        task_id: str | None,
+        plan,
+        *,
+        deadline: datetime,
+        operation_id: str | None,
+    ) -> dict:
+        """Try the ordered candidates until one is created, the budget is spent or the answer is
+        ambiguous. A refused candidate costs nothing and never waits: the next compatible one is
+        tried immediately, so the allocation can never be pinned to one machine.
+
+        Exactly one Pod can come out of this: an ambiguous create ends the walk (existing
+        ``create_unknown`` rule) and a successful one returns immediately.
+        """
+        started = utc_present(self.clock())
         session_id = str(uuid4())
+        opened = False
+        attempts: list[dict] = []
+        for index, candidate in enumerate(plan.candidates):
+            remaining = (deadline - utc_present(self.clock())).total_seconds()
+            if remaining <= 0:
+                attempts.append(
+                    {
+                        "index": index,
+                        "gpu": candidate.gpu_id,
+                        "cloud": candidate.cloud,
+                        "datacenter": candidate.datacenter,
+                        "result": "skipped",
+                        "error_code": "allocation_deadline",
+                        "reason": CAPACITY_UNAVAILABLE,
+                        "elapsed_seconds": 0.0,
+                    }
+                )
+                break
+            if not opened:
+                self._open_candidate(session_id, installation_id, candidate, caps, started, task_id=task_id)
+                opened = True
+            else:
+                self._repoint_candidate(session_id, candidate)
+            attempt_started = utc_present(self.clock())
+            gpu = gpu_option(
+                id=candidate.gpu_id,
+                name=candidate.gpu_name,
+                vram_gb=candidate.vram_gb,
+                hourly_rate=candidate.hourly_rate,
+                availability=candidate.availability,
+                compatible=True,
+                selectable=True,
+            )
+            try:
+                pod = await self.api.create_pod(
+                    f"alex-gw-{session_id}",
+                    gpu,
+                    cloud=candidate.cloud,
+                    datacenter=candidate.datacenter,
+                    volume_id=candidate.volume_id,
+                    timeout=self.candidate_call_timeout(deadline),
+                )
+            except Exception as error:
+                code = getattr(error, "code", "runpod_unavailable")
+                verdict = self.create_verdict(error)
+                attempts.append(
+                    {
+                        "index": index,
+                        "gpu": candidate.gpu_id,
+                        "cloud": candidate.cloud,
+                        "datacenter": candidate.datacenter,
+                        "result": "refused" if verdict == "walk" else verdict,
+                        "error_code": code,
+                        # The product conclusion this refusal would end with, so a walked-past
+                        # `not_found` is not reported as "no capacity" later on.
+                        "reason": self.refusal_reason(error),
+                        "elapsed_seconds": round(
+                            (utc_present(self.clock()) - attempt_started).total_seconds(), 3
+                        ),
+                    }
+                )
+                if verdict == "walk":
+                    # Nothing was created, so the next compatible candidate is tried at once.
+                    continue
+                with self.sessions() as db:
+                    row = db.get(GatewaySession, session_id)
+                    if verdict == "ambiguous":
+                        row.state = "create_unknown"
+                        row.error_code = "create_unknown"
+                        self._set_state(db, "create_unknown", error_code="create_unknown")
+                        self.event(
+                            db, "create_unknown", "error", installation_id=installation_id, error_code=code
+                        )
+                        outcome = "create_unknown"
+                    else:
+                        self._finalize(db, row, "create_failed", error_code=code)
+                        outcome = "failed"
+                self.record_allocation(
+                    installation_id,
+                    self.allocation_record(
+                        started=started,
+                        deadline=deadline,
+                        outcome=outcome,
+                        reason=code,
+                        attempts=attempts,
+                        plan=plan,
+                    ),
+                    operation_id=operation_id,
+                    reason=code,
+                )
+                return self.status_payload()
+            attempts.append(
+                {
+                    "index": index,
+                    "gpu": candidate.gpu_id,
+                    "cloud": candidate.cloud,
+                    "datacenter": candidate.datacenter,
+                    "result": "selected",
+                    "error_code": None,
+                    "elapsed_seconds": round(
+                        (utc_present(self.clock()) - attempt_started).total_seconds(), 3
+                    ),
+                }
+            )
+            with self.sessions() as db:
+                row = db.get(GatewaySession, session_id)
+                row.pod_id = pod.id
+                row.state = "starting_pod"
+                if pod.started_at and pod.cost > 0:
+                    row.started_at = utc(datetime.fromisoformat(pod.started_at.replace("Z", "+00:00")))
+                    row.hourly_rate = pod.cost
+                control = self.control(db)
+                control.create_attempts = 0
+                self._set_state(db, "starting_pod", error_code=None)
+                self.event(db, "starting_pod", "ok", installation_id=installation_id)
+            self.record_allocation(
+                installation_id,
+                self.allocation_record(
+                    started=started,
+                    deadline=deadline,
+                    outcome="selected",
+                    reason=None,
+                    attempts=attempts,
+                    selected=candidate.audit(),
+                    plan=plan,
+                ),
+                operation_id=operation_id,
+            )
+            if pod.cost > caps["max_hourly_price"]:
+                await self._terminate(session_id, "price_violation")
+            return self.status_payload()
+        # Every compatible candidate was refused (or the window closed before one could be tried).
+        # The allocation operation is over, so it is closed here: `searching` may only mean that a
+        # real operation is active, and the user gets the typed capacity conclusion, not amber.
+        reason = CAPACITY_UNAVAILABLE
+        if attempts:
+            reason = attempts[-1].get("reason") or CAPACITY_UNAVAILABLE
+        if reason not in SEARCH_ERRORS:
+            reason = CAPACITY_UNAVAILABLE
+        with self.sessions() as db:
+            row = db.get(GatewaySession, session_id) if opened else None
+            if row is not None:
+                self._finalize(db, row, "create_failed", error_code=reason)
+            self._note_search(db, reason=reason, operation_id=operation_id, installation_id=installation_id)
+        self.collect_expired_search(force=True)
+        self.record_allocation(
+            installation_id,
+            self.allocation_record(
+                started=started,
+                deadline=deadline,
+                outcome="capacity_unavailable",
+                reason=reason,
+                attempts=attempts,
+                plan=plan,
+            ),
+            operation_id=operation_id,
+            reason=reason,
+        )
+        return self.status_payload()
+
+    def _open_candidate(
+        self, session_id: str, installation_id: str, candidate, caps: dict, started, *, task_id=None
+    ):
+        """Commit the create intent for the first candidate before any provider call."""
         with self.sessions() as db:
             session = GatewaySession(
                 id=session_id,
                 pod_name="alex-gw-" + session_id,
                 state="creating",
-                gpu_type=gpu.id,
-                gpu_vram_mb=gpu.vram_gb * 1024,
-                hourly_rate=gpu.hourly_rate,
-                max_hourly_price=min(caps["max_hourly_price"], gpu.hourly_rate),
+                gpu_type=candidate.gpu_id,
+                gpu_vram_mb=candidate.vram_gb * 1024,
+                hourly_rate=candidate.hourly_rate,
+                max_hourly_price=min(caps["max_hourly_price"], candidate.hourly_rate),
                 session_budget=caps["session_budget"],
                 auto_stop_minutes=caps["auto_stop_minutes"],
                 created_by_installation_id=installation_id,
                 managed=True,
                 adopted=False,
                 create_attempts=int(self.control(db).create_attempts or 0),
-                intent_at=self.clock(),
-                created_at=self.clock(),
-                last_activity_at=self.clock(),
+                intent_at=started,
+                created_at=started,
+                last_activity_at=started,
             )
             db.add(session)
             control = self.control(db)
             control.active_session_id = session.id
             self.event(db, "creating", "ok", installation_id=installation_id, detail=task_id or "")
             self._set_state(db, "creating", error_code=None, touch=True)
-        try:
-            pod = await self.api.create_pod(session.pod_name, gpu)
-        except Exception as error:
-            code = getattr(error, "code", "runpod_unavailable")
-            ambiguous = (
-                code in {"runpod_timeout", "runpod_unavailable", "malformed_response"}
-                or (getattr(error, "status", 502) or 502) >= 500
-            )
-            with self.sessions() as db:
-                row = db.get(GatewaySession, session_id)
-                if ambiguous:
-                    # NO second create: reconcile with the provider first.
-                    row.state = "create_unknown"
-                    row.error_code = "create_unknown"
-                    self._set_state(db, "create_unknown", error_code="create_unknown")
-                    self.event(
-                        db, "create_unknown", "error", installation_id=installation_id, error_code=code
-                    )
-                else:
-                    self._finalize(db, row, "create_failed", error_code=code)
-            return self.status_payload()
+
+    def _repoint_candidate(self, session_id: str, candidate) -> None:
+        """The refused candidate is replaced by the next one on the same attempt record."""
         with self.sessions() as db:
             row = db.get(GatewaySession, session_id)
-            row.pod_id = pod.id
-            row.state = "starting_pod"
-            if pod.started_at and pod.cost > 0:
-                row.started_at = utc(datetime.fromisoformat(pod.started_at.replace("Z", "+00:00")))
-                row.hourly_rate = pod.cost
-            control = self.control(db)
-            control.create_attempts = 0
-            self._set_state(db, "starting_pod", error_code=None)
-            self.event(db, "starting_pod", "ok", installation_id=installation_id)
-        if pod.cost > caps["max_hourly_price"]:
-            await self._terminate(session_id, "price_violation")
-        return self.status_payload()
+            row.gpu_type = candidate.gpu_id
+            row.gpu_vram_mb = candidate.vram_gb * 1024
+            row.hourly_rate = candidate.hourly_rate
+            row.max_hourly_price = min(row.max_hourly_price, candidate.hourly_rate)
+            row.intent_at = self.clock()
+            db.commit()
 
     # ---------------------------------------------------------------------------- stop
 

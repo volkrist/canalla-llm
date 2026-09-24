@@ -234,6 +234,49 @@ user request starts one new bounded attempt. Amber `Connecting` is legitimate on
 an operation is live — `compact_ai(..., search_active=...)` decides, and the frontend only
 refuses to promise a transition the snapshot itself contradicts.
 
+## Allocation candidates (never one pinned slot)
+
+Three fixed placements were never an allocation plan. A model-required request now walks an
+**ordered candidate set** — `(GPU, cloud tier, placement)` where a placement is
+`(datacenter, Network Volume)` — through one shared policy,
+`apps/backend/app/compute/candidates.py`, imported by the Gateway as well
+(`gateway/provider.py:allocation_policy()`). One policy, two provider modes: cheapest compatible
+GPU first, Secure Cloud before Community, the Volume's own datacenter first.
+
+Rules that must not be broken:
+
+- A candidate the provider *refuses* to place (400/409 `placement_rejected`, 404, 422, 403) is
+  left behind **immediately** and the next compatible candidate is tried; nothing was created, so
+  nothing is duplicated. An *ambiguous* answer (timeout, 5xx) still ends the walk as
+  `create_unknown` and is never followed by a second create.
+- The 60 seconds are a **total** budget, never per candidate: the walk re-reads the remaining
+  budget before every attempt, every provider call is capped by
+  `min(CANDIDATE_CALL_TIMEOUT_SECONDS, remaining)` (15 s), and at most `MAX_CANDIDATE_ATTEMPTS`
+  (3) candidates are tried per walk.
+- A concluded walk **closes the operation**: `offline` with the typed reason
+  (`gpu_unavailable` / `no_compatible_gpu` / `price_limit`) and a red Disconnected badge, never a
+  lingering amber. `searching` may only mean a real allocation operation is active with an
+  unexpired deadline.
+- At most one managed allocation attempt per compute identity: the database lease serializes
+  `ensure`, operation ids replay, the create intent is committed before the provider call, and
+  reconciliation owns the one-Pod rule.
+- Community Cloud is **off** by default and is never enabled silently: the tier needs
+  `RUNPOD_ALLOW_COMMUNITY_CLOUD=true` *and* a placement the operator declared Community-capable
+  (`RUNPOD_DATACENTERS="DC:VOLUME:community"`) *and* the user's own `allow_community` preference.
+  The effective policy is reported read-only in `GET /compute/status` → `policy`.
+- `RUNPOD_DATACENTERS` only *adds* `DC:VOLUME` placements; the Volume's own datacenter is always
+  first and is read from the provider. A datacenter that cannot mount the model's Volume cannot
+  serve the configured model, so an added placement needs its own Volume.
+- Every walk records a **non-secret** allocation diagnostic (candidate, tier, datacenter, result,
+  elapsed, failure code, selection, plan) in the audit trail and in the `allocation` field of the
+  ensure/status payload. Never a credential, a Pod id or a provider URL.
+
+The storage topology that makes this safe is audited in the same document:
+[docs/gpu-allocation.md](docs/gpu-allocation.md) — the model, the scripts and llama.cpp's state
+live on the Network Volume, so a terminated Pod loses no model state, and **no new automatic
+terminate/redeploy path was added** (a refused candidate has nothing to terminate, and a stuck
+Pod is already owned by D-9).
+
 ## Startup deadline (D-9)
 
 A managed Pod that never becomes `ready` used to bill until the session budget ran out, because the
