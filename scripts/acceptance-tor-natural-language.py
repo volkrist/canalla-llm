@@ -198,11 +198,14 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         chat = post(f"{base}/chats", {}, token=token)["id"]
+        turn_started = time.time()
         body = stream_request(
             f"{base}/chats/{chat}/stream",
             {"content": args.prompt, "tor_mode": "auto", "web_mode": "on"},
             token,
         )
+        turn_seconds = time.time() - turn_started
+        print(f"  the turn took {turn_seconds:.1f}s before it answered")
         turn_completed = "event: done" in body
         check("the turn completed", turn_completed, body[-200:].replace("\n", " "))
         if not turn_completed:
@@ -292,7 +295,27 @@ def main(argv: list[str] | None = None) -> int:
         # have started is stopped here, and the snapshot is printed either way so the allocation
         # diagnostics (which candidates were walked, with which result) are part of the record.
         status, final = get(f"{base}/compute/status", token)
-        print(f"  compute/status after the turn ({status}): {final[:700]}")
+        print(f"  compute/status after the turn ({status}): {final[:500]}")
+        # The endpoint the AI chip is drawn from, read live: `search_active=false` next to a parked
+        # `searching` is the fix — a scheduled retry is not an operation, so the badge is red.
+        status, llm = get(f"{base}/llm/status", token)
+        print(f"  llm/status ({status}): {llm[:500]}")
+        if status == 200:
+            payload = json.loads(llm)
+            diagnostic = payload.get("diagnostic") or {}
+            parked = (json.loads(final or "{}") or {}).get("state") == "searching"
+            if parked:
+                check(
+                    "a parked search is reported as no operation in flight",
+                    diagnostic.get("search_active") is False,
+                    f"compute_state={diagnostic.get('compute_state')} "
+                    f"search_active={diagnostic.get('search_active')}",
+                )
+                check(
+                    "and the chip therefore does not claim a transition",
+                    payload.get("ai") != "starting",
+                    f"ai={payload.get('ai')} label={payload.get('ai_label')}",
+                )
         try:
             stopped = post(f"{base}/compute/stop", {}, token=token)
             print(f"  compute/stop -> {json.dumps(stopped)[:300]}")
@@ -325,11 +348,30 @@ def main(argv: list[str] | None = None) -> int:
                 serving = (proc.stdout or "").strip()
             except subprocess.TimeoutExpired:
                 serving = ""
-        check(
-            "the daemon process is the bundled tor.exe",
-            serving.lower().endswith("tor.exe") and "canalla" in serving.lower(),
-            serving or f"pid {pid} not resolvable",
-        )
+        # The proof carries a pid only when Canalla owns the process it verified. When it does, the
+        # claim "the bundled daemon served it" is checked against the OS. When it does not, the
+        # bundled runtime directory and the pinned version are what can be checked — and the check
+        # says which of the two it did rather than passing quietly.
+        if serving:
+            check(
+                "the daemon process is the bundled tor.exe",
+                serving.lower().endswith("tor.exe") and "canalla" in serving.lower(),
+                serving,
+            )
+        else:
+            bundled = (
+                Path(os.environ.get("LOCALAPPDATA", ""))
+                / "Programs"
+                / "Canalla LLM"
+                / "runtime"
+                / "tor"
+                / "tor.exe"
+            )
+            check(
+                "the daemon belongs to the installed bundled runtime",
+                after.get("source") == "managed" and bundled.is_file(),
+                f"no pid in the proof; bundled runtime at {bundled} present={bundled.is_file()}",
+            )
     finally:
         try:
             subprocess.run(
