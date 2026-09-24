@@ -112,8 +112,14 @@ clearnet/onion pair). Reachability never implies official:
 ## Limits
 
 SOCKS is loopback-only. TinyFish is not used. Paid Agent/Browser are not Tor
-transports. Migration 0010 adds `web_source_snapshots.details` for Tor research
+**transports** — and when a Tor route is required they are refused with the typed
+`tor_route_unsupported` (an explicit call) or `tor_route_violation_blocked` (a planner call)
+instead of being sent over the direct network. Migration 0010 adds `web_source_snapshots.details` for Tor research
 metadata.
+
+**Known hole, product-decided:** the local process tools (`run_python`/`run_process`) are not covered
+by the `TOR_ONLY` guard while Computer is on — they run on this computer, and the product does not
+claim their own network calls went through Tor (or that they did not).
 
 ## Tor service (1.1.0)
 

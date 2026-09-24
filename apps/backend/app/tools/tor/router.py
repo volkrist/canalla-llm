@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit
 
 from ..web_router import CHITCHAT, REWRITE, canonical_url
-from .urls import is_onion
+from .urls import is_onion, unsafe_tor_url
 
 NO_TOR = re.compile(
     r"(?i)("
@@ -41,6 +41,57 @@ MATH = re.compile(r"(?i)^(сколько будет|what('?s| is) \d|[\d\s+\-*/(
 ONION_IN_PROMPT = re.compile(
     r"https?://(?:[a-z2-7]{56}|[a-z2-7]{16})\.onion(?:/[^\s<>\"')\]]*)?",
     re.I,
+)
+# Every http(s) URL the user typed, and every bare host they named (``example.com/path``). Only
+# ATYP-3 hosts leave this module: what the prompt says is a destination, not a resolved address.
+HTTP_URL_IN_PROMPT = re.compile(r"(?i)https?://[^\s<>\"'()\[\]]+")
+BARE_HOST_IN_PROMPT = re.compile(
+    r"(?i)(?<![@\w.-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}(?:/[^\s<>\"'()\[\]]*)?"
+)
+TRAILING_PUNCTUATION = ").,];!?\"'"
+# A bare ``name.ext`` can be a file the prompt talks about (``calculator.py``) as easily as a host.
+# Only the last label decides, and a user who really means such a host can type the scheme.
+FILE_LIKE_LABELS = frozenset(
+    {
+        "bak",
+        "bat",
+        "bin",
+        "cfg",
+        "csv",
+        "css",
+        "db",
+        "dll",
+        "env",
+        "exe",
+        "html",
+        "ini",
+        "iso",
+        "jar",
+        "js",
+        "json",
+        "jsx",
+        "lock",
+        "log",
+        "md",
+        "pdf",
+        "png",
+        "ps1",
+        "py",
+        "pyc",
+        "rst",
+        "sh",
+        "sql",
+        "svg",
+        "tmp",
+        "toml",
+        "ts",
+        "tsx",
+        "txt",
+        "xml",
+        "yaml",
+        "yml",
+        "zip",
+    }
 )
 LOCAL_ONLY = re.compile(r"(?i)(pytest|локальн\w* проект|тестов\w* папк|workspace|calculator\.py)")
 BLOCKED_SCHEMES = {"mailto", "javascript", "data", "file", "magnet", "blob", "about", "chrome"}
@@ -124,6 +175,47 @@ def onion_urls_from_prompt(prompt: str) -> list[str]:
         url = match.group(0).rstrip(").,];")
         host = (urlsplit(url).hostname or "").rstrip(".").lower()
         if blocked_link(url) or not is_onion(host):
+            continue
+        key = normalize_http_url(url) or url.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append(url)
+    return found
+
+
+def http_urls_from_prompt(prompt: str) -> list[str]:
+    """The pages a fetch-first Tor action must visit when the prompt names them.
+
+    ``onion_urls_from_prompt`` stays .onion-only on purpose (it answers "is this a hidden-service
+    request"); this answers "which pages did the user name", so «Открой example.com через Tor»
+    reaches example.com over the Tor route instead of the direct one. Onions come first, then typed
+    http(s) URLs, then bare hosts normalised to ``https://``; every candidate is filtered by
+    :func:`blocked_link` and the Tor URL rules and de-duplicated by canonical form.
+    """
+    text = prompt or ""
+    candidates = list(onion_urls_from_prompt(text))
+    spans, typed = [], []
+    for match in HTTP_URL_IN_PROMPT.finditer(text):
+        spans.append(match.span())
+        typed.append(match.group(0).rstrip(TRAILING_PUNCTUATION))
+    bare = []
+    for match in BARE_HOST_IN_PROMPT.finditer(text):
+        if any(start <= match.start() < end for start, end in spans):
+            continue
+        host = match.group(0).split("/", 1)[0].rstrip(".").lower()
+        # A scheme-less onion is not a URL the user gave: onion handling stays exactly as it was.
+        if is_onion(host) or host.rsplit(".", 1)[-1] in FILE_LIKE_LABELS:
+            continue
+        bare.append("https://" + match.group(0).rstrip(TRAILING_PUNCTUATION))
+    found, seen = [], set()
+    for url in [*candidates, *typed, *bare]:
+        host = (urlsplit(url).hostname or "").rstrip(".").lower()
+        # A host that claims to be a hidden service and is not a well-formed one is a typo, not a
+        # page: it would only burn a call on an unreachable address.
+        if host.endswith(".onion") and not is_onion(host):
+            continue
+        if blocked_link(url) or unsafe_tor_url(url):
             continue
         key = normalize_http_url(url) or url.lower()
         if key in seen:

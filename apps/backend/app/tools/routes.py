@@ -85,6 +85,41 @@ class ExplicitTool(BaseModel):
     chat_id: str = Field(max_length=36)
     name: str = Field(max_length=80)
     arguments: dict
+    # An explicit caller may *require* the Tor route; it can never lower the route the chat itself
+    # requires (see ``explicit_route_policy``).
+    network_route: str = Field(default="", max_length=16)
+
+
+def explicit_route_policy(db: Session, chat_id: str, prefs: WebSettings, requested: str) -> str:
+    """The route an explicit tool call has to honour, derived from the chat it belongs to.
+
+    The planner path classifies the user's prompt — «…через Tor» is ``TOR_ONLY`` there — and the
+    explicit path has no prompt of its own, so it inherits the chat's newest user message instead of
+    trusting the caller to declare it. The body may only raise the floor to ``TOR_ONLY``; any other
+    value is refused, so a client can neither bypass nor invent a route.
+    """
+    from .tor.router import classify_tor, looks_like_tor
+
+    if requested and requested != "TOR_ONLY":
+        raise HTTPException(422, "Неизвестный маршрут сети")
+    requires_tor = requested == "TOR_ONLY"
+    if not requires_tor:
+        prompt = (
+            db.scalar(
+                select(Message.content)
+                .where(Message.chat_id == chat_id, Message.role == "user")
+                .order_by(Message.created_at.desc(), Message.id.desc())
+                .limit(1)
+            )
+            or ""
+        )
+        mode = (
+            prefs.tor_mode
+            if prefs.tor_mode in {"off", "auto", "on"}
+            else ("auto" if prefs.tor_enabled else "off")
+        )
+        requires_tor = bool(looks_like_tor(prompt) or classify_tor(prompt, mode).required)
+    return "TOR_ONLY" if requires_tor else ""
 
 
 @router.post("/tools/execute")
@@ -102,6 +137,7 @@ async def execute_tool(
         raise HTTPException(422, "Слишком большой запрос инструмента")
     owner = user.id
     prefs = preferences(db, user.id)
+    route_policy = explicit_route_policy(db, body.chat_id, prefs, body.network_route)
 
     async def stream():
         queue = asyncio.Queue(maxsize=64)
@@ -123,6 +159,9 @@ async def execute_tool(
             tor_enabled=prefs.tor_enabled,
             tor_mode=prefs.tor_mode,
             explicit=True,
+            # The same route policy the task path would have applied: an explicit tool call can
+            # never be the way around TOR_ONLY.
+            network_route=route_policy,
             settings=prefs,
             secrets=(
                 settings.tinyfish_api_key.get_secret_value(),

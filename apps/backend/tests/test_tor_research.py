@@ -2,10 +2,12 @@ import asyncio
 import json
 
 import pytest
+from fakes_tor import FakeSocks5hServer, FakeTorService, closed_port, dns_tripwire
 
 from app.tools.contracts import ToolProvider, ToolResult
 from app.tools.registry import make_registry
 from app.tools.tor.browser import TorBrowserProvider, browser_status
+from app.tools.tor.provider import TorFetchProvider
 
 ONION = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion"
 ROOT = "http://" + ONION + "/"
@@ -554,3 +556,240 @@ def test_no_use_tor_browser_disables_browser_tools(client, auth, tor_tools, monk
     assert "event: done" in response.text
     names = [row["tool_name"] for row in client.get("/tools/runs", headers=headers).json()]
     assert "tor_browser" not in names
+
+
+# ------------------------------------- a named clearnet URL goes through Tor, or not at all
+
+
+class SilentPlanner:
+    """A planner that proposes nothing: every action below is the server's own policy."""
+
+    supports_tools = True
+
+    async def plan_tools(self, messages, tools, usage):
+        return {"tool_calls": []}
+
+    async def stream_with_usage(self, messages, usage):
+        yield "Tor answer"
+
+
+def tor_route_registry(web_fakes, *, fetch_provider=None):
+    """The Tor tools (the real fetch provider by default) next to recording clearnet fakes."""
+    from dataclasses import replace
+
+    from fakes_web import FakeWebProvider
+
+    from app.tools.contracts import ToolRegistry
+
+    original, registry = make_registry(), ToolRegistry()
+    for definition in original.definitions(auto_only=False):
+        if definition.provider == "local_device":
+            continue
+        if definition.provider == "tor":
+            provider = (
+                fetch_provider
+                if definition.name == "tor_fetch" and fetch_provider is not None
+                else FakeTor(definition.capability)
+            )
+            registry.register(replace(definition), provider)
+        elif definition.capability in {"search", "fetch"}:
+            fake = FakeWebProvider(definition.capability)
+            web_fakes.append(fake)
+            registry.register(replace(definition), fake)
+    return registry
+
+
+def clearnet_runs(runs):
+    return [row["tool_name"] for row in runs if row["tool_name"] in {"web_search", "web_fetch"}]
+
+
+def test_named_clearnet_url_is_fetched_through_tor_over_socks5h(client, auth, monkeypatch, route_service):
+    """«Открой … через Tor»: the server fetches the named URL through Canalla's own SOCKS5h route,
+    and the run carries the proof — not just the chip."""
+    web_fakes = []
+    # The whole process may not resolve the destination: the name has to reach the proxy.
+    attempts, _install_loop_guard = dns_tripwire(monkeypatch)
+    with FakeSocks5hServer() as server:
+        service = route_service(FakeTorService(server.endpoint, verified=True))
+        monkeypatch.setattr(
+            client.app.state,
+            "tools",
+            tor_route_registry(web_fakes, fetch_provider=TorFetchProvider()),
+        )
+        monkeypatch.setattr(client.app.state, "provider", SilentPlanner())
+        headers = auth()
+        chat = client.post("/chats", headers=headers, json={}).json()["id"]
+        response = client.post(
+            f"/chats/{chat}/stream",
+            headers=headers,
+            json={
+                "content": "Открой http://example.com/ через Tor",
+                "tor_mode": "auto",
+                "web_mode": "on",
+            },
+        )
+        assert "event: done" in response.text
+        runs = client.get("/tools/runs", headers=headers).json()
+        requests = list(server.requests)
+
+    fetches = [row for row in runs if row["tool_name"] == "tor_fetch"]
+    assert len(fetches) == 1, runs
+    assert fetches[0]["status"] == "completed"
+    assert fetches[0]["origin"] == "server_policy"
+    # Bytes on the wire: the clearnet name reached the proxy as a name (ATYP 3) on port 80.
+    assert requests == [("example.com", 80, 3)]
+    metadata = fetches[0]["result_metadata"]
+    assert metadata["transport"] == "tor-socks5h"
+    assert metadata["socks"]["atyp"] == 3
+    assert metadata["socks"]["local_dns"] is False
+    assert metadata["socks"]["dest_host"] == "example.com"
+    assert metadata["route"] == "TOR_ONLY"
+    # The circuit proof rides on the run itself.
+    assert metadata["verified_chain"] is True
+    assert metadata["verified_at"] == "2026-09-24T00:00:00+00:00"
+    assert metadata["managed"] is True
+    assert service.snapshot_calls >= 1
+    # No clearnet tool was invoked, even though web mode was fully on.
+    assert clearnet_runs(runs) == []
+    assert web_fakes and all(fake.calls == [] for fake in web_fakes)
+    assert attempts == []
+
+
+def test_bare_host_is_normalised_to_https_and_retried_once_inside_tor(
+    client, auth, monkeypatch, route_service
+):
+    """A bare `example.com` becomes `https://example.com`, is sent to the proxy as a name, and one
+    bounded recovery may retry it — still inside Tor."""
+    web_fakes = []
+    attempts, _install_loop_guard = dns_tripwire(monkeypatch)
+    with FakeSocks5hServer() as server:
+        # The fake origin answers HTTP only, so the https leg cannot complete; that is fine — the
+        # assertion is that the destination travelled as a name and that the retry stayed in Tor.
+        service = route_service(FakeTorService(server.endpoint, verified=False, recover=True))
+        monkeypatch.setattr(
+            client.app.state,
+            "tools",
+            tor_route_registry(web_fakes, fetch_provider=TorFetchProvider()),
+        )
+        monkeypatch.setattr(client.app.state, "provider", SilentPlanner())
+        headers = auth()
+        chat = client.post("/chats", headers=headers, json={}).json()["id"]
+        response = client.post(
+            f"/chats/{chat}/stream",
+            headers=headers,
+            json={
+                "content": "Открой example.com через Tor",
+                "tor_mode": "auto",
+                "web_mode": "on",
+            },
+        )
+        assert "event: done" in response.text
+        runs = client.get("/tools/runs", headers=headers).json()
+        requests = list(server.requests)
+
+    fetches = [row for row in runs if row["tool_name"] == "tor_fetch"]
+    assert len(fetches) == 1, runs
+    assert "https://example.com" in json.dumps(fetches[0]["input_summary"])
+    assert requests == [("example.com", 443, 3), ("example.com", 443, 3)]
+    assert fetches[0]["error_code"] == "tor_unavailable"
+    assert service.recovery_calls == 1
+    assert clearnet_runs(runs) == []
+    assert web_fakes and all(fake.calls == [] for fake in web_fakes)
+    assert attempts == []
+
+
+def test_tor_unavailable_fails_the_action_without_clearnet_fallback(client, auth, monkeypatch, route_service):
+    """No listener at all: the named URL still fails closed with a typed code and zero clearnet
+    runs — bounded recovery once, then nothing else."""
+    web_fakes = []
+    attempts, _install_loop_guard = dns_tripwire(monkeypatch)
+    service = route_service(FakeTorService(("127.0.0.1", closed_port()), verified=False))
+    monkeypatch.setattr(
+        client.app.state,
+        "tools",
+        tor_route_registry(web_fakes, fetch_provider=TorFetchProvider()),
+    )
+    monkeypatch.setattr(client.app.state, "provider", SilentPlanner())
+    headers = auth()
+    chat = client.post("/chats", headers=headers, json={}).json()["id"]
+    response = client.post(
+        f"/chats/{chat}/stream",
+        headers=headers,
+        json={"content": "Открой example.com через Tor", "tor_mode": "auto", "web_mode": "on"},
+    )
+    assert "event: done" in response.text
+    runs = client.get("/tools/runs", headers=headers).json()
+    fetches = [row for row in runs if row["tool_name"] == "tor_fetch"]
+    assert len(fetches) == 1, runs
+    assert fetches[0]["status"] == "failed"
+    assert fetches[0]["error_code"] == "tor_unavailable"
+    assert fetches[0]["result_metadata"].get("transport") is None
+    assert service.recovery_calls == 1
+    assert 0 < service.deadlines[0] <= 60
+    assert clearnet_runs(runs) == []
+    assert all(fake.calls == [] for fake in web_fakes)
+    assert attempts == []
+
+
+def test_explicit_clearnet_tool_under_a_tor_route_is_typed_unsupported(client, auth, monkeypatch):
+    """The explicit path cannot bypass the route: a capability that cannot use local Tor answers
+    `tor_route_unsupported`, while the same call in a chat without a Tor route still works."""
+    web_fakes = []
+    monkeypatch.setattr(client.app.state, "tools", tor_route_registry(web_fakes))
+    headers = auth()
+    tor_chat = client.post("/chats", headers=headers, json={}).json()["id"]
+    plain_chat = client.post("/chats", headers=headers, json={}).json()["id"]
+    for chat, content in (
+        (tor_chat, "Открой example.com через Tor"),
+        (plain_chat, "Прочитай страницу примера"),
+    ):
+        assert (
+            "event: done"
+            in client.post(
+                f"/chats/{chat}/stream",
+                headers=headers,
+                json={"content": content, "tor_mode": "auto", "web_mode": "off"},
+            ).text
+        )
+    arguments = {"urls": ["https://example.com/"]}
+
+    # The chat asked for Tor, so the explicit call inherits that route and is refused.
+    derived = client.post(
+        "/tools/execute",
+        headers=headers,
+        json={"chat_id": tor_chat, "name": "web_fetch", "arguments": arguments},
+    )
+    assert "event: tool_error" in derived.text
+    assert '"code": "tor_route_unsupported"' in derived.text
+    # A body may require the Tor route, and cannot claim an unknown one.
+    declared = client.post(
+        "/tools/execute",
+        headers=headers,
+        json={
+            "chat_id": plain_chat,
+            "name": "web_fetch",
+            "arguments": arguments,
+            "network_route": "TOR_ONLY",
+        },
+    )
+    assert '"code": "tor_route_unsupported"' in declared.text
+    unknown = client.post(
+        "/tools/execute",
+        headers=headers,
+        json={
+            "chat_id": plain_chat,
+            "name": "web_fetch",
+            "arguments": arguments,
+            "network_route": "DIRECT",
+        },
+    )
+    assert unknown.status_code == 422
+    # Same tool, no Tor route: it runs, so the block is about the route and not the capability.
+    allowed = client.post(
+        "/tools/execute",
+        headers=headers,
+        json={"chat_id": plain_chat, "name": "web_fetch", "arguments": arguments},
+    )
+    assert "event: tool_result" in allowed.text
+    called = [fake for fake in web_fakes if fake.calls]
+    assert len(called) == 1 and called[0].capability == "fetch"

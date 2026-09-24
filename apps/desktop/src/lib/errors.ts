@@ -72,6 +72,7 @@ const CODE_CATEGORY: Record<string, ErrorCategory> = {
   tor_managed_disabled: "tor",
   tor_start_failed: "tor",
   tor_route_violation_blocked: "tor",
+  tor_route_unsupported: "tor",
   memory_unavailable: "memory",
   auth_required: "authentication",
   session_expired: "authentication",

@@ -203,6 +203,11 @@ def active_endpoint(fallback_host: str, fallback_port: int) -> tuple[str, int]:
     return _ACTIVE_SERVICE.active()
 
 
+def active_service() -> "TorService | None":
+    """The service behind :func:`active_endpoint`, for proof facts and bounded recovery."""
+    return _ACTIVE_SERVICE
+
+
 class TorService:
     """Discovery, management, proof and recovery for the Tor route."""
 
@@ -709,6 +714,27 @@ class TorService:
             self._save_proof(self.host, port, "managed", pid=self._process_pid())
             self._set(READY, None)
             return self.snapshot()
+
+    async def reestablish(self, *, deadline_seconds: float) -> bool:
+        """One bounded attempt to get a proven route back for an action that needs Tor now.
+
+        A Tor-required action may not fall back and may not wait for the supervisor, so it is
+        allowed exactly one recovery: a single ``ensure()`` inside the caller's budget, on the same
+        service, with the same discovery, the same managed process and the same proof. A timeout is
+        not an error to report upwards — it means the action fails closed with its typed code while
+        the supervisor keeps working in the background.
+        """
+        budget = max(0.0, float(deadline_seconds))
+        if budget <= 0:
+            return False
+        try:
+            snapshot = await asyncio.wait_for(self.ensure(reason="recover"), timeout=budget)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # recovery must never raise into the action that asked for it
+            logger.warning("tor_reestablish_failed type=%s", type(error).__name__)
+            return False
+        return bool(snapshot.get("verified_chain")) and bool(snapshot.get("listening"))
 
     # ------------------------------------------------------------------------------ lifecycle
 

@@ -447,6 +447,11 @@ class ToolExecutor:
                             getattr(context, "secrets", ()),
                         )
                         db.commit()
+            if getattr(context, "explicit", False) or getattr(context, "origin", "") == "explicit":
+                # Explicitly invoked, and architecturally unable to use the local Tor route: the
+                # answer is typed. It is never quietly sent over the direct network, and never
+                # reported as a Tor result.
+                raise ToolError("tor_route_unsupported")
             raise ToolError("tor_route_violation_blocked")
         if definition.name in {"git_commit", "git_push"}:
             from .local.plan import looks_like_commit_request, looks_like_push_request

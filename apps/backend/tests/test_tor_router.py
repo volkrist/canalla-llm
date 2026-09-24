@@ -3,6 +3,7 @@ from app.tools.tor.router import (
     blocked_link,
     classify_tor,
     extract_page_links,
+    http_urls_from_prompt,
     looks_like_tor,
     onion_urls_from_prompt,
     pick_follow_urls,
@@ -91,3 +92,31 @@ def test_onion_urls_from_prompt_are_v3_only_and_safe():
     assert onion_urls_from_prompt("file:///secret") == []
     assert onion_urls_from_prompt("javascript:alert(1)") == []
     assert onion_urls_from_prompt("http://short.onion/") == []
+
+
+def test_http_urls_from_prompt_covers_onions_clearnet_and_bare_hosts():
+    host = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion"
+    urls = http_urls_from_prompt(
+        f"Открой example.com/docs и https://example.org/x и http://{host}/docs через Tor"
+    )
+    assert urls == [
+        f"http://{host}/docs",
+        "https://example.org/x",
+        "https://example.com/docs",
+    ]
+    assert http_urls_from_prompt("Открой example.com через Tor") == ["https://example.com"]
+    # The .onion-only contract of the sibling helper is untouched.
+    assert onion_urls_from_prompt("Открой example.com через Tor") == []
+
+
+def test_http_urls_from_prompt_drops_unsafe_file_like_and_duplicate_candidates():
+    assert http_urls_from_prompt("Открой file:///secret через Tor") == []
+    assert http_urls_from_prompt("javascript:alert(1) через tor") == []
+    assert http_urls_from_prompt("запусти calculator.py, затем очисти temp.log") == []
+    assert http_urls_from_prompt("http://short.onion/ через tor") == []
+    assert http_urls_from_prompt("https://user:pw@example.com/ через tor") == []
+    assert http_urls_from_prompt("http://example.com:8443/ через tor") == []
+    assert http_urls_from_prompt("проверь example.com/docs и example.com/docs/ через tor") == [
+        "https://example.com/docs"
+    ]
+    assert http_urls_from_prompt("проверь example.com/setup.exe через tor") == []

@@ -586,11 +586,16 @@ class TorBrowserProvider(ToolProvider[TorBrowserArgs]):
     def _controller(self, context):
         if self.controller:
             return self.controller
+        from .service import active_endpoint
+
         settings = get_settings()
         loopback = bool(getattr(context, "tor_browser_loopback", False))
+        # The endpoint that was actually proven, not the configured default: Tor Browser has to use
+        # the port the managed route is on, or it would talk to nothing while the chip is green.
+        socks_host, socks_port = active_endpoint(settings.tor_socks_host, settings.tor_socks_port)
         self.controller = TorBrowserController(
-            socks_host=settings.tor_socks_host,
-            socks_port=settings.tor_socks_port,
+            socks_host=socks_host,
+            socks_port=socks_port,
             allow_loopback=loopback,
         )
         return self.controller

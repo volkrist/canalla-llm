@@ -186,6 +186,8 @@ export const toolErrors: Record<string, string> = {
   timeout: "Достигнут лимит времени инструмента.",
   tor_not_configured: "Tor не настроен.",
   tor_unavailable: "Tor недоступен.",
+  tor_route_unsupported:
+    "Этот инструмент не умеет работать через локальный Tor. Используйте Tor Search или Tor Fetch.",
   tor_search_not_configured: "Tor Search provider not configured",
   tor_search_failed: "Tor Search did not return results",
   tor_browser_disabled: "Автоматизация Tor Browser выключена.",

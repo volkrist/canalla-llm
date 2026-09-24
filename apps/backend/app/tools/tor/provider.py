@@ -1,4 +1,5 @@
 import html
+import logging
 import re
 from urllib.parse import parse_qs, parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
 
@@ -9,10 +10,98 @@ from ..contracts import ToolError, ToolProvider, ToolResult
 from ..tinyfish.web import bounded_excerpt
 from .classify import classify_authority
 from .router import blocked_link, extract_page_links
-from .service import active_endpoint
+from .service import active_endpoint, active_service
 from .snapshot import fetch_needs_browser
 from .socks import TorTransportProvider
 from .urls import validate_tor_url
+
+logger = logging.getLogger(__name__)
+
+# The codes the SOCKS5h transport raises when the route itself is the problem: these, and only
+# these, are what a fresh ``ensure()`` can honestly help with.
+TOR_TRANSPORT_ERRORS = frozenset({"tor_not_configured", "tor_unavailable"})
+# One bounded recovery per action for a Tor-required call: long enough to re-probe the endpoint and
+# restart the process Canalla owns, short enough that a down Tor fails the action instead of hanging
+# it. The supervisor keeps working in the background either way.
+TOR_RECOVER_SECONDS = 20.0
+
+
+def route_proof() -> dict:
+    """The circuit proof the action travelled on: read from the service, never assumed.
+
+    The tool run — not just the status chip — has to carry what proved the route, so a result that
+    came back over Tor is auditable on its own.
+    """
+    read = getattr(active_service(), "snapshot", None)
+    if read is None:
+        return {}
+    try:
+        snapshot = read()
+    except Exception as error:  # pragma: no cover - a proof must never break a fetched page
+        logger.warning("tor_route_proof_unavailable type=%s", type(error).__name__)
+        return {}
+    return {
+        "route": "TOR_ONLY",
+        "verified_chain": bool(snapshot.get("verified_chain")),
+        "verified_at": snapshot.get("verified_at"),
+        "endpoint": snapshot.get("endpoint"),
+        "managed": bool(snapshot.get("managed")),
+        "proof_method": snapshot.get("method"),
+    }
+
+
+async def reestablish_route() -> bool:
+    """One bounded recovery attempt through the running service. False means: fail closed."""
+    attempt = getattr(active_service(), "reestablish", None)
+    if attempt is None:
+        return False
+    try:
+        return bool(await attempt(deadline_seconds=TOR_RECOVER_SECONDS))
+    except Exception as error:
+        logger.warning("tor_reestablish_failed type=%s", type(error).__name__)
+        return False
+
+
+def typed_route_failure(code: str) -> str:
+    """``tor_unavailable`` for anything the route itself failed on, the code itself otherwise.
+
+    A Tor-required action that the route could not serve is one honest answer for the caller, no
+    matter which level noticed (no SOCKS proxy at all, or a proxy that refused the circuit). The
+    transport's own code stays in the log; the caller never gets a clearnet retry.
+    """
+    if code in TOR_TRANSPORT_ERRORS:
+        logger.warning("tor_route_failure code=%s", code)
+        return "tor_unavailable"
+    return code
+
+
+class TorRoute:
+    """The transport of one Tor-required action: proven endpoint, at most one recovery.
+
+    A transport failure is the one case where asking the service again is honest — it re-probes,
+    restarts the process Canalla owns and re-proves the route — and it happens **once** per action
+    inside a fixed budget, so a down Tor produces a typed failure rather than a retry loop, and
+    never a direct request.
+    """
+
+    def __init__(self, build):
+        self._build = build
+        self.transport = build()
+        self.recovery_used = False
+
+    async def fetch(self, url: str, *, timeout: int = 45) -> dict:
+        try:
+            return await self.transport.fetch(url, timeout=timeout)
+        except ToolError as error:
+            if error.code not in TOR_TRANSPORT_ERRORS or self.recovery_used:
+                raise
+            self.recovery_used = True
+            if not await reestablish_route():
+                raise
+            # The recovery may have moved the endpoint, so the retry uses a transport built from
+            # the endpoint that was just proven, not the object that failed.
+            self.transport = self._build()
+            return await self.transport.fetch(url, timeout=timeout)
 
 
 class TorSearchArgs(BaseModel):
@@ -115,7 +204,7 @@ class TorSearchProvider(ToolProvider[TorSearchArgs]):
         providers = list(settings.tor_search_providers or [])
         if not providers:
             raise ToolError("tor_search_not_configured")
-        transport = self._transport(settings)
+        route = TorRoute(lambda: self._transport(settings))
         sources, errors, handshake = [], [], {}
         for item in providers[:3]:
             if not isinstance(item, dict) or not item.get("url_template"):
@@ -130,14 +219,14 @@ class TorSearchProvider(ToolProvider[TorSearchArgs]):
             if form_url:
                 await validate_tor_url(form_url)
                 try:
-                    form_page = await transport.fetch(form_url, timeout=45)
+                    form_page = await route.fetch(form_url, timeout=45)
                 except ToolError as error:
                     errors.append(error.code)
                     continue
                 handshake = form_page.get("socks") or handshake
                 url = apply_search_form_fields(url, form_page.get("text") or "")
             try:
-                page = await transport.fetch(url, timeout=45)
+                page = await route.fetch(url, timeout=45)
             except ToolError as error:
                 errors.append(error.code)
                 continue
@@ -168,11 +257,11 @@ class TorSearchProvider(ToolProvider[TorSearchArgs]):
             if len(sources) >= 5:
                 break
         if not sources:
-            raise ToolError(errors[0] if errors else "tor_search_failed")
+            raise ToolError(typed_route_failure(errors[0]) if errors else "tor_search_failed")
         return ToolResult(
             sources=sources,
             errors=errors,
-            metadata={"transport": "tor-socks5h", "socks": handshake or {}},
+            metadata={"transport": "tor-socks5h", "socks": handshake or {}, **route_proof()},
         )
 
 
@@ -186,17 +275,22 @@ class TorFetchProvider(ToolProvider[TorFetchArgs]):
 
     async def execute(self, args: TorFetchArgs, context):
         settings = get_settings()
-        transport = self._transport(settings)
+        route = TorRoute(lambda: self._transport(settings))
         sources, errors, handshake = [], [], {}
+        attempted = reached = 0
+        transport_errors: list[str] = []
         for url in args.urls[:3]:
             if blocked_link(url):
                 errors.append("unsafe_url")
                 continue
             await validate_tor_url(url)
+            attempted += 1
             try:
-                page = await transport.fetch(url)
+                page = await route.fetch(url)
             except ToolError as error:
                 errors.append(error.code)
+                if error.code in TOR_TRANSPORT_ERRORS:
+                    transport_errors.append(error.code)
                 sources.append(
                     {
                         "url": url,
@@ -208,6 +302,7 @@ class TorFetchProvider(ToolProvider[TorFetchArgs]):
                 )
                 continue
             reachable = bool(page.get("text"))
+            reached += 1 if reachable else 0
             raw_html = page.get("text") or ""
             links = extract_page_links(page.get("url") or url, raw_html)
             sources.append(
@@ -228,10 +323,16 @@ class TorFetchProvider(ToolProvider[TorFetchArgs]):
                 }
             )
             handshake = page.get("socks") or handshake
+        if transport_errors and len(transport_errors) == attempted and not reached:
+            # Every URL died on the route and no page answered: this is one failed Tor action, not a
+            # set of "unreachable sources". A Tor-required call fails closed with the route's typed
+            # code instead of handing the model a fabricated source.
+            logger.warning("tor_fetch_route_failed code=%s urls=%d", transport_errors[0], attempted)
+            raise ToolError("tor_unavailable")
         return ToolResult(
             sources=sources,
             errors=errors,
-            metadata={"transport": "tor-socks5h", "socks": handshake or {}},
+            metadata={"transport": "tor-socks5h", "socks": handshake or {}, **route_proof()},
         )
 
 

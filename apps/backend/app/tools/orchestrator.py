@@ -19,9 +19,9 @@ from .security import sanitized
 from .tor.router import (
     classify_tor,
     effective_tor_mode,
+    http_urls_from_prompt,
     looks_like_tor,
     normalize_http_url,
-    onion_urls_from_prompt,
     pick_follow_urls,
     pick_tor_fetch_urls,
 )
@@ -214,8 +214,8 @@ class ToolOrchestrator:
             "Do not pick TinyFish paid tools for greetings, math, local files or Tor. "
             "If the user asks for Tor or a .onion address, call tor_search first, then tor_fetch "
             "on relevant onion URLs, then follow at most a few relevant internal onion links. "
-            "If the user prompt already contains an http(s) .onion URL, fetch that URL with "
-            "tor_fetch first and do not start a new search. "
+            "If the user prompt already contains an http(s) URL (an onion or a clearnet one) the "
+            "server fetches that URL with tor_fetch first and does not start a new search. "
             "If the user asks to open Tor Browser, call tor_browser first with operation=open and "
             "the page URL (official Tor check is https://check.torproject.org/), wait_ms=2500, "
             "then tor_browser operation=click with one link_id such as L1. Do not search first "
@@ -390,11 +390,36 @@ class ToolOrchestrator:
                 if sum(len(str(m.get("content", ""))) for m in planning[2:]) > context.limits.max_chars * 2:
                     notes.append("Tool context limit reached.")
                     break
+            named_urls = http_urls_from_prompt(prompt)
+            prompt_urls = [
+                url for url in named_urls if (normalize_http_url(url) or url) not in context.tor_visited
+            ]
+            if tor_intent.required and prompt_urls:
+                # A URL the user named is a direct instruction, so it is fetched through the Tor
+                # route before anything else is tried: «Открой example.com через Tor» must not
+                # depend on the model deciding to call tor_fetch.
+                await self._run(
+                    "tor_fetch",
+                    json.dumps({"urls": prompt_urls[:3], "fresh": True}, ensure_ascii=False),
+                    context,
+                    notes,
+                    origin="server_policy",
+                )
+            elif tor_intent.required and context.tor_search_done and not context.tor_fetch_done:
+                urls = pick_tor_fetch_urls(context.sources, visited=context.tor_visited)
+                if urls:
+                    await self._run(
+                        "tor_fetch",
+                        json.dumps({"urls": urls[:3], "fresh": True}, ensure_ascii=False),
+                        context,
+                        notes,
+                        origin="server_policy",
+                    )
             if (
                 tor_intent.required
                 and not has_resume
                 and not context.tor_search_done
-                and not onion_urls_from_prompt(prompt)
+                and not named_urls
                 and any(item.name == "tor_search" for item in definitions)
             ):
                 output = await self._run(
@@ -415,29 +440,6 @@ class ToolOrchestrator:
                         ),
                     }
                 )
-            prompt_onions = [
-                url
-                for url in onion_urls_from_prompt(prompt)
-                if (normalize_http_url(url) or url) not in context.tor_visited
-            ]
-            if tor_intent.required and prompt_onions:
-                await self._run(
-                    "tor_fetch",
-                    json.dumps({"urls": prompt_onions[:3], "fresh": True}, ensure_ascii=False),
-                    context,
-                    notes,
-                    origin="server_policy",
-                )
-            elif tor_intent.required and context.tor_search_done and not context.tor_fetch_done:
-                urls = pick_tor_fetch_urls(context.sources, visited=context.tor_visited)
-                if urls:
-                    await self._run(
-                        "tor_fetch",
-                        json.dumps({"urls": urls[:3], "fresh": True}, ensure_ascii=False),
-                        context,
-                        notes,
-                        origin="server_policy",
-                    )
             if (
                 tor_intent.required
                 and context.limits.tor_follows < context.limits.max_tor_follow

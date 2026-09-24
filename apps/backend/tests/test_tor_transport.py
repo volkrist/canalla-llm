@@ -3,10 +3,17 @@ import json
 import socket
 
 import pytest
+from fakes_tor import FakeSocks5hServer, FakeTorService, closed_port, dns_tripwire
 
 from app.tools.contracts import ToolError
 from app.tools.tor.classify import OFFICIAL_AND_REACHABLE, REACHABLE_UNVERIFIED, classify_authority
-from app.tools.tor.provider import TorSearchArgs, TorSearchProvider, extract_search_hits
+from app.tools.tor.provider import (
+    TorFetchArgs,
+    TorFetchProvider,
+    TorSearchArgs,
+    TorSearchProvider,
+    extract_search_hits,
+)
 from app.tools.tor.socks import Socks5hConnector, TorTransport
 from app.tools.tor.urls import validate_tor_url
 from tests.settings_factory import make_settings
@@ -364,3 +371,90 @@ def test_fetch_follows_http_redirect_over_socks5h(monkeypatch):
 
     asyncio.run(run())
     assert onion_lookups == []
+
+
+# ------------------------------------------------------------------- clearnet over SOCKS5h
+
+
+def test_clearnet_host_is_fetched_over_socks5h_without_local_dns(monkeypatch):
+    """A clearnet destination travels as a hostname to the proxy: ATYP 3, no local resolution."""
+    attempts, install_loop_guard = dns_tripwire(monkeypatch)
+
+    async def run():
+        await install_loop_guard()
+        with FakeSocks5hServer() as server:
+            page = await TorTransport(host="127.0.0.1", port=server.port).fetch("http://example.com/")
+            requests = list(server.requests)
+            proxy_port = server.port
+        assert requests == [("example.com", 80, 3)]
+        assert page["text"].startswith("<html>")
+        assert page["socks"]["atyp"] == 3
+        assert page["socks"]["local_dns"] is False
+        assert page["socks"]["dest_host"] == "example.com"
+        assert page["socks"]["proxy_port"] == proxy_port
+
+    asyncio.run(run())
+    assert attempts == []
+
+
+def test_https_clearnet_destination_is_a_name_and_fails_closed(monkeypatch):
+    """Even an https clearnet destination is only a name on the wire — and a route that cannot serve
+    it fails with the typed code instead of falling back to the direct network."""
+    attempts, install_loop_guard = dns_tripwire(monkeypatch)
+
+    async def run():
+        await install_loop_guard()
+        with FakeSocks5hServer() as server:
+            with pytest.raises(ToolError, match="tor_unavailable"):
+                await TorTransport(host="127.0.0.1", port=server.port).fetch("https://example.com/")
+            requests = list(server.requests)
+        assert requests == [("example.com", 443, 3)]
+
+    asyncio.run(run())
+    assert attempts == []
+
+
+def test_closed_tor_listener_fails_the_fetch_with_a_typed_code(monkeypatch, route_service):
+    """No SOCKS listener: one bounded recovery, then the typed code — never a clearnet fetch."""
+    attempts, install_loop_guard = dns_tripwire(monkeypatch)
+    service = route_service(FakeTorService(("127.0.0.1", closed_port()), verified=False))
+
+    async def run():
+        await install_loop_guard()
+        with pytest.raises(ToolError) as failure:
+            await TorFetchProvider().execute(TorFetchArgs(urls=["https://example.com/"]), None)
+        return failure.value.code
+
+    assert asyncio.run(run()) == "tor_unavailable"
+    assert service.recovery_calls == 1
+    # One attempt, inside a bounded budget: a recovery may not hang the action either.
+    assert 0 < service.deadlines[0] <= 60
+    # Nothing was reached, so nothing claims a proof either.
+    assert service.snapshot_calls == 0
+    assert attempts == []
+
+
+def test_partial_tor_failure_keeps_the_unreachable_source(route_service):
+    """One URL refused, one served: the action returns what it has (with the wording the executor
+    reads ``reachable`` from) instead of failing as a whole."""
+    with FakeSocks5hServer(refuse=["refused.example"]) as server:
+        service = route_service(FakeTorService(server.endpoint, verified=True))
+        result = asyncio.run(
+            TorFetchProvider().execute(
+                TorFetchArgs(urls=["http://refused.example/", "http://example.com/"]), None
+            )
+        )
+        requests = list(server.requests)
+
+    assert requests == [("refused.example", 80, 3), ("example.com", 80, 3)]
+    assert [source["url"] for source in result.sources] == [
+        "http://refused.example/",
+        "http://example.com/",
+    ]
+    assert "not reachable" in result.sources[0]["excerpt"].lower()
+    assert result.sources[1]["reachable"] is True
+    assert result.errors == ["tor_unavailable"]
+    assert result.metadata["transport"] == "tor-socks5h"
+    assert result.metadata["verified_chain"] is True
+    # The route was asked to recover once for the refused URL, and the action carried on.
+    assert service.recovery_calls == 1

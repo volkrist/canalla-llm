@@ -80,3 +80,23 @@ def auth(client):
         return {"Authorization": "Bearer " + response.json()["access_token"]}
 
     return register
+
+
+@pytest.fixture
+def route_service(request):
+    """Bind a fake Tor service as the active one; the app's own service comes back at teardown.
+
+    Uses the production seam (``set_active_service``), so a test never touches the service the
+    lifespan installed and the tools resolve their endpoint and their proof exactly as at runtime.
+
+    The caller passes the fake: ``service = route_service(FakeTorService(server.endpoint))``.
+    """
+    from app.tools.tor.service import active_service, set_active_service
+
+    def bind(service):
+        previous = active_service()
+        set_active_service(service)
+        request.addfinalizer(lambda: set_active_service(previous))
+        return service
+
+    return bind
