@@ -21,6 +21,12 @@ try {
   New-Item -ItemType Directory -Force -Path (Split-Path $sidecarDest) | Out-Null
   if (Test-Path $sidecarDest) { Remove-Item -Recurse -Force $sidecarDest }
   Copy-Item -Recurse $dist $sidecarDest
+  # Record what this sidecar was built from, so the bundle step can refuse a stale one instead of
+  # shipping a backend that predates the release. See scripts/backend-sidecar-stamp.py.
+  & $python (Join-Path $repo 'scripts\backend-sidecar-stamp.py') write `
+    --backend $backend `
+    --stamp (Join-Path $sidecarDest 'build-stamp.json')
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
   $size = (Get-Item $exe).Length
   $sum = Join-Path $repo 'apps\desktop\src-tauri\sidecar\SHA256SUMS.txt'

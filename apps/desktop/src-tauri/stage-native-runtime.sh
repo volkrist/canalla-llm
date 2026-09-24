@@ -29,4 +29,13 @@ MESSAGE
   exit 1
 fi
 
+# The bundle must not carry a backend built from an older source tree; that shipped once on Windows
+# and the packaged backend answered /health with the previous version. A warning would be ignored.
+if ! python3 "$repo/scripts/backend-sidecar-stamp.py" check \
+  --backend "$repo/apps/backend" \
+  --stamp "$here/sidecar/alex-backend/build-stamp.json"; then
+  echo "BACKEND_SIDECAR_STALE: rebuild the packaged backend before bundling" >&2
+  exit 1
+fi
+
 echo "staged the bundled Tor runtime, the backend sidecar and the host loop"
