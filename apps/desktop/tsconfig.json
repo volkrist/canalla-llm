@@ -19,6 +19,7 @@
   // header of that file. Excluded here so `tsc -b` stays a browser-only check.
   "exclude": [
     "src/lib/installer-policy.test.ts",
-    "src/lib/installer-migration.test.ts"
+    "src/lib/installer-migration.test.ts",
+    "src/lib/linux-packaging.test.ts"
   ]
 }
