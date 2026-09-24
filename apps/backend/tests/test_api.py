@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.main import app
 from app.models import Message, User
+from app.product import VERSION
 from app.providers import MockLLMProvider
 from tests.db_helpers import require_scalar
 from tests.settings_factory import make_settings
@@ -181,7 +182,7 @@ def test_health_and_mock_chat(client):
         "provider": "mock",
         "llm_ready": True,
         "product": "alex-llm",
-        "version": "1.1.0",
+        "version": VERSION,
         "runtime_protocol_version": 1,
         "instance": None,
     }

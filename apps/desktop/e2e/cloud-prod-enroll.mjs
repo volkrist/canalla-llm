@@ -29,6 +29,15 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// The released product version, read from the packaging metadata instead of a literal. This check
+// used to pin `version=0\.9\.3` and had been failing silently ever since the bump past it.
+const PRODUCT_VERSION = JSON.parse(
+  fs.readFileSync(
+    path.join(__dirname, "..", "src-tauri", "tauri.conf.json"),
+    "utf8",
+  ),
+).version;
 const REPO = path.resolve(__dirname, "..", "..", "..");
 // The product installs into Programs\Canalla LLM; a legacy Alex LLM install can still exist
 // during an upgrade acceptance, so prefer the current name and fall back to the old one.
@@ -688,9 +697,9 @@ async function clientLeakChecks(page, providerKey, installationId) {
   );
   check(
     "F3 the owned backend restarted into the packaged shared runtime",
-    /alex\.runtime startup product=alex-llm version=0\.9\.3 protocol=1 mode=packaged/.test(
-      appended,
-    ),
+    new RegExp(
+      `alex\\.runtime startup product=alex-llm version=${PRODUCT_VERSION.replace(/\./g, "\\.")} protocol=1 mode=packaged`,
+    ).test(appended),
   );
   check(
     "F4 the client does not hot-loop its readiness probe against the Gateway",

@@ -161,7 +161,7 @@ async def lifespan(application):
 
 app = FastAPI(
     title="Canalla LLM API",
-    version="1.1.0",
+    version=VERSION,
     lifespan=lifespan,
     docs_url="/docs" if settings.app_env != "production" else None,
     redoc_url=None,

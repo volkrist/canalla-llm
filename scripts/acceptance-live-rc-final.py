@@ -47,7 +47,7 @@ GATEWAY_ENV = "/etc/alex-gateway/alex-gateway.env"
 GATEWAY_DIR = "/opt/alex-gateway/current"
 ALIAS = "orcarouter-qwen38-27b-q5km"
 CONTEXT_WINDOW = 32768
-CLIENT_VERSION = "1.1.0"
+CLIENT_VERSION = "1.2.0"
 
 # The product's own estimate rule (apps/backend/app/context_usage.py): four Latin characters or
 # two non-Latin characters per token, plus one chat-template allowance per message.

@@ -21,6 +21,7 @@ from test_backup import BACKEND, connect, counts, make_root, migrate
 
 from app.backup.archive import BackupService, verify_backup
 from app.backup.format import sqlite_revision
+from app.product import VERSION
 
 
 def free_port() -> int:
@@ -127,7 +128,7 @@ def test_pending_migration_is_preceded_by_a_verified_backup(tmp_path, template_d
     assert record["result"] == "ok"
     assert (record["from"], record["to"]) == ("0014", "0015")
     assert record["backup"] == backups[0]["id"]
-    assert record["app_version"] == "1.1.0"
+    assert record["app_version"] == VERSION
 
 
 def test_migration_is_refused_when_the_backup_cannot_be_created(tmp_path, template_database):

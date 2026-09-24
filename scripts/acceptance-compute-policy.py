@@ -18,7 +18,7 @@ GATEWAY = "https://gateway.12testers.store"
 HOST = "distance"
 GATEWAY_ENV = "/etc/alex-gateway/alex-gateway.env"
 GATEWAY_DIR = "/opt/alex-gateway/current"
-CLIENT_VERSION = "1.1.0"
+CLIENT_VERSION = "1.2.0"
 
 failures: list[str] = []
 held: list[str] = []
