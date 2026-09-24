@@ -313,3 +313,74 @@ fn an_empty_pub_date_would_not_parse_which_is_why_the_endpoint_omits_it() {
         "the client refuses an unparsable date, so the endpoint must omit it"
     );
 }
+
+// ------------------------------------------------- the artifact this tree just built, as it will ship
+
+/// The installer a release build leaves in the bundle directory, with the signature written beside
+/// it. `cargo test` on a machine that has not run a release build finds nothing here, and the gate
+/// below says so rather than pretending to have checked an artifact that does not exist.
+fn built_installer() -> Option<(Vec<u8>, String)> {
+    let bundle = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("release")
+        .join("bundle")
+        .join("nsis");
+    let artifact = bundle.join(SERVED_ARTIFACT);
+    let signature = bundle.join(format!("{SERVED_ARTIFACT}.sig"));
+    if !artifact.is_file() || !signature.is_file() {
+        return None;
+    }
+    Some((
+        std::fs::read(&artifact).expect("the built installer is readable"),
+        std::fs::read_to_string(&signature).expect("the built signature is readable"),
+    ))
+}
+
+#[test]
+fn the_built_release_artifact_is_signed_by_the_production_identity() {
+    // Every other test in this file checks a committed fixture, which proves the verification path
+    // but not the artifact that ships. This one checks the real installer a release build left in
+    // `target/release/bundle/nsis`, against the key the client actually compiles in, and asserts the
+    // signed name carries the released version — the binding the Gateway refuses a manifest for.
+    let Some((bytes, signature)) = built_installer() else {
+        eprintln!(
+            "no release bundle in this tree: the shipping artifact's signature was not checked here"
+        );
+        return;
+    };
+
+    let key = configured_pubkey();
+    assert_eq!(
+        key_id(&key),
+        PRODUCTION_KEY_ID,
+        "the shipped client must compile in the production identity"
+    );
+    assert_eq!(
+        verify(&key, &signature, &bytes),
+        Ok(()),
+        "the built installer must verify against the production public key"
+    );
+    assert!(
+        verify(TEST_PUBKEY, &signature, &bytes).is_err(),
+        "and it must not verify against the test identity"
+    );
+
+    let parsed = Signature::decode(&signature_text(&signature)).expect("a minisign signature");
+    let name = signed_name(&parsed);
+    assert_eq!(
+        name, SERVED_ARTIFACT,
+        "the signature names the shipped file"
+    );
+    assert!(
+        name.contains("1.2.0"),
+        "the signed name must carry the product version: {name}"
+    );
+
+    // The installer's payload is the point of the release: the backend sidecar and the Tor runtime.
+    // A signature over a stub would pass everything above, so the size floor is asserted too.
+    assert!(
+        bytes.len() > 80 * 1024 * 1024,
+        "the installer must carry the packaged backend and the Tor runtime, not a stub: {} bytes",
+        bytes.len()
+    );
+}
