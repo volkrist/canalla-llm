@@ -322,9 +322,11 @@ acceptance all landed on `release/canalla-1.1.0` in this cycle.
 
 ### Ubuntu 24.04 Linux port, engineering closeout (24 Sep 2026)
 
-The port STEP 4 stopped at is **done on the branch**; what is left is a desktop-VM acceptance, not
-code. Ubuntu 24.04 LTS x86_64 is the 1.2 Linux baseline (22.04 is deliberately out of scope). Every
-measured number and the honest boundary live in [linux-ubuntu.md](linux-ubuntu.md).
+The port STEP 4 stopped at is **done on the branch**; what is left is a desktop-session acceptance, not
+code — and that acceptance is **DEFERRED** (see §12). Ubuntu 24.04 LTS x86_64 is the Linux baseline
+(22.04 is deliberately out of scope), and **in 1.2.0 Linux is PREVIEW / EXPERIMENTAL while Windows
+x86_64 is the production target**. Every measured number and the honest boundary live in
+[linux-ubuntu.md](linux-ubuntu.md), including the release-scope table in its §7.
 
 | Gate | Windows | Ubuntu 24.04 |
 |---|---|---|
@@ -354,17 +356,36 @@ measured number and the honest boundary live in [linux-ubuntu.md](linux-ubuntu.m
   `1c52e24633d67f62d243b67ec9fc132b3beb11041b870738136cb99d91c980d2` — an intermediate STEP 4A
   artifact, **not** a release. Its `Depends` repeats three clauses because Tauri's bundler appends
   its own list after the configured one; a repeated clause is valid and `apt` resolves it.
+* **1.2.0 scope (24 Sep 2026): Windows x86_64 = production, Ubuntu 24.04 = preview/experimental.**
+  The `.deb` is not published, the Linux updater manifest is not published, and Linux auto-update is
+  not advertised as production. The Linux code stays in the tree: a shared-code defect that a Linux
+  gate exposes still blocks the Windows release — only the missing desktop acceptance stopped being a
+  blocker.
 
 ## 12. Next slice
 
-**STEP 4B — Ubuntu desktop-VM acceptance — then the 1.2.0 release stage.**
+**CANALLA LLM 1.2.0 — WINDOWS PRODUCTION RELEASE (Linux preview).**
 
-The Linux engineering port is done on the branch ([linux-ubuntu.md](linux-ubuntu.md)); what remains
-is the acceptance that needs a real Ubuntu **desktop** session, which nothing on this machine can
-provide: install the `.deb`, first launch, Computer/Tor ready with no click, keyring-backed
-credentials, a real logout/login with the XDG autostart entry, crash recovery, and no orphan
-processes. Until that run happens the correct state is **LINUX ENGINEERING PORT = PASS, DESKTOP VM
-ACCEPTANCE = PENDING**, and a green `.deb` install is not a Linux release.
+Release scope, decided 24 Sep 2026 after the STEP 4B attempt was stopped:
+
+| Target | Status | Consequence |
+|---|---|---|
+| Windows x86_64 | **PRODUCTION** | every Windows gate is mandatory |
+| Ubuntu 24.04 LTS x86_64 | **PREVIEW / EXPERIMENTAL** | no public artifact, no Linux updater manifest, no production claim |
+
+**The release stage no longer requires a local Ubuntu Desktop VM.** The Windows gates are unchanged:
+pristine Windows acceptance where feasible, self-contained install, real login/autostart, Computer
+Ready, bundled Tor Ready, crash recovery, AI Connected/Disconnected correctness, updater, production
+signing, the 1.1 → 1.2 upgrade with data preservation, natural-language Tor routing, final hashes, the
+Gateway route and the production Windows manifest — then merge and tag. A defect in **shared** code
+that a Linux gate exposes still blocks the release, because Windows runs the same code paths.
+
+**Deferred, not failed:** the Ubuntu desktop-session acceptance (install, first launch, keyring at
+login, XDG autostart, a real logout/login, crash recovery, no orphans). It needs a clean Ubuntu 24.04
+Desktop session, which this machine does not provide without running a heavy VM on the development PC.
+`docs/linux-ubuntu.md` §6 is the checklist for the day it runs. Until then the correct state is
+**LINUX ENGINEERING PORT = PASS, DESKTOP-SESSION ACCEPTANCE = DEFERRED**, and a green `.deb` install is
+not a Linux release.
 
 ---
 

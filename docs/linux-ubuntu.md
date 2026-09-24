@@ -1,9 +1,14 @@
 # Ubuntu / Linux support — baseline, the port, what is left
 
-Status: **the engineering port is done (STEP 4A); the desktop-VM acceptance is STEP 4B.**
-Ubuntu 24.04 LTS x86_64 is the baseline for 1.2.0. Ubuntu 22.04 is deliberately not supported in this
-release: the measured environment is noble's glibc 2.39 and WebKitGTK 4.1, and a package built there
-will not run on 22.04's glibc 2.35. Supporting 22.04 is a later, separate decision.
+Status: **the engineering port is done (STEP 4A); the desktop-session acceptance is DEFERRED
+(STEP 4B).** Ubuntu 24.04 LTS x86_64 is the baseline for the Linux port. Ubuntu 22.04 is deliberately
+not supported: the measured environment is noble's glibc 2.39 and WebKitGTK 4.1, and a package built
+there will not run on 22.04's glibc 2.35. Supporting 22.04 is a later, separate decision.
+
+**In 1.2.0 the Linux target is PREVIEW / EXPERIMENTAL, not production.** Windows x86_64 is that
+release's production target. Nothing on this page may be read as "Ubuntu is production-ready": the
+port passes every gate that does not need a desktop session, and the session-bound gates have never
+been run. See §6 and §7.
 
 This file records what was actually measured, so the next person starts from evidence instead of an
 assumption. Nothing here is a promise: every claim names the command or the file it came from.
@@ -247,11 +252,11 @@ the pinned build, is the process that serves the proof, recovers from being kill
 fresh proof, keeps the backend serving across the restart, and leaves no daemon behind when the
 backend stops. 9/9 PASS on Ubuntu 24.04 against the package above.
 
-## 6. What a desktop VM still has to prove (STEP 4B)
+## 6. What a desktop session still has to prove — DEFERRED
 
 This is the honest boundary of STEP 4A. The build environment is a **headless** WSL2 container: it has
 no session manager, no display, no keyring, and nothing that consumes `~/.config/autostart`. The
-following are therefore **unverified**, and STEP 4A does not claim them:
+following are therefore **unverified**:
 
 | Unverified | Why it cannot be settled here |
 |---|---|
@@ -264,7 +269,36 @@ following are therefore **unverified**, and STEP 4A does not claim them:
 | Updater panel and a local test endpoint on Linux | needs the desktop UI |
 | Killing the desktop and confirming no orphan backend or Tor | needs a session to start from |
 
-Until that run happens, the correct summary is **LINUX ENGINEERING PORT = PASS, DESKTOP VM
-ACCEPTANCE = PENDING**, and a green `.deb` install alone is not a Linux release.
+Until that run happens, the correct summary is **LINUX ENGINEERING PORT = PASS, DESKTOP-SESSION
+ACCEPTANCE = DEFERRED (local hardware / environment constraint)**, and a green `.deb` install alone is
+not a Linux release.
+
+**STEP 4B was attempted on 24 Sep 2026 and stopped by a product decision, not by a failure.** A real
+Ubuntu 24.04 Desktop VM was feasible on this machine (VirtualBox 7.2.8 is installed, hardware
+virtualisation works, a test VM booted and was captured headlessly) but would have cost ~6 GB of
+ISO download, ~40 GB of disk and most of the 7.9 GB of RAM for hours. Running a heavy desktop VM on
+the development PC was rejected in favour of correcting the 1.2.0 release scope (§7) and stating the
+limitation instead of working around it. The attempt's partial artefacts were removed; no VM, no ISO
+and no further disk is retained. See `report-2026-09-24-step4b-deferred.md`.
+
+## 7. 1.2.0 release scope (decided 24 Sep 2026)
+
+| Target | Status in 1.2.0 | Consequence |
+|---|---|---|
+| **Windows x86_64** | **PRODUCTION** | the release target; every Windows gate in the release stage is mandatory |
+| **Ubuntu 24.04 LTS x86_64** | **PREVIEW / EXPERIMENTAL** | not certified; the `.deb` is an experimental artifact, the Linux updater manifest is **not published**, and Linux auto-update is **not** advertised as production |
+
+There is deliberately **no** public Linux artifact in 1.2.0: offering a package to users implies a
+support promise this release cannot back. The Linux code is kept, built and tested — it is simply not
+distributed yet.
+
+**What this decision does not change.** Linux was not made "unsupported": the port's gates still pass
+and stay in the suite. A defect in *shared* code that a Linux gate exposes is still a blocker for the
+Windows 1.2.0 release, because Windows executes the same platform-neutral code paths. What is no longer
+a blocker is the missing desktop-session acceptance itself.
+
+**What would move Linux to production** — a later, separately tasked release: the §6 acceptance on a
+clean Ubuntu 24.04 desktop, the keyring/login result that gates it, and a Linux updater manifest signed
+with a production key and actually published.
 
 Everything in §1–§5 was measured on 23–24 Sep 2026; re-measure rather than trust it.
