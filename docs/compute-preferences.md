@@ -260,8 +260,40 @@ and Settings → AI / Compute shows the choice with the reason it is unavailable
 that silently does nothing.
 
 **Allocation candidates.** A model-required request no longer evaluates one physical placement: it
-walks an ordered candidate set (cheapest compatible GPU, Secure before Community, the model's own
-datacenter first) inside one **total** 60-second budget. A candidate that the provider refuses is
-left behind immediately and the next one is tried. The full contract — ordering, budget
+walks an ordered candidate set inside one **total** 60-second budget. A candidate that the provider
+refuses is left behind immediately and the next one is tried. The full contract — ordering, budget
 arithmetic, deduplication, the storage-topology audit and the deterministic test matrix — is
 [gpu-allocation.md](gpu-allocation.md).
+
+## 12. The allocation strategy (1.2.0)
+
+The user picks *how the candidates are ordered*, never *what may be booked*. Four values, one
+`strategy` field, default **`balanced`**:
+
+| Value | Order |
+|---|---|
+| `balanced` (default) | cloud tier → the deployment's own placement order → **the cheapest card that is bookable right now** → best stock → GPU id |
+| `fastest` | cloud tier → the best-stocked card → placement → price |
+| `cheapest` | cloud tier → price across every placement → placement → GPU id (the historical order, kept as a value) |
+| `manual` | the same order as `balanced`, over the one card the user pinned |
+
+Balance matters because the four differ only in *order*: the VRAM floor, the user's own
+`max_hourly_price` and the cloud-tier policy bound all of them, and a deterministic matrix proves
+that per strategy (price ceiling, VRAM floor, no stock). Availability is a **filter**, not a
+tiebreak, in `balanced` and `cheapest`: a card with no stock at a placement is not a candidate
+there at all, so "do not wait for cheap hardware" is true without any strategy ever buying a
+pricier card than a bookable one in the same placement. `fastest` is the one strategy that will
+pay more to avoid a scarce host.
+
+The one behaviour change: an installation that never chose now orders by `balanced`, which differs
+from `cheapest` only when a cheaper card exists *solely* in a secondary placement — where
+`balanced` keeps the placement that already holds the model. With one placement configured the two
+walks are identical, which is why every pre-existing allocation test passes unchanged.
+
+`manual` is a pin by another name: it needs a card, exactly like `selection: manual`, and the
+Gateway refuses it as `compute_policy_invalid` without one rather than silently ordering by the
+default. A value outside the four is refused as malformed, never quietly replaced. In the panel
+the two controls stay coherent (`lib/compute-policy.ts`): choosing the `manual` strategy moves the
+GPU control to `manual` with it, and going back to `automatic` moves the strategy off `manual`.
+Pressing «Запустить AI» is a **prewarm**, not a prerequisite: the chat's own ensure carries the
+same strategy, so nothing depends on the Settings button.

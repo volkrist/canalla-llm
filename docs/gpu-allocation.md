@@ -208,14 +208,47 @@ a confirmation bound to one GPU id and one price, so it is never substituted and
 expensive: `backend/tests/test_allocation_candidates.py` (the policy itself, the placement walk,
 `price_changed` semantics, no leaked Pod).
 
-## 8. Files
+## 8. Storage kinds: what decides the datacenter (1.2.0)
+
+A placement is `(storage_type, volume_id, datacenter, community_capable)`, and `storage_type` is
+what decides whether the datacenter is a *consequence* or a *choice*:
+
+| Kind | Pins the datacenter? | Why |
+|---|---|---|
+| `regional_network_volume` (default) | **yes** | the volume lives in one datacenter, and the model lives on the volume |
+| `global_volume` | **no** | region-independent by design, so candidates are built in every datacenter the catalogue itself reports as bookable, the declared home first |
+
+An unknown kind fails closed: it is treated as the pinned kind, never as "anywhere". The
+per-datacenter slots are separate candidates, so a refusal in one does not end the walk, and the
+one total 60-second budget is still shared by all of them.
+
+**Production configures regional placements, because the provider's API can only attach one:**
+`POST /v2/pods` takes `mounts.persistent` XOR `mounts.network`, `mounts.network` has
+`maxItems: 1`, a `NetworkMount.volumeId` must be a NetworkVolume *in the same data center as the
+pod*, the mount kind is fixed at create, and there is no global-volume field in the create schema
+at all. The abstraction is one value, not a rewrite, if that ever changes — the audit is in
+[report-2026-09-25-storage-multi-datacenter-decision.md](report-2026-09-25-storage-multi-datacenter-decision.md).
+
+### Replica validation (`app/compute/replicas.py`)
+
+A second placement is only usable when the copy of the model on it is *provably this model*:
+`build_plan(replica_refusals=...)` skips a placement whose record is `missing`, `partial`,
+`unverified`, `wrong_model`, `wrong_hash` or `wrong_runtime`, and the reason travels into the
+plan's audit (`allocation.plan.replica_refusals`) even when another placement was used. A plan
+emptied that way concludes `replica_not_ready`, not a capacity reason. The placement production
+already runs on is not gated — it is proven by production — while a placement an operator *adds*
+must carry a verified record (`RUNPOD_REPLICAS`); a record that exists is always honoured. An
+expectation the deployment cannot state is silence, and silence never contradicts a record.
+
+## 9. Files
 
 | File | Role |
 |---|---|
-| `apps/backend/app/compute/candidates.py` | the shared candidate policy: placements, ordering, reasons, refusal classification, budget constants |
+| `apps/backend/app/compute/candidates.py` | the shared candidate policy: placements, storage kinds, ordering, strategies, replica gating, reasons, refusal classification, budget constants |
+| `apps/backend/app/compute/replicas.py` | model-replica metadata and its verdicts, shared by both provider modes |
 | `apps/backend/app/compute/runpod_api.py` | `gpu_offers()` (all tiers/datacenters), `project_options()` (the quote projection), placement-aware `create_pod()` |
 | `apps/backend/app/compute/controller.py` | direct mode: the same policy for the approved card, placement walk, `allocation_policy_payload()` |
 | `apps/gateway/gateway/compute.py` | the Gateway walk, the total budget, the allocation record, the policy block |
-| `apps/gateway/gateway/config.py` | `RUNPOD_DATACENTERS`, `RUNPOD_ALLOW_COMMUNITY_CLOUD` |
+| `apps/gateway/gateway/config.py` | `RUNPOD_DATACENTERS`, `RUNPOD_ALLOW_COMMUNITY_CLOUD`, `RUNPOD_REPLICAS` |
 | `apps/backend/app/config.py` | the same two settings for direct mode |
 | `apps/desktop/src/components/ComputePanel.tsx` | the visible Community-tier choice and its reason |
