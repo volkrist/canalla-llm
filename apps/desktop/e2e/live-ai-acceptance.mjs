@@ -28,12 +28,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const EXE =
   [
-    path.join(process.env.LOCALAPPDATA, "Programs", "Canalla LLM", "alex-llm.exe"),
+    path.join(
+      process.env.LOCALAPPDATA,
+      "Programs",
+      "Canalla LLM",
+      "alex-llm.exe",
+    ),
     path.join(process.env.LOCALAPPDATA, "Programs", "Alex LLM", "alex-llm.exe"),
   ].find((candidate) => fs.existsSync(candidate)) ??
-  path.join(process.env.LOCALAPPDATA, "Programs", "Canalla LLM", "alex-llm.exe");
+  path.join(
+    process.env.LOCALAPPDATA,
+    "Programs",
+    "Canalla LLM",
+    "alex-llm.exe",
+  );
 
-const CHAT_PROMPT = process.env.LIVE_AI_CHAT_PROMPT || "Ответь одним словом: готово";
+const CHAT_PROMPT =
+  process.env.LIVE_AI_CHAT_PROMPT || "Ответь одним словом: готово";
 const TOR_PROMPT =
   process.env.LIVE_AI_TOR_PROMPT || "Открой https://example.com через Tor";
 
@@ -41,7 +52,9 @@ const failures = [];
 let child = null;
 
 function check(name, ok, detail = "") {
-  console.log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? `  [${detail}]` : ""}`);
+  console.log(
+    `${ok ? "PASS" : "FAIL"} ${name}${detail ? `  [${detail}]` : ""}`,
+  );
   if (!ok) failures.push(name);
 }
 
@@ -125,7 +138,12 @@ async function waitForAi(page, wanted, timeoutMs) {
 
 /** The transcript as plain text, straight from the DOM the user reads. */
 async function transcript(page) {
-  return (await page.locator(".messages").innerText().catch(() => ""))
+  return (
+    await page
+      .locator(".messages")
+      .innerText()
+      .catch(() => "")
+  )
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -179,7 +197,9 @@ async function quitApp() {
 
 function arg(name, fallback) {
   const index = process.argv.indexOf(name);
-  return index >= 0 && process.argv[index + 1] ? process.argv[index + 1] : fallback;
+  return index >= 0 && process.argv[index + 1]
+    ? process.argv[index + 1]
+    : fallback;
 }
 
 const PHASE = arg("--phase", "observe");
@@ -228,23 +248,27 @@ async function main() {
 
   const before = await settleAi(page);
   console.log(`  ai before   ${JSON.stringify(before)}`);
-  const torChip = (await page
-    .locator(".status-chip", { hasText: "Tor" })
-    .first()
-    .getAttribute("aria-label")
-    .catch(() => "")) || "";
-  const computerChip = (await page
-    .locator(".status-chip", { hasText: "Computer" })
-    .first()
-    .getAttribute("aria-label")
-    .catch(() => "")) || "";
+  const torChip =
+    (await page
+      .locator(".status-chip", { hasText: "Tor" })
+      .first()
+      .getAttribute("aria-label")
+      .catch(() => "")) || "";
+  const computerChip =
+    (await page
+      .locator(".status-chip", { hasText: "Computer" })
+      .first()
+      .getAttribute("aria-label")
+      .catch(() => "")) || "";
   console.log(`  tor chip    ${torChip}`);
   console.log(`  computer    ${computerChip}`);
 
   if (PHASE === "observe") {
     console.log(`\n  transcript:\n${(await transcript(page)).slice(0, 400)}`);
     await quitApp();
-    console.log(`\n${failures.length === 0 ? "OBSERVE PASS" : "OBSERVE FAILED"}`);
+    console.log(
+      `\n${failures.length === 0 ? "OBSERVE PASS" : "OBSERVE FAILED"}`,
+    );
     return failures.length === 0 ? 0 : 1;
   }
 
@@ -272,7 +296,9 @@ async function main() {
   await page.getByLabel("Сообщение").waitFor({ timeout: 60000 });
   const torMode = page.getByLabel("Tor mode");
   if (await torMode.count()) {
-    console.log(`  tor mode selector: ${await torMode.inputValue().catch(() => "?")}`);
+    console.log(
+      `  tor mode selector: ${await torMode.inputValue().catch(() => "?")}`,
+    );
   }
 
   const chatStarted = Date.now();
@@ -306,14 +332,19 @@ async function main() {
   );
 
   const answered = await waitForAnswer(page, await messagesInDom(page), 900000);
-  check("the chat produced an answer", answered.done, `${answered.messages} message bodies`);
+  check(
+    "the chat produced an answer",
+    answered.done,
+    `${answered.messages} message bodies`,
+  );
   const chatTranscript = await transcript(page);
   console.log(`\n  transcript after the chat:\n${chatTranscript}\n`);
 
   if (PHASE === "chat") {
     await quitApp();
     console.log(`\n${failures.length === 0 ? "CHAT PASS" : "CHAT FAILED"}`);
-    if (failures.length) console.log(failures.map((name) => ` - ${name}`).join("\n"));
+    if (failures.length)
+      console.log(failures.map((name) => ` - ${name}`).join("\n"));
     return failures.length === 0 ? 0 : 1;
   }
 
@@ -323,13 +354,18 @@ async function main() {
   await send(page, TOR_PROMPT);
   console.log(`  sent: ${TOR_PROMPT}`);
   const torAnswered = await waitForAnswer(page, torBefore, 900000);
-  check("the Tor request produced an answer", torAnswered.done, `${torAnswered.messages} bodies`);
+  check(
+    "the Tor request produced an answer",
+    torAnswered.done,
+    `${torAnswered.messages} bodies`,
+  );
   const torTranscript = await transcript(page);
   console.log(`\n  transcript after the Tor request:\n${torTranscript}\n`);
 
   await quitApp();
   console.log(`\n${failures.length === 0 ? "TOR PASS" : "TOR FAILED"}`);
-  if (failures.length) console.log(failures.map((name) => ` - ${name}`).join("\n"));
+  if (failures.length)
+    console.log(failures.map((name) => ` - ${name}`).join("\n"));
   return failures.length === 0 ? 0 : 1;
 }
 
