@@ -91,7 +91,8 @@ def policy_caps(controller, user_id: str) -> dict:
 
     ``allow_community`` carries the user's *own* opt-in for the second cloud tier: the Gateway
     only honours it inside the deployment's own policy, so sending it can never widen what the
-    server offers.
+    server offers. ``strategy`` is the user's own ordering choice and is subject to the same
+    rule: the Gateway admits it only if it is one of the four known values.
     """
     prefs = controller.preferences(user_id) if controller is not None else None
     if prefs is None:
@@ -101,6 +102,7 @@ def policy_caps(controller, user_id: str) -> dict:
         "session_budget": float(prefs.session_budget),
         "min_vram_gb": int(prefs.min_vram_gb),
         "selection": prefs.selection,
+        "strategy": prefs.strategy,
         "gpu_id": prefs.gpu_id,
         "allow_community": bool(prefs.allow_community),
     }

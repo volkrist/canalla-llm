@@ -550,6 +550,20 @@ def test_the_manual_prewarm_names_its_own_origin(shared_app, client, auth):
     assert shared_app.gateway.ensure_bodies[0]["origin"] == "manual_prewarm"
 
 
+def test_the_chat_carries_the_user_s_own_allocation_strategy(shared_app, client, auth):
+    """A preference the panel shows must reach the allocator through the chat's own ensure."""
+    headers = auth()
+    saved = client.put("/compute/preferences", json={"strategy": "fastest"}, headers=headers)
+    assert saved.status_code == 200, saved.text
+    shared_app.gateway.compute_steps = [compute_payload("ready", ai="ready")]
+
+    start_chat(client, headers)
+
+    body = shared_app.gateway.ensure_bodies[0]
+    assert body["origin"] == "chat"
+    assert body["strategy"] == "fastest"
+
+
 def test_an_attaching_retry_never_relabels_the_attempt(shared_app):
     """The origin belongs to the attempt, not to whoever joined it.
 

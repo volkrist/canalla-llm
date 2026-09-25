@@ -727,6 +727,7 @@ class RunPodController:
             ),
             selection="manual",
             gpu_id=approved.id,
+            strategy=prefs.strategy,
         )
         return [
             (

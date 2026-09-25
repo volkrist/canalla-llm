@@ -102,3 +102,37 @@ def test_saved_policy_is_read_back_by_a_fresh_controller(client, auth):
         stored = restarted.preferences(user.id)
     assert stored.max_hourly_price == Decimal("1.25")
     assert stored.session_budget == Decimal("7.50")
+
+
+# ------------------------------------------------------------- the allocation strategy
+
+
+def test_the_new_user_default_strategy_is_balanced_and_pins_nothing(client, auth):
+    """The default has to be the one that prefers real availability over a few cents."""
+    body = read(client, auth())
+    assert body["strategy"] == "balanced"
+    assert body["gpu_id"] is None
+    assert body["selection"] == "automatic"
+
+
+def test_a_user_may_choose_any_of_the_four_strategies(client, auth):
+    headers = auth()
+    for strategy in ("balanced", "fastest", "cheapest"):
+        assert save(client, headers, strategy=strategy).status_code == 200, strategy
+        assert read(client, headers)["strategy"] == strategy
+
+
+def test_a_strategy_outside_the_closed_set_is_refused(client, auth):
+    assert save(client, auth(), strategy="turbo").status_code == 422
+
+
+def test_the_manual_strategy_needs_a_card_but_is_otherwise_accepted(client, auth):
+    """Refused with an explanation rather than silently treated as automatic."""
+    headers = auth()
+    assert save(client, headers, strategy="manual").status_code == 422
+    assert read(client, headers)["strategy"] == "balanced"  # the refusal changed nothing
+
+    accepted = save(client, headers, strategy="manual", selection="manual", gpu_id="NVIDIA L40S")
+    assert accepted.status_code == 200, accepted.text
+    body = read(client, headers)
+    assert (body["strategy"], body["selection"], body["gpu_id"]) == ("manual", "manual", "NVIDIA L40S")

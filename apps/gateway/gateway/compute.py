@@ -472,8 +472,21 @@ class ComputeAuthority:
         vram = int(vram) if isinstance(vram, int) and 1 <= vram <= 1024 else self.settings.runpod_min_vram_gb
         selection = caps.get("selection")
         selection = selection if selection in {"automatic", "manual"} else "automatic"
+        strategy = caps.get("strategy")
+        policy = allocation_policy()
+        strategy = strategy if strategy in policy.STRATEGIES else policy.DEFAULT_STRATEGY
         selected = caps.get("gpu_id")
         selected = selected if isinstance(selected, str) and 1 <= len(selected) <= 160 else None
+        # A pin is the caller's own decision and survives either spelling of it. Choosing the
+        # ``manual`` strategy *is* asking for a pin, so the missing card is a malformed policy
+        # rather than a silent fallback to automatic: the client would otherwise have asked for a
+        # strategy it does not get. The default strategy is balanced, and it pins nothing.
+        manual = selection == "manual" or strategy == "manual"
+        if manual and not selected:
+            raise GatewayError(
+                "compute_policy_invalid",
+                detail="Стратегия «Вручную» требует точный GPU: выберите карту или стратегию «Сбалансированная».",
+            )
         community = caps.get("allow_community")
         community = bool(community) if isinstance(community, bool) else False
         return {
@@ -482,7 +495,8 @@ class ComputeAuthority:
             "auto_stop_minutes": idle,
             "min_vram_gb": max(vram, self.settings.runpod_min_vram_gb),
             "selection": selection,
-            "gpu_id": selected if selection == "manual" else None,
+            "strategy": strategy,
+            "gpu_id": selected if manual else None,
             # The user's own opt-in for the second cloud tier, *and* the deployment's policy: a
             # preference can never switch on a tier the server does not offer (no hidden
             # behaviour change — see docs/compute-preferences.md §11).
@@ -617,6 +631,7 @@ class ComputeAuthority:
             tiers=policy.cloud_tiers(allow_community=bool(caps.get("allow_community"))),
             selection=str(caps.get("selection") or "automatic"),
             gpu_id=caps.get("gpu_id"),
+            strategy=str(caps.get("strategy") or policy.DEFAULT_STRATEGY),
         )
 
     def allocation_window(self, control: GatewayCompute | None = None) -> tuple[datetime, datetime]:

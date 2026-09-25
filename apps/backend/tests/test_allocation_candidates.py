@@ -178,6 +178,154 @@ def test_the_placement_list_never_drops_a_malformed_entry_silently():
         policy.parse_placements("US-KS-2", primary=PRIMARY)
     with pytest.raises(ValueError):
         policy.parse_placements("US-KS-2:vol-peers:fast", primary=PRIMARY)
+
+
+# ------------------------------------------------------------------- the ordering strategies
+
+
+def order(**kwargs) -> list[str]:
+    """The candidate order one call produces, as ``gpu@datacenter`` for readability."""
+    plan = policy.build_plan(
+        kwargs.pop("rows"),
+        min_vram_gb=48,
+        max_hourly_price=Decimal(kwargs.pop("max_hourly_price", "2")),
+        placements=kwargs.pop("placements", (PRIMARY,)),
+        **kwargs,
+    )
+    return [f"{item.gpu_id}@{item.datacenter}" for item in plan.candidates]
+
+
+def test_the_four_strategies_are_a_closed_set_with_a_documented_default():
+    assert policy.STRATEGIES == ("balanced", "fastest", "cheapest", "manual")
+    assert policy.DEFAULT_STRATEGY == policy.BALANCED == "balanced"
+
+
+def test_balanced_prefers_the_deployment_s_own_placement_over_a_cheaper_one():
+    """Locality first: reusing the placement that already holds the model avoids a cold start."""
+    rows = [
+        offer("local-card", secure_price="1.09", stock="MEDIUM", centers={"US-TX-3": "MEDIUM"}),
+        offer("elsewhere", secure_price="0.49", centers={"US-KS-2": "HIGH"}),
+    ]
+    assert order(rows=rows, placements=(PRIMARY, FALLBACK), strategy="balanced") == [
+        "local-card@US-TX-3",
+        "elsewhere@US-KS-2",
+    ]
+    # The same candidates, ordered by price: the primary placement is not privileged.
+    assert order(rows=rows, placements=(PRIMARY, FALLBACK), strategy="cheapest") == [
+        "elsewhere@US-KS-2",
+        "local-card@US-TX-3",
+    ]
+
+
+def test_balanced_prefers_a_cheaper_card_that_is_bookable_now_over_stock_level():
+    """Stock is a filter, never a reason to pay more: a bookable card is a bookable card."""
+    rows = [
+        offer("cheap-scarce", secure_price="0.49", stock="LOW"),
+        offer("pricier-plenty", secure_price="1.09", stock="HIGH"),
+    ]
+    assert order(rows=rows, strategy="balanced") == ["cheap-scarce@US-TX-3", "pricier-plenty@US-TX-3"]
+    assert order(rows=rows, strategy="cheapest") == ["cheap-scarce@US-TX-3", "pricier-plenty@US-TX-3"]
+
+
+def test_fastest_takes_the_best_stocked_card_first_and_price_last():
+    """The one strategy that will pay more to avoid a scarce host."""
+    rows = [
+        offer("cheap-scarce", secure_price="0.49", stock="LOW"),
+        offer("pricier-plenty", secure_price="1.50", stock="HIGH"),
+    ]
+    assert order(rows=rows, strategy="fastest") == ["pricier-plenty@US-TX-3", "cheap-scarce@US-TX-3"]
+
+
+def test_balanced_only_leaves_the_primary_placement_to_save_money_when_it_has_nothing():
+    """The one real difference from ``cheapest``: locality leads, and it cannot cost more."""
+    rows = [
+        offer("local", secure_price="1.09", centers={"US-TX-3": "LOW"}),
+        offer("elsewhere", secure_price="0.49", centers={"US-KS-2": "HIGH"}),
+    ]
+    # Cheapest ignores the placement and takes the cheaper card; balanced reuses the placement
+    # that already holds the model. Both are inside the same price ceiling.
+    assert order(rows=rows, placements=(PRIMARY, FALLBACK), strategy="cheapest") == [
+        "elsewhere@US-KS-2",
+        "local@US-TX-3",
+    ]
+    assert order(rows=rows, placements=(PRIMARY, FALLBACK), strategy="balanced") == [
+        "local@US-TX-3",
+        "elsewhere@US-KS-2",
+    ]
+    # Locality is a preference, never a way past the user's own ceiling: at $1.00 the pricier
+    # primary card is not a candidate and the walk continues in the secondary placement.
+    assert order(rows=rows, placements=(PRIMARY, FALLBACK), strategy="balanced", max_hourly_price="1.00") == [
+        "elsewhere@US-KS-2"
+    ]
+    # And with nothing bookable in the primary placement it falls back rather than concluding.
+    assert order(
+        rows=[offer("local", secure_price="1.09", stock="NONE"), rows[1]],
+        placements=(PRIMARY, FALLBACK),
+        strategy="balanced",
+    ) == ["elsewhere@US-KS-2"]
+
+
+def test_fastest_still_prefers_secure_over_a_better_stocked_community_card():
+    rows = [
+        offer("secure-card", secure_price="1.50", stock="LOW"),
+        offer("community-card", secure_price=None, community_price="0.20", stock="HIGH"),
+    ]
+    assert order(
+        rows=rows,
+        placements=(COMMUNITY_PLACEMENT,),
+        tiers=policy.cloud_tiers(allow_community=True),
+        strategy="fastest",
+    ) == ["secure-card@US-TX-3", "community-card@US-TX-3"]
+
+
+@pytest.mark.parametrize("strategy", policy.STRATEGIES)
+@pytest.mark.parametrize(
+    "rows, expected",
+    [
+        ([offer("over-limit", secure_price="1.09", stock="HIGH")], "price_limit"),
+        ([offer("small", vram=24, stock="HIGH")], "no_compatible_gpu"),
+        ([offer("gone", stock="NONE")], "gpu_unavailable"),
+    ],
+)
+def test_no_strategy_can_widen_the_filters_it_only_orders_them(strategy, rows, expected):
+    """A strategy is an order. The price ceiling, the VRAM floor and bookability hold for all."""
+    plan = policy.build_plan(
+        rows,
+        min_vram_gb=48,
+        max_hourly_price=Decimal("1.00"),
+        placements=(PRIMARY,),
+        strategy=strategy,
+    )
+    assert not plan
+    assert plan.reason == expected, strategy
+
+
+def test_an_unknown_strategy_orders_by_the_default_and_records_which_one_it_used():
+    """The fallback is the *balanced* order, which the placement preference makes visible."""
+    rows = [
+        offer("local", secure_price="1.09", centers={"US-TX-3": "HIGH"}),
+        offer("elsewhere", secure_price="0.49", centers={"US-KS-2": "HIGH"}),
+    ]
+    plan = policy.build_plan(
+        rows,
+        min_vram_gb=48,
+        max_hourly_price=Decimal("2"),
+        placements=(PRIMARY, FALLBACK),
+        strategy="turbo",
+    )
+    assert plan.strategy == "balanced"
+    assert plan.audit()["strategy"] == "balanced"
+    assert [item.gpu_id for item in plan.candidates] == ["local", "elsewhere"]
+
+
+def test_the_manual_strategy_is_a_pin_even_without_the_older_selection_field():
+    """The picker's own spelling of "this card" must not be ignored by the plan."""
+    both = {"US-TX-3": "HIGH", "US-KS-2": "LOW"}
+    rows = [offer("wanted", centers=both), offer("other", secure_price="0.10", centers=both)]
+    assert order(rows=rows, placements=(PRIMARY, FALLBACK), strategy="manual", gpu_id="wanted") == [
+        "wanted@US-TX-3",
+        "wanted@US-KS-2",
+    ]
     placements = policy.parse_placements("US-KS-2:vol-peers,US-TX-3:uwgeaie5b0:community", primary=PRIMARY)
     assert [(item.datacenter, item.community_capable) for item in placements] == [
         ("US-TX-3", True),

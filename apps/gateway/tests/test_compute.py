@@ -257,6 +257,83 @@ def test_manual_selection_pins_the_named_gpu(gateway, client):
     assert float(body["session"]["max_hourly_price_usd"]) <= 1.20
 
 
+def test_the_ordering_strategy_reaches_the_allocator(gateway, client):
+    """The user's own choice of *order*, honoured by the same walk.
+
+    The fake catalogue offers gpu-48 at $0.48 with LOW stock and an L40S at $1.09 with HIGH stock,
+    so the two strategies provably select different cards without changing any filter.
+    """
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    gateway.runpod.price = 0.48
+    body = ensure(
+        client,
+        headers,
+        operation_id="op-strategy-cheap",
+        max_hourly_price=2.00,
+        session_budget=5.00,
+        strategy="cheapest",
+    )
+    assert gateway.runpod.creates[0]["gpu"]["id"] == "gpu-48"
+    assert float(body["session"]["max_hourly_price_usd"]) <= 0.48
+
+
+def test_fastest_prefers_the_best_stocked_compatible_card(gateway, client):
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    gateway.runpod.price = 0.48
+    body = ensure(
+        client,
+        headers,
+        operation_id="op-strategy-fast",
+        max_hourly_price=2.00,
+        session_budget=5.00,
+        strategy="fastest",
+    )
+    assert gateway.runpod.creates[0]["gpu"]["id"] == "NVIDIA L40S"
+    # The strategy orders candidates, it never widens the ceiling the user set.
+    assert float(body["session"]["max_hourly_price_usd"]) <= 1.09
+
+
+def test_an_unknown_strategy_is_refused_as_malformed_never_silently_replaced(gateway, client):
+    """Same rule as the money policy: a value the server cannot honour is not quietly dropped."""
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    response = ensure_error(client, headers, operation_id="op-strategy-bad", strategy="turbo")
+    assert response.status_code == 422, response.text
+    assert gateway.runpod.creates == []
+    # And the default is the one the product documents, so an older client that sends nothing
+    # keeps the balanced order rather than falling into an unordered walk.
+    body = ensure(client, headers, operation_id="op-strategy-none", auto_stop_minutes=30)
+    assert body["state"] == "starting_pod"
+
+
+def test_the_manual_strategy_without_a_card_is_refused(gateway, client):
+    """It cannot mean "choose anything": that is what the default strategy is for."""
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    response = ensure_error(client, headers, operation_id="op-strategy-manual", strategy="manual")
+    assert response.status_code == 422, response.text
+    assert response.json()["code"] == "compute_policy_invalid"
+    assert gateway.runpod.creates == []
+
+
+def test_the_manual_strategy_is_a_pin_by_the_other_name_too(gateway, client):
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    gateway.runpod.price = 0.48
+    ensure(
+        client,
+        headers,
+        operation_id="op-strategy-pin",
+        max_hourly_price=1.20,
+        session_budget=3.00,
+        strategy="manual",
+        gpu_id="NVIDIA L40S",
+    )
+    assert gateway.runpod.creates[0]["gpu"]["id"] == "NVIDIA L40S"
+
+
 def test_a_policy_below_every_quote_never_creates_compute(gateway, client):
     installation = enroll(gateway, client)
     headers = auth_header(client, installation)

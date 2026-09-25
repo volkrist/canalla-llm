@@ -19,6 +19,10 @@ class ComputePreferences(BaseModel):
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     selection: Literal["automatic", "manual"] = "automatic"
+    # How the allocator *orders* the candidates it may book. Never a filter: the VRAM floor and
+    # ``max_hourly_price`` bound all four strategies, so a strategy can never spend more than the
+    # user's own ceiling. ``manual`` is the only one that needs a card, and ``enforce`` says so.
+    strategy: Literal["balanced", "fastest", "cheapest", "manual"] = "balanced"
     min_vram_gb: int = Field(default=48, ge=1, le=1024)
     max_hourly_price: Decimal = Field(default=Decimal("0.52"), gt=0, le=100, max_digits=8, decimal_places=4)
     session_budget: Decimal = Field(default=Decimal("3.00"), gt=0, le=1000, max_digits=9, decimal_places=4)
@@ -37,6 +41,8 @@ class ComputePreferences(BaseModel):
             raise ValueError(f"Минимум VRAM на сервере: {settings.runpod_min_vram_gb} GB")
         if self.auto_connect and self.selection == "manual" and not self.gpu_id:
             raise ValueError("Для автоподключения выберите точный GPU или автоматический выбор")
+        if self.strategy == "manual" and not self.gpu_id:
+            raise ValueError("Для стратегии «Вручную» выберите точный GPU или стратегию «Сбалансированная»")
         return self
 
     @classmethod
@@ -44,6 +50,7 @@ class ComputePreferences(BaseModel):
         """New users start on the cheap automatic policy; they own it from then on."""
         return cls(
             selection="automatic",
+            strategy="balanced",
             gpu_id=None,
             min_vram_gb=settings.runpod_min_vram_gb,
             max_hourly_price=settings.runpod_default_hourly_price,

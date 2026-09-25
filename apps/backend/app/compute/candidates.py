@@ -21,11 +21,16 @@ configuration — never from guesswork:
 * the placements that can mount the Network Volume, which is what makes a Pod able to serve
   the configured model at all.
 
-Ordering is deliberate and documented: cloud tier first (Secure preferred, then Community),
-then price ascending (automatic mode always prefers the cheapest compatible GPU inside the
-user's own maximum), then the deployment's placement preference, then the GPU id for a total
-order. With a single tier and a single placement this is exactly the historical order
-(cheapest first, ties by id), so no existing decision changes.
+Ordering is deliberate and documented, and the user picks it (``strategy``): **balanced** (the
+default — the placement that already holds the model first, then the cheapest card that is
+*bookable right now*, then price), **fastest** (the best-stocked card first, price last),
+**cheapest** (price first across placements — the historical order) or **manual** (the same order
+over a pinned card). A strategy orders the candidates, it never widens them: the VRAM floor, the
+user's own price ceiling and the cloud-tier policy hold under all four.
+
+Availability is a *filter*, not a tiebreak, in balanced and cheapest: a card with no stock at a
+placement is not a candidate there at all. That is what keeps "do not wait for cheap hardware"
+true without a strategy ever buying a pricier card than a bookable one in the same placement.
 
 A ``manual`` selection is a *pin*, never a substitution: the candidate set is the named GPU
 only, and it may still be tried in another placement (the same card, a different slot).
@@ -62,6 +67,22 @@ CANDIDATE_CALL_TIMEOUT_SECONDS = 15
 # the Volume from there. Default: never.
 COMMUNITY_BLOCKED_BY_NETWORK_VOLUME = "network_volume"
 COMMUNITY_BLOCKED_BY_POLICY = "policy"
+
+
+# The four allocation strategies. They are *orderings of the same candidate set*: a strategy never
+# widens what may be booked, only which of several bookable candidates is tried first. That is why
+# one enum can safely be a user preference while the VRAM floor and the price ceiling stay hard
+# filters.
+BALANCED = "balanced"
+FASTEST = "fastest"
+CHEAPEST = "cheapest"
+MANUAL = "manual"
+STRATEGIES = (BALANCED, FASTEST, CHEAPEST, MANUAL)
+DEFAULT_STRATEGY = BALANCED
+
+# How promising a stock level is. Only used for ordering: a level outside ``USABLE_STOCK`` is not
+# a candidate at all, and one that is anywhere in it is bookable right now.
+_STOCK_RANK = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
 
 
 @dataclass(frozen=True)
@@ -123,6 +144,7 @@ class AllocationPlan:
     candidates: tuple[AllocationCandidate, ...]
     reason: str | None
     considered: int
+    strategy: str = DEFAULT_STRATEGY
 
     def __bool__(self) -> bool:  # an empty plan is a concluded search, not a candidate
         return bool(self.candidates)
@@ -132,6 +154,7 @@ class AllocationPlan:
             "planned": len(self.candidates),
             "considered": int(self.considered),
             "reason": self.reason,
+            "strategy": self.strategy,
             "candidates": [candidate.audit() for candidate in self.candidates],
         }
 
@@ -186,6 +209,41 @@ def cloud_tiers(*, allow_community: bool) -> tuple[str, ...]:
     return (SECURE, COMMUNITY) if allow_community else (SECURE,)
 
 
+def normalise_strategy(strategy: str | None) -> str:
+    """The strategy, or the default when the value is not one of the four.
+
+    An unknown strategy is not an error here: both entry points validate the closed set before a
+    plan is ever built (pydantic in direct mode, ``_caps`` in the Gateway). Falling back to the
+    default keeps a stale client from turning an order into a crash, and the plan records which
+    strategy actually ordered it.
+    """
+    return strategy if strategy in STRATEGIES else DEFAULT_STRATEGY
+
+
+def _order_key(strategy: str, tier_index: int, candidate: AllocationCandidate, position: int):
+    """The deliberate ordering of one candidate, per strategy.
+
+    * ``cheapest`` — tier, then price across every placement. This is the historical order exactly
+      (cheapest first, ties by placement and then id), kept as a value so a price-first user is not
+      silently moved to a different policy.
+    * ``balanced`` (default) — tier, then the deployment's own placement order, then price. Locality
+      leads because the primary placement is the one that already holds the model, so reusing it
+      avoids a cold start elsewhere; among the cards bookable *there* the cheaper one wins, so this
+      is never merely ``cheapest`` on a different day. The best-stocked card only breaks a price
+      tie.
+    * ``fastest`` — tier, then the most promising stock, then placement, then price. First bookable
+      card wins; a few cents are irrelevant.
+    * ``manual`` — the set is already pinned to one card id by ``selection``, so this is the
+      balanced order over that pin: the same card, in the best slot.
+    """
+    if strategy == CHEAPEST:
+        return (tier_index, candidate.hourly_rate, position, candidate.gpu_id)
+    stock = -_STOCK_RANK.get(candidate.availability, 0)
+    if strategy == FASTEST:
+        return (tier_index, stock, position, candidate.hourly_rate, candidate.gpu_id)
+    return (tier_index, position, candidate.hourly_rate, stock, candidate.gpu_id)
+
+
 def build_plan(
     offers,
     *,
@@ -195,6 +253,7 @@ def build_plan(
     tiers: tuple[str, ...] = (SECURE,),
     selection: str = "automatic",
     gpu_id: str | None = None,
+    strategy: str = DEFAULT_STRATEGY,
     limit: int = MAX_CANDIDATE_ATTEMPTS,
 ) -> AllocationPlan:
     """The ordered, bounded candidate list for one model-required allocation.
@@ -203,7 +262,12 @@ def build_plan(
     carries the typed reason: ``no_compatible_gpu`` (nothing fits the model), ``gpu_unavailable``
     (compatible hardware exists but nothing is bookable) or ``price_limit`` (bookable, but above
     the user's own maximum). Those three conclusions are the product's existing vocabulary.
+
+    A ``manual`` *selection* (the pin) is applied here, the ordering strategy is applied below,
+    and neither one can widen the filters: the VRAM floor, the user's own price ceiling and the
+    cloud-tier policy apply to every strategy.
     """
+    strategy = normalise_strategy(strategy)
     allowed_tiers = [tier for index, tier in enumerate(tiers) if tier in TIERS and tier not in tiers[:index]]
     if not allowed_tiers:
         allowed_tiers = [SECURE]
@@ -223,7 +287,10 @@ def build_plan(
                 continue
             if not vram_fits:
                 continue
-            if selection == "manual" and gpu_id and row.get("id") != gpu_id:
+            # A pin is a pin whichever spelling asked for it: ``selection: manual`` is the
+            # historical field, ``strategy: manual`` is the same decision from the picker.
+            pinned = selection == "manual" or strategy == MANUAL
+            if pinned and gpu_id and row.get("id") != gpu_id:
                 continue
             for position, placement in enumerate(placements):
                 if tier == COMMUNITY and not placement.community_capable:
@@ -252,22 +319,20 @@ def build_plan(
                 )
     ordered: list[AllocationCandidate] = []
     seen: set[str] = set()
-    for _, candidate, _ in sorted(
-        priced, key=lambda item: (item[0], item[1].hourly_rate, item[2], item[1].gpu_id)
-    ):
+    for _, candidate, _ in sorted(priced, key=lambda item: _order_key(strategy, *item)):
         if candidate.key in seen:
             continue
         seen.add(candidate.key)
         ordered.append(candidate)
     if ordered:
-        return AllocationPlan(tuple(ordered[: max(1, int(limit))]), None, len(offers))
+        return AllocationPlan(tuple(ordered[: max(1, int(limit))]), None, len(offers), strategy)
     if not compatible:
         reason = "no_compatible_gpu"
     elif not in_stock:
         reason = "gpu_unavailable"
     else:
         reason = "price_limit"
-    return AllocationPlan((), reason, len(offers))
+    return AllocationPlan((), reason, len(offers), strategy)
 
 
 def community_blocked_by(*, allow_community: bool, placements: tuple[Placement, ...]) -> str | None:

@@ -7,15 +7,24 @@ import {
   runningSharedSession,
 } from "../lib/compute";
 import {
+  appliedSelection,
+  appliedStrategy,
   COMPUTE_POLICY_DEFAULTS,
-  manualNeedsGpu,
+  COMPUTE_STRATEGIES,
+  pinMissing,
   policyForWire,
   policyRefusal,
+  type ComputeStrategy,
 } from "../lib/compute-policy";
 import type { LLMStatus } from "../types";
 
 interface Preferences {
   selection: "automatic" | "manual";
+  /**
+   * The user's own ordering choice. It orders the candidates the policy already allows, so no
+   * strategy can spend above the saved $/hour maximum.
+   */
+  strategy?: ComputeStrategy;
   min_vram_gb: number;
   max_hourly_price: number;
   session_budget: number;
@@ -281,7 +290,7 @@ export default function ComputePanel({
   async function search(searchPreferences = preferences) {
     if (!preferencesReady) return;
     const wanted = forWire(searchPreferences);
-    if (wanted.selection === "manual" && !wanted.gpu_id) {
+    if (pinMissing(wanted)) {
       // Explained, not round-tripped: the backend's own message is the same thing, but the user
       // should never have to submit a form to be told it cannot work.
       setError(policyRefusal(wanted));
@@ -314,10 +323,10 @@ export default function ComputePanel({
    * The one state the product must refuse, mirrored so the UI can explain it instead of letting the
    * backend answer 422. `automatic` with no GPU pinned is a valid, *preferred* state and must never
    * be reported as an error — the red banner the operator saw came from a manual selection with an
-   * empty GPU, which the panel could have prevented. The rule itself lives in `lib/compute-policy`
-   * so it can be proven without rendering the panel.
+   * empty GPU, which the panel could have prevented. Either control can ask for a pin, so the rule
+   * covers both. It lives in `lib/compute-policy` so it can be proven without rendering the panel.
    */
-  const needsManualGpu = manualNeedsGpu(preferences);
+  const needsGpu = pinMissing(preferences);
   /** Automatic mode never sends a pin, whatever a previous manual choice left behind. */
   const forWire = policyForWire;
   // §27: the running Pod belongs to the whole installation, so its rate can sit above this
@@ -633,16 +642,14 @@ export default function ComputePanel({
                   <select
                     value={preferences.selection}
                     onChange={(e) => {
-                      const selection = e.target
-                        .value as Preferences["selection"];
-                      // Leaving `automatic` drops the pin instead of carrying it silently: a pin
-                      // that the mode does not use must not survive a mode switch.
-                      setPreferences({
-                        ...preferences,
-                        selection,
-                        gpu_id:
-                          selection === "manual" ? preferences.gpu_id : null,
-                      });
+                      // The transition is a rule, not an inline edit: leaving `automatic` drops the
+                      // pin, and going back to `automatic` also moves the strategy off `manual`.
+                      setPreferences(
+                        appliedSelection(
+                          preferences,
+                          e.target.value as Preferences["selection"],
+                        ),
+                      );
                       setQuote(null);
                     }}
                   >
@@ -650,6 +657,27 @@ export default function ComputePanel({
                       Автоматически · подходящая карта
                     </option>
                     <option value="manual">Вручную · точная карта</option>
+                  </select>
+                </label>
+                <label>
+                  Стратегия
+                  <select
+                    value={preferences.strategy || "balanced"}
+                    onChange={(e) => {
+                      setPreferences(
+                        appliedStrategy(
+                          preferences,
+                          e.target.value as ComputeStrategy,
+                        ),
+                      );
+                      setQuote(null);
+                    }}
+                  >
+                    {COMPUTE_STRATEGIES.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 {preferences.selection === "manual" && (
@@ -687,11 +715,10 @@ export default function ComputePanel({
                     </select>
                   </label>
                 )}
-                {needsManualGpu && (
+                {needsGpu && (
                   <p className="field-help" role="status">
-                    В ручном режиме нужна конкретная карта. Выберите её выше или
-                    вернитесь к автоматическому выбору — он берёт любую
-                    подходящую.
+                    Нужна конкретная карта. Выберите её выше или вернитесь к
+                    автоматическому выбору — он берёт любую подходящую.
                   </p>
                 )}
                 {(
@@ -786,10 +813,10 @@ export default function ComputePanel({
                 )}
               </div>
               <button
-                disabled={busy || needsManualGpu}
+                disabled={busy || needsGpu}
                 title={
-                  needsManualGpu
-                    ? "В ручном режиме выберите карту или вернитесь к автоматическому выбору"
+                  needsGpu
+                    ? "Выберите карту или вернитесь к автоматическому выбору"
                     : undefined
                 }
                 onClick={() =>

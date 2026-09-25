@@ -93,6 +93,10 @@ class EnsureRequest(BaseModel):
     auto_stop_minutes: int | None = Field(default=None, ge=0, le=240)
     min_vram_gb: int | None = Field(default=None, ge=1, le=1024)
     selection: Literal["automatic", "manual"] | None = Field(default=None)
+    # How the allocator orders the candidates it may book. A closed set at the schema, like
+    # ``selection``: an unknown value is refused as malformed rather than quietly swapped for the
+    # default, and ``manual`` is a pin by another name (see ``_caps``).
+    strategy: Literal["balanced", "fastest", "cheapest", "manual"] | None = Field(default=None)
     gpu_id: str | None = Field(default=None, max_length=160)
     # The caller's own opt-in for the second cloud tier. Only ever honoured inside the
     # deployment's own policy (see the shared candidate policy): a client can never widen a
@@ -276,6 +280,10 @@ async def compute_ensure(request: Request, payload: EnsureRequest, installation:
         "auto_stop_minutes": payload.auto_stop_minutes,
         "min_vram_gb": payload.min_vram_gb,
         "selection": payload.selection,
+        # The ordering strategy has to travel with the policy like every other preference: built
+        # field by field, an omission here is indistinguishable from "the user never chose" and
+        # would quietly hand a `fastest` request the balanced walk.
+        "strategy": payload.strategy,
         "gpu_id": payload.gpu_id,
         "allow_community": payload.allow_community,
     }
