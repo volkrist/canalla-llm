@@ -18,8 +18,8 @@ PID:                  см. `artifacts/runpod-tx3-watcher/watcher.pid` (на м�
 Poll:                 каждые 120 секунд (только бесплатный catalogue/read-only)
 Paid resources:       NONE
 Secondary Volume:     NOT CREATED
-Paid resource guard:  CPU-попытка не чаще одного раза в 15 минут; Pod-create только при
-                      реальном сигнале каталога либо в рамках этого cooldown
+Paid resource guard:  GPU-сигнал каталога → попытка в том же полле (cooldown не действует);
+                      слепая CPU-попытка — не чаще одного раза в 15 минут
 Single-instance:      OS byte-range lock (watcher.lock) + pid-файл
 ```
 
@@ -59,6 +59,13 @@ Single-instance:      OS byte-range lock (watcher.lock) + pid-файл
      без единого платного вызова; POST на `/v2/pods` в self-test'е жёстко возвращает ошибку).
 4. **Watcher перезапущен уже с кодом, включающим §R** (живой GPU-тест реплики), и продолжает поллинг.
    Запущен он теперь как **один** процесс на финальном коде этого прохода.
+5. **GPU-сигнал каталога больше не ждёт CPU-cooldown.** Правило зафиксировано явно: если живой
+   каталог показывает в US-TX-3 **любую** Secure GPU ≤ $1.00/ч с `availability != NONE`, попытка
+   создать migration Pod с этой картой делается **в том же poll cycle**, и CPU-флavour в этом
+   случае вообще не запрашивается (`allow_cpu=False`) — cooldown относится только к слепым CPU-probe.
+   Если карта исчезла между scan и `POST /v2/pods`, watcher получает capacity-ошибку, возвращается в
+   `watching` и **не повторяет POST в этом полле** — следующая попытка только через 120 с. Это и есть
+   причина, по которой правка сделана до появления ёмкости: окно в US-TX-3 живёт минутами.
 
 ---
 
@@ -75,8 +82,12 @@ PASS  price above the operator maximum is never a candidate
 PASS  a datacenter without STANDARD volumes is not chosen
 PASS  a live migration Pod is never doubled
 PASS  an orphan past its budget is reaped once, not re-created
+PASS  a GPU signal attempts exactly the card, never the CPU
+PASS  the attempt mounts the primary volume in its own datacenter
+PASS  a refused attempt never retries inside the same poll
+PASS  a blind probe still tries one CPU flavour
 PASS  a second watcher is refused while one is live
-self-test: 11/11 passed
+self-test: 15/15 passed
 ```
 
 Ограничения внутри теста проверяются на фиктивном каталоге: карта $0.74/ч в US-TX-3 — кандидат,
@@ -103,7 +114,7 @@ pytest tests/test_allocation_candidates.py tests/test_cloud_demand.py tests/test
 
 | Шаг | Действие | Защита |
 |---|---|---|
-| E | **один** временный migration Pod в US-TX-3, том `uwgeaie5b0` → `/workspace`, образ alpine | CPU предпочтительно; иначе **самая дешёвая** Secure GPU ≤ **$1.00/ч**; llama.cpp не запускается, модель в VRAM не грузится |
+| E | **один** временный migration Pod в US-TX-3, том `uwgeaie5b0` → `/workspace`, образ alpine | **сигнал каталога → сразу, в этом же полле** (любая Secure GPU ≤ $1.00/ч, VRAM не важен), CPU — только на слепом probe; llama.cpp не запускается, модель в VRAM не грузится |
 | E | Измерение: точный путь/имя/байты/SHA256 GGUF, **содержимое** `start-llm.sh` и `check-llm.sh` (base64 в лог → файлы в артефактах), список файлов с размерами, бинарь и версия llama.cpp, параметры запуска, required bytes, file count | манифест сохраняется в `primary-manifest.json` — «unknown source without hash» больше не повторится |
 | G/H/I | Свежий скан **всех** ДЦ: Secure, STANDARD-тома, ≥48 GB, ≤$2/ч, availability ≠ NONE. Победитель выбирается по: реальная доступность → **число разных подходящих GPU типов** → сильнейший сток → цена | прошлый выбор (US-NE-1/CA-MTL-3) не считается действующим |
 | J | Проверка размера: required bytes против 50 GB | если не влезает — **STOP**, ничего не покупается, в отчёт пишется нужный размер |

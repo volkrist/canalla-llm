@@ -372,8 +372,14 @@ def live_migration_pods(key: str, *, mine: str = "") -> list[dict]:
     ]
 
 
-def create_migration_pod(key: str, state: dict, candidates: list[dict]) -> dict:
-    """At most ONE live migration Pod: adopt nothing, create nothing while another one is alive."""
+def create_migration_pod(
+    key: str, state: dict, candidates: list[dict], *, allow_cpu: bool = True
+) -> dict:
+    """At most ONE live migration Pod: adopt nothing, create nothing while another one is alive.
+
+    ``allow_cpu=False`` is the rule for a real catalogue signal: the eligible card the catalogue just
+    showed *is* the attempt for this poll, and the blind CPU-probe cooldown must never delay it.
+    """
     mine = str(state.get("source_pod") or "")
     for orphan in live_migration_pods(key, mine=mine):
         age = _age_seconds(orphan.get("createdAt"))
@@ -392,17 +398,24 @@ def create_migration_pod(key: str, state: dict, candidates: list[dict]) -> dict:
             age_seconds=int(age),
         )
         terminate(key, orphan["id"])
-    return _create_migration_pod(key, state, candidates)
+    return _create_migration_pod(key, state, candidates, allow_cpu=allow_cpu)
 
 
-def _create_migration_pod(key: str, state: dict, candidates: list[dict]) -> dict:
-    """One attempt: a CPU Pod when the platform offers one, else the cheapest suitable GPU."""
+def _create_migration_pod(
+    key: str, state: dict, candidates: list[dict], *, allow_cpu: bool = True
+) -> dict:
+    """One attempt with exactly one spec: the catalogue's card, or a CPU flavour on a blind probe.
+
+    A failed attempt never retries inside the same poll — a capacity race puts the watcher back to
+    ``watching`` and the next try is the next poll, 120 seconds later.
+    """
     password = base64.urlsafe_b64encode(os.urandom(18)).decode().rstrip("=")
     cpu = None
-    try:
-        cpu = cheapest_cpu(key)
-    except SystemExit:
-        cpu = None
+    if allow_cpu:
+        try:
+            cpu = cheapest_cpu(key)
+        except SystemExit:
+            cpu = None
     bodies = []
     if cpu and cpu["price_per_vcpu"] * cpu["vcpuCount"] <= MIGRATION_MAX_HOURLY:
         bodies.append(
@@ -650,7 +663,7 @@ def live_secondary_test(
 # --------------------------------------------------------------------- the pipeline
 
 
-def run_pipeline(key: str, state: dict) -> None:
+def run_pipeline(key: str, state: dict, *, allow_cpu: bool = True) -> None:
     candidates = tx3_candidates(key, max_hourly=MIGRATION_MAX_HOURLY)
     event(
         state,
@@ -658,7 +671,7 @@ def run_pipeline(key: str, state: dict) -> None:
         found=candidates[:4],
     )
     started = time.monotonic()
-    session = create_migration_pod(key, state, candidates)
+    session = create_migration_pod(key, state, candidates, allow_cpu=allow_cpu)
     if not session:
         state["phase"] = "watching"
         event(
@@ -946,13 +959,32 @@ def watch(key: str, *, run_when_ready: bool) -> int:
                 "cheapest": candidates[0] if candidates else None,
             }
             log(
-                f"poll {state['poll_count']}: US-TX-3 candidates={len(candidates)} cpu_probe_allowed={cpu_allowed}"
+                f"poll {state['poll_count']}: US-TX-3 candidates={len(candidates)} "
+                f"gpu_signal={bool(candidates)} cpu_probe_allowed={cpu_allowed}"
             )
             save_state(state)
-            if run_when_ready and (candidates or cpu_allowed):
-                state["last_cpu_probe"] = time.time()
-                save_state(state)
-                run_pipeline(key, state)
+            if run_when_ready:
+                if candidates:
+                    # A real catalogue signal is acted on in this very poll. No CPU cooldown, no
+                    # waiting for the next cycle: the eligible card is the attempt.
+                    state["last_signal"] = {
+                        "at": now(),
+                        "kind": "gpu_catalogue_signal",
+                        "candidate": candidates[0],
+                    }
+                    save_state(state)
+                    event(
+                        state,
+                        "US-TX-3 GPU signal — attempting the migration Pod now (CPU cooldown bypassed)",
+                        card=candidates[0],
+                    )
+                    run_pipeline(key, state, allow_cpu=False)
+                elif cpu_allowed:
+                    # The blind probe: only its own cooldown applies, and nothing was seen yet.
+                    state["last_cpu_probe"] = time.time()
+                    state["last_signal"] = {"at": now(), "kind": "cpu_blind_probe"}
+                    save_state(state)
+                    run_pipeline(key, state)
             if state.get("phase") in {"done"}:
                 event(state, "watcher exiting: migration complete")
                 PIDFILE.unlink(missing_ok=True)
@@ -1056,16 +1088,21 @@ def self_test() -> int:
         "EU-RO-1": {"networkVolumeTypes": ["HIGH_PERFORMANCE"]},
     }
     pods: list[dict] = []
-    posts: list[str] = []
+    posts: list[dict] = []
     terminated: list[str] = []
+    cpu_calls: list[str] = []
 
     def fake_call(url: str, key: str, *, method: str = "GET", payload=None):
         if method == "POST" and str(url).startswith("/v2/pods"):
-            posts.append(str(url))
+            posts.append(payload or {})
             return 500, {"detail": "the self-test must never create a Pod"}
         if str(url) == "/v2/pods":
             return 200, {"pods": pods}
         return 404, {"detail": f"unexpected {method} {url}"}
+
+    def fake_cheapest_cpu(key: str) -> dict:
+        cpu_calls.append(key)
+        return {"flavor": "cpu5c", "vcpuCount": 1, "price_per_vcpu": 0.20}
 
     patch = (module.call, module.terminate, module.cheapest_cpu, module.gpu_rows, module.volume_support)
     settings = (module.STATE, module.LOG, module.PIDFILE, module.ARTIFACTS, module.PRIMARY_DC)
@@ -1073,7 +1110,7 @@ def self_test() -> int:
     sandbox = Path(tempfile.mkdtemp(prefix="canalla-watcher-selftest-"))
     module.call = fake_call
     module.terminate = lambda key, pod_id: terminated.append(pod_id) or {}
-    module.cheapest_cpu = lambda key: (_ for _ in ()).throw(SystemExit("no CPU in self-test"))
+    module.cheapest_cpu = fake_cheapest_cpu
     module.gpu_rows = lambda key: gcatalogue
     module.volume_support = lambda key: gvolumes
     module.STATE = sandbox / "state.json"
@@ -1148,11 +1185,45 @@ def self_test() -> int:
                 ).strftime("%Y-%m-%dT%H:%M:%SZ"),
             }
         ]
-        session = create_migration_pod("k", state, [])
+        session = create_migration_pod("k", state, [], allow_cpu=False)
         check(
             "an orphan past its budget is reaped once, not re-created",
             terminated == ["pod-orphan"] and session == {} and not posts,
-            f"terminated={terminated} posts={posts}",
+            f"terminated={terminated} posts={len(posts)}",
+        )
+
+        # The rule this pass adds: a real catalogue card is attempted in its own poll, and the blind
+        # CPU-probe cooldown has nothing to do with it.
+        posts.clear()
+        cpu_calls.clear()
+        pods[:] = []
+        create_migration_pod("k", {"phase": "watching", "events": []}, candidates, allow_cpu=False)
+        check(
+            "a GPU signal attempts exactly the card, never the CPU",
+            len(posts) == 1 and "gpu" in posts[0] and "cpu" not in posts[0] and not cpu_calls,
+            f"posts={len(posts)} specs={[sorted(post) for post in posts]} cpu_calls={cpu_calls}",
+        )
+        check(
+            "the attempt mounts the primary volume in its own datacenter",
+            bool(posts)
+            and posts[0].get("dataCenterIds") == [PRIMARY_DC]
+            and posts[0].get("mounts")
+            == {"network": [{"volumeId": PRIMARY_VOLUME, "path": "/workspace"}]},
+            f"dc={posts[0].get('dataCenterIds') if posts else None}",
+        )
+        check(
+            "a refused attempt never retries inside the same poll",
+            len(posts) == 1,
+            f"posts={len(posts)}",
+        )
+
+        posts.clear()
+        cpu_calls.clear()
+        create_migration_pod("k", {"phase": "watching", "events": []}, [], allow_cpu=True)
+        check(
+            "a blind probe still tries one CPU flavour",
+            len(posts) == 1 and "cpu" in posts[0] and len(cpu_calls) == 1,
+            f"posts={len(posts)} specs={[sorted(post) for post in posts]} cpu_calls={cpu_calls}",
         )
 
         if _watcher_pid_alive(real_pidfile):
@@ -1236,7 +1307,7 @@ def main(argv: list[str] | None = None) -> int:
             state = load_state()
             state["pid"] = os.getpid()
             save_state(state)
-            run_pipeline(key, state)
+            run_pipeline(key, state, allow_cpu=not candidates)
             print_status()
         return 0
     return watch(key, run_when_ready=True)
