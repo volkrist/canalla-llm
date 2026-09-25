@@ -6,6 +6,12 @@ import {
   policyMoney,
   runningSharedSession,
 } from "../lib/compute";
+import {
+  COMPUTE_POLICY_DEFAULTS,
+  manualNeedsGpu,
+  policyForWire,
+  policyRefusal,
+} from "../lib/compute-policy";
 import type { LLMStatus } from "../types";
 
 interface Preferences {
@@ -110,12 +116,14 @@ export const computeLabels: Record<string, string> = {
   external_compute: "Обнаружен существующий Pod",
 };
 const defaults: Preferences = {
-  selection: "automatic",
   min_vram_gb: 0,
   max_hourly_price: 0,
   session_budget: 0,
   auto_stop_minutes: 10,
-  gpu_id: "NVIDIA L40S",
+  // The selection and the pin come from the shared rule module: no GPU is pinned by default, and no
+  // GPU name is seeded into a form the user then has to notice. `automatic` means the allocator
+  // chooses any compatible card.
+  ...COMPUTE_POLICY_DEFAULTS,
   auto_search: true,
   search_interval: 30,
   allow_community: false,
@@ -143,6 +151,11 @@ export default function ComputePanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirmStop, setConfirmStop] = useState(false);
+  /** The catalogue, only for the optional manual pin. Empty until the user asks for it. */
+  const [gpuOptions, setGpuOptions] = useState<
+    { id: string; name: string; vram_gb: number; hourly_rate: number }[]
+  >([]);
+  const [manualOpen, setManualOpen] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const locked = useRef(false);
   const key = useRef(crypto.randomUUID());
@@ -224,6 +237,32 @@ export default function ComputePanel({
       cancelled = true;
     };
   }, [api, status?.quote_id, quote?.quote_id]);
+  // A manual pin is advanced and optional: the catalogue is read lazily, the moment the user
+  // opens it, so a normal user never has to know a GPU name at all.
+  useEffect(() => {
+    if (!manualOpen || gpuOptions.length) return;
+    let cancelled = false;
+    void api
+      .json<{
+        options: {
+          id: string;
+          name: string;
+          vram_gb: number;
+          hourly_rate: number;
+        }[];
+      }>("/compute/options")
+      .then((found) => {
+        if (!cancelled) {
+          setGpuOptions(
+            (found.options || []).filter((option) => option.vram_gb >= 1),
+          );
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [api, manualOpen, gpuOptions.length]);
   async function run(action: () => Promise<void>) {
     if (locked.current) return;
     locked.current = true;
@@ -241,7 +280,14 @@ export default function ComputePanel({
   }
   async function search(searchPreferences = preferences) {
     if (!preferencesReady) return;
-    searchPreferences = { ...searchPreferences, auto_connect: true };
+    const wanted = forWire(searchPreferences);
+    if (wanted.selection === "manual" && !wanted.gpu_id) {
+      // Explained, not round-tripped: the backend's own message is the same thing, but the user
+      // should never have to submit a form to be told it cannot work.
+      setError(policyRefusal(wanted));
+      return;
+    }
+    searchPreferences = { ...wanted, auto_connect: true };
     await run(async () => {
       await api.json("/compute/preferences", {
         method: "PUT",
@@ -264,6 +310,16 @@ export default function ComputePanel({
   }
   const effective =
     status?.search_preferences || status?.preferences || preferences;
+  /**
+   * The one state the product must refuse, mirrored so the UI can explain it instead of letting the
+   * backend answer 422. `automatic` with no GPU pinned is a valid, *preferred* state and must never
+   * be reported as an error — the red banner the operator saw came from a manual selection with an
+   * empty GPU, which the panel could have prevented. The rule itself lives in `lib/compute-policy`
+   * so it can be proven without rendering the panel.
+   */
+  const needsManualGpu = manualNeedsGpu(preferences);
+  /** Automatic mode never sends a pin, whatever a previous manual choice left behind. */
+  const forWire = policyForWire;
   // §27: the running Pod belongs to the whole installation, so its rate can sit above this
   // user's own limit (they lowered it afterwards, or another installation started it). The
   // line is read from the last Gateway compute answer in the shared snapshot — the panel
@@ -573,38 +629,71 @@ export default function ComputePanel({
               {overLimit && <p className="status-warn">{overLimit}</p>}
               <div className="compute-fields">
                 <label>
-                  Точный GPU (пусто — любой подходящий NVIDIA)
-                  <input
-                    value={preferences.gpu_id || ""}
-                    placeholder="NVIDIA L40S"
-                    maxLength={160}
-                    onChange={(e) => {
-                      setPreferences({
-                        ...preferences,
-                        gpu_id: e.target.value.trim() || null,
-                      });
-                      setQuote(null);
-                    }}
-                  />
-                </label>
-                <label>
                   Выбор GPU
                   <select
                     value={preferences.selection}
                     onChange={(e) => {
+                      const selection = e.target
+                        .value as Preferences["selection"];
+                      // Leaving `automatic` drops the pin instead of carrying it silently: a pin
+                      // that the mode does not use must not survive a mode switch.
                       setPreferences({
                         ...preferences,
-                        selection: e.target.value as Preferences["selection"],
+                        selection,
+                        gpu_id:
+                          selection === "manual" ? preferences.gpu_id : null,
                       });
                       setQuote(null);
                     }}
                   >
                     <option value="automatic">
-                      Автоматически · самая дешёвая
+                      Автоматически · подходящая карта
                     </option>
-                    <option value="manual">Вручную</option>
+                    <option value="manual">Вручную · точная карта</option>
                   </select>
                 </label>
+                {preferences.selection === "manual" && (
+                  <label>
+                    Точный GPU (необязательно)
+                    <select
+                      value={preferences.gpu_id || ""}
+                      onFocus={() => setManualOpen(true)}
+                      onChange={(e) => {
+                        setManualOpen(true);
+                        setPreferences({
+                          ...preferences,
+                          gpu_id: e.target.value || null,
+                        });
+                        setQuote(null);
+                      }}
+                    >
+                      <option value="">— выберите из каталога —</option>
+                      {gpuOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.name} · {option.vram_gb} ГБ · $
+                          {Number(option.hourly_rate).toFixed(2)}/ч
+                        </option>
+                      ))}
+                      {/* A pin stored before the catalogue was read must not vanish from the
+                          control that shows it. */}
+                      {preferences.gpu_id &&
+                        !gpuOptions.some(
+                          (option) => option.id === preferences.gpu_id,
+                        ) && (
+                          <option value={preferences.gpu_id}>
+                            {preferences.gpu_id} · сохранено
+                          </option>
+                        )}
+                    </select>
+                  </label>
+                )}
+                {needsManualGpu && (
+                  <p className="field-help" role="status">
+                    В ручном режиме нужна конкретная карта. Выберите её выше или
+                    вернитесь к автоматическому выбору — он берёт любую
+                    подходящую.
+                  </p>
+                )}
                 {(
                   [
                     ["min_vram_gb", "Минимум VRAM, GB"],
@@ -697,14 +786,21 @@ export default function ComputePanel({
                 )}
               </div>
               <button
-                disabled={busy}
+                disabled={busy || needsManualGpu}
+                title={
+                  needsManualGpu
+                    ? "В ручном режиме выберите карту или вернитесь к автоматическому выбору"
+                    : undefined
+                }
                 onClick={() =>
                   void run(async () => {
                     const saved = await api.json<Preferences>(
                       "/compute/preferences",
                       {
                         method: "PUT",
-                        body: JSON.stringify(preferences),
+                        // Via the same wire shape as the search: a pin the current mode does not
+                        // use is never written back, so switching to automatic actually clears it.
+                        body: JSON.stringify(forWire(preferences)),
                       },
                     );
                     setPreferences(saved);
