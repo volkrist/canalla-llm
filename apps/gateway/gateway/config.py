@@ -63,6 +63,14 @@ class GatewaySettings(BaseSettings):
     # operator has proven that placement can be booked from the Community tier as well). Empty by
     # default: RunPod scopes a Network Volume to one datacenter, and the model lives on it.
     runpod_datacenters: str = ""
+    # The model-replica registry, as the JSON the provisioning step writes (see
+    # ``app/compute/replicas.py``). A *placement that this setting adds* is used only when its
+    # volume carries a verified record naming this exact model, hash and runtime: an unverified
+    # copy of the weights is worse than a datacenter with no capacity, so the fail-closed default
+    # (empty) simply does not use added placements. The primary placement is not gated this way —
+    # it is the one production already runs on, where demanding a record would take a working
+    # installation offline. A record that exists for *any* volume is always honoured.
+    runpod_replicas: str = ""
     # The second cloud tier. Off by default and never enabled silently: the allocator only offers
     # a Community candidate on a placement the operator declared community-capable.
     runpod_allow_community_cloud: bool = False

@@ -44,6 +44,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from .replicas import REPLICA_NOT_READY
+
 SECURE = "SECURE"
 COMMUNITY = "COMMUNITY"
 TIERS = (SECURE, COMMUNITY)
@@ -63,10 +65,29 @@ MAX_CANDIDATE_ATTEMPTS = 3
 CANDIDATE_CALL_TIMEOUT_SECONDS = 15
 
 # A RunPod Community Cloud Pod cannot mount a Network Volume, and the model lives on one, so a
-# placement is only usable from the Community tier when the operator declares that it can host
-# the Volume from there. Default: never.
+# placement is only usable from the Community tier when the operator declares that it can host the
+# Volume from there. Default: never.
 COMMUNITY_BLOCKED_BY_NETWORK_VOLUME = "network_volume"
 COMMUNITY_BLOCKED_BY_POLICY = "policy"
+
+# --------------------------------------------------------------------------------- storage kinds
+#
+# What a placement's storage *is*, because that decides whether it also decides the datacenter:
+#
+# * a regional Network Volume lives in one datacenter, so a placement that names one is that
+#   datacenter and nothing else — scheduling cannot be widened without losing the model;
+# * a Global Volume is region-independent, so the datacenter becomes an allocation property: the
+#   card may be booked wherever the provider actually reports it usable, and that is what makes
+#   cross-datacenter scheduling a *data* decision rather than a configuration list.
+#
+# The distinction is a property of the storage, never a preference, and it is the only thing that
+# decides whether the datacenter is pinned. Production currently configures regional placements
+# because the provider's own Pod-create API can mount exactly one Network Volume and has no field
+# for a global one (docs/report-2026-09-25-storage-multi-datacenter-decision.md); the abstraction
+# is here so that fact is one value, not a rewrite.
+REGIONAL_VOLUME = "regional_network_volume"
+GLOBAL_VOLUME = "global_volume"
+STORAGE_TYPES = (REGIONAL_VOLUME, GLOBAL_VOLUME)
 
 
 # The four allocation strategies. They are *orderings of the same candidate set*: a strategy never
@@ -87,23 +108,31 @@ _STOCK_RANK = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
 
 @dataclass(frozen=True)
 class Placement:
-    """A (datacenter, Network Volume) pair that a Pod may be created in.
+    """A storage identity plus the datacenter it may be mounted from.
 
     The Volume is part of the placement on purpose: the model, the startup scripts and the
-    llama.cpp state live on the Network Volume, so a datacenter without that Volume cannot
-    serve the configured model. Scheduling is therefore never widened to a datacenter the
-    Volume cannot be mounted in.
+    llama.cpp state live on it, so a datacenter without that Volume cannot serve the configured
+    model. Scheduling is therefore never widened to a datacenter the Volume cannot be mounted in
+    — ``storage_type`` is what decides whether that is a single datacenter at all.
     """
 
     datacenter: str
     volume_id: str
     community_capable: bool = False
+    storage_type: str = REGIONAL_VOLUME
+
+    @property
+    def pins_datacenter(self) -> bool:
+        """A regional volume belongs to one datacenter; a global one belongs to none."""
+        return self.storage_type != GLOBAL_VOLUME
 
     def audit(self) -> dict:
         return {
             "datacenter": self.datacenter,
             "volume_id": self.volume_id,
             "community_capable": bool(self.community_capable),
+            "storage_type": self.storage_type,
+            "pins_datacenter": self.pins_datacenter,
         }
 
 
@@ -119,6 +148,7 @@ class AllocationCandidate:
     datacenter: str
     volume_id: str
     availability: str
+    storage_type: str = REGIONAL_VOLUME
 
     @property
     def key(self) -> str:
@@ -134,6 +164,7 @@ class AllocationCandidate:
             "datacenter": self.datacenter,
             "volume_id": self.volume_id,
             "availability": self.availability,
+            "storage_type": self.storage_type,
         }
 
 
@@ -145,6 +176,7 @@ class AllocationPlan:
     reason: str | None
     considered: int
     strategy: str = DEFAULT_STRATEGY
+    replica_refusals: tuple[tuple[str, str], ...] = ()
 
     def __bool__(self) -> bool:  # an empty plan is a concluded search, not a candidate
         return bool(self.candidates)
@@ -155,6 +187,9 @@ class AllocationPlan:
             "considered": int(self.considered),
             "reason": self.reason,
             "strategy": self.strategy,
+            # Which volumes were skipped because of the *copy* on them, keyed by volume id: the
+            # reason a placement is absent has to be readable even when another one was used.
+            "replica_refusals": dict(self.replica_refusals),
             "candidates": [candidate.audit() for candidate in self.candidates],
         }
 
@@ -255,6 +290,7 @@ def build_plan(
     gpu_id: str | None = None,
     strategy: str = DEFAULT_STRATEGY,
     limit: int = MAX_CANDIDATE_ATTEMPTS,
+    replica_refusals: dict[str, str] | None = None,
 ) -> AllocationPlan:
     """The ordered, bounded candidate list for one model-required allocation.
 
@@ -266,12 +302,19 @@ def build_plan(
     A ``manual`` *selection* (the pin) is applied here, the ordering strategy is applied below,
     and neither one can widen the filters: the VRAM floor, the user's own price ceiling and the
     cloud-tier policy apply to every strategy.
+
+    ``replica_refusals`` maps a volume id to the typed reason its copy of the model may not be
+    used (see ``app.compute.replicas``). A refused placement is skipped — a stale or half-copied
+    model is worse than a datacenter with no capacity — and when that is what emptied the plan,
+    the plan says so instead of blaming capacity.
     """
     strategy = normalise_strategy(strategy)
+    refusals = dict(replica_refusals or {})
+    usable = tuple(placement for placement in placements if placement.volume_id not in refusals)
     allowed_tiers = [tier for index, tier in enumerate(tiers) if tier in TIERS and tier not in tiers[:index]]
     if not allowed_tiers:
         allowed_tiers = [SECURE]
-    priced: list[tuple[int, AllocationCandidate, int]] = []
+    priced: list[tuple[int, AllocationCandidate, tuple[int, int]]] = []
     compatible = False
     in_stock = False
     for row in offers:
@@ -292,31 +335,34 @@ def build_plan(
             pinned = selection == "manual" or strategy == MANUAL
             if pinned and gpu_id and row.get("id") != gpu_id:
                 continue
-            for position, placement in enumerate(placements):
+            for position, placement in enumerate(usable):
                 if tier == COMMUNITY and not placement.community_capable:
                     continue
-                stock = _stock(row, placement.datacenter)
-                if stock not in USABLE_STOCK:
-                    continue
-                in_stock = True
-                if price > max_hourly_price:
-                    continue
-                priced.append(
-                    (
-                        allowed_tiers.index(tier),
-                        AllocationCandidate(
-                            gpu_id=str(row.get("id") or ""),
-                            gpu_name=str(row.get("name") or row.get("id") or ""),
-                            vram_gb=_vram(row),
-                            hourly_rate=price,
-                            cloud=tier,
-                            datacenter=placement.datacenter,
-                            volume_id=placement.volume_id,
-                            availability=stock,
-                        ),
-                        position,
+                # One placement may offer several datacenters, but only when its storage is not
+                # tied to one. Every offered slot is a candidate in its own right, so a refusal
+                # in one datacenter does not end the walk.
+                for slot, center in enumerate(_placement_centers(row, placement)):
+                    stock = _stock(row, center)
+                    in_stock = True
+                    if price > max_hourly_price:
+                        continue
+                    priced.append(
+                        (
+                            allowed_tiers.index(tier),
+                            AllocationCandidate(
+                                gpu_id=str(row.get("id") or ""),
+                                gpu_name=str(row.get("name") or row.get("id") or ""),
+                                vram_gb=_vram(row),
+                                hourly_rate=price,
+                                cloud=tier,
+                                datacenter=center,
+                                volume_id=placement.volume_id,
+                                availability=stock,
+                                storage_type=placement.storage_type,
+                            ),
+                            (position, slot),
+                        )
                     )
-                )
     ordered: list[AllocationCandidate] = []
     seen: set[str] = set()
     for _, candidate, _ in sorted(priced, key=lambda item: _order_key(strategy, *item)):
@@ -325,14 +371,19 @@ def build_plan(
         seen.add(candidate.key)
         ordered.append(candidate)
     if ordered:
-        return AllocationPlan(tuple(ordered[: max(1, int(limit))]), None, len(offers), strategy)
+        return AllocationPlan(
+            tuple(ordered[: max(1, int(limit))]), None, len(offers), strategy, tuple(refusals.items())
+        )
+    if not usable:
+        # Nothing was even considered: the copy of the model is the reason, not the hardware.
+        return AllocationPlan((), REPLICA_NOT_READY, len(offers), strategy, tuple(refusals.items()))
     if not compatible:
         reason = "no_compatible_gpu"
     elif not in_stock:
         reason = "gpu_unavailable"
     else:
         reason = "price_limit"
-    return AllocationPlan((), reason, len(offers), strategy)
+    return AllocationPlan((), reason, len(offers), strategy, tuple(refusals.items()))
 
 
 def community_blocked_by(*, allow_community: bool, placements: tuple[Placement, ...]) -> str | None:
@@ -369,6 +420,34 @@ def refusal_reason(error) -> str:
     if code in {"not_found", "runpod_invalid_request"}:
         return "no_compatible_gpu"
     return "gpu_unavailable"
+
+
+def _placement_centers(row, placement: Placement) -> tuple[str, ...]:
+    """The datacenters one placement may actually book this card in, best first.
+
+    A regional volume offers exactly its own datacenter, and only while the provider reports
+    usable stock there: the model lives on that volume, so another datacenter is not an option.
+    A global volume offers every datacenter the provider reports as usable, its declared home
+    first — that is what turns "which datacenter" into a data question.
+    """
+    if placement.pins_datacenter:
+        return (placement.datacenter,) if _stock(row, placement.datacenter) in USABLE_STOCK else ()
+    return _orderable_centers(row, placement.datacenter)
+
+
+def _orderable_centers(row, preferred: str) -> tuple[str, ...]:
+    """Every datacenter the catalogue row itself reports as bookable, ``preferred`` first.
+
+    The provider's own availability is the only source used: nothing here invents a region, and an
+    availability outside ``USABLE_STOCK`` is not a slot. Ties are ordered by name so the walk is
+    reproducible from the same catalogue read.
+    """
+    centers = row.get("data_centers") or {}
+    usable = sorted(
+        (str(name) for name, value in centers.items() if str(value) in USABLE_STOCK),
+        key=lambda name: (name != preferred, name),
+    )
+    return tuple(usable)
 
 
 def _tier_price(row, tier: str) -> Decimal | None:

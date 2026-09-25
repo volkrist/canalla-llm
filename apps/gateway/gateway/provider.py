@@ -78,6 +78,28 @@ def allocation_policy():
     return candidates
 
 
+def replicas_module():
+    """The model-replica policy, imported the same way the candidate policy is.
+
+    One implementation for both provider modes: which copy of the model may be served is not a
+    shared-mode-only question.
+    """
+    lib = backend_lib_dir()
+    if lib is not None and str(lib) not in sys.path:
+        sys.path.insert(0, str(lib))
+    try:
+        from app.compute import replicas  # noqa: PLC0415 - deliberate late import
+    except ImportError as error:  # pragma: no cover - deployment error path
+        raise GatewayError(
+            "gateway_unavailable",
+            detail=(
+                "Провайдерская библиотека Alex недоступна на сервере. "
+                f"Задайте {BACKEND_LIB_ENV} с путём к apps/backend."
+            ),
+        ) from error
+    return replicas
+
+
 def provider_api(settings, transport=None):
     """The real RunPod client, configured from gateway settings (same attribute names)."""
     runpod_api, _, _ = load_core()

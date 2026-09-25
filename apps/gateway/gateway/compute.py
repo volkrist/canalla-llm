@@ -35,6 +35,7 @@ Rules this module must never break:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -60,6 +61,7 @@ from .provider import (
     gpu_option,
     provider_api,
     provider_error_messages,
+    replicas_module,
 )
 
 logger = logging.getLogger(__name__)
@@ -597,6 +599,43 @@ class ComputeAuthority:
         primary = policy.Placement(datacenter=datacenter, volume_id=self.settings.runpod_network_volume_id)
         return policy.parse_placements(self.settings.runpod_datacenters, primary=primary)
 
+    def replica_refusals(self, placements: tuple) -> dict[str, str]:
+        """Which of these placements may not be used because their copy of the model is unproven.
+
+        Only the placements the deployment *added* need a record (``RUNPOD_DATACENTERS``); the
+        primary one is gated only by a record that actually exists. The registry is read from the
+        deployment's own configuration, never from a client, and a malformed one is treated as
+        empty — which refuses the added placements rather than trusting them.
+        """
+        registered = set(self.settings.runpod_network_volume_id.split(","))
+        require = tuple(
+            placement.volume_id for placement in placements if placement.volume_id not in registered
+        )
+        try:
+            replicas = replicas_module().parse_replicas(json.loads(self.settings.runpod_replicas or "[]"))
+        except (ValueError, TypeError):
+            replicas = ()
+        return replicas_module().placement_refusals(
+            placements,
+            replicas,
+            self.replica_expectation(),
+            require_records=require,
+        )
+
+    def replica_expectation(self):
+        """What the configured model *is*, as the replica records must describe it.
+
+        The hash and the byte count are deliberately optional: the deployment may not know them
+        yet, and an expectation that cannot be stated must not be invented. A record that states
+        them is still checked against ``llm_model`` and the runtime versions, which are known.
+        """
+        return replicas_module().ReplicaExpectation(
+            model_id=self.settings.llm_model,
+            model_sha256=str(getattr(self.settings, "llm_model_sha256", "") or ""),
+            runtime_version=str(getattr(self.settings, "runpod_runtime_version", "") or ""),
+            bootstrap_version=str(self.settings.version),
+        )
+
     def policy_payload(self) -> dict:
         """What the allocator may use, in the product's own words. Read-only, never secret."""
         policy = allocation_policy()
@@ -632,6 +671,7 @@ class ComputeAuthority:
             selection=str(caps.get("selection") or "automatic"),
             gpu_id=caps.get("gpu_id"),
             strategy=str(caps.get("strategy") or policy.DEFAULT_STRATEGY),
+            replica_refusals=self.replica_refusals(placements),
         )
 
     def allocation_window(self, control: GatewayCompute | None = None) -> tuple[datetime, datetime]:

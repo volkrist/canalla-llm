@@ -326,6 +326,107 @@ def test_the_manual_strategy_is_a_pin_even_without_the_older_selection_field():
         "wanted@US-TX-3",
         "wanted@US-KS-2",
     ]
+
+
+# ------------------------------------------------------------------ storage kinds and placements
+
+
+def global_placement(datacenter="US-TX-3", volume_id="vol-global"):
+    return policy.Placement(datacenter=datacenter, volume_id=volume_id, storage_type=policy.GLOBAL_VOLUME)
+
+
+def test_a_regional_volume_is_its_datacenter_and_nothing_else():
+    """The model lives on that volume, so another datacenter is not an option — not even free
+    capacity in one."""
+    row = offer("card", stock="NONE", centers={"US-TX-3": "NONE", "US-KS-2": "HIGH"})
+    plan = policy.build_plan([row], min_vram_gb=48, max_hourly_price=Decimal("2"), placements=(PRIMARY,))
+    assert plan.candidates == ()
+    assert plan.reason == "gpu_unavailable"
+    assert PRIMARY.pins_datacenter is True
+
+
+def test_the_same_card_in_another_placement_is_a_candidate_on_its_own():
+    """Widening scheduling is a *placement* decision: add the datacenter with its own volume."""
+    row = offer("card", stock="NONE", centers={"US-TX-3": "NONE", "US-KS-2": "HIGH"})
+    plan = policy.build_plan(
+        [row], min_vram_gb=48, max_hourly_price=Decimal("2"), placements=(PRIMARY, FALLBACK)
+    )
+    assert [(item.datacenter, item.volume_id) for item in plan.candidates] == [("US-KS-2", "vol-peers")]
+
+
+def test_a_global_volume_does_not_pin_the_datacenter_the_provider_reports_capacity_in():
+    """The point of region-independent storage: the eligible placements come from the catalogue."""
+    row = offer(
+        "card",
+        centers={"US-TX-3": "NONE", "US-KS-2": "MEDIUM", "EU-RO-1": "HIGH"},
+    )
+    plan = policy.build_plan(
+        [row], min_vram_gb=48, max_hourly_price=Decimal("2"), placements=(global_placement(),)
+    )
+    assert [(item.datacenter, item.volume_id) for item in plan.candidates] == [
+        ("EU-RO-1", "vol-global"),
+        ("US-KS-2", "vol-global"),
+    ]
+    assert global_placement().pins_datacenter is False
+
+
+def test_a_global_placement_prefers_its_own_home_datacenter_when_it_is_usable():
+    """Being region-independent does not make the declared datacenter irrelevant: it wins a tie."""
+    row = offer("card", centers={"US-TX-3": "LOW", "US-KS-2": "HIGH", "EU-RO-1": ""})
+    plan = policy.build_plan(
+        [row],
+        min_vram_gb=48,
+        max_hourly_price=Decimal("2"),
+        placements=(global_placement(datacenter="US-TX-3"),),
+    )
+    assert [item.datacenter for item in plan.candidates] == ["US-TX-3", "US-KS-2"]
+
+
+def test_a_placement_whose_storage_is_refused_is_skipped_not_substituted():
+    """A stale or half-copied model must never be started, even when it has capacity."""
+    row = offer("card", centers={"US-TX-3": "HIGH", "US-KS-2": "HIGH"})
+    plan = policy.build_plan(
+        [row],
+        min_vram_gb=48,
+        max_hourly_price=Decimal("2"),
+        placements=(PRIMARY, FALLBACK),
+        replica_refusals={"uwgeaie5b0": "wrong_hash"},
+    )
+    assert [(item.datacenter, item.volume_id) for item in plan.candidates] == [("US-KS-2", "vol-peers")]
+    assert plan.audit()["planned"] == 1
+
+
+def test_a_plan_emptied_by_the_copies_of_the_model_says_so():
+    """ "No capacity" and "the model is not there" are different failures and read differently."""
+    row = offer("card", stock="HIGH")
+    plan = policy.build_plan(
+        [row],
+        min_vram_gb=48,
+        max_hourly_price=Decimal("2"),
+        placements=(PRIMARY,),
+        replica_refusals={"uwgeaie5b0": "missing"},
+    )
+    assert plan.candidates == ()
+    assert plan.reason == "replica_not_ready"
+
+
+def test_a_storage_kind_outside_the_known_set_still_pins_the_datacenter():
+    """Failing closed: an unknown kind is treated as the storage we do know, never as "anywhere"."""
+    unknown = policy.Placement(datacenter="US-TX-3", volume_id="v", storage_type="quantum")
+    assert unknown.pins_datacenter is True
+    assert policy.STORAGE_TYPES == ("regional_network_volume", "global_volume")
+
+
+def test_the_audit_names_the_storage_kind_and_whether_it_pins_a_datacenter():
+    plan = policy.build_plan(
+        [offer("card")],
+        min_vram_gb=48,
+        max_hourly_price=Decimal("2"),
+        placements=(PRIMARY,),
+    )
+    audit = plan.candidates[0].audit()
+    assert audit["storage_type"] == policy.REGIONAL_VOLUME
+    assert PRIMARY.audit()["pins_datacenter"] is True
     placements = policy.parse_placements("US-KS-2:vol-peers,US-TX-3:uwgeaie5b0:community", primary=PRIMARY)
     assert [(item.datacenter, item.community_capable) for item in placements] == [
         ("US-TX-3", True),

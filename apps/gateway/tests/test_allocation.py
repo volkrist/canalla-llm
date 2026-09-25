@@ -94,10 +94,33 @@ def test_matrix_2_a_refused_preferred_candidate_falls_through_to_the_next(gatewa
 
 
 def test_matrix_3_an_unavailable_datacenter_falls_back_to_another_placement(gateway, client):
-    """Scheduling is not restricted to one datacenter when the provider permits more."""
+    """Scheduling is not restricted to one datacenter when the provider permits more.
+
+    The added placement carries its *own* verified copy of the model (``runpod_replicas``): an
+    extra datacenter is a claim about storage, and an unproven copy of the weights is worse than
+    no capacity at all. ``test_matrix_3b`` proves the same walk is refused without that record.
+    """
     installation = enroll(gateway, client)
     headers = auth_header(client, installation)
     gateway.settings.runpod_datacenters = "US-KS-2:vol-peers"
+    gateway.settings.runpod_replicas = json.dumps(
+        {
+            "replicas": [
+                {
+                    "volume_id": "vol-peers",
+                    "datacenter": "US-KS-2",
+                    "model_id": gateway.settings.llm_model,
+                    "model_path": "/workspace/models/orcarouter-qwen38/model.gguf",
+                    "model_sha256": "a" * 64,
+                    "model_bytes": 20_000_000_000,
+                    "runtime_version": "",
+                    "bootstrap_version": gateway.settings.version,
+                    "last_verified": "2026-09-25T10:00:00Z",
+                    "ready": True,
+                }
+            ]
+        }
+    )
     gateway.runpod.price = 0.48
     gateway.runpod.datacenters = [("US-TX-3", "NONE"), ("US-KS-2", "HIGH")]
 
@@ -112,6 +135,24 @@ def test_matrix_3_an_unavailable_datacenter_falls_back_to_another_placement(gate
     assert body["allocation"]["selected"]["datacenter"] == "US-KS-2"
     policy = body["policy"]
     assert [item["datacenter"] for item in policy["datacenters"]] == ["US-TX-3", "US-KS-2"]
+
+
+def test_matrix_3b_an_added_placement_without_a_verified_copy_is_not_used(gateway, client):
+    """The same walk, one record short: the product concludes instead of starting an unknown model."""
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    gateway.settings.runpod_datacenters = "US-KS-2:vol-peers"
+    gateway.runpod.price = 0.48
+    gateway.runpod.datacenters = [("US-TX-3", "NONE"), ("US-KS-2", "HIGH")]
+
+    body = ensure(client, headers, operation_id="op-alloc-0000004", max_hourly_price=1.20)
+
+    assert gateway.runpod.creates == []
+    assert body["state"] in {"searching", "offline"}
+    # The reason is a field, not a silence: the added placement was skipped for its copy, and the
+    # remaining placement simply had no stock.
+    assert body["allocation"]["plan"]["replica_refusals"] == {"vol-peers": "missing"}
+    assert body["error_code"] == "gpu_unavailable"
 
 
 def test_matrix_3b_without_the_extra_placement_the_same_catalogue_has_no_candidate(gateway, client):
