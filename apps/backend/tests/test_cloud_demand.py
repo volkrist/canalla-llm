@@ -304,6 +304,87 @@ def shared_app(monkeypatch, shared_demand):
             setattr(app.state, name, value)
 
 
+@pytest.mark.parametrize(
+    "state,error_code",
+    [
+        ("offline", None),
+        ("searching", "gpu_unavailable"),
+        ("searching", "price_limit"),
+        ("stopped", None),
+        ("error", "provider_error"),
+    ],
+)
+def test_no_model_probe_while_compute_cannot_hold_a_model(shared_app, client, state, error_code):
+    """The 409 every eight seconds, removed at its source.
+
+    `GatewayProvider.health()` refreshed its readiness probe on a TTL regardless of whether any
+    compute existed, so a disconnected AI asked the Gateway for a model list that could not be
+    there — 26 times in eleven minutes in the live acceptance. With no model-bearing state the
+    answer now comes from the state the snapshot already has, and no request is made at all.
+    """
+    from app.cloud.provider import GatewayProvider
+    from app.main import app
+
+    provider = app.state.provider
+    assert isinstance(provider, GatewayProvider), "the shared lifespan must install the provider"
+
+    shared_app.gateway.compute = compute_payload(state, ai="off", error_code=error_code)
+    run(shared_app.cloud.refresh(force=True))  # the very snapshot the provider reads
+    assert shared_app.cloud.compute_state() == state
+
+    shared_app.gateway.models_calls = 0
+    # A fresh TTL window: the gate must hold on its own, not because a cached answer was
+    # still valid.
+    provider._ready_at = None
+
+    assert run(provider.health()) is False
+    assert shared_app.gateway.models_calls == 0, f"{state} asked for a model list"
+
+
+def test_an_unknown_compute_state_is_probed_once_rather_than_assumed_dead(gateway):
+    """Not having looked yet is not the same as knowing there is no model.
+
+    An installed app is never in this state: the shared lifespan reads the snapshot before the
+    first probe can run (the test above pins that). But a provider built without a state source
+    must not turn "I have not looked" into a permanent "not ready".
+    """
+    from app.cloud.provider import GatewayProvider
+
+    provider = GatewayProvider(shared_settings(), client_for(gateway))
+    provider._ready_at = None
+    gateway.models_calls = 0
+
+    assert run(provider.health()) is True
+    assert gateway.models_calls == 1
+
+
+def test_the_lifespan_hands_the_provider_a_state_it_already_read(shared_app, client):
+    """The wiring, not just the logic: production reads the snapshot at startup."""
+    assert shared_app.cloud.compute_state() is not None
+
+
+def test_a_model_bearing_state_is_still_probed(shared_app, client):
+    """And the gate must not be so eager that a ready model stops being discovered."""
+    from app.main import app
+
+    provider = app.state.provider
+    shared_app.gateway.compute = compute_payload("loading_model", ai="starting")
+    run(shared_app.cloud.refresh(force=True))
+    shared_app.gateway.models_calls = 0
+    provider._ready_at = None
+
+    assert run(provider.health()) is True
+    assert shared_app.gateway.models_calls == 1
+
+
+def test_the_model_bearing_set_cannot_drift_from_the_demand_states():
+    """`MODEL_BEARING_STATES` is written out to avoid an import cycle; this keeps it honest."""
+    from app.cloud.demand import READY_STATES, STARTING_STATES
+    from app.cloud.provider import MODEL_BEARING_STATES
+
+    assert MODEL_BEARING_STATES == frozenset(READY_STATES | STARTING_STATES)
+
+
 def start_chat(client, headers, content="Привет, посчитай 2+2"):
     """Create a chat, then stream one message into it."""
     created = client.post("/chats", json={}, headers=headers)

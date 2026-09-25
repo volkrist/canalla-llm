@@ -79,7 +79,9 @@ async def lifespan(application):
     if cloud.shared:
         # Production shared mode: inference and balance come from Alex Cloud, and the local
         # RunPod credential is deliberately ignored (it stays as the private/direct path).
-        application.state.provider = GatewayProvider(settings, cloud.client)
+        application.state.provider = GatewayProvider(
+            settings, cloud.client, compute_state=cloud.compute_state
+        )
         application.state.ai_status_source = CloudAi(cloud)
         # One bounded ensure lifecycle for the whole installation: the chat path and the manual
         # «Запустить AI» share it, so they can never run two searches or create two Pods.

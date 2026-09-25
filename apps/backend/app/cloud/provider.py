@@ -22,6 +22,22 @@ from ..config import Settings
 from ..providers import LLMError, LLMProvider
 from .client import CloudError, GatewayClient
 
+# Compute states in which a model endpoint can exist — ready to serve, or on its way there.
+# Deliberately written out rather than imported from `demand`: that module imports this one, and a
+# cycle to save eight strings is a poor trade. `test_cloud_demand.py` asserts this set equals
+# `READY_STATES | STARTING_STATES`, so the two cannot drift apart silently.
+MODEL_BEARING_STATES = frozenset(
+    {
+        "ready",
+        "generating",
+        "gpu_found",
+        "creating",
+        "starting_pod",
+        "mounting_storage",
+        "loading_model",
+    }
+)
+
 logger = logging.getLogger(__name__)
 
 # Balance failures that describe the Gateway state rather than the provider account.
@@ -69,15 +85,34 @@ class GatewayProvider(LLMProvider):
     # the fingerprint of a healthy client into a hot loop against the shared Gateway.
     READY_TTL_SECONDS = 8.0
 
-    def __init__(self, settings: Settings, client: GatewayClient | None = None):
+    def __init__(
+        self,
+        settings: Settings,
+        client: GatewayClient | None = None,
+        compute_state=None,
+    ):
         self.settings = settings
         self.client = client or GatewayClient(settings)
+        # A callable returning the last known compute state, or ``None`` when unknown. The probe
+        # below uses it to decide whether asking for a model list could possibly be answered.
+        self._compute_state = compute_state or (lambda: None)
         self._ready_value = False
         self._ready_at: float | None = None
         self._probe = None
 
     async def health(self) -> bool:
-        """Cheap, honest readiness: cached, refreshed in the background (single flight)."""
+        """Cheap, honest readiness: cached, refreshed in the background (single flight).
+
+        When compute cannot contain a model — no session at all, a concluded capacity failure, a
+        stopped or terminated Pod, a provider error — the answer is derived from that state and
+        **no model endpoint request is made**. The probe used to run every
+        ``READY_TTL_SECONDS`` regardless, so a disconnected AI asked the Gateway for a model list
+        that could not exist and collected a 409 every eight seconds, indefinitely.
+        """
+        if not self._could_have_a_model():
+            self._ready_value = False
+            self._ready_at = time.monotonic()
+            return False
         if self._ready_at is not None and time.monotonic() - self._ready_at < self.READY_TTL_SECONDS:
             return self._ready_value
         if self._probe is None:
@@ -87,6 +122,17 @@ class GatewayProvider(LLMProvider):
             return await asyncio.shield(self._probe)
         # A stale answer is better than a slow `/health`: the refresh runs in the background.
         return self._ready_value
+
+    def _could_have_a_model(self) -> bool:
+        """Is a model-bearing state known right now?
+
+        ``None`` means the state has not been read yet, and the probe is allowed: an unknown state
+        must not be turned into a permanent "not ready" by a caller that simply has not looked yet.
+        """
+        state = self._compute_state()
+        if state is None:
+            return True
+        return state in MODEL_BEARING_STATES
 
     async def _probe_ready(self) -> bool:
         ready = False
