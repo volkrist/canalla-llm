@@ -38,7 +38,9 @@ USER_AGENT = "canalla-llm/1.2.0 (global-volume attach test)"
 TINY_IMAGE = "alpine:3.20"
 TEST_FILE = "global-volume-canalla-test.txt"
 MARKER_WRITE = "CANALLA_GV_WRITE_OK"
-MARKER_DONE = "CANALLA_GV_DONE"
+MARKER_DONE = "CANALLA_GV_DONE="
+MARKER_ALIVE = "CANALLA_GV_ALIVE"
+MARKER_CROSSDC = "CANALLA_GV_CROSSDC_"
 POLL_SECONDS = 45
 LOG_SECONDS = 40
 LIVE_STATUSES = {"RUNNING", "STARTING", "PROVISIONING"}
@@ -112,17 +114,39 @@ def token_for(volume_id: str) -> str:
     return f"canalla-global-volume-proof {volume_id} {stamp}"
 
 
-def script_for(volume_id: str) -> str:
-    """The container's command: prove the mount, write the file, read it back, stay alive."""
-    token = token_for(volume_id)
-    return (
-        "set -x; echo CANALLA_GV_START; "
-        "ls -la /workspace || echo CANALLA_GV_NO_MOUNT; "
-        "mount | grep -i workspace || echo CANALLA_GV_NOT_IN_MOUNTS; "
-        f"printf '%s' '{token}' > /workspace/{TEST_FILE} || echo CANALLA_GV_WRITE_FAILED; "
-        f"cat /workspace/{TEST_FILE}; echo; echo {MARKER_WRITE}; "
-        f"echo {MARKER_DONE}={token}; sleep 300"
+def script_for(volume_id: str, token: str, *, write: bool) -> str:
+    """The container's command.
+
+    ``write=True`` is the first test: prove the mount, write the test file, read it back, then keep
+    re-printing it so a log stream that only follows from *now* cannot miss the markers.
+
+    ``write=False`` is the cross-datacenter test: it must **never** touch the file — its whole point
+    is to see the bytes the first datacenter wrote — so it only reads and prints them.
+    """
+    head = "set -x; echo CANALLA_GV_START; "
+    if write:
+        head += (
+            "df -h /workspace || echo CANALLA_GV_DF_FAILED; "
+            "ls -la /workspace || echo CANALLA_GV_NO_MOUNT; "
+            f"printf '%s' '{token}' > /workspace/{TEST_FILE} || echo CANALLA_GV_WRITE_FAILED; "
+            f"ls -l /workspace/{TEST_FILE}; cat /workspace/{TEST_FILE}; echo; "
+            f"echo {MARKER_WRITE}; echo {MARKER_DONE}{token}; "
+        )
+    else:
+        head += (
+            "df -h /workspace || echo CANALLA_GV_DF_FAILED; "
+            "ls -la /workspace || echo CANALLA_GV_NO_MOUNT; "
+            f"if [ -f /workspace/{TEST_FILE} ]; then "
+            f"cat /workspace/{TEST_FILE}; echo; echo {MARKER_CROSSDC}read=YES; "
+            f"else echo {MARKER_CROSSDC}read=MISSING; fi; "
+        )
+    # Repeat, so the markers are visible to a stream that starts after them.
+    body = (
+        "i=0; while [ $i -lt 40 ]; do sleep 5; i=$((i+1)); "
+        f"printf '{MARKER_ALIVE}%s ' \"$i\"; "
+        f"cat /workspace/{TEST_FILE} 2>/dev/null; echo; done"
     )
+    return head + body
 
 
 def cheapest_cpu(key: str) -> dict:
@@ -151,7 +175,15 @@ def cheapest_cpu(key: str) -> dict:
     return {"flavor": flavor, "name": name, "vcpuCount": vcpu, "price_per_vcpu": price}
 
 
-def body_for(volume_id: str, cpu: dict, datacenter: str | None, name: str) -> dict:
+def body_for(
+    volume_id: str,
+    cpu: dict,
+    datacenter: str | None,
+    name: str,
+    *,
+    write: bool,
+    token: str,
+) -> dict:
     body = {
         "name": name,
         "cloud": "SECURE",
@@ -161,7 +193,11 @@ def body_for(volume_id: str, cpu: dict, datacenter: str | None, name: str) -> di
         # The documented mount structure, in the only field that can carry storage. A network volume
         # is the one kind the contract defines; a global volume either fits here or nothing does.
         "mounts": {"network": [{"volumeId": volume_id, "path": "/workspace"}]},
-        "args": {"entrypoint": ["/bin/sh", "-c"], "cmd": [script_for(volume_id)]},
+        # The live validator refused the documented *object* form of `args` (`$.args: got object,
+        # want string`), so the command goes into the two fields that are arrays in the same schema:
+        # entrypoint + cmd describe exactly one command, which is what the contract asks for.
+        "entrypoint": ["/bin/sh", "-c"],
+        "cmd": [script_for(volume_id, token, write=write)],
     }
     if datacenter:
         body["dataCenterIds"] = [datacenter]
@@ -192,30 +228,59 @@ def running_pods(key: str) -> list[dict]:
 
 
 def read_logs(key: str, pod_id: str, seconds: int = LOG_SECONDS) -> str:
-    """Read the pod's log stream for a bounded window; the markers are what we are after."""
-    request = urllib.request.Request(
-        f"{BASE}/v2/pods/{pod_id}/logs",
-        headers={"Authorization": f"Bearer {key}", "User-Agent": USER_AGENT},
-    )
-    collected, deadline = "", time.monotonic() + seconds
-    try:
-        with urllib.request.urlopen(request, timeout=seconds) as response:
-            while time.monotonic() < deadline:
-                chunk = response.read(4096)
-                if not chunk:
-                    break
-                collected += chunk.decode("utf-8", "replace")
-                if MARKER_DONE in collected:
-                    break
-    except (
-        urllib.error.URLError,
-        http.client.HTTPException,
-        TimeoutError,
-        OSError,
-        ValueError,
-    ) as error:  # a log stream ending early is not, by itself, a test failure
-        collected += f"\n[log stream ended: {type(error).__name__}: {error}]"
+    """Read the pod's log stream for a bounded window; the markers are what we are after.
+
+    Three documented shapes of the same endpoint are tried in order, at most once each: the plain
+    stream, an explicit follow, and a tail. A read is retried; a *create* never is.
+    """
+    collected = ""
+    for query in ("", "?follow=true", "?tail=500"):
+        request = urllib.request.Request(
+            f"{BASE}/v2/pods/{pod_id}/logs{query}",
+            headers={"Authorization": f"Bearer {key}", "User-Agent": USER_AGENT},
+        )
+        deadline = time.monotonic() + seconds
+        try:
+            with urllib.request.urlopen(request, timeout=seconds) as response:
+                if response.status >= 400:
+                    collected += (
+                        f"\n[logs {query or '(plain)'} → HTTP {response.status}]"
+                    )
+                    continue
+                while time.monotonic() < deadline:
+                    chunk = response.read(4096)
+                    if not chunk:
+                        break
+                    collected += chunk.decode("utf-8", "replace")
+                    if (
+                        MARKER_ALIVE in collected
+                        and MARKER_DONE in collected
+                        or MARKER_CROSSDC in collected
+                    ):
+                        return collected
+        except urllib.error.HTTPError as error:
+            collected += f"\n[logs {query or '(plain)'} → HTTP {error.code}: {error.read()[:120]!r}]"
+        except (
+            urllib.error.URLError,
+            http.client.HTTPException,
+            TimeoutError,
+            OSError,
+            ValueError,
+        ) as error:
+            collected += (
+                f"\n[logs {query or '(plain)'} ended: {type(error).__name__}: {error}]"
+            )
+        if MARKER_ALIVE in collected or MARKER_CROSSDC in collected:
+            break
     return collected
+
+
+def _after(logs: str, marker: str) -> str:
+    """Everything on the first line carrying ``marker``, trimmed: how a marker is read back."""
+    for line in logs.splitlines():
+        if marker in line:
+            return line.split(marker, 1)[1].strip()[:200]
+    return ""
 
 
 def terminate(key: str, pod_id: str) -> dict:
@@ -238,14 +303,28 @@ def terminate(key: str, pod_id: str) -> dict:
     return last
 
 
-def one_test(key: str, volume_id: str, *, datacenter: str | None, label: str) -> dict:
+def one_test(
+    key: str,
+    volume_id: str,
+    *,
+    datacenter: str | None,
+    label: str,
+    token: str,
+    write: bool,
+) -> dict:
     """One create → observe → terminate cycle. Exactly one Pod, never two."""
     cpu = cheapest_cpu(key)
     body = body_for(
-        volume_id, cpu, datacenter, f"canalla-gv-{label}-{int(time.time())}"
+        volume_id,
+        cpu,
+        datacenter,
+        f"canalla-gv-{label}-{int(time.time())}",
+        write=write,
+        token=token,
     )
     print(
-        f"--- {label}: POST /v2/pods cpu={cpu['flavor']}x{cpu['vcpuCount']} dc={datacenter or '(scheduler)'}"
+        f"--- {label}: POST /v2/pods cpu={cpu['flavor']}x{cpu['vcpuCount']} "
+        f"dc={datacenter or '(scheduler)'} write={write}"
     )
     status, payload = call("/v2/pods", key, method="POST", payload=body)
     result: dict = {"label": label, "http": status, "datacenter_requested": datacenter}
@@ -297,19 +376,18 @@ def one_test(key: str, volume_id: str, *, datacenter: str | None, label: str) ->
     )
 
     logs = read_logs(key, pod_id) if pod_id else ""
+    result["logs_present"] = bool(logs.strip())
     result["mount_ok"] = "CANALLA_GV_NO_MOUNT" not in logs and "workspace" in logs
     result["write_ok"] = MARKER_WRITE in logs
-    result["token"] = next(
-        (
-            line.split("CANALLA_GV_DONE=", 1)[1].strip()
-            for line in logs.splitlines()
-            if "CANALLA_GV_DONE=" in line
-        ),
-        "",
-    )
-    result["logs_tail"] = logs.splitlines()[-8:]
+    result["content"] = _after(logs, MARKER_DONE)
+    result["crossdc_read"] = _after(logs, MARKER_CROSSDC + "read=")
+    # The token was minted before the request, so "the bytes I wrote came back" is a comparison,
+    # not a feeling: the same string must appear in the log stream.
+    result["content_matches_expected"] = bool(token) and token in logs
+    result["logs_tail"] = logs.splitlines()[-10:]
     print(
-        f"    mount: {result['mount_ok']} · write: {result['write_ok']} · token: {result['token'][:80]}"
+        f"    mount: {result['mount_ok']} · write marker: {result['write_ok']} · "
+        f"expected bytes seen: {result['content_matches_expected']}"
     )
     for line in result["logs_tail"]:
         print(f"      | {line[:160]}")
@@ -350,12 +428,23 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no credential at '{PROVIDER_TARGET}'")
         return 2
 
+    # One token for the whole run: the first datacenter writes exactly this string, the second must
+    # read it back unchanged. A fresh token per pod would make the cross-DC comparison meaningless.
+    token = token_for(args.volume_id)
     cpu = cheapest_cpu(key)
     print("cheapest CPU flavour:", json.dumps(cpu, ensure_ascii=False))
+    print("expected test-file content:", token)
     print("request body (one POST /v2/pods):")
     print(
         json.dumps(
-            body_for(args.volume_id, cpu, args.datacenter, "canalla-gv-dryrun"),
+            body_for(
+                args.volume_id,
+                cpu,
+                args.datacenter,
+                "canalla-gv-dryrun",
+                write=True,
+                token=token,
+            ),
             ensure_ascii=False,
             indent=1,
         )
@@ -370,10 +459,26 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    results = [one_test(key, args.volume_id, datacenter=args.datacenter, label="test1")]
+    results = [
+        one_test(
+            key,
+            args.volume_id,
+            datacenter=args.datacenter,
+            label="test1",
+            token=token,
+            write=True,
+        )
+    ]
     if args.cross_dc and results[0].get("accepted"):
         results.append(
-            one_test(key, args.volume_id, datacenter=args.cross_dc, label="crossdc")
+            one_test(
+                key,
+                args.volume_id,
+                datacenter=args.cross_dc,
+                label="crossdc",
+                token=token,
+                write=False,
+            )
         )
     print("\n=== RESULT")
     print(json.dumps(results, ensure_ascii=False, indent=1))

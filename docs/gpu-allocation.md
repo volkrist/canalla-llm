@@ -229,6 +229,17 @@ pod*, the mount kind is fixed at create, and there is no global-volume field in 
 at all. The abstraction is one value, not a rewrite, if that ever changes — the audit is in
 [report-2026-09-25-storage-multi-datacenter-decision.md](report-2026-09-25-storage-multi-datacenter-decision.md).
 
+**Measured, not assumed (25 Sep 2026):** with a real Global Volume id created in the operator's own
+console, the live `POST /v2/pods` answered `400 Network volume "<id>" not found` — the endpoint
+resolves that field against **Network Volumes only**. The account's storage listing and its billing
+listing each returned that one regional volume and nothing else, so a global volume is not merely
+unattachable through the public API, it is not visible to it. A regional volume in the same request
+shape passes validation (the refusal came from mount resolution, after the schema checks), which is
+exactly why production keeps regional placements. Reproduce with
+`scripts/check-runpod-global-volume.py` (contract) and `scripts/global-volume-attach-test.py`
+(one bounded CPU-pod probe, dry-run by default); the full record is in
+[report-2026-09-25-global-volume-api-attachment-proof.md](report-2026-09-25-global-volume-api-attachment-proof.md).
+
 ### Replica validation (`app/compute/replicas.py`)
 
 A second placement is only usable when the copy of the model on it is *provably this model*:
