@@ -1,0 +1,10 @@
+# Live, append-only operation state: kept on disk for inspection, never committed
+state.json
+watcher.log
+watcher.stdout.log
+watcher.stderr.log
+watcher.pid
+watcher.lock
+
+# Evidence worth committing when the pipeline produces it stays visible:
+# primary-manifest.json, start-llm.sh, check-llm.sh, secondary-replica.json, placements.env
