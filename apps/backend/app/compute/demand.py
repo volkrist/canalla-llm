@@ -320,7 +320,9 @@ async def shared_demand_events(request, user, task_id=None):
         demand = SharedDemand(cloud)
         request.app.state.cloud_demand = demand
     caps = policy_caps(getattr(request.app.state, "compute", None), user.id)
-    async for item in demand.wait_until_ready(task_id=task_id, caps=caps):
+    # This is the chat path, and it says so: the audit must be able to answer "did the chat start
+    # compute?" without inferring it from a timing coincidence.
+    async for item in demand.wait_until_ready(task_id=task_id, caps=caps, origin="chat"):
         yield item
 
 

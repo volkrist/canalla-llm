@@ -147,6 +147,7 @@ class SharedDemand:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._lock = asyncio.Lock()
         self._inflight: asyncio.Task | None = None
+        self._origin: str = "chat"
         self._first: asyncio.Future | None = None
 
     # ----------------------------------------------------------------------------- readouts
@@ -172,13 +173,30 @@ class SharedDemand:
 
     # ------------------------------------------------------------------------------- ensure
 
-    async def ensure(self, *, task_id: str | None = None, caps: dict | None = None) -> dict:
+    async def ensure(
+        self,
+        *,
+        task_id: str | None = None,
+        caps: dict | None = None,
+        origin: str = "chat",
+    ) -> dict:
         """One bounded ensure attempt: the outcome the caller must act on, or fail with."""
-        task = await self.start(task_id=task_id, caps=caps)
+        task = await self.start(task_id=task_id, caps=caps, origin=origin)
         return await task
 
-    async def start(self, *, task_id: str | None = None, caps: dict | None = None) -> asyncio.Task:
-        """Attach to the one in-flight attempt, or start it. Never a second attempt."""
+    async def start(
+        self,
+        *,
+        task_id: str | None = None,
+        caps: dict | None = None,
+        origin: str = "chat",
+    ) -> asyncio.Task:
+        """Attach to the one in-flight attempt, or start it. Never a second attempt.
+
+        The origin of the *attempt* is the origin of whoever started it. A background retry that
+        attaches to a chat's attempt does not relabel it: the audit must keep saying `chat`, or the
+        question "did the chat start compute?" becomes unanswerable again.
+        """
         async with self._lock:
             if self._inflight is not None and not self._inflight.done():
                 return self._inflight
@@ -187,17 +205,24 @@ class SharedDemand:
                 # a promise. ``search_open`` only carries this caller's own live window.
                 return self._resolved(outcome_of(self.compute(), now=self._clock(), search_open=True))
             self._first = asyncio.get_running_loop().create_future()
+            self._origin = origin
             self._inflight = asyncio.ensure_future(self._attempt(task_id, caps))
             return self._inflight
 
-    async def prewarm(self, *, task_id: str | None = None, caps: dict | None = None) -> dict:
+    async def prewarm(
+        self,
+        *,
+        task_id: str | None = None,
+        caps: dict | None = None,
+        origin: str = "manual_prewarm",
+    ) -> dict:
         """Manual «Запустить AI»: start (or reuse) the same attempt and answer straight away.
 
         The attempt keeps running in the background, so the button and a chat request can never
         run two searches. The answer is the Gateway's *first* answer — never the end of the
         whole bounded window, because the desktop aborts a request after 15 seconds.
         """
-        task = await self.start(task_id=task_id, caps=caps)
+        task = await self.start(task_id=task_id, caps=caps, origin=origin)
         first = self._first
         if not task.done() and first is not None:
             await asyncio.wait({task, first}, return_when=asyncio.FIRST_COMPLETED)
@@ -224,6 +249,9 @@ class SharedDemand:
     # -------------------------------------------------------------------------- the attempt
 
     async def _attempt(self, task_id: str | None, caps: dict | None) -> dict:
+        # Every retry inside one attempt keeps the attempt's own origin: these are the bounded
+        # retries of a single ensure, not a background loop, and the audit must show the event
+        # that actually caused the work.
         deadline = self._clock() + timedelta(seconds=CAPACITY_WINDOW_SECONDS)
         attempts = 0
         while True:
@@ -247,7 +275,10 @@ class SharedDemand:
         from uuid import uuid4
 
         payload = await self.cloud.client.ensure_compute(
-            operation_id="local-" + str(uuid4()), task_id=task_id, caps=caps or {}
+            operation_id="local-" + str(uuid4()),
+            task_id=task_id,
+            caps=caps or {},
+            origin=self._origin,
         )
         self.cloud.compute = payload
         self.cloud.fetched_at = self.cloud.clock()
@@ -257,7 +288,13 @@ class SharedDemand:
 
     # --------------------------------------------------------------------------- readiness
 
-    async def wait_until_ready(self, *, task_id: str | None = None, caps: dict | None = None):
+    async def wait_until_ready(
+        self,
+        *,
+        task_id: str | None = None,
+        caps: dict | None = None,
+        origin: str = "chat",
+    ):
         """Yield the chat's progress events until the model is ready, or raise a typed LLMError.
 
         The order the product requires: need the model → ensure compute → wait for the
@@ -265,7 +302,7 @@ class SharedDemand:
         polled here, so a not-ready model cannot turn into a hot loop of 409s.
         """
         yield ("progress", {"state": "starting_ai", "text": "Проверяю AI…"})
-        outcome = await self.ensure(task_id=task_id, caps=caps)
+        outcome = await self.ensure(task_id=task_id, caps=caps, origin=origin)
         self._fail_if_terminal(outcome)
         if outcome["kind"] == "ready":
             yield ("_done", "ready")

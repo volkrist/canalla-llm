@@ -530,6 +530,7 @@ class ComputeAuthority:
         error_code=None,
         detail="",
         record: dict | None = None,
+        origin: str | None = None,
     ):
         """Append one audit row.
 
@@ -537,7 +538,13 @@ class ComputeAuthority:
         column). It is what makes "why did Canalla fail to find a GPU?" answerable without
         guessing: candidate, cloud tier, datacenter, attempt result, elapsed time, failure code.
         Credentials, Pod keys and provider URLs never enter it.
+
+        ``origin`` names the caller that caused this ensure — the same structured payload, because
+        "which caller started this" is the other half of that question.
         """
+        payload = dict(record) if record else {}
+        if origin is not None:
+            payload["origin"] = origin
         db.add(
             AuditEvent(
                 installation_id=installation_id,
@@ -545,7 +552,7 @@ class ComputeAuthority:
                 result=result,
                 error_code=error_code,
                 detail=str(detail)[:200],
-                cost=dict(record) if record else {},
+                cost=payload,
                 created_at=self.clock(),
             )
         )
@@ -1083,6 +1090,7 @@ class ComputeAuthority:
         operation_id: str,
         task_id: str | None = None,
         caps: dict | None = None,
+        origin: str | None = None,
     ) -> dict:
         caps = self._caps(caps)
         digest = repr(sorted(caps.items()))
@@ -1120,11 +1128,16 @@ class ComputeAuthority:
                     installation_id=installation_id,
                     error_code=control.error_code,
                     detail=state,
+                    origin=origin,
                 )
                 db.commit()
             payload = self.status_payload()
             payload["balance"] = await self.balance.snapshot()
             payload["task_id"] = task_id
+            if origin is not None:
+                # Echoed back so the client can show, and an acceptance can prove, which event
+                # started this attempt.
+                payload["origin"] = origin
             if self._last_allocation is not None:
                 payload["allocation"] = self._last_allocation
             # Ambiguous states are deliberately not cached: the client retries the same

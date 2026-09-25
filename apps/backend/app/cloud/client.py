@@ -189,11 +189,18 @@ class GatewayClient:
         return await self.request("GET", "/compute/status")
 
     async def ensure_compute(
-        self, *, operation_id: str, task_id: str | None = None, caps: dict | None = None
+        self,
+        *,
+        operation_id: str,
+        task_id: str | None = None,
+        caps: dict | None = None,
+        origin: str | None = None,
     ):
         payload = {"operation_id": operation_id}
         if task_id:
             payload["task_id"] = task_id
+        if origin:
+            payload["origin"] = origin
         for key, value in (caps or {}).items():
             if value is not None:
                 payload[key] = value

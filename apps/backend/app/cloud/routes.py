@@ -77,7 +77,7 @@ async def ensure_compute(
     if body.auto_stop_minutes is not None:
         caps["auto_stop_minutes"] = body.auto_stop_minutes
     try:
-        live = await demand.prewarm(task_id=body.task_id, caps=caps)
+        live = await demand.prewarm(task_id=body.task_id, caps=caps, origin="manual_prewarm")
     except CloudError as error:
         raise _http(error) from None
     if not live:

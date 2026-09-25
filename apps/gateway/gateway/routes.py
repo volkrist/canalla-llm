@@ -99,6 +99,12 @@ class EnsureRequest(BaseModel):
     # technical or a product bound, and this is not a bound — it is a preference that the
     # server, not the client, decides whether to offer.
     allow_community: bool | None = Field(default=None)
+    # Why this ensure happened. The four callers are genuinely different events, and without this
+    # field an operator cannot tell a chat request from a background retry — which is exactly how
+    # a 30-second retry was once read as evidence that a chat had started compute.
+    origin: Literal["chat", "manual_prewarm", "background_retry", "startup_auto_connect"] | None = Field(
+        default=None
+    )
 
 
 class StopRequest(BaseModel):
@@ -278,6 +284,7 @@ async def compute_ensure(request: Request, payload: EnsureRequest, installation:
         operation_id=payload.operation_id,
         task_id=payload.task_id,
         caps={key: value for key, value in caps.items() if value is not None},
+        origin=payload.origin,
     )
 
 

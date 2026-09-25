@@ -443,6 +443,67 @@ def test_an_ensure_that_is_already_active_is_reused(shared_app, client, auth):
     assert shared_app.gateway.ensure_bodies[0]["operation_id"].startswith("local-")
 
 
+def test_the_chat_names_its_own_origin(shared_app, client, auth):
+    """The acceptance's open question, answered by the wire instead of by timing.
+
+    A chat-triggered ensure used to be indistinguishable from a background retry: three calls
+    thirty seconds apart could be either. The chat path now says `chat`, so "did the chat start
+    compute?" is a field to read, not a coincidence to argue about.
+    """
+    headers = auth()
+    shared_app.gateway.compute_steps = [compute_payload("ready", ai="ready")]
+
+    start_chat(client, headers)
+
+    assert shared_app.gateway.ensure_bodies, "the chat must have asked the Gateway for compute"
+    assert shared_app.gateway.ensure_bodies[0]["origin"] == "chat"
+
+
+def test_the_manual_prewarm_names_its_own_origin(shared_app, client, auth):
+    headers = auth()
+    shared_app.gateway.compute_steps = [compute_payload("ready", ai="ready")]
+
+    response = client.post("/cloud/compute/ensure", json={}, headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert shared_app.gateway.ensure_bodies[0]["origin"] == "manual_prewarm"
+
+
+def test_an_attaching_retry_never_relabels_the_attempt(shared_app):
+    """The origin belongs to the attempt, not to whoever joined it.
+
+    If a background retry could overwrite it, a chat-started allocation would end up audited as
+    `background_retry` — which is exactly how the field would become useless the moment two callers
+    overlap.
+    """
+    shared_app.gateway.compute_steps = [compute_payload("ready", ai="ready")]
+
+    async def scenario():
+        first = asyncio.ensure_future(shared_app.demand.ensure(origin="chat"))
+        await asyncio.sleep(0)
+        # A retry arrives while the chat's attempt is still in flight and attaches to it.
+        attached = await shared_app.demand.start(origin="background_retry")
+        return await asyncio.gather(first, attached)
+
+    run(scenario())
+
+    assert shared_app.demand._origin == "chat"
+    assert all(body["origin"] == "chat" for body in shared_app.gateway.ensure_bodies)
+
+
+def test_a_later_request_starts_a_new_attempt_with_its_own_origin(shared_app):
+    """Once the first attempt is over, the next caller's origin is the one that counts."""
+    shared_app.gateway.compute_steps = [compute_payload("offline", ai="off")]
+
+    run(shared_app.demand.ensure(origin="chat"))
+    run(shared_app.demand.ensure(origin="background_retry"))
+
+    assert [body["origin"] for body in shared_app.gateway.ensure_bodies] == [
+        "chat",
+        "background_retry",
+    ]
+
+
 def test_manual_prewarm_and_a_chat_share_one_lifecycle(shared_app, client, auth):
     """The Settings button is an optional prewarm: same state machine, one search."""
     headers = auth()
