@@ -1,0 +1,85 @@
+{
+ "measured_at": "2026-09-26T05:07:33Z",
+ "pod": {
+  "pod_id": "yyuhmfc581jz7q",
+  "status": "RUNNING",
+  "datacenter": "US-TX-3",
+  "gpu": {
+   "count": 1,
+   "id": "NVIDIA L40S",
+   "memory": 62,
+   "vcpuCount": 16
+  },
+  "cost_per_hour": 1.09,
+  "created_at": "2026-09-26T05:02:21.304Z",
+  "spec": {
+   "kind": "gpu",
+   "gpu": {
+    "id": "NVIDIA L40S",
+    "count": 1
+   },
+   "price": {
+    "gpu": "NVIDIA L40S",
+    "vram_gb": 48,
+    "price_per_hour": 1.09,
+    "availability": "LOW",
+    "cuda": [
+     {
+      "available": true,
+      "version": "12.4"
+     },
+     {
+      "available": false,
+      "version": "12.8"
+     },
+     {
+      "available": true,
+      "version": "13.0"
+     },
+     {
+      "available": false,
+      "version": "13.2"
+     }
+    ]
+   }
+  },
+  "dc": "US-TX-3",
+  "volume_id": "uwgeaie5b0",
+  "runtime_seconds": 312.6,
+  "terminated": [
+   "yyuhmfc581jz7q"
+  ],
+  "terminated_at": "2026-09-26T05:07:32Z",
+  "billing_usd": null
+ },
+ "manifest": {
+  "dc": "US-TX-3",
+  "volume_id": "uwgeaie5b0",
+  "gguf_path": "/workspace/models/orcarouter-qwen38/orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf",
+  "gguf_bytes": 20752787712,
+  "gguf_sha256": "4ad98832b3d376dd274df5bba59dd34834f0f401593e1463f38fd5fa219293b1",
+  "used_bytes": 22902211482,
+  "file_count": 6377,
+  "serve_selftest": "FAIL",
+  "measured_at": "2026-09-26T05:07:28Z",
+  "scripts": {
+   "start-llm.sh": {
+    "bytes": 957,
+    "sha256": "d91b7e36e3298a7df7e70d851e3c83ab3363e836721832dea0158de90f0db6d8",
+    "content_b64": "IyEvdXNyL2Jpbi9lbnYgYmFzaApzZXQgLWUKClNFUlZFUj0iL3dvcmtzcGFjZS9sbGFtYS5jcHAvYnVpbGQvYmluL2xsYW1hLXNlcnZlciIKTU9ERUw9Ii93b3Jrc3BhY2UvbW9kZWxzL29yY2Fyb3V0ZXItcXdlbjM4L29yY2Fyb3V0ZXJfUXdlbjMuOC0yN0ItVW5jZW5zb3JlZC1RNV9LX00uZ2d1ZiIKTE9HPSIvd29ya3NwYWNlL2xsYW1hLXNlcnZlci5sb2ciCgppZiBjdXJsIC1zZiBodHRwOi8vMTI3LjAuMC4xOjgwODAvdjEvbW9kZWxzID4vZGV2L251bGwgMj4mMTsgdGhlbgogICAgZWNobyAiTExNINGD0LbQtSDQt9Cw0L/Rg9GJ0LXQvdCwLiIKICAgIGV4aXQgMApmaQoKZWNobyAi0JfQsNC/0YPRgdC60LDRjiBPcmNhUm91dGVyLi4uIgoKbm9odXAgIiRTRVJWRVIiIFwKICAtLW1vZGVsICIkTU9ERUwiIFwKICAtLWFsaWFzIG9yY2Fyb3V0ZXItcXdlbjM4LTI3Yi1xNWttIFwKICAtLW4tZ3B1LWxheWVycyBhbGwgXAogIC0tY3R4LXNpemUgMzI3NjggXAogIC0tcGFyYWxsZWwgMSBcCiAgLS1mbGFzaC1hdHRuIG9uIFwKICAtLWppbmphIFwKICAtLWhvc3QgMTI3LjAuMC4xIFwKICAtLXBvcnQgODA4MCBcCiAgPiAiJExPRyIgMj4mMSAmCgplY2hvICQhID4gL3dvcmtzcGFjZS9sbGFtYS1zZXJ2ZXIucGlkCgplY2hvICLQntC20LjQtNCw0Y4g0LfQsNCz0YDRg9C30LrRgyDQvNC+0LTQtdC70LguLi4iCgpmb3IgaSBpbiAkKHNlcSAxIDEyMCk7IGRvCiAgICBpZiBjdXJsIC1zZiBodHRwOi8vMTI3LjAuMC4xOjgwODAvdjEvbW9kZWxzID4vZGV2L251bGwgMj4mMTsgdGhlbgogICAgICAgIGVjaG8gIkxMTSDQs9C+0YLQvtCy0LA6IGh0dHA6Ly8xMjcuMC4wLjE6ODA4MCIKICAgICAgICBleGl0IDAKICAgIGZpCiAgICBzbGVlcCAyCmRvbmUKCmVjaG8gIkxMTSDQvdC1INC30LDQv9GD0YHRgtC40LvQsNGB0Ywg0LLQvtCy0YDQtdC80Y8uIgp0YWlsIC1uIDUwICIkTE9HIgpleGl0IDEK"
+   },
+   "check-llm.sh": {
+    "bytes": 264,
+    "sha256": "9f26c444eed3d49d55d0e6f781708f19b836bc47185d5421e7534c0187bf7be5",
+    "content_b64": "IyEvdXNyL2Jpbi9lbnYgYmFzaAoKZWNobyAiPT09IEdQVSA9PT0iCm52aWRpYS1zbWkgLS1xdWVyeS1ncHU9bmFtZSxtZW1vcnkudXNlZCxtZW1vcnkudG90YWwgLS1mb3JtYXQ9Y3N2LG5vaGVhZGVyCgplY2hvCmVjaG8gIj09PSBMTE0gPT09IgoKaWYgY3VybCAtc2YgaHR0cDovLzEyNy4wLjAuMTo4MDgwL3YxL21vZGVsczsgdGhlbgogICAgZWNobwogICAgZWNobyAiU1RBVFVTOiBSRUFEWSIKZWxzZQogICAgZWNobyAiU1RBVFVTOiBOT1QgUlVOTklORyIKZmkK"
+   }
+  },
+  "binaries": [],
+  "runtime_listing": "__pycache__ chat.py check-llm.sh llama-server.log llama-server.pid llama.cpp models start-llm.sh",
+  "gguf_fact": {
+   "path": "/workspace/models/orcarouter-qwen38/orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf",
+   "bytes": 20752787712,
+   "sha256": "4ad98832b3d376dd274df5bba59dd34834f0f401593e1463f38fd5fa219293b1"
+  }
+ }
+}

@@ -1,0 +1,505 @@
+id: 2026-09-26T05:02:24Z
+data: {"source":"system","line":"create container alpine:3.20","ts":"2026-09-26T05:02:24Z"}
+
+id: 2026-09-26T05:02:24Z
+data: {"source":"system","line":"3.20 Pulling from library/alpine","ts":"2026-09-26T05:02:24Z"}
+
+id: 2026-09-26T05:02:24Z
+data: {"source":"system","line":"Digest: sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc","ts":"2026-09-26T05:02:24Z"}
+
+id: 2026-09-26T05:02:24Z
+data: {"source":"system","line":"Status: Image is up to date for alpine:3.20","ts":"2026-09-26T05:02:24Z"}
+
+id: 2026-09-26T05:02:27Z
+data: {"source":"system","line":"start container for alpine:3.20: begin","ts":"2026-09-26T05:02:27Z"}
+
+id: 2026-09-26T05:02:27.482041023Z
+data: {"source":"container","line":"CANALLA_M_START","ts":"2026-09-26T05:02:27.482041023Z"}
+
+id: 2026-09-26T05:02:27.482003103Z
+data: {"source":"container","line":"+ echo CANALLA_M_START","ts":"2026-09-26T05:02:27.482003103Z"}
+
+id: 2026-09-26T05:02:27.482129934Z
+data: {"source":"container","line":"+ df -h /workspace","ts":"2026-09-26T05:02:27.482129934Z"}
+
+id: 2026-09-26T05:02:27.482933859Z
+data: {"source":"container","line":"Filesystem                Size      Used Available Use% Mounted on","ts":"2026-09-26T05:02:27.482933859Z"}
+
+id: 2026-09-26T05:02:27.484782673Z
+data: {"source":"container","line":"+ ls -la /workspace","ts":"2026-09-26T05:02:27.484782673Z"}
+
+id: 2026-09-26T05:02:27.485081345Z
+data: {"source":"container","line":"mfs#us-tx-3.runpod.net:9421","ts":"2026-09-26T05:02:27.485081345Z"}
+
+id: 2026-09-26T05:02:27.485094245Z
+data: {"source":"container","line":"                        642.6T    281.5T    361.0T  44% /workspace","ts":"2026-09-26T05:02:27.485094245Z"}
+
+id: 2026-09-26T05:02:27.486434895Z
+data: {"source":"container","line":"total 9992","ts":"2026-09-26T05:02:27.486434895Z"}
+
+id: 2026-09-26T05:02:27.486735947Z
+data: {"source":"container","line":"drwxrwxrwx    5 root     root       3002063 Sep 15 01:06 .","ts":"2026-09-26T05:02:27.486735947Z"}
+
+id: 2026-09-26T05:02:27.486824168Z
+data: {"source":"container","line":"drwxr-xr-x    1 root     root           122 Sep 26 05:02 ..","ts":"2026-09-26T05:02:27.486824168Z"}
+
+id: 2026-09-26T05:02:27.486827688Z
+data: {"source":"container","line":"drwxrwxrwx    2 root     root       1000179 Sep 13 11:55 __pycache__","ts":"2026-09-26T05:02:27.486827688Z"}
+
+id: 2026-09-26T05:02:27.486835588Z
+data: {"source":"container","line":"-rw-rw-rw-    1 root     root          1167 Sep 13 11:55 chat.py","ts":"2026-09-26T05:02:27.486835588Z"}
+
+id: 2026-09-26T05:02:27.486838468Z
+data: {"source":"container","line":"-rwxrwxrwx    1 root     root           264 Sep 13 13:02 check-llm.sh","ts":"2026-09-26T05:02:27.486838468Z"}
+
+id: 2026-09-26T05:02:27.486841558Z
+data: {"source":"container","line":"-rw-rw-rw-    1 root     root        221883 Sep 22 10:06 llama-server.log","ts":"2026-09-26T05:02:27.486841558Z"}
+
+id: 2026-09-26T05:02:27.486844198Z
+data: {"source":"container","line":"-rw-rw-rw-    1 root     root             4 Sep 22 09:30 llama-server.pid","ts":"2026-09-26T05:02:27.486844198Z"}
+
+id: 2026-09-26T05:02:27.486846838Z
+data: {"source":"container","line":"drwxrwxrwx   31 root     root       3000130 Sep 13 11:38 llama.cpp","ts":"2026-09-26T05:02:27.486846838Z"}
+
+id: 2026-09-26T05:02:27.486849668Z
+data: {"source":"container","line":"drwxrwxrwx    3 root     root       3001932 Sep 13 11:23 models","ts":"2026-09-26T05:02:27.486849668Z"}
+
+id: 2026-09-26T05:02:27.486852638Z
+data: {"source":"container","line":"-rwxrwxrwx    1 root     root           957 Sep 13 13:02 start-llm.sh","ts":"2026-09-26T05:02:27.486852638Z"}
+
+id: 2026-09-26T05:02:27.486854708Z
+data: {"source":"container","line":"+ set +x","ts":"2026-09-26T05:02:27.486854708Z"}
+
+id: 2026-09-26T05:02:27.494943217Z
+data: {"source":"container","line":"CANALLA_M_FILE /workspace/start-llm.sh 957 d91b7e36e3298a7df7e70d851e3c83ab3363e836721832dea0158de90f0db6d8","ts":"2026-09-26T05:02:27.494943217Z"}
+
+id: 2026-09-26T05:02:27.497820608Z
+data: {"source":"container","line":"CANALLA_M_B64_start-llm.sh=IyEvdXNyL2Jpbi9lbnYgYmFzaApzZXQgLWUKClNFUlZFUj0iL3dvcmtzcGFjZS9sbGFtYS5jcHAvYnVpbGQvYmluL2xsYW1hLXNlcnZlciIKTU9ERUw9Ii93b3Jrc3BhY2UvbW9kZWxzL29yY2Fyb3V0ZXItcXdlbjM4L29yY2Fyb3V0ZXJfUXdlbjMuOC0yN0ItVW5jZW5zb3JlZC1RNV9LX00uZ2d1ZiIKTE9HPSIvd29ya3NwYWNlL2xsYW1hLXNlcnZlci5sb2ciCgppZiBjdXJsIC1zZiBodHRwOi8vMTI3LjAuMC4xOjgwODAvdjEvbW9kZWxzID4vZGV2L251bGwgMj4mMTsgdGhlbgogICAgZWNobyAiTExNINGD0LbQtSDQt9Cw0L/Rg9GJ0LXQvdCwLiIKICAgIGV4aXQgMApmaQoKZWNobyAi0JfQsNC/0YPRgdC60LDRjiBPcmNhUm91dGVyLi4uIgoKbm9odXAgIiRTRVJWRVIiIFwKICAtLW1vZGVsICIkTU9ERUwiIFwKICAtLWFsaWFzIG9yY2Fyb3V0ZXItcXdlbjM4LTI3Yi1xNWttIFwKICAtLW4tZ3B1LWxheWVycyBhbGwgXAogIC0tY3R4LXNpemUgMzI3NjggXAogIC0tcGFyYWxsZWwgMSBcCiAgLS1mbGFzaC1hdHRuIG9uIFwKICAtLWppbmphIFwKICAtLWhvc3QgMTI3LjAuMC4xIFwKICAtLXBvcnQgODA4MCBcCiAgPiAiJExPRyIgMj4mMSAmCgplY2hvICQhID4gL3dvcmtzcGFjZS9sbGFtYS1zZXJ2ZXIucGlkCgplY2hvICLQntC20LjQtNCw0Y4g0LfQsNCz0YDRg9C30LrRgyDQvNC+0LTQtdC70LguLi4iCgpmb3IgaSBpbiAkKHNlcSAxIDEyMCk7IGRvCiAgICBpZiBjdXJsIC1zZiBodHRwOi8vMTI3LjAuMC4xOjgwODAvdjEvbW9kZWxzID4vZGV2L251bGwgMj4mMTsgdGhlbgogICAgICAgIGVjaG8gIkxMTSDQs9C+0YLQvtCy0LA6IGh0dHA6Ly8xMjcuMC4wLjE6ODA4MCIKICAgICAgICBleGl0IDAKICAgIGZpCiAgICBzbGVlcCAyCmRvbmUKCmVjaG8gIkxMTSDQvdC1INC30LDQv9GD0YHRgtC40LvQsNGB0Ywg0LLQvtCy0YDQtdC80Y8uIgp0YWlsIC1uIDUwICIkTE9HIgpleGl0IDEK","ts":"2026-09-26T05:02:27.497820608Z"}
+
+id: 2026-09-26T05:02:27.504592297Z
+data: {"source":"container","line":"CANALLA_M_FILE /workspace/check-llm.sh 264 9f26c444eed3d49d55d0e6f781708f19b836bc47185d5421e7534c0187bf7be5","ts":"2026-09-26T05:02:27.504592297Z"}
+
+id: 2026-09-26T05:02:27.507656679Z
+data: {"source":"container","line":"CANALLA_M_B64_check-llm.sh=IyEvdXNyL2Jpbi9lbnYgYmFzaAoKZWNobyAiPT09IEdQVSA9PT0iCm52aWRpYS1zbWkgLS1xdWVyeS1ncHU9bmFtZSxtZW1vcnkudXNlZCxtZW1vcnkudG90YWwgLS1mb3JtYXQ9Y3N2LG5vaGVhZGVyCgplY2hvCmVjaG8gIj09PSBMTE0gPT09IgoKaWYgY3VybCAtc2YgaHR0cDovLzEyNy4wLjAuMTo4MDgwL3YxL21vZGVsczsgdGhlbgogICAgZWNobwogICAgZWNobyAiU1RBVFVTOiBSRUFEWSIKZWxzZQogICAgZWNobyAiU1RBVFVTOiBOT1QgUlVOTklORyIKZmkK","ts":"2026-09-26T05:02:27.507656679Z"}
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+id: 2026-09-26T05:07:17.098912165Z
+data: {"source":"container","line":"CANALLA_M_GGUF_PATH=/workspace/models/orcarouter-qwen38/orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf","ts":"2026-09-26T05:07:17.098912165Z"}
+
+id: 2026-09-26T05:07:17.098957965Z
+data: {"source":"container","line":"CANALLA_M_GGUF_BYTES=20752787712","ts":"2026-09-26T05:07:17.098957965Z"}
+
+id: 2026-09-26T05:07:17.098961935Z
+data: {"source":"container","line":"CANALLA_M_GGUF_SHA256=4ad98832b3d376dd274df5bba59dd34834f0f401593e1463f38fd5fa219293b1","ts":"2026-09-26T05:07:17.098961935Z"}
+
+id: 2026-09-26T05:07:17.098966215Z
+data: {"source":"container","line":"CANALLA_M_GGUF_FACT path=/workspace/models/orcarouter-qwen38/orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf bytes=20752787712 sha256=4ad98832b3d376dd274df5bba59dd34834f0f401593e1463f38fd5fa219293b1","ts":"2026-09-26T05:07:17.098966215Z"}
+
+id: 2026-09-26T05:07:17.582813849Z
+data: {"source":"container","line":"CANALLA_M_USED_BYTES=22902211482","ts":"2026-09-26T05:07:17.582813849Z"}
+
+id: 2026-09-26T05:07:17.935780501Z
+data: {"source":"container","line":"CANALLA_M_FILE_COUNT=6377","ts":"2026-09-26T05:07:17.935780501Z"}
+
+id: 2026-09-26T05:07:17.937365122Z
+data: {"source":"container","line":"find: unrecognized: -printf","ts":"2026-09-26T05:07:17.937365122Z"}
+
+id: 2026-09-26T05:07:17.941157349Z
+data: {"source":"container","line":"BusyBox v1.36.1 (2025-11-23 14:32:18 UTC) multi-call binary.","ts":"2026-09-26T05:07:17.941157349Z"}
+
+id: 2026-09-26T05:07:17.941182939Z
+data: {"source":"container","line":"","ts":"2026-09-26T05:07:17.941182939Z"}
+
+id: 2026-09-26T05:07:17.941189469Z
+data: {"source":"container","line":"Usage: find [-HL] [PATH]... [OPTIONS] [ACTIONS]","ts":"2026-09-26T05:07:17.941189469Z"}
+
+id: 2026-09-26T05:07:17.941194889Z
+data: {"source":"container","line":"","ts":"2026-09-26T05:07:17.941194889Z"}
+
+id: 2026-09-26T05:id: 2026-09-26T05:02:24Z
+data: {"source":"system","line":"create container alpine:3.20","ts":"2026-09-26T05:02:24Z"}
+
+id: 2026-09-26T05:02:24Z
+data: {"source":"system","line":"3.20 Pulling from library/alpine","ts":"2026-09-26T05:02:24Z"}
+
+id: 2026-09-26T05:02:24Z
+data: {"source":"system","line":"Digest: sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc","ts":"2026-09-26T05:02:24Z"}
+
+id: 2026-09-26T05:02:24Z
+data: {"source":"system","line":"Status: Image is up to date for alpine:3.20","ts":"2026-09-26T05:02:24Z"}
+
+id: 2026-09-26T05:02:27Z
+data: {"source":"system","line":"start container for alpine:3.20: begin","ts":"2026-09-26T05:02:27Z"}
+
+id: 2026-09-26T05:02:27.482041023Z
+data: {"source":"container","line":"CANALLA_M_START","ts":"2026-09-26T05:02:27.482041023Z"}
+
+id: 2026-09-26T05:02:27.482003103Z
+data: {"source":"container","line":"+ echo CANALLA_M_START","ts":"2026-09-26T05:02:27.482003103Z"}
+
+id: 2026-09-26T05:02:27.482129934Z
+data: {"source":"container","line":"+ df -h /workspace","ts":"2026-09-26T05:02:27.482129934Z"}
+
+id: 2026-09-26T05:02:27.482933859Z
+data: {"source":"container","line":"Filesystem                Size      Used Available Use% Mounted on","ts":"2026-09-26T05:02:27.482933859Z"}
+
+id: 2026-09-26T05:02:27.484782673Z
+data: {"source":"container","line":"+ ls -la /workspace","ts":"2026-09-26T05:02:27.484782673Z"}
+
+id: 2026-09-26T05:02:27.485081345Z
+data: {"source":"container","line":"mfs#us-tx-3.runpod.net:9421","ts":"2026-09-26T05:02:27.485081345Z"}
+
+id: 2026-09-26T05:02:27.485094245Z
+data: {"source":"container","line":"                        642.6T    281.5T    361.0T  44% /workspace","ts":"2026-09-26T05:02:27.485094245Z"}
+
+id: 2026-09-26T05:02:27.486434895Z
+data: {"source":"container","line":"total 9992","ts":"2026-09-26T05:02:27.486434895Z"}
+
+id: 2026-09-26T05:02:27.486735947Z
+data: {"source":"container","line":"drwxrwxrwx    5 root     root       3002063 Sep 15 01:06 .","ts":"2026-09-26T05:02:27.486735947Z"}
+
+id: 2026-09-26T05:02:27.486824168Z
+data: {"source":"container","line":"drwxr-xr-x    1 root     root           122 Sep 26 05:02 ..","ts":"2026-09-26T05:02:27.486824168Z"}
+
+id: 2026-09-26T05:02:27.486827688Z
+data: {"source":"container","line":"drwxrwxrwx    2 root     root       1000179 Sep 13 11:55 __pycache__","ts":"2026-09-26T05:02:27.486827688Z"}
+
+id: 2026-09-26T05:02:27.486835588Z
+data: {"source":"container","line":"-rw-rw-rw-    1 root     root          1167 Sep 13 11:55 chat.py","ts":"2026-09-26T05:02:27.486835588Z"}
+
+id: 2026-09-26T05:02:27.486838468Z
+data: {"source":"container","line":"-rwxrwxrwx    1 root     root           264 Sep 13 13:02 check-llm.sh","ts":"2026-09-26T05:02:27.486838468Z"}
+
+id: 2026-09-26T05:02:27.486841558Z
+data: {"source":"container","line":"-rw-rw-rw-    1 root     root        221883 Sep 22 10:06 llama-server.log","ts":"2026-09-26T05:02:27.486841558Z"}
+
+id: 2026-09-26T05:02:27.486844198Z
+data: {"source":"container","line":"-rw-rw-rw-    1 root     root             4 Sep 22 09:30 llama-server.pid","ts":"2026-09-26T05:02:27.486844198Z"}
+
+id: 2026-09-26T05:02:27.486846838Z
+data: {"source":"container","line":"drwxrwxrwx   31 root     root       3000130 Sep 13 11:38 llama.cpp","ts":"2026-09-26T05:02:27.486846838Z"}
+
+id: 2026-09-26T05:02:27.486849668Z
+data: {"source":"container","line":"drwxrwxrwx    3 root     root       3001932 Sep 13 11:23 models","ts":"2026-09-26T05:02:27.486849668Z"}
+
+id: 2026-09-26T05:02:27.486852638Z
+data: {"source":"container","line":"-rwxrwxrwx    1 root     root           957 Sep 13 13:02 start-llm.sh","ts":"2026-09-26T05:02:27.486852638Z"}
+
+id: 2026-09-26T05:02:27.486854708Z
+data: {"source":"container","line":"+ set +x","ts":"2026-09-26T05:02:27.486854708Z"}
+
+id: 2026-09-26T05:02:27.494943217Z
+data: {"source":"container","line":"CANALLA_M_FILE /workspace/start-llm.sh 957 d91b7e36e3298a7df7e70d851e3c83ab3363e836721832dea0158de90f0db6d8","ts":"2026-09-26T05:02:27.494943217Z"}
+
+id: 2026-09-26T05:02:27.497820608Z
+data: {"source":"container","line":"CANALLA_M_B64_start-llm.sh=IyEvdXNyL2Jpbi9lbnYgYmFzaApzZXQgLWUKClNFUlZFUj0iL3dvcmtzcGFjZS9sbGFtYS5jcHAvYnVpbGQvYmluL2xsYW1hLXNlcnZlciIKTU9ERUw9Ii93b3Jrc3BhY2UvbW9kZWxzL29yY2Fyb3V0ZXItcXdlbjM4L29yY2Fyb3V0ZXJfUXdlbjMuOC0yN0ItVW5jZW5zb3JlZC1RNV9LX00uZ2d1ZiIKTE9HPSIvd29ya3NwYWNlL2xsYW1hLXNlcnZlci5sb2ciCgppZiBjdXJsIC1zZiBodHRwOi8vMTI3LjAuMC4xOjgwODAvdjEvbW9kZWxzID4vZGV2L251bGwgMj4mMTsgdGhlbgogICAgZWNobyAiTExNINGD0LbQtSDQt9Cw0L/Rg9GJ0LXQvdCwLiIKICAgIGV4aXQgMApmaQoKZWNobyAi0JfQsNC/0YPRgdC60LDRjiBPcmNhUm91dGVyLi4uIgoKbm9odXAgIiRTRVJWRVIiIFwKICAtLW1vZGVsICIkTU9ERUwiIFwKICAtLWFsaWFzIG9yY2Fyb3V0ZXItcXdlbjM4LTI3Yi1xNWttIFwKICAtLW4tZ3B1LWxheWVycyBhbGwgXAogIC0tY3R4LXNpemUgMzI3NjggXAogIC0tcGFyYWxsZWwgMSBcCiAgLS1mbGFzaC1hdHRuIG9uIFwKICAtLWppbmphIFwKICAtLWhvc3QgMTI3LjAuMC4xIFwKICAtLXBvcnQgODA4MCBcCiAgPiAiJExPRyIgMj4mMSAmCgplY2hvICQhID4gL3dvcmtzcGFjZS9sbGFtYS1zZXJ2ZXIucGlkCgplY2hvICLQntC20LjQtNCw0Y4g0LfQsNCz0YDRg9C30LrRgyDQvNC+0LTQtdC70LguLi4iCgpmb3IgaSBpbiAkKHNlcSAxIDEyMCk7IGRvCiAgICBpZiBjdXJsIC1zZiBodHRwOi8vMTI3LjAuMC4xOjgwODAvdjEvbW9kZWxzID4vZGV2L251bGwgMj4mMTsgdGhlbgogICAgICAgIGVjaG8gIkxMTSDQs9C+0YLQvtCy0LA6IGh0dHA6Ly8xMjcuMC4wLjE6ODA4MCIKICAgICAgICBleGl0IDAKICAgIGZpCiAgICBzbGVlcCAyCmRvbmUKCmVjaG8gIkxMTSDQvdC1INC30LDQv9GD0YHRgtC40LvQsNGB0Ywg0LLQvtCy0YDQtdC80Y8uIgp0YWlsIC1uIDUwICIkTE9HIgpleGl0IDEK","ts":"2026-09-26T05:02:27.497820608Z"}
+
+id: 2026-09-26T05:02:27.504592297Z
+data: {"source":"container","line":"CANALLA_M_FILE /workspace/check-llm.sh 264 9f26c444eed3d49d55d0e6f781708f19b836bc47185d5421e7534c0187bf7be5","ts":"2026-09-26T05:02:27.504592297Z"}
+
+id: 2026-09-26T05:02:27.507656679Z
+data: {"source":"container","line":"CANALLA_M_B64_check-llm.sh=IyEvdXNyL2Jpbi9lbnYgYmFzaAoKZWNobyAiPT09IEdQVSA9PT0iCm52aWRpYS1zbWkgLS1xdWVyeS1ncHU9bmFtZSxtZW1vcnkudXNlZCxtZW1vcnkudG90YWwgLS1mb3JtYXQ9Y3N2LG5vaGVhZGVyCgplY2hvCmVjaG8gIj09PSBMTE0gPT09IgoKaWYgY3VybCAtc2YgaHR0cDovLzEyNy4wLjAuMTo4MDgwL3YxL21vZGVsczsgdGhlbgogICAgZWNobwogICAgZWNobyAiU1RBVFVTOiBSRUFEWSIKZWxzZQogICAgZWNobyAiU1RBVFVTOiBOT1QgUlVOTklORyIKZmkK","ts":"2026-09-26T05:02:27.507656679Z"}
+
+id: 2026-09-26T05:07:17.098912165Z
+data: {"source":"container","line":"CANALLA_M_GGUF_PATH=/workspace/models/orcarouter-qwen38/orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf","ts":"2026-09-26T05:07:17.098912165Z"}
+
+id: 2026-09-26T05:07:17.098957965Z
+data: {"source":"container","line":"CANALLA_M_GGUF_BYTES=20752787712","ts":"2026-09-26T05:07:17.098957965Z"}
+
+id: 2026-09-26T05:07:17.098961935Z
+data: {"source":"container","line":"CANALLA_M_GGUF_SHA256=4ad98832b3d376dd274df5bba59dd34834f0f401593e1463f38fd5fa219293b1","ts":"2026-09-26T05:07:17.098961935Z"}
+
+id: 2026-09-26T05:07:17.098966215Z
+data: {"source":"container","line":"CANALLA_M_GGUF_FACT path=/workspace/models/orcarouter-qwen38/orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf bytes=20752787712 sha256=4ad98832b3d376dd274df5bba59dd34834f0f401593e1463f38fd5fa219293b1","ts":"2026-09-26T05:07:17.098966215Z"}
+
+id: 2026-09-26T05:07:17.582813849Z
+data: {"source":"container","line":"CANALLA_M_USED_BYTES=22902211482","ts":"2026-09-26T05:07:17.582813849Z"}
+
+id: 2026-09-26T05:07:17.935780501Z
+data: {"source":"container","line":"CANALLA_M_FILE_COUNT=6377","ts":"2026-09-26T05:07:17.935780501Z"}
+
+id: 2026-09-26T05:07:17.937365122Z
+data: {"source":"container","line":"find: unrecognized: -printf","ts":"2026-09-26T05:07:17.937365122Z"}
+
+id: 2026-09-26T05:07:17.941157349Z
+data: {"source":"container","line":"BusyBox v1.36.1 (2025-11-23 14:32:18 UTC) multi-call binary.","ts":"2026-09-26T05:07:17.941157349Z"}
+
+id: 2026-09-26T05:07:17.941189469Z
+data: {"source":"container","line":"Usage: find [-HL] [PATH]... [OPTIONS] [ACTIONS]","ts":"2026-09-26T05:07:17.941189469Z"}
+
+id: 2026-09-26T05:07:17.941199869Z
+data: {"source":"container","line":"Search for files and perform actions on them.","ts":"2026-09-26T05:07:17.941199869Z"}
+
+id: 2026-09-26T05:07:17.941204779Z
+data: {"source":"container","line":"First failed action stops processing of current file.","ts":"2026-09-26T05:07:17.941204779Z"}
+
+id: 2026-09-26T05:07:17.941216739Z
+data: {"source":"container","line":"Defaults: PATH is current directory, action is '-print'","ts":"2026-09-26T05:07:17.941216739Z"}
+
+id: 2026-09-26T05:07:17.941226259Z
+data: {"source":"container","line":"\t-L,-follow\tFollow symlinks","ts":"2026-09-26T05:07:17.941226259Z"}
+
+id: 2026-09-26T05:07:17.941231239Z
+data: {"source":"container","line":"\t-H\t\t...on command line only","ts":"2026-09-26T05:07:17.941231239Z"}
+
+id: 2026-09-26T05:07:17.941236360Z
+data: {"source":"container","line":"\t-xdev\t\tDon't descend directories on other filesystems","ts":"2026-09-26T05:07:17.941236360Z"}
+
+id: 2026-09-26T05:07:17.941245470Z
+data: {"source":"container","line":"\t-maxdepth N\tDescend at most N levels. -maxdepth 0 applies","ts":"2026-09-26T05:07:17.941245470Z"}
+
+id: 2026-09-26T05:07:17.941254420Z
+data: {"source":"container","line":"\t\t\tactions to command line arguments only","ts":"2026-09-26T05:07:17.941254420Z"}
+
+id: 2026-09-26T05:07:17.941263250Z
+data: {"source":"container","line":"\t-mindepth N\tDon't act on first N levels","ts":"2026-09-26T05:07:17.941263250Z"}
+
+id: 2026-09-26T05:07:17.941271930Z
+data: {"source":"container","line":"\t-depth\t\tAct on directory *after* traversing it","ts":"2026-09-26T05:07:17.941271930Z"}
+
+id: 2026-09-26T05:07:17.941289780Z
+data: {"source":"container","line":"Actions:","ts":"2026-09-26T05:07:17.941289780Z"}
+
+id: 2026-09-26T05:07:17.941295900Z
+data: {"source":"container","line":"\t( ACTIONS )\tGroup actions for -o / -a","ts":"2026-09-26T05:07:17.941295900Z"}
+
+id: 2026-09-26T05:07:17.941307970Z
+data: {"source":"container","line":"\t! ACT\t\tInvert ACT's success/failure","ts":"2026-09-26T05:07:17.941307970Z"}
+
+id: 2026-09-26T05:07:17.941313230Z
+data: {"source":"container","line":"\tACT1 [-a] ACT2\tIf ACT1 fails, stop, else do ACT2","ts":"2026-09-26T05:07:17.941313230Z"}
+
+id: 2026-09-26T05:07:17.941326530Z
+data: {"source":"container","line":"\tACT1 -o ACT2\tIf ACT1 succeeds, stop, else do ACT2","ts":"2026-09-26T05:07:17.941326530Z"}
+
+id: 2026-09-26T05:07:17.941341320Z
+data: {"source":"container","line":"\t\t\tNote: -a has higher priority than -o","ts":"2026-09-26T05:07:17.941341320Z"}
+
+id: 2026-09-26T05:07:17.941354791Z
+data: {"source":"container","line":"\t-name PATTERN\tMatch file name (w/o directory name) to PATTERN","ts":"2026-09-26T05:07:17.941354791Z"}
+
+id: 2026-09-26T05:07:17.941365320Z
+data: {"source":"container","line":"\t-iname PATTERN\tCase insensitive -name","ts":"2026-09-26T05:07:17.941365320Z"}
+
+id: 2026-09-26T05:07:17.941379681Z
+data: {"source":"container","line":"\t-path PATTERN\tMatch path to PATTERN","ts":"2026-09-26T05:07:17.941379681Z"}
+
+id: 2026-09-26T05:07:17.941391311Z
+data: {"source":"container","line":"\t-ipath PATTERN\tCase insensitive -path","ts":"2026-09-26T05:07:17.941391311Z"}
+
+id: 2026-09-26T05:07:17.941402171Z
+data: {"source":"container","line":"\t-regex PATTERN\tMatch path to regex PATTERN","ts":"2026-09-26T05:07:17.941402171Z"}
+
+id: 2026-09-26T05:07:17.941413081Z
+data: {"source":"container","line":"\t-type X\t\tFile type is X (one of: f,d,l,b,c,s,p)","ts":"2026-09-26T05:07:17.941413081Z"}
+
+id: 2026-09-26T05:07:17.941427291Z
+data: {"source":"container","line":"\t-executable\tFile is executable","ts":"2026-09-26T05:07:17.941427291Z"}
+
+id: 2026-09-26T05:07:17.941439161Z
+data: {"source":"container","line":"\t-perm MASK\tAt least one mask bit (+MASK), all bits (-MASK),","ts":"2026-09-26T05:07:17.941439161Z"}
+
+id: 2026-09-26T05:07:17.941451681Z
+data: {"source":"container","line":"\t\t\tor exactly MASK bits are set in file's mode","ts":"2026-09-26T05:07:17.941451681Z"}
+
+id: 2026-09-26T05:07:17.941466571Z
+data: {"source":"container","line":"\t-mtime DAYS\tmtime is greater than (+N), less than (-N),","ts":"2026-09-26T05:07:17.941466571Z"}
+
+id: 2026-09-26T05:07:17.941479881Z
+data: {"source":"container","line":"\t\t\tor exactly N days in the past","ts":"2026-09-26T05:07:17.941479881Z"}
+
+id: 2026-09-26T05:07:17.941508761Z
+data: {"source":"container","line":"\t-atime DAYS\tatime +N/-N/N days in the past","ts":"2026-09-26T05:07:17.941508761Z"}
+
+id: 2026-09-26T05:07:17.941529102Z
+data: {"source":"container","line":"\t-ctime DAYS\tctime +N/-N/N days in the past","ts":"2026-09-26T05:07:17.941529102Z"}
+
+id: 2026-09-26T05:07:17.941544122Z
+data: {"source":"container","line":"\t-mmin MINS\tmtime is greater than (+N), less than (-N),","ts":"2026-09-26T05:07:17.941544122Z"}
+
+id: 2026-09-26T05:07:17.941555292Z
+data: {"source":"container","line":"\t\t\tor exactly N minutes in the past","ts":"2026-09-26T05:07:17.941555292Z"}
+
+id: 2026-09-26T05:07:17.941571992Z
+data: {"source":"container","line":"\t-newer FILE\tmtime is more recent than FILE's","ts":"2026-09-26T05:07:17.941571992Z"}
+
+id: 2026-09-26T05:07:17.941587432Z
+data: {"source":"container","line":"\t-inum N\t\tFile has inode number N","ts":"2026-09-26T05:07:17.941587432Z"}
+
+id: 2026-09-26T05:07:17.941605022Z
+data: {"source":"container","line":"\t-user NAME/ID\tFile is owned by given user","ts":"2026-09-26T05:07:17.941605022Z"}
+
+id: 2026-09-26T05:07:17.941619732Z
+data: {"source":"container","line":"\t-group NAME/ID\tFile is owned by given group","ts":"2026-09-26T05:07:17.941619732Z"}
+
+id: 2026-09-26T05:07:17.941631862Z
+data: {"source":"container","line":"\t-size N[bck]\tFile size is N (c:bytes,k:kbytes,b:512 bytes(def.))","ts":"2026-09-26T05:07:17.941631862Z"}
+
+id: 2026-09-26T05:07:17.941640242Z
+data: {"source":"container","line":"\t\t\t+/-N: file size is bigger/smaller than N","ts":"2026-09-26T05:07:17.941640242Z"}
+
+id: 2026-09-26T05:07:17.941652202Z
+data: {"source":"container","line":"\t-links N\tNumber of links is greater than (+N), less than (-N),","ts":"2026-09-26T05:07:17.941652202Z"}
+
+id: 2026-09-26T05:07:17.941666313Z
+data: {"source":"container","line":"\t\t\tor exactly N","ts":"2026-09-26T05:07:17.941666313Z"}
+
+id: 2026-09-26T05:07:17.941680463Z
+data: {"source":"container","line":"\t-empty\t\tMatch empty file/directory","ts":"2026-09-26T05:07:17.941680463Z"}
+
+id: 2026-09-26T05:07:17.941691923Z
+data: {"source":"container","line":"\t-prune\t\tIf current file is directory, don't descend into it","ts":"2026-09-26T05:07:17.941691923Z"}
+
+id: 2026-09-26T05:07:17.941703003Z
+data: {"source":"container","line":"If none of the following actions is specified, -print is assumed","ts":"2026-09-26T05:07:17.941703003Z"}
+
+id: 2026-09-26T05:07:17.941718603Z
+data: {"source":"container","line":"\t-print\t\tPrint file name","ts":"2026-09-26T05:07:17.941718603Z"}
+
+id: 2026-09-26T05:07:17.941728393Z
+data: {"source":"container","line":"\t-print0\t\tPrint file name, NUL terminated","ts":"2026-09-26T05:07:17.941728393Z"}
+
+id: 2026-09-26T05:07:17.941745263Z
+data: {"source":"container","line":"\t-exec CMD ARG ;\tRun CMD with all instances of {} replaced by","ts":"2026-09-26T05:07:17.941745263Z"}
+
+id: 2026-09-26T05:07:17.941753923Z
+data: {"source":"container","line":"\t\t\tfile name. Fails if CMD exits with nonzero","ts":"2026-09-26T05:07:17.941753923Z"}
+
+id: 2026-09-26T05:07:17.941762163Z
+data: {"source":"container","line":"\t-exec CMD ARG + Run CMD with {} replaced by list of file names","ts":"2026-09-26T05:07:17.941762163Z"}
+
+id: 2026-09-26T05:07:17.941773573Z
+data: {"source":"container","line":"\t-delete\t\tDelete current file/directory. Turns on -depth option","ts":"2026-09-26T05:07:17.941773573Z"}
+
+id: 2026-09-26T05:07:17.941783383Z
+data: {"source":"container","line":"\t-quit\t\tExit","ts":"2026-09-26T05:07:17.941783383Z"}
+
+id: 2026-09-26T05:07:18.102364776Z
+data: {"source":"container","line":"CANALLA_M_BIN /workspace/llama.cpp/build/bin/llama-server 17888 2777fd444965f0dcb98a6569a0a8db1c02a5148443b786abf4bb43e45c33477e","ts":"2026-09-26T05:07:18.102364776Z"}
+
+id: 2026-09-26T05:07:18.103481774Z
+data: {"source":"container","line":"/bin/sh: /workspace/llama.cpp/build/bin/llama-server: not found","ts":"2026-09-26T05:07:18.103481774Z"}
+
+id: 2026-09-26T05:07:18.330681491Z
+data: {"source":"container","line":"CANALLA_M_BIN /workspace/llama.cpp/build/bin/llama-cli 1422344 b96347081721b60f768247a361aca15ca267a1cb960fef4c08f456f26c8f7e1c","ts":"2026-09-26T05:07:18.330681491Z"}
+
+id: 2026-09-26T05:07:18.331967300Z
+data: {"source":"container","line":"/bin/sh: /workspace/llama.cpp/build/bin/llama-cli: not found","ts":"2026-09-26T05:07:18.331967300Z"}
+
+id: 2026-09-26T05:07:18.514378699Z
+data: {"source":"container","line":"CANALLA_M_BIN /workspace/llama.cpp/build/bin/llama-bench 17888 5ca7a96043490af1cf737ba3f5197a94348f6ea051cb400259fddc05f3899cbd","ts":"2026-09-26T05:07:18.514378699Z"}
+
+id: 2026-09-26T05:07:18.515863099Z
+data: {"source":"container","line":"/bin/sh: /workspace/llama.cpp/build/bin/llama-bench: not found","ts":"2026-09-26T05:07:18.515863099Z"}
+
+id: 2026-09-26T05:07:18.518821510Z
+data: {"source":"container","line":"CANALLA_M_RUNTIME_LIST __pycache__ chat.py check-llm.sh llama-server.log llama-server.pid llama.cpp models start-llm.sh","ts":"2026-09-26T05:07:18.518821510Z"}
+
+id: 2026-09-26T05:07:18.520651143Z
+data: {"source":"container","line":"httpd: applet not found","ts":"2026-09-26T05:07:18.520651143Z"}
+
+id: 2026-09-26T05:07:20.522707172Z
+data: {"source":"container","line":"wget: can't connect to remote host (127.0.0.1): Connection refused","ts":"2026-09-26T05:07:20.522707172Z"}
+
+id: 2026-09-26T05:07:20.524464394Z
+data: {"source":"container","line":"wget: unrecognized option: password=rSzEGXWIyOYCz0EBFmF7jper","ts":"2026-09-26T05:07:20.524464394Z"}
+
+id: 2026-09-26T05:07:20.527736878Z
+data: {"source":"container","line":"BusyBox v1.36.1 (2025-11-23 14:32:18 UTC) multi-call binary.","ts":"2026-09-26T05:07:20.527736878Z"}
+
+id: 2026-09-26T05:07:20.527765458Z
+data: {"source":"container","line":"","ts":"2026-09-26T05:07:20.527765458Z"}
+
+id: 2026-09-26T05:07:20.527769048Z
+data: {"source":"container","line":"Usage: wget [-cqS] [--spider] [-O FILE] [-o LOGFILE] [--header STR]","ts":"2026-09-26T05:07:20.527769048Z"}
+
+id: 2026-09-26T05:07:20.527773948Z
+data: {"source":"container","line":"\t[--post-data STR | --post-file FILE] [-Y on/off]","ts":"2026-09-26T05:07:20.527773948Z"}
+
+id: 2026-09-26T05:07:20.527776628Z
+data: {"source":"container","line":"\t[-P DIR] [-U AGENT] [-T SEC] URL...","ts":"2026-09-26T05:07:20.527776628Z"}
+
+id: 2026-09-26T05:07:20.527779978Z
+data: {"source":"container","line":"","ts":"2026-09-26T05:07:20.527779978Z"}
+
+id: 2026-09-26T05:07:20.527783738Z
+data: {"source":"container","line":"Retrieve files via HTTP or FTP","ts":"2026-09-26T05:07:20.527783738Z"}
+
+id: 2026-09-26T05:07:20.527817368Z
+data: {"source":"container","line":"","ts":"2026-09-26T05:07:20.527817368Z"}
+
+id: 2026-09-26T05:07:20.527830058Z
+data: {"source":"container","line":"\t--spider\tOnly check URL existence: $? is 0 if exists","ts":"2026-09-26T05:07:20.527830058Z"}
+
+id: 2026-09-26T05:07:20.527904269Z
+data: {"source":"container","line":"\t--header STR\tAdd STR (of form 'header: value') to headers","ts":"2026-09-26T05:07:20.527904269Z"}
+
+id: 2026-09-26T05:07:20.528017550Z
+data: {"source":"container","line":"\t--post-data STR\tSend STR using POST method","ts":"2026-09-26T05:07:20.528017550Z"}
+
+id: 2026-09-26T05:07:20.528041580Z
+data: {"source":"container","line":"\t--post-file FILE\tSend FILE using POST method","ts":"2026-09-26T05:07:20.528041580Z"}
+
+id: 2026-09-26T05:07:20.528089380Z
+data: {"source":"container","line":"\t-c\t\tContinue retrieval of aborted transfer","ts":"2026-09-26T05:07:20.528089380Z"}
+
+id: 2026-09-26T05:07:20.528101400Z
+data: {"source":"container","line":"\t-q\t\tQuiet","ts":"2026-09-26T05:07:20.528101400Z"}
+
+id: 2026-09-26T05:07:20.528107400Z
+data: {"source":"container","line":"\t-P DIR\t\tSave to DIR (default .)","ts":"2026-09-26T05:07:20.528107400Z"}
+
+id: 2026-09-26T05:07:20.528115790Z
+data: {"source":"container","line":"\t-S    \t\tShow server response","ts":"2026-09-26T05:07:20.528115790Z"}
+
+id: 2026-09-26T05:07:20.528127000Z
+data: {"source":"container","line":"\t-T SEC\t\tNetwork read timeout is SEC seconds","ts":"2026-09-26T05:07:20.528127000Z"}
+
+id: 2026-09-26T05:07:20.527989360Z
+data: {"source":"container","line":"CANALLA_M_SERVE_SELFTEST_FAIL","ts":"2026-09-26T05:07:20.527989360Z"}
+
+id: 2026-09-26T05:07:20.528182151Z
+data: {"source":"container","line":"CANALLA_M_READY_FOR_COPY","ts":"2026-09-26T05:07:20.528182151Z"}
+
+id: 2026-09-26T05:07:20.528143730Z
+data: {"source":"container","line":"\t-O FILE\t\tSave to FILE ('-' for stdout)","ts":"2026-09-26T05:07:20.528143730Z"}
+
+id: 2026-09-26T05:07:20.528218761Z
+data

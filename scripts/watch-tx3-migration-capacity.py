@@ -310,35 +310,70 @@ def secondary_ranking(key: str, *, min_vram: int, max_hourly: float) -> list[dic
 
 
 def migration_script(password: str) -> str:
-    """Measure the model, save the scripts, then serve the volume over an authenticated port."""
+    """Measure the model, save the scripts, then serve the volume over an authenticated port.
+
+    Everything that produces a value we later parse is emitted with tracing **off**: ``set -x`` in
+    busybox traces its ``echo`` arguments with single quotes, and the provider hands that trace back
+    in the same stream — which is how a real measurement came back with a quoted path and
+    ``gguf_bytes = 0``.
+    """
     return f"""set -x
 echo CANALLA_M_START
 df -h /workspace; ls -la /workspace
+set +x
+
 for f in /workspace/start-llm.sh /workspace/check-llm.sh; do
-  [ -f "$f" ] || {{ echo "CANALLA_M_MISSING $f"; continue; }}
-  echo "CANALLA_M_FILE $f $(wc -c < "$f") $(sha256sum "$f" | cut -d' ' -f1)"
-  echo "CANALLA_M_B64_$(basename "$f")=$(base64 -w0 < "$f")"
+  if [ -f "$f" ]; then
+    echo "CANALLA_M_FILE $f $(wc -c < "$f") $(sha256sum "$f" | cut -d' ' -f1)"
+    echo "CANALLA_M_B64_$(basename "$f")=$(base64 -w0 < "$f")"
+  else
+    echo "CANALLA_M_MISSING $f"
+  fi
 done
+
 GGUF=$(ls {MODEL_DIR}/*.gguf 2>/dev/null | head -1)
 if [ -n "$GGUF" ]; then
+  GB=$(wc -c < "$GGUF" | tr -d ' ')
+  GS=$(sha256sum "$GGUF" | cut -d' ' -f1)
   echo "CANALLA_M_GGUF_PATH=$GGUF"
-  echo "CANALLA_M_GGUF_BYTES=$(wc -c < "$GGUF")"
-  echo "CANALLA_M_GGUF_SHA256=$(sha256sum "$GGUF" | cut -d' ' -f1)"
+  echo "CANALLA_M_GGUF_BYTES=$GB"
+  echo "CANALLA_M_GGUF_SHA256=$GS"
+  echo "CANALLA_M_GGUF_FACT path=$GGUF bytes=$GB sha256=$GS"
 else
   echo CANALLA_M_GGUF_MISSING
 fi
+
 echo "CANALLA_M_USED_BYTES=$(du -sb /workspace | cut -f1)"
 echo "CANALLA_M_FILE_COUNT=$(find /workspace -type f | wc -l)"
 find /workspace -type f -printf '%s %p\\n' | sort -rn | head -25
+
 for b in llama-server llama-cli llama-bench; do
-  p=$(command -v $b 2>/dev/null || ls /workspace/$b /workspace/*/$b 2>/dev/null | head -1)
-  [ -n "$p" ] && {{ echo "CANALLA_M_BIN $b $p"; $p --version 2>&1 | head -3; }}
+  p=$(command -v $b 2>/dev/null)
+  [ -n "$p" ] || p=$(find /workspace -maxdepth 5 -name "$b" 2>/dev/null | head -1)
+  if [ -n "$p" ]; then
+    echo "CANALLA_M_BIN $p $(wc -c < "$p" | tr -d ' ') $(sha256sum "$p" | cut -d' ' -f1)"
+    "$p" --version 2>&1 | head -3
+  fi
 done
+echo "CANALLA_M_RUNTIME_LIST $(ls -1 /workspace | tr '\\n' ' ')"
+
+# alpine's busybox ships no httpd applet: the transport needs busybox-extras (or curl) to serve.
+if ! busybox --list 2>/dev/null | grep -qw httpd; then
+  apk add --no-cache busybox-extras >/dev/null 2>&1 || true
+fi
 printf '/workspace:canalla:{password}\\n' > /tmp/httpd.conf
-busybox httpd -f -p 8000 -c /tmp/httpd.conf &
+busybox httpd -f -p 8000 -c /tmp/httpd.conf >/dev/null 2>&1 &
 sleep 2
-wget -q -O /dev/null --user=canalla --password='{password}' http://127.0.0.1:8000/start-llm.sh \\
-  && echo CANALLA_M_SERVE_SELFTEST_OK || echo CANALLA_M_SERVE_SELFTEST_FAIL
+AUTH=$(printf 'canalla:{password}' | base64 | tr -d '\\n')
+if wget -q -O /dev/null --header "Authorization: Basic $AUTH" http://127.0.0.1:8000/start-llm.sh; then
+  echo CANALLA_M_SERVE_SELFTEST_OK header_credentials
+elif wget -q -O /dev/null "http://canalla:{password}@127.0.0.1:8000/start-llm.sh"; then
+  echo CANALLA_M_SERVE_SELFTEST_OK url_credentials
+elif command -v curl >/dev/null 2>&1 && curl -fsS -u "canalla:{password}" -o /dev/null http://127.0.0.1:8000/start-llm.sh; then
+  echo CANALLA_M_SERVE_SELFTEST_OK curl
+else
+  echo CANALLA_M_SERVE_SELFTEST_FAIL
+fi
 echo CANALLA_M_READY_FOR_COPY
 i=0; while [ $i -lt 100 ]; do sleep 10; i=$((i+1)); echo "CANALLA_M_ALIVE $i"; done"""
 
@@ -617,17 +652,22 @@ def published_address(key: str, pod_id: str, private_port: int = 8000) -> dict:
 def log_lines(logs_text: str) -> list[str]:
     """RunPod's log stream can arrive JSON-wrapped; match the payload, never the envelope.
 
-    The migration Pods print plain ``CANALLA_M_...`` markers, but the provider may hand the same
-    lines back as ``{"line": "CANALLA_M_GGUF_BYTES=20752787712", "ts": "..."}``. Reading the raw
-    text then produced ``int('20752787712","ts":"...'}')`` — a ValueError that killed the pipeline
-    *after* a paid Pod existed, which is exactly how a migration Pod was left running for two hours.
+    The stream is a sequence of records — ``id: <ts>`` followed by ``data: {"source":…,"line":…}``
+    — so the JSON is behind a ``data:`` prefix and the markers live inside ``line``. Reading the raw
+    text worked by accident for simple values and failed for anything that has to start a line (the
+    ``CANALLA_M_BIN`` records), while ``set -x`` traces quoted their echoes.
     """
     lines: list[str] = []
     for line in logs_text.splitlines():
         stripped = line.strip()
-        if stripped.startswith("{") and stripped.endswith("}"):
+        candidate = stripped
+        for prefix in ("data:", "id:", "msg:", "log:"):
+            if candidate.lower().startswith(prefix):
+                candidate = candidate[len(prefix) :].strip()
+                break
+        if candidate.startswith("{") and candidate.endswith("}"):
             try:
-                data = json.loads(stripped)
+                data = json.loads(candidate)
             except ValueError:
                 data = None
             if isinstance(data, dict):
@@ -647,15 +687,22 @@ def log_lines(logs_text: str) -> list[str]:
 
 
 def log_value(lines: list[str], marker: str, *, mode: str = "text") -> str:
-    """The token that follows ``marker``: digits, a SHA256, or text cut at the JSON envelope."""
+    """The token that follows ``marker``: digits, a SHA256, or text cut at the JSON envelope.
+
+    Shell traces quote their arguments (``+ echo 'CANALLA_M_GGUF_PATH=/x.gguf'``), so a text value is
+    stripped of the surrounding single/double quotes as well as of the JSON envelope.
+    """
     raw = next((line.split(marker, 1)[1] for line in lines if marker in line), "").strip()
     if mode == "int":
-        match = re.match(r"\d+", raw)
-        return match.group(0) if match else ""
+        match = re.match(r"['\"]?(\d+)", raw)
+        return match.group(1) if match else ""
     if mode == "sha256":
         match = re.search(r"[0-9a-fA-F]{64}", raw)
         return match.group(0) if match else ""
-    return raw.split('"', 1)[0].strip()
+    value = raw.split('"', 1)[0]
+    if len(value) > 1 and value[0] == value[-1] and value[0] in "'\"":
+        value = value[1:-1]
+    return value.strip().rstrip("'").strip()
 
 
 def log_int(lines: list[str], marker: str) -> int:
@@ -693,6 +740,26 @@ def measure_from_logs(logs_text: str) -> dict:
     for line in lines:
         if line.startswith("CANALLA_M_BIN "):
             manifest["binaries"].append(line[len("CANALLA_M_BIN ") :][:200])
+    manifest["runtime_listing"] = read("CANALLA_M_RUNTIME_LIST ")
+
+    # Cross-check: one authoritative line carries path, bytes and SHA together, so a missing
+    # individual marker can never be mistaken for "the model is zero bytes long".
+    fact = re.search(
+        r"CANALLA_M_GGUF_FACT path=(\S+) bytes=(\d+) sha256=([0-9a-fA-F]{64})",
+        "\n".join(lines),
+    )
+    if fact:
+        manifest["gguf_fact"] = {
+            "path": fact.group(1),
+            "bytes": int(fact.group(2)),
+            "sha256": fact.group(3),
+        }
+        if not manifest["gguf_path"]:
+            manifest["gguf_path"] = fact.group(1)
+        if not manifest["gguf_bytes"]:
+            manifest["gguf_bytes"] = int(fact.group(2))
+        if not manifest["gguf_sha256"]:
+            manifest["gguf_sha256"] = fact.group(3)
     return manifest
 
 
@@ -960,6 +1027,9 @@ def _migrate(
     state["primary_manifest"] = manifest
     state["source_address"] = address
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
+    # Keep the raw evidence: the Pod is released seconds from now, and the provider's log endpoint
+    # answers 404 once it is gone, so this file is the only record of what the volume actually said.
+    (ARTIFACTS / "primary-raw-log.txt").write_text(logs_text[-200_000:], encoding="utf-8")
     (ARTIFACTS / "primary-manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8"
     )
