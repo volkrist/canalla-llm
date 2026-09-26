@@ -320,7 +320,7 @@ def release_everything(key: str, state: dict) -> list[str]:
     return released
 
 
-def watch(key: str) -> int:
+def watch(key: str, poll_seconds: int = POLL_SECONDS) -> int:
     if not take_lock():
         log("another acceptance watcher holds the lock — refusing to start a second one")
         return 3
@@ -331,12 +331,12 @@ def watch(key: str) -> int:
         "dc": DC,
         "min_vram_gb": MIN_VRAM,
         "max_hourly_price": MAX_HOURLY,
-        "poll_seconds": POLL_SECONDS,
+        "poll_seconds": poll_seconds,
         "poll_count": 0,
     }
     write_json(STATE, state)
     log(
-        f"watcher started (read-only, every {POLL_SECONDS}s, target {DC} >= {MIN_VRAM} GB "
+        f"watcher started (read-only, every {poll_seconds}s, target {DC} >= {MIN_VRAM} GB "
         f"<= ${MAX_HOURLY:.2f}/h, pod deadline {POD_DEADLINE_SECONDS // 60} min)"
     )
 
@@ -354,7 +354,7 @@ def watch(key: str) -> int:
 
             if not found:
                 enforce_deadline(key, state)
-                time.sleep(POLL_SECONDS)
+                time.sleep(poll_seconds)
                 continue
 
             # A real signal: act in this very cycle, through the product's own path.
@@ -380,7 +380,7 @@ def watch(key: str) -> int:
             if capacity_race(len(created), len(released), code):
                 log(f"capacity race before any Pod existed (code={code or 'none'}) — back to watching")
                 write_json(STATE, state)
-                time.sleep(POLL_SECONDS)
+                time.sleep(poll_seconds)
                 continue
 
             write_json(
@@ -401,7 +401,7 @@ def watch(key: str) -> int:
             return 2
         except (RuntimeError, OSError, ValueError, TimeoutError) as error:
             log(f"scan error: {type(error).__name__}: {error}")
-            time.sleep(POLL_SECONDS)
+            time.sleep(poll_seconds)
 
 
 def self_test() -> int:
@@ -456,6 +456,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--once", action="store_true", help="one read-only scan and the verdict")
+    parser.add_argument(
+        "--poll-seconds",
+        type=int,
+        default=POLL_SECONDS,
+        help=f"catalogue read interval (default {POLL_SECONDS}; the windows are minutes long)",
+    )
     args = parser.parse_args(argv)
 
     if args.self_test:
@@ -466,7 +472,7 @@ def main(argv: list[str] | None = None) -> int:
         live = pods(key)
         print(json.dumps({"candidates": found, "pods": live}, ensure_ascii=False, indent=1))
         return 0 if found else 4
-    return watch(key)
+    return watch(key, max(30, args.poll_seconds))
 
 
 if __name__ == "__main__":
