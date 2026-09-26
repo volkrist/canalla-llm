@@ -37,6 +37,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -66,6 +67,8 @@ LOG = ARTIFACTS / "watcher.log"
 PIDFILE = ARTIFACTS / "watcher.pid"
 LOCKFILE = ARTIFACTS / "watcher.lock"
 MIGRATION_POD_PREFIX = "canalla-migrate-"
+COPY_POD_PREFIX = "canalla-copy-"
+OUR_POD_PREFIXES = (MIGRATION_POD_PREFIX, COPY_POD_PREFIX)
 
 POLL_SECONDS = 120
 CPU_PROBE_COOLDOWN = 900
@@ -352,8 +355,8 @@ def _age_seconds(stamp: object) -> float | None:
     return (datetime.now(timezone.utc) - parsed).total_seconds()
 
 
-def live_migration_pods(key: str, *, mine: str = "") -> list[dict]:
-    """Live pods this watcher family created (matched by name), excluding the one we already own."""
+def live_migration_pods(key: str) -> list[dict]:
+    """Every live Pod this watcher family created — migration or copy. Ownership is not assumed."""
     status, payload = call("/v2/pods", key)
     rows = (payload or {}).get("pods") if isinstance(payload, dict) else None
     if status != 200 or not isinstance(rows, list):
@@ -366,38 +369,56 @@ def live_migration_pods(key: str, *, mine: str = "") -> list[dict]:
             "createdAt": row.get("createdAt"),
         }
         for row in rows
-        if str(row.get("name") or "").startswith(MIGRATION_POD_PREFIX)
+        if str(row.get("name") or "").startswith(OUR_POD_PREFIXES)
         and str(row.get("status") or "").upper() in LIVE_STATUSES
-        and str(row.get("id") or "") != mine
     ]
+
+
+def release_leaked_pods(key: str, state: dict, *, reason: str) -> list[str]:
+    """Release every live migration Pod: whatever created it, nothing here owns it any more.
+
+    A run that raised, a run that returned early, or a run from a previous process all leave the
+    same evidence — a live ``canalla-migrate-*`` Pod nobody is measuring. It is released at once,
+    because the volume keeps the data and only the Pod costs money.
+    """
+    released = []
+    for pod in live_migration_pods(key):
+        try:
+            terminate(key, pod["id"])
+            released.append(pod["id"])
+        except (RuntimeError, OSError, ValueError) as error:
+            event(state, f"could not release leaked pod {pod['id']}: {error}")
+    if released:
+        state["source_pod"] = None
+        state["dest_pod"] = None
+        state["phase"] = "watching"
+        event(state, f"released leaked migration Pod(s): {released} ({reason})")
+    return released
 
 
 def create_migration_pod(
     key: str, state: dict, candidates: list[dict], *, allow_cpu: bool = True
 ) -> dict:
-    """At most ONE live migration Pod: adopt nothing, create nothing while another one is alive.
+    """At most ONE migration Pod: a new run never inherits one, and never leaves one behind.
 
     ``allow_cpu=False`` is the rule for a real catalogue signal: the eligible card the catalogue just
     showed *is* the attempt for this poll, and the blind CPU-probe cooldown must never delay it.
+
+    Ownership is deliberately not trusted. The pipeline runs synchronously inside one process, so a
+    live ``canalla-*`` Pod found at the start of a run cannot be in use by it: it is an abandonent
+    (a killed process, a crashed run, a run that returned early) and it is released before anything
+    new is created — the volume keeps the data, only the Pod costs money.
     """
-    mine = str(state.get("source_pod") or "")
-    for orphan in live_migration_pods(key, mine=mine):
-        age = _age_seconds(orphan.get("createdAt"))
-        if age is None or age <= MIGRATION_MAX_SECONDS:
-            event(
-                state,
-                "another migration pod is already live — not creating a second one",
-                pod=orphan["id"],
-                age_seconds=None if age is None else int(age),
-            )
-            return {}
+    for abandoned in live_migration_pods(key):
+        age = _age_seconds(abandoned.get("createdAt"))
         event(
             state,
-            f"orphan migration pod {orphan['id']} is past its "
-            f"{MIGRATION_MAX_SECONDS // 60} min budget — terminating it",
-            age_seconds=int(age),
+            f"releasing an abandoned Pod {abandoned['id']} — a new run never inherits one",
+            status=abandoned["status"],
+            age_seconds=None if age is None else int(age),
+            past_budget=age is None or age > MIGRATION_MAX_SECONDS,
         )
-        terminate(key, orphan["id"])
+        terminate(key, abandoned["id"])
     return _create_migration_pod(key, state, candidates, allow_cpu=allow_cpu)
 
 
@@ -508,39 +529,83 @@ def published_address(key: str, pod_id: str, private_port: int = 8000) -> dict:
     return {}
 
 
+def log_lines(logs_text: str) -> list[str]:
+    """RunPod's log stream can arrive JSON-wrapped; match the payload, never the envelope.
+
+    The migration Pods print plain ``CANALLA_M_...`` markers, but the provider may hand the same
+    lines back as ``{"line": "CANALLA_M_GGUF_BYTES=20752787712", "ts": "..."}``. Reading the raw
+    text then produced ``int('20752787712","ts":"...'}')`` — a ValueError that killed the pipeline
+    *after* a paid Pod existed, which is exactly how a migration Pod was left running for two hours.
+    """
+    lines: list[str] = []
+    for line in logs_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("{") and stripped.endswith("}"):
+            try:
+                data = json.loads(stripped)
+            except ValueError:
+                data = None
+            if isinstance(data, dict):
+                payload = next(
+                    (
+                        data[field]
+                        for field in ("line", "msg", "message", "log", "text")
+                        if isinstance(data.get(field), str)
+                    ),
+                    None,
+                )
+                if payload is not None:
+                    lines.append(payload)
+                    continue
+        lines.append(line)
+    return lines
+
+
+def log_value(lines: list[str], marker: str, *, mode: str = "text") -> str:
+    """The token that follows ``marker``: digits, a SHA256, or text cut at the JSON envelope."""
+    raw = next((line.split(marker, 1)[1] for line in lines if marker in line), "").strip()
+    if mode == "int":
+        match = re.match(r"\d+", raw)
+        return match.group(0) if match else ""
+    if mode == "sha256":
+        match = re.search(r"[0-9a-fA-F]{64}", raw)
+        return match.group(0) if match else ""
+    return raw.split('"', 1)[0].strip()
+
+
+def log_int(lines: list[str], marker: str) -> int:
+    return int(log_value(lines, marker, mode="int") or 0)
+
+
 def measure_from_logs(logs_text: str) -> dict:
-    """The primary's canonical manifest, read out of the markers the pod printed."""
-    read = lambda marker: next(
-        (
-            line.split(marker, 1)[1].strip()
-            for line in logs_text.splitlines()
-            if marker in line
-        ),
-        "",
-    )
+    """The primary's canonical manifest, read out of the markers the pod printed.
+
+    This runs while a Pod is alive and billing, so it must never raise: an unreadable field is
+    reported as empty and the caller decides (an empty SHA256 stops the run before any purchase).
+    """
+    lines = log_lines(logs_text)
+    read = lambda marker: log_value(lines, marker)
     manifest = {
         "dc": PRIMARY_DC,
         "volume_id": PRIMARY_VOLUME,
         "gguf_path": read("CANALLA_M_GGUF_PATH="),
-        "gguf_bytes": int(read("CANALLA_M_GGUF_BYTES=") or 0),
-        "gguf_sha256": read("CANALLA_M_GGUF_SHA256="),
-        "used_bytes": int(read("CANALLA_M_USED_BYTES=") or 0),
-        "file_count": int(read("CANALLA_M_FILE_COUNT=") or 0),
+        "gguf_bytes": log_int(lines, "CANALLA_M_GGUF_BYTES="),
+        "gguf_sha256": log_value(lines, "CANALLA_M_GGUF_SHA256=", mode="sha256"),
+        "used_bytes": log_int(lines, "CANALLA_M_USED_BYTES="),
+        "file_count": log_int(lines, "CANALLA_M_FILE_COUNT="),
         "serve_selftest": read("CANALLA_M_SERVE_SELFTEST_"),
         "measured_at": now(),
         "scripts": {},
         "binaries": [],
     }
     for name in ("start-llm.sh", "check-llm.sh"):
-        encoded = read(f"CANALLA_M_B64_{name}=")
-        meta = read(f"CANALLA_M_FILE /workspace/{name} ")
-        parts = meta.split()
+        marker = f"CANALLA_M_FILE /workspace/{name} "
         manifest["scripts"][name] = {
-            "bytes": int(parts[0]) if parts else 0,
-            "sha256": parts[1] if len(parts) > 1 else "",
-            "content_b64": encoded,
+            "bytes": log_int(lines, marker),
+            "sha256": log_value(lines, marker, mode="sha256"),
+            "content_b64": read(f"CANALLA_M_B64_{name}="),
         }
-    for line in logs_text.splitlines():
+    for line in lines:
         if line.startswith("CANALLA_M_BIN "):
             manifest["binaries"].append(line[len("CANALLA_M_BIN ") :][:200])
     return manifest
@@ -685,10 +750,28 @@ def run_pipeline(key: str, state: dict, *, allow_cpu: bool = True) -> None:
         {"phase": "measuring", "source_pod": pod_id, "source_spec": session["spec"]}
     )
     save_state(state)
-    final = wait_running(key, pod_id)
-    logs_text = read_logs(key, pod_id, 120, stop_markers=("CANALLA_M_READY_FOR_COPY",))
-    manifest = measure_from_logs(logs_text)
-    address = published_address(key, pod_id)
+    try:
+        final = wait_running(key, pod_id)
+        logs_text = read_logs(
+            key, pod_id, 120, stop_markers=("CANALLA_M_READY_FOR_COPY",)
+        )
+        manifest = measure_from_logs(logs_text)
+        address = published_address(key, pod_id)
+    except (RuntimeError, ValueError, OSError, TimeoutError, urllib.error.URLError) as error:
+        # A paid Pod exists right now: it is released before anything else is decided.
+        event(
+            state,
+            f"measuring failed: {type(error).__name__}: {error} — releasing the migration pod",
+        )
+        release_leaked_pods(key, state, reason="measuring failed")
+        state["last_error"] = {
+            "at": now(),
+            "stage": "measuring",
+            "error": f"{type(error).__name__}: {error}",
+        }
+        state["phase"] = "watching"
+        save_state(state)
+        return
     state["primary_manifest"] = manifest
     state["source_address"] = address
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
@@ -802,7 +885,7 @@ def run_pipeline(key: str, state: dict, *, allow_cpu: bool = True) -> None:
     except SystemExit:
         dest_cpu = None
     dest_body = {
-        "name": f"canalla-copy-{int(time.time())}",
+        "name": f"{COPY_POD_PREFIX}{int(time.time())}",
         "cloud": "SECURE",
         "image": "alpine:3.20",
         "disk": 20,
@@ -848,25 +931,17 @@ def run_pipeline(key: str, state: dict, *, allow_cpu: bool = True) -> None:
 
     wait_running(key, dest_id, 120)
     logs_text = read_logs(key, dest_id, 240, stop_markers=("CANALLA_C_DONE",))
-    read = lambda marker: next(
-        (
-            line.split(marker, 1)[1].strip()
-            for line in logs_text.splitlines()
-            if marker in line
-        ),
-        "",
-    )
+    dest_lines = log_lines(logs_text)
     copy_result = {
-        "gguf_bytes": int(read("CANALLA_C_GGUF_BYTES=") or 0),
-        "gguf_sha256": read("CANALLA_C_GGUF_SHA256="),
-        "file_count": int(read("CANALLA_C_FILE_COUNT=") or 0),
+        "gguf_bytes": log_int(dest_lines, "CANALLA_C_GGUF_BYTES="),
+        "gguf_sha256": log_value(dest_lines, "CANALLA_C_GGUF_SHA256=", mode="sha256"),
+        "file_count": log_int(dest_lines, "CANALLA_C_FILE_COUNT="),
         "scripts": {},
     }
     for name in ("start-llm.sh", "check-llm.sh"):
-        meta = read(f"CANALLA_C_FILE {name} ").split()
         copy_result["scripts"][name] = {
-            "bytes": int(meta[0]) if meta else 0,
-            "sha256": meta[1] if len(meta) > 1 else "",
+            "bytes": log_int(dest_lines, f"CANALLA_C_FILE {name} "),
+            "sha256": log_value(dest_lines, f"CANALLA_C_FILE {name} ", mode="sha256"),
         }
     verified = (
         copy_result["gguf_sha256"] == manifest["gguf_sha256"]
@@ -997,6 +1072,8 @@ def watch(key: str, *, run_when_ready: bool) -> int:
             ValueError,
         ) as error:  # a watcher must survive a transient provider failure
             event(state, f"scan error: {type(error).__name__}: {error}")
+            # The run that raised is over: any live migration Pod is now a leak, released at once.
+            release_leaked_pods(key, state, reason="a run raised")
         time.sleep(POLL_SECONDS)
 
 
@@ -1168,11 +1245,14 @@ def self_test() -> int:
                 "createdAt": now(),
             }
         ]
-        session = create_migration_pod("k", state, candidates)
+        terminated.clear()
+        posts.clear()
+        cpu_calls.clear()
+        session = create_migration_pod("k", state, candidates, allow_cpu=False)
         check(
-            "a live migration Pod is never doubled",
-            session == {} and not posts and not terminated,
-            f"posts={posts} terminated={terminated}",
+            "an abandoned Pod is released, then exactly one new attempt is made",
+            terminated == ["pod-live"] and len(posts) == 1 and "gpu" in posts[0],
+            f"terminated={terminated} posts={len(posts)}",
         )
 
         pods[:] = [
@@ -1185,9 +1265,11 @@ def self_test() -> int:
                 ).strftime("%Y-%m-%dT%H:%M:%SZ"),
             }
         ]
+        terminated.clear()
+        posts.clear()
         session = create_migration_pod("k", state, [], allow_cpu=False)
         check(
-            "an orphan past its budget is reaped once, not re-created",
+            "an orphan past its budget is reaped and never duplicated",
             terminated == ["pod-orphan"] and session == {} and not posts,
             f"terminated={terminated} posts={len(posts)}",
         )
@@ -1224,6 +1306,96 @@ def self_test() -> int:
             "a blind probe still tries one CPU flavour",
             len(posts) == 1 and "cpu" in posts[0] and len(cpu_calls) == 1,
             f"posts={len(posts)} specs={[sorted(post) for post in posts]} cpu_calls={cpu_calls}",
+        )
+
+        # The provider can hand the very same markers back JSON-wrapped. That must never raise:
+        # this parser runs while a Pod is alive and billing.
+        markers = [
+            "CANALLA_M_START",
+            f"CANALLA_M_FILE /workspace/start-llm.sh 3204 {'a' * 64}",
+            f"CANALLA_M_FILE /workspace/check-llm.sh 812 {'b' * 64}",
+            "CANALLA_M_B64_start-llm.sh=c2V0IC14",
+            "CANALLA_M_B64_check-llm.sh=c2V0IC14",
+            "CANALLA_M_GGUF_PATH=/workspace/models/orcarouter-qwen38/model.gguf",
+            "CANALLA_M_GGUF_BYTES=20752787712",
+            f"CANALLA_M_GGUF_SHA256={'c' * 64}",
+            "CANALLA_M_USED_BYTES=20752787712",
+            "CANALLA_M_FILE_COUNT=42",
+            "CANALLA_M_BIN llama-server /workspace/llama.cpp/llama-server",
+            "CANALLA_M_SERVE_SELFTEST_OK",
+        ]
+        wrapped = "\n".join(
+            json.dumps({"line": marker, "ts": "2026-09-25T17:59:18.492513685Z"})
+            for marker in markers
+        )
+        parsed = measure_from_logs(wrapped)
+        check(
+            "a JSON-wrapped log stream still yields the manifest",
+            parsed["gguf_bytes"] == 20752787712
+            and parsed["gguf_sha256"] == "c" * 64
+            and parsed["used_bytes"] == 20752787712
+            and parsed["file_count"] == 42
+            and parsed["scripts"]["start-llm.sh"] == {
+                "bytes": 3204,
+                "sha256": "a" * 64,
+                "content_b64": "c2V0IC14",
+            }
+            and parsed["binaries"],
+            str(
+                {
+                    "bytes": parsed["gguf_bytes"],
+                    "files": parsed["file_count"],
+                    "script": parsed["scripts"]["start-llm.sh"],
+                }
+            ),
+        )
+        plain = measure_from_logs("\n".join(markers))
+        check(
+            "a plain log stream still yields the same manifest",
+            plain["gguf_sha256"] == "c" * 64
+            and plain["gguf_bytes"] == 20752787712
+            and plain["scripts"]["check-llm.sh"]["sha256"] == "b" * 64,
+            str(plain["gguf_bytes"]),
+        )
+
+        # A run that raised owns nothing: whatever it left behind is released at once — and the
+        # copy Pod is the second half of that rule, since the copy stage creates its own Pod.
+        terminated.clear()
+        posts.clear()
+        pods[:] = [
+            {
+                "id": "pod-copy",
+                "name": f"{COPY_POD_PREFIX}7",
+                "status": "RUNNING",
+                "createdAt": now(),
+            }
+        ]
+        create_migration_pod(
+            "k", {"phase": "copying", "events": []}, [{"gpu": "NVIDIA L40S"}], allow_cpu=False
+        )
+        check(
+            "an abandoned copy Pod is released too, then one attempt",
+            terminated == ["pod-copy"] and len(posts) == 1,
+            f"terminated={terminated} posts={len(posts)}",
+        )
+        terminated.clear()
+        pods[:] = [
+            {
+                "id": "pod-copy",
+                "name": f"{COPY_POD_PREFIX}7",
+                "status": "RUNNING",
+                "createdAt": now(),
+            }
+        ]
+        leak_state = {"phase": "copying", "source_pod": "pod-copy", "events": []}
+        released = release_leaked_pods("k", leak_state, reason="self-test")
+        check(
+            "a raised run releases its Pod and returns to watching",
+            terminated == ["pod-copy"]
+            and released == ["pod-copy"]
+            and leak_state["phase"] == "watching"
+            and leak_state["source_pod"] is None,
+            f"terminated={terminated} phase={leak_state.get('phase')}",
         )
 
         if _watcher_pid_alive(real_pidfile):
