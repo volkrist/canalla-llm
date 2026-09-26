@@ -1,10 +1,20 @@
-# CANALLA LLM — AUTOMATIC REPLICA MIGRATION (WATCHING US-TX-3)
+# CANALLA LLM — AUTOMATIC REPLICA MIGRATION · CONTROLLED RECOVERY (MEASURE-ONLY)
 
-**Задание:** автоматически поймать ёмкость в US-TX-3, мигрировать модель на верифицированную
-вторичную реплику, подготовить два production placement'а — без остановки на «BLOCKED».
-**Дата:** 25.09.2026 · **Ветка:** `release/canalla-1.1.0`
-**Платные ресурсы сейчас:** **НЕТ** (0 Pod'ов, 0 томов) · **потрачено за проход:** $0.00
+**Задание:** после инцидента с утечкой денег — безопасная стабилизация, независимый kill-switch и
+**одно контролируемое живое измерение** primary-модели, без второго тома, без копирования и без GPU-теста.
+**Дата:** 26.09.2026 · **Ветка:** `release/canalla-1.1.0`
 **Релиз:** `main` не смёржен, тега нет, манифест не выложен, Canalla не пересобиралась.
+
+## ДЕНЬГИ — раздельно, без смешивания
+
+| Позиция | USD |
+|---|---|
+| **Инцидент 2026-09-25/26** (4 migration Pod'а, утечка из-за упавшего парсера) | **6.0869** |
+| **После исправления** (kill-switch + measure-only, всё, что потрачено дальше) | **0.00** |
+| Хранилище: один том `uwgeaie5b0` 50 GB STANDARD | ~$3.50/мес (было и остаётся) |
+
+Строка «$0.00 за проход» в прежней версии отчёта была неверной по смыслу: она относилась к текущему
+проходу и **скрывала** реальную стоимость инцидента. Здесь эти две величины разделены явно.
 
 ---
 
@@ -66,31 +76,30 @@ migration Pod (HTTP 201) **в том же полле, без ожидания CP
 
 ---
 
-# WATCHING US-TX-3
+# CONTROLLED RECOVERY — ЧТО СЕЙЧАС ЗАПУЩЕНО
 
 ```
-Watcher:              RUNNING (отдельный процесс, независим от этой сессии)
-PID:                  см. `artifacts/runpod-tx3-watcher/watcher.pid` (на момент отчёта — 18072;
-                      лаунчер venv-питона — 18572). PID намеренно не зашит: watcher перезапускается,
-                      авторитетный источник — pid-файл и сам lock
-Poll:                 каждые 120 секунд (только бесплатный catalogue/read-only)
-Paid resources:       NONE
-Secondary Volume:     NOT CREATED
-Paid resource guard:  GPU-сигнал каталога → попытка в том же полле (cooldown не действует);
-                      слепая CPU-попытка — не чаще одного раза в 15 минут
-Single-instance:      OS byte-range lock (watcher.lock) + pid-файл
+watcher (measure-only):  RUNNING  · PID 15880 (файл watcher.pid) · poll каждые 120 с
+reaper (kill-switch):    RUNNING  · PID 3200  · проверка каждые 30 с, TTL 900 с
+running pods:            0 (account-wide)
+secondary volume:        NOT CREATED
+mode:                    measure-only — том/копия/GPU-тест в этом проходе НЕ выполняются
 ```
 
 Артефакты (все пути — от корня репозитория):
 
 | Файл | Что содержит |
 |---|---|
-| `artifacts/runpod-tx3-watcher/state.json` | фаза, число поллов, кандидаты, манифест модели, выбранный ДЦ, том, копия, тест |
+| `artifacts/runpod-tx3-watcher/state.json` | фаза, поллы, кандидаты, манифест модели, факты об измеренном Pod'е |
 | `artifacts/runpod-tx3-watcher/watcher.log` | append-only журнал с UTC-таймстампами каждого шага |
-| `artifacts/runpod-tx3-watcher/watcher.pid` | PID владельца (для наблюдения) |
-| `artifacts/runpod-tx3-watcher/watcher.lock` | тот же lock-файл, который удерживает ОС, а не только запись pid |
-| `artifacts/runpod-tx3-watcher/watcher.stdout.log`, `.stderr.log` | stdout/stderr отдельного процесса |
-| `scripts/watch-tx3-migration-capacity.py` | сам watcher: `--once`, `--run`, `--status`, `--self-test`, цикл по умолчанию |
+| `artifacts/runpod-tx3-watcher/watcher.pid` | PID владельца (для наблюдения; авторитет — lock) |
+| `artifacts/runpod-tx3-watcher/watcher.lock` | OS byte-range lock, удерживаемый процессом |
+| `artifacts/runpod-tx3-watcher/reaper.log` | журнал независимого kill-switch'а |
+| `artifacts/runpod-tx3-watcher/reaper-state.json` | что reaper видел в последнем проходе |
+| `artifacts/runpod-tx3-watcher/reaper-incident.json` | пишется только при инциденте (>1 Pod) |
+| `artifacts/runpod-tx3-watcher/measurement-pod.json` | факты измерения: Pod, GPU, ДЦ, $/ч, createdAt/terminatedAt, секунды, биллинг, манифест |
+| `scripts/watch-tx3-migration-capacity.py` | watcher: `--once`, `--run`, `--status`, `--self-test`, `--measure-only`, цикл |
+| `scripts/canalla-pod-reaper.py` | независимый kill-switch: `--self-test`, `--once`, цикл |
 
 ---
 
@@ -127,7 +136,9 @@ Single-instance:      OS byte-range lock (watcher.lock) + pid-файл
 
 ---
 
-# ДЕТЕРМИНИРОВАННЫЕ ТЕСТЫ (офлайн, `--self-test`, 11/11 PASS)
+# ДЕТЕРМИНИРОВАННЫЕ ТЕСТЫ (офлайн, без сети и без денег)
+
+## watcher — `--self-test`, 25/25 PASS
 
 ```
 PASS  age parses an ISO stamp
@@ -138,22 +149,53 @@ PASS  secondary ranking needs real availability
 PASS  secondary ranking prefers more eligible GPU types
 PASS  price above the operator maximum is never a candidate
 PASS  a datacenter without STANDARD volumes is not chosen
-PASS  a live migration Pod is never doubled
-PASS  an orphan past its budget is reaped once, not re-created
+PASS  an abandoned Pod is released, then exactly one new attempt is made
+PASS  an orphan past its budget is reaped and never duplicated
 PASS  a GPU signal attempts exactly the card, never the CPU
 PASS  the attempt mounts the primary volume in its own datacenter
 PASS  a refused attempt never retries inside the same poll
 PASS  a blind probe still tries one CPU flavour
-PASS  a second watcher is refused while one is live
-self-test: 15/15 passed
+PASS  a JSON-wrapped log stream still yields the manifest
+PASS  a plain log stream still yields the same manifest
+PASS  an abandoned copy Pod is released too, then one attempt
+PASS  a raised run releases its Pod and returns to watching
+PASS  no watcher running: the lock is free for exactly one new one
+PASS  measure-only: Pod terminated, nothing purchased
+PASS  a timeout while measuring releases the Pod
+PASS  a malformed log stream stops before any purchase and releases the Pod
+PASS  a truncated SHA log stream stops before any purchase and releases the Pod
+PASS  an exception during the copy releases BOTH Pods
+PASS  two live canalla Pods: both released, nothing created
+self-test: 25/25 passed
 ```
 
-Ограничения внутри теста проверяются на фиктивном каталоге: карта $0.74/ч в US-TX-3 — кандидат,
+Последние шесть — это **safety drill**: настоящий конвейер (`run_pipeline`/`_migrate`) прогоняется
+против фиктивного провайдера, поэтому проверяется именно то, что исполняется в бою: `finally`-гард,
+правило «освободить до создания», инцидент «>1 Pod», отсутствие покупки при неполном измерении.
+
+## reaper (независимый kill-switch) — `--self-test`, 10/10 PASS
+
+```
+PASS  a fresh migration Pod is left alone
+PASS  a Pod past the 15-minute TTL is terminated
+PASS  the TTL boundary is inclusive-safe
+PASS  a copy Pod obeys the same TTL
+PASS  two live canalla Pods are an incident and both are released
+PASS  no canalla Pod is a no-op
+PASS  an unreadable createdAt fails closed
+PASS  foreign Pods are never touched
+PASS  an already exited Pod is not a live Pod
+PASS  our own Pods are read from provider fields only
+reaper self-test: 10/10 passed
+```
+
+Ограничения внутри тестов проверяются на фиктивном каталоге: карта $0.74/ч в US-TX-3 — кандидат,
 карта $1.60/ч — нет (выше лимита $1.00/ч для миграции), карта с `availability=NONE` — нет,
 не-Secure карта — нет, карта в другом ДЦ — нет. Для secondary: ≥48 GB, ≤$2.00/ч, только bookable,
 PRIMARY исключён, ДЦ без `STANDARD` — в конце списка и не выбирается.
 
-Запуск: `python scripts/watch-tx3-migration-capacity.py --self-test` (exit 0 = все 11 PASS).
+Запуск: `python scripts/watch-tx3-migration-capacity.py --self-test` и
+`python scripts/canalla-pod-reaper.py --self-test` (exit 0 = все PASS).
 
 Рядом — бэкенд-гейты того же compute-слоя (origin, `/v1/models`-gating, стратегии, реплики):
 
@@ -166,23 +208,40 @@ pytest tests/test_allocation_candidates.py tests/test_cloud_demand.py tests/test
 
 ---
 
-# ЧТО WATCHER СДЕЛАЕТ САМ, КАК ТОЛЬКО ЁМКОСТЬ ПОЯВИТСЯ
+# ЧТО ДЕЛАЕТ WATCHER В РЕЖИМЕ MEASURE-ONLY
 
-Порядок ровно по заданию (E→N, плюс опционально R), каждый шаг с жёстким бюджетом:
+Полный конвейер (E→R) сохраняется в коде, но **не используется** до успешного контролируемого
+измерения. Сейчас разрешено ровно следующее:
 
 | Шаг | Действие | Защита |
 |---|---|---|
-| E | **один** временный migration Pod в US-TX-3, том `uwgeaie5b0` → `/workspace`, образ alpine | **сигнал каталога → сразу, в этом же полле** (любая Secure GPU ≤ $1.00/ч, VRAM не важен), CPU — только на слепом probe; llama.cpp не запускается, модель в VRAM не грузится |
-| E | Измерение: точный путь/имя/байты/SHA256 GGUF, **содержимое** `start-llm.sh` и `check-llm.sh` (base64 в лог → файлы в артефактах), список файлов с размерами, бинарь и версия llama.cpp, параметры запуска, required bytes, file count | манифест сохраняется в `primary-manifest.json` — «unknown source without hash» больше не повторится |
-| G/H/I | Свежий скан **всех** ДЦ: Secure, STANDARD-тома, ≥48 GB, ≤$2/ч, availability ≠ NONE. Победитель выбирается по: реальная доступность → **число разных подходящих GPU типов** → сильнейший сток → цена | прошлый выбор (US-NE-1/CA-MTL-3) не считается действующим |
-| J | Проверка размера: required bytes против 50 GB | если не влезает — **STOP**, ничего не покупается, в отчёт пишется нужный размер |
-| K | **Ровно один** `STANDARD` Network Volume 50 GB в выбранном ДЦ | ≤$3.50/мес; второй тома/Global Volume не создаются |
-| L | Копирование через **аутентифицированный** короткоживущий HTTP-порт (busybox httpd, basic-auth, случайный пароль), `wget -c` — возобновляемо по каждому файлу | SSH-ключей в аккаунте нет (`{"keys": []}` — проверено), S3-API не покрывает US-TX-3, поэтому выбран этот путь; порт живёт минуты и закрывается вместе с Pod'ом |
-| M | Обязательная сверка: SHA256 GGUF, байты, количество файлов, оба скрипта | только при полном совпадении `secondary replica = VERIFIED` |
-| R | Живой тест **на одном** GPU ≤$2/ч в целевом ДЦ: монтирование нового тома, `start-llm.sh`, `/v1/models`, **одна** генерация, ответ непустой | только после VERIFIED; Pod завершается сразу после маркеров |
-| N | Завершение обоих migration Pod'ов, проверка `running pods = 0` | никаких оставшихся платных Pod'ов |
-| O | Запись `secondary-replica.json` (запись реплики) и `placements.env` (`RUNPOD_DATACENTERS`, `RUNPOD_REPLICAS`) | операторские ID не хардкодятся в исходники приложения — только в артефакт конфигурации |
-| — | Watcher сам завершается, снимая pid-файл | одноразовая release-операция, не служба |
+| 1 | Читать каталог US-TX-3 каждые 120 с (бесплатно), ждать сколько нужно | ни одного платного вызова до реального сигнала |
+| 2 | **Один** migration Pod в US-TX-3, том `uwgeaie5b0` → `/workspace`, образ alpine | GPU-сигнал → попытка в том же полле; слепая CPU-попытка — не чаще 1 раза в 15 мин; ≤ **$1.00/ч** |
+| 3 | Измерение: точный путь/имя/байты/SHA256 GGUF, **содержимое** `start-llm.sh` и `check-llm.sh` (base64 в лог → файлы в артефактах), список файлов, бинарь и версия llama.cpp, required bytes, file count | манифест → `primary-manifest.json`; размер сверяется с 50 GB |
+| 4 | **Немедленное завершение Pod'а** сразу после измерения | `finally`-гард в конвейере + независимый reaper (TTL 900 с) — два разных механизма |
+| 5 | Запись фактов: Pod ID, GPU, ДЦ, $/ч, createdAt/terminatedAt, секунды, биллинг, манифест | `measurement-pod.json` + `state.measurement` |
+| 6 | Watcher **сам завершается** в фазе `measured` | одноразовая операция: никаких повторных сигналов и повторных трат |
+
+**Чего в этом проходе НЕ происходит:** второй Network Volume, копирование, `llama.cpp`, живой GPU-тест,
+финальная приёмка. Это следующие шаги — только после PASS измерения.
+
+---
+
+# НЕЗАВИСИМЫЙ KILL-SWITCH (`scripts/canalla-pod-reaper.py`)
+
+Отдельный процесс, который не импортирует ни парсер, ни state machine, ни владение Pod'ами и не
+читает `state.json` — только `GET /v2/pods` и часы. Каждые 30 секунд:
+
+| Правило | Действие |
+|---|---|
+| живой `canalla-migrate-*` / `canalla-copy-*` старше **15 минут** (по `createdAt` провайдера) | **terminate**, без исключений |
+| возраст прочитать нельзя | **terminate** (fail-closed: деньги важнее, том сохраняет данные) |
+| **больше одного** живого `canalla-*` Pod'а в аккаунте | **terminate всех**, запись `reaper-incident.json`, **STOP** (exit 2, без авто-повторов) |
+| Pod'ы с чужими именами | никогда не трогаются |
+
+Замечание на будущее: когда фаза копирования будет снова разрешена, она по замыслу держит **два**
+Pod'а (источник + получатель). Правило «не больше одного» этому противоречит — значит, при возврате
+копирования его придётся пересмотреть осознанно, а не «на ходу». До тех пор правило строгое.
 
 ---
 
@@ -202,28 +261,35 @@ pytest tests/test_allocation_candidates.py tests/test_cloud_demand.py tests/test
 
 ---
 
-# ЧТО WATCHER СДЕЛАЕТ САМ, КАК ТОЛЬКО ЁМКОСТЬ ПОЯВИТСЯ
 # ЧЕГО WATCHER НЕ СДЕЛАЕТ НИКОГДА (fail-closed)
 
-* не покупает том, пока модель не измерена и не подтверждено, что она влезает в 50 GB;
+* не покупает том и не копирует ничего в режиме measure-only;
 * не создаёт второй secondary, третий том или Global Volume;
-* не поднимает два GPU-Pod'а одновременно (миграция — CPU или одна дешёвая карта; живой тест — один GPU);
-* не превышает $1.00/ч и 15 минут на migration Pod, $2.00/ч и 20 минут на живой тест;
+* не поднимает два Pod'а одновременно — это теперь и инцидент в watcher'е, и TTL-правило в reaper'е;
+* не превышает $1.00/ч и 15 минут на migration Pod ($2.00/ч и 20 минут — только на будущий живой тест);
+* не оставляет Pod живым ни на одном пути: `finally`-гард в конвейере + независимый reaper снаружи;
 * не считает racing-отказ ёмкости фатальной ошибкой — возвращается в `watching`;
-* не продолжает при неполном измерении или несовпадении хэшей: пишет `phase=error` и освобождает Pod'ы;
-* не запускает llama.cpp на migration Pod'е.
+* не продолжает при неполном измерении или несовпадении хэшей: пишет `phase=error` и освобождает Pod;
+* не запускает llama.cpp на migration Pod'е;
+* не переживает ошибку молча: `last_error` и `pods_after` пишутся в `state.json`.
 
 ---
 
-# ТЕКУЩЕЕ СОСТОЯНИЕ АККАУНТА (проверено)
+# ТЕКУЩЕЕ СОСТОЯНИЕ АККАУНТА (проверено на 02:46Z)
 
 ```
-running pods:      0
+running pods:      0 (account-wide, canalla Pods: 0)
 volumes:           uwgeaie5b0 (US-TX-3, 50 GB STANDARD) — единственный, не тронут
-spend this pass:   $0.00
+spend, инцидент:   $6.0869
+spend, после фикса: $0.00
 ```
 
-**FINAL: WATCHING US-TX-3** — как только в US-TX-3 появится подходящий compute (CPU или любая Secure
-GPU ≤ $1.00/ч), watcher выполнит шаги E–N и, при доступной ≥48 GB карте в целевом ДЦ, шаг R — без
-дополнительных сообщений с вашей стороны. Результат появится в `state.json`, `watcher.log` и в
-`primary-manifest.json` / `secondary-replica.json` / `placements.env`.
+**FINAL: WATCHING US-TX-3 (MEASURE-ONLY)** — как только в US-TX-3 появится mount-capable compute
+(CPU или любая Secure GPU ≤ $1.00/ч; VRAM не важен, LLM не запускается), watcher выполнит **только**
+измерение и сразу завершит Pod; затем он сам остановится в фазе `measured`. Результат появится в
+`measurement-pod.json`, `primary-manifest.json`, `state.json` и `watcher.log`.
+
+Приёмка (§8 задания): измерение = PASS, SHA256 получен, скрипты получены, runtime получен, Pod завершён
+**автоматически**, runtime < 15 минут, Pod'ов = 0, второго Pod'а не было, стоимость — в пределах центов.
+Пока ёмкости нет — это **не FAIL**, а ожидание: единственный ненулевой результат в этом проходе —
+подготовленная защита и ноль трат.

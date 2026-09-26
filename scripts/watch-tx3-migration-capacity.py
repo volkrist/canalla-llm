@@ -374,12 +374,17 @@ def live_migration_pods(key: str) -> list[dict]:
     ]
 
 
-def release_leaked_pods(key: str, state: dict, *, reason: str) -> list[str]:
-    """Release every live migration Pod: whatever created it, nothing here owns it any more.
+def release_leaked_pods(
+    key: str, state: dict, *, reason: str, set_phase: bool = True
+) -> list[str]:
+    """Release every live migration or copy Pod: whatever created it, nothing owns it any more.
 
     A run that raised, a run that returned early, or a run from a previous process all leave the
-    same evidence — a live ``canalla-migrate-*`` Pod nobody is measuring. It is released at once,
-    because the volume keeps the data and only the Pod costs money.
+    same evidence — a live ``canalla-migrate-*``/``canalla-copy-*`` Pod nobody is measuring. It is
+    released at once, because the volume keeps the data and only the Pod costs money.
+
+    ``set_phase=False`` is for the ``finally`` guard: it releases without speaking about the phase,
+    because the body that just finished already set the honest one (``measured``/``error``).
     """
     released = []
     for pod in live_migration_pods(key):
@@ -391,9 +396,52 @@ def release_leaked_pods(key: str, state: dict, *, reason: str) -> list[str]:
     if released:
         state["source_pod"] = None
         state["dest_pod"] = None
-        state["phase"] = "watching"
-        event(state, f"released leaked migration Pod(s): {released} ({reason})")
+        if set_phase:
+            state["phase"] = "watching"
+        event(
+            state,
+            f"released Pod(s) {released} ({reason})",
+            phase_unchanged=not set_phase,
+        )
     return released
+
+
+def pod_facts(key: str, pod_id: str) -> dict:
+    """What the provider says about the Pod, for the record: never an inference from our state."""
+    _, payload = call(f"/v2/pods/{pod_id}", key)
+    pod = (
+        payload.get("pod")
+        if isinstance(payload, dict) and isinstance(payload.get("pod"), dict)
+        else payload
+    )
+    pod = pod if isinstance(pod, dict) else {}
+    return {
+        "pod_id": pod_id,
+        "status": pod.get("status"),
+        "datacenter": pod.get("dataCenterId"),
+        "gpu": pod.get("gpu") or pod.get("gpuTypeId") or pod.get("machineId"),
+        "cost_per_hour": pod.get("cost"),
+        "created_at": pod.get("createdAt"),
+    }
+
+
+def pod_billing_usd(key: str, pod_id: str) -> float | None:
+    """The provider's own charge for this Pod, summed over the buckets it reports (a lag is fine)."""
+    status, payload = call("/v2/billing/pods", key)
+    rows = (payload or {}).get("records") if isinstance(payload, dict) else None
+    if status != 200 or not isinstance(rows, list):
+        return None
+    total = 0.0
+    seen = False
+    for row in rows:
+        if str(row.get("podId")) != pod_id:
+            continue
+        seen = True
+        total += sum(
+            float(row.get(field) or 0)
+            for field in ("gpuAmount", "diskAmount", "cpuAmount")
+        )
+    return round(total, 4) if seen else None
 
 
 def create_migration_pod(
@@ -407,9 +455,34 @@ def create_migration_pod(
     Ownership is deliberately not trusted. The pipeline runs synchronously inside one process, so a
     live ``canalla-*`` Pod found at the start of a run cannot be in use by it: it is an abandonent
     (a killed process, a crashed run, a run that returned early) and it is released before anything
-    new is created — the volume keeps the data, only the Pod costs money.
+    new is created — the volume keeps the data, only the Pod costs money. Two live Pods at once are
+    an incident: both are released and nothing is created this cycle.
     """
-    for abandoned in live_migration_pods(key):
+    live = live_migration_pods(key)
+    if len(live) > 1:
+        event(
+            state,
+            f"INCIDENT: {len(live)} canalla Pods alive at once — releasing all, creating nothing",
+            pods=[pod["id"] for pod in live],
+        )
+        for pod in live:
+            terminate(key, pod["id"])
+        (ARTIFACTS / "incident.json").write_text(
+            json.dumps(
+                {
+                    "at": now(),
+                    "reason": "more than one canalla Pod alive account-wide",
+                    "pods": live,
+                },
+                ensure_ascii=False,
+                indent=1,
+            ),
+            encoding="utf-8",
+        )
+        state["incident"] = {"at": now(), "pods": [pod["id"] for pod in live]}
+        save_state(state)
+        return {}
+    for abandoned in live:
         age = _age_seconds(abandoned.get("createdAt"))
         event(
             state,
@@ -728,7 +801,70 @@ def live_secondary_test(
 # --------------------------------------------------------------------- the pipeline
 
 
-def run_pipeline(key: str, state: dict, *, allow_cpu: bool = True) -> None:
+def _finish_measurement(
+    key: str, state: dict, session: dict, pod_id: str, manifest: dict, *, started: float
+) -> None:
+    """The controlled-recovery end: record what the provider says, then stop the Pod immediately.
+
+    Nothing is created here — no secondary volume, no copy, no llama.cpp — and the Pod is released
+    before this returns, well inside the TTL the independent reaper also enforces from outside.
+    """
+    facts = pod_facts(key, pod_id)
+    facts.update(
+        {
+            "spec": session["spec"],
+            "dc": PRIMARY_DC,
+            "volume_id": PRIMARY_VOLUME,
+            "runtime_seconds": round(time.monotonic() - started, 1),
+        }
+    )
+    released = release_leaked_pods(
+        key, state, reason="measure-only: measurement complete", set_phase=False
+    )
+    facts["terminated"] = released
+    facts["terminated_at"] = now()
+    facts["billing_usd"] = pod_billing_usd(key, pod_id)
+    (ARTIFACTS / "measurement-pod.json").write_text(
+        json.dumps(
+            {"measured_at": now(), "pod": facts, "manifest": manifest},
+            ensure_ascii=False,
+            indent=1,
+        ),
+        encoding="utf-8",
+    )
+    state["measurement"] = {
+        "at": now(),
+        "pod": facts,
+        "gguf_path": manifest["gguf_path"],
+        "gguf_bytes": manifest["gguf_bytes"],
+        "gguf_sha256": manifest["gguf_sha256"],
+        "scripts": sorted(manifest["scripts"]),
+        "binaries": manifest["binaries"][:3],
+    }
+    state["phase"] = "measured"
+    state["pods_after"] = running_pods(key)
+    event(
+        state,
+        "MEASURE-ONLY complete — Pod terminated immediately",
+        pod=pod_id,
+        gpu=facts.get("gpu") or session["spec"].get("gpu"),
+        dc=facts["datacenter"],
+        seconds=facts["runtime_seconds"],
+        usd=facts["billing_usd"],
+        sha256=manifest["gguf_sha256"],
+    )
+    save_state(state)
+
+
+def run_pipeline(
+    key: str, state: dict, *, allow_cpu: bool = True, measure_only: bool = False
+) -> None:
+    """One migration run. Everything after a successful create is inside a ``finally`` guard.
+
+    ``measure_only=True`` is the controlled-recovery mode: measure the primary and stop — no
+    secondary volume, no copy, no llama.cpp. The full pipeline (volume, replica, live test) stays
+    available but is not used until a controlled measurement has passed.
+    """
     candidates = tx3_candidates(key, max_hourly=MIGRATION_MAX_HOURLY)
     event(
         state,
@@ -747,9 +883,34 @@ def run_pipeline(key: str, state: dict, *, allow_cpu: bool = True) -> None:
 
     pod_id = str((session["pod"] or {}).get("id") or "")
     state.update(
-        {"phase": "measuring", "source_pod": pod_id, "source_spec": session["spec"]}
+        {
+            "phase": "measuring",
+            "source_pod": pod_id,
+            "source_spec": session["spec"],
+            "measure_only": measure_only,
+        }
     )
     save_state(state)
+    try:
+        _migrate(
+            key, state, session, pod_id, started=started, measure_only=measure_only
+        )
+    finally:
+        # The rule this pass exists for: a paid Pod may not outlive the run that created it — not
+        # on a parser error, not on a timeout, not on an unexpected exception, not on an early
+        # return. The Network Volume keeps every byte either way.
+        release_leaked_pods(key, state, reason="run finished", set_phase=False)
+
+
+def _migrate(
+    key: str,
+    state: dict,
+    session: dict,
+    pod_id: str,
+    *,
+    started: float,
+    measure_only: bool = False,
+) -> None:
     try:
         final = wait_running(key, pod_id)
         logs_text = read_logs(
@@ -758,12 +919,11 @@ def run_pipeline(key: str, state: dict, *, allow_cpu: bool = True) -> None:
         manifest = measure_from_logs(logs_text)
         address = published_address(key, pod_id)
     except (RuntimeError, ValueError, OSError, TimeoutError, urllib.error.URLError) as error:
-        # A paid Pod exists right now: it is released before anything else is decided.
+        # The ``finally`` in run_pipeline releases the Pod; this only records what happened.
         event(
             state,
             f"measuring failed: {type(error).__name__}: {error} — releasing the migration pod",
         )
-        release_leaked_pods(key, state, reason="measuring failed")
         state["last_error"] = {
             "at": now(),
             "stage": "measuring",
@@ -796,7 +956,6 @@ def run_pipeline(key: str, state: dict, *, allow_cpu: bool = True) -> None:
             "measurement incomplete — stopping before any purchase",
             status=final.get("status"),
         )
-        terminate(key, pod_id)
         state["phase"] = "error"
         save_state(state)
         return
@@ -811,10 +970,12 @@ def run_pipeline(key: str, state: dict, *, allow_cpu: bool = True) -> None:
     )
     if not fits:
         event(state, "replica does not fit in 50 GB — stopping before purchase")
-        terminate(key, pod_id)
         state["phase"] = "error"
         save_state(state)
         return
+
+    if measure_only:
+        return _finish_measurement(key, state, session, pod_id, manifest, started=started)
 
     ranking = secondary_ranking(key, min_vram=48, max_hourly=2.00)
     state["secondary_ranking"] = ranking[:5]
@@ -829,7 +990,6 @@ def run_pipeline(key: str, state: dict, *, allow_cpu: bool = True) -> None:
             state,
             "no datacenter with STANDARD volumes has bookable >=48 GB capacity — releasing the migration pod",
         )
-        terminate(key, pod_id)
         state["phase"] = "watching"
         save_state(state)
         return
@@ -857,7 +1017,6 @@ def run_pipeline(key: str, state: dict, *, allow_cpu: bool = True) -> None:
         payload=str(payload)[:200],
     )
     if status not in {200, 201} or not volume_id:
-        terminate(key, pod_id)
         state["phase"] = "error"
         save_state(state)
         return
@@ -874,7 +1033,6 @@ def run_pipeline(key: str, state: dict, *, allow_cpu: bool = True) -> None:
         event(
             state, "source pod has no published address — cannot copy", address=address
         )
-        terminate(key, pod_id)
         state["phase"] = "error"
         save_state(state)
         return
@@ -922,7 +1080,6 @@ def run_pipeline(key: str, state: dict, *, allow_cpu: bool = True) -> None:
         payload=str(payload)[:200],
     )
     if status not in {200, 201, 202} or not dest_id:
-        terminate(key, pod_id)
         state["phase"] = "error"
         save_state(state)
         return
@@ -1010,16 +1167,23 @@ def run_pipeline(key: str, state: dict, *, allow_cpu: bool = True) -> None:
     save_state(state)
 
 
-def watch(key: str, *, run_when_ready: bool) -> int:
+def watch(key: str, *, run_when_ready: bool, measure_only: bool = False) -> int:
+    """The loop. In ``measure_only`` mode it stops after ONE controlled measurement.
+
+    A failure of that measurement is not retried and not waited out: the run ends, the Pod was
+    already released by the ``finally`` guard, and a human decides what happens next.
+    """
     if not exclusive_pid():
         return 3
     state = load_state()
     state["pid"] = os.getpid()
+    state["measure_only"] = measure_only
     state.setdefault("started_at", now())
     save_state(state)
     event(
         state,
-        f"watcher started (poll every {POLL_SECONDS}s, budget ${MIGRATION_MAX_HOURLY:.2f}/h)",
+        f"watcher started (poll every {POLL_SECONDS}s, budget ${MIGRATION_MAX_HOURLY:.2f}/h, "
+        f"mode={'measure-only' if measure_only else 'full'})",
     )
     while True:
         try:
@@ -1053,15 +1217,16 @@ def watch(key: str, *, run_when_ready: bool) -> int:
                         "US-TX-3 GPU signal — attempting the migration Pod now (CPU cooldown bypassed)",
                         card=candidates[0],
                     )
-                    run_pipeline(key, state, allow_cpu=False)
+                    run_pipeline(key, state, allow_cpu=False, measure_only=measure_only)
                 elif cpu_allowed:
                     # The blind probe: only its own cooldown applies, and nothing was seen yet.
                     state["last_cpu_probe"] = time.time()
                     state["last_signal"] = {"at": now(), "kind": "cpu_blind_probe"}
                     save_state(state)
-                    run_pipeline(key, state)
-            if state.get("phase") in {"done"}:
-                event(state, "watcher exiting: migration complete")
+                    run_pipeline(key, state, measure_only=measure_only)
+            stop_on = {"done", "measured"} | ({"error"} if measure_only else set())
+            if state.get("phase") in stop_on:
+                event(state, f"watcher exiting: phase={state['phase']}")
                 PIDFILE.unlink(missing_ok=True)
                 return 0
         except (
@@ -1085,6 +1250,239 @@ def print_status() -> int:
         for line in LOG.read_text(encoding="utf-8").splitlines()[-12:]:
             print(line)
     return 0
+
+
+def safety_drill() -> list[tuple[str, bool, str]]:
+    """Offline drills of every path that could leave a paid Pod alive. No provider, no spend.
+
+    Each scenario drives the *real* pipeline (``run_pipeline``/``_migrate``) against a fake provider,
+    so the ``finally`` guard, the release-before-create rule and the incident rule are exercised the
+    way they run in production rather than asserted from the outside.
+    """
+    module = sys.modules[__name__]
+    results: list[tuple[str, bool, str]] = []
+
+    def check(name: str, ok: bool, detail: str = "") -> None:
+        results.append((name, bool(ok), detail))
+
+    good_log = "\n".join(
+        json.dumps({"line": marker, "ts": "2026-09-25T17:59:18.492513685Z"})
+        for marker in (
+            "CANALLA_M_START",
+            f"CANALLA_M_FILE /workspace/start-llm.sh 3204 {'a' * 64}",
+            f"CANALLA_M_FILE /workspace/check-llm.sh 812 {'b' * 64}",
+            "CANALLA_M_B64_start-llm.sh=c2V0IC14",
+            "CANALLA_M_B64_check-llm.sh=c2V0IC14",
+            "CANALLA_M_GGUF_PATH=/workspace/models/orcarouter-qwen38/model.gguf",
+            "CANALLA_M_GGUF_BYTES=20752787712",
+            f"CANALLA_M_GGUF_SHA256={'c' * 64}",
+            "CANALLA_M_USED_BYTES=20752787712",
+            "CANALLA_M_FILE_COUNT=42",
+            "CANALLA_M_BIN llama-server /workspace/llama.cpp/llama-server",
+            "CANALLA_M_SERVE_SELFTEST_OK",
+        )
+    )
+    truncated = good_log.replace("c" * 64, "c" * 40)
+
+    def scenario(
+        name: str,
+        *,
+        measure_only: bool,
+        live_pods: list[dict],
+        measurement: str = "ok",
+        copy_dies: bool = False,
+    ) -> tuple[list[str], list[dict], dict, list[str]]:
+        calls: dict = {"terminated": [], "posts": [], "volume_posts": 0}
+        sandbox = Path(tempfile.mkdtemp(prefix="canalla-drill-"))
+        pods = [dict(pod) for pod in live_pods]
+        state = {"phase": "watching", "events": []}
+
+        def fake_call(url: str, key: str, *, method: str = "GET", payload=None):
+            if method == "POST" and str(url) == "/v2/pods":
+                calls["posts"].append(payload or {})
+                name_field = str((payload or {}).get("name") or "")
+                pod_id = "pod-dest" if name_field.startswith(COPY_POD_PREFIX) else "pod-new"
+                pods.append(
+                    {
+                        "id": pod_id,
+                        "name": name_field,
+                        "status": "RUNNING",
+                        "createdAt": now(),
+                    }
+                )
+                return 201, {"id": pod_id, "status": "RUNNING", "createdAt": now()}
+            if method == "POST" and str(url) == "/v2/network-volumes":
+                calls["volume_posts"] += 1
+                return 201, {"id": "vol-secondary"}
+            if method == "GET" and str(url).startswith("/v2/catalog/gpus"):
+                return 200, {
+                    "gpus": [
+                        {
+                            "id": "NVIDIA L40S",
+                            "secure": True,
+                            "memory": 48,
+                            "price": {"secure": 0.74},
+                            "dataCenters": [{"id": PRIMARY_DC, "availability": "LOW"}],
+                        }
+                    ]
+                }
+            if method == "GET" and str(url) == "/v2/pods":
+                return 200, {"pods": pods}
+            if method == "GET" and str(url).startswith("/v2/pods/"):
+                return 200, {
+                    "id": str(url).rsplit("/", 1)[-1],
+                    "status": "RUNNING",
+                    "dataCenterId": PRIMARY_DC,
+                    "cost": 0.74,
+                    "createdAt": now(),
+                }
+            if method == "GET" and str(url) == "/v2/billing/pods":
+                return 200, {"records": [{"podId": "pod-new", "gpuAmount": 0.19}]}
+            return 404, {"detail": f"unexpected {method} {url}"}
+
+        def fake_terminate(key: str, pod_id: str) -> dict:
+            calls["terminated"].append(pod_id)
+            pods[:] = [pod for pod in pods if pod["id"] != pod_id]
+            return {"terminated": pod_id}
+
+        def fake_read_logs(key: str, pod_id: str, seconds: int = 40, *, stop_markers=()) -> str:
+            if pod_id == "pod-dest" and copy_dies:
+                raise RuntimeError("copy stream died")
+            return {"ok": good_log, "truncated": truncated}.get(measurement, "garbage {{{ not json")
+
+        def fake_wait_running(key: str, pod_id: str, seconds: int = 120) -> dict:
+            if measurement == "timeout":
+                raise TimeoutError("provider did not answer")
+            return {"id": pod_id, "status": "RUNNING"}
+
+        patch = (
+            module.call,
+            module.terminate,
+            module.cheapest_cpu,
+            module.wait_running,
+            module.read_logs,
+            module.published_address,
+            module.secondary_ranking,
+            module.running_pods,
+            module.STATE,
+            module.LOG,
+            module.PIDFILE,
+            module.ARTIFACTS,
+        )
+        module.call = fake_call
+        module.terminate = fake_terminate
+        module.cheapest_cpu = lambda key: (_ for _ in ()).throw(SystemExit("no CPU in drill"))
+        module.wait_running = fake_wait_running
+        module.read_logs = fake_read_logs
+        module.published_address = lambda key, pod_id, private_port=8000: {
+            "ip": "1.2.3.4",
+            "public": 12345,
+        }
+        module.secondary_ranking = lambda key, **kwargs: [
+            {
+                "datacenter": "US-NE-1",
+                "supports_standard_volume": True,
+                "gpu_types": 1,
+                "cheapest": 1.09,
+                "cards": [],
+            }
+        ]
+        module.running_pods = lambda key: []
+        module.STATE = sandbox / "state.json"
+        module.LOG = sandbox / "watcher.log"
+        module.PIDFILE = sandbox / "watcher.pid"
+        module.ARTIFACTS = sandbox
+        try:
+            run_pipeline(
+                "k",
+                state,
+                allow_cpu=False,
+                measure_only=measure_only,
+            )
+        except Exception as error:  # noqa: BLE001 - the drill records an escape, then looks at Pods
+            calls["escaped"] = f"{type(error).__name__}: {error}"
+        finally:
+            (module.call, module.terminate, module.cheapest_cpu, module.wait_running) = patch[:4]
+            (
+                module.read_logs,
+                module.published_address,
+                module.secondary_ranking,
+                module.running_pods,
+            ) = patch[4:8]
+            (
+                module.STATE,
+                module.LOG,
+                module.PIDFILE,
+                module.ARTIFACTS,
+            ) = patch[8:]
+            leaked = [pod["id"] for pod in pods]
+            shutil.rmtree(sandbox, ignore_errors=True)
+        return calls["terminated"], calls["posts"], calls, leaked
+
+    # 1. The controlled path: measure, terminate immediately, create nothing else.
+    terminated, posts, calls, leaked = scenario(
+        "measure-only happy path", measure_only=True, live_pods=[]
+    )
+    check(
+        "measure-only: Pod terminated, nothing purchased",
+        terminated == ["pod-new"]
+        and len(posts) == 1
+        and calls["volume_posts"] == 0
+        and not leaked,
+        f"terminated={terminated} posts={len(posts)} volumes={calls['volume_posts']} leaked={leaked}",
+    )
+
+    # 2. A timeout while measuring must still release the Pod.
+    terminated, posts, calls, leaked = scenario(
+        "measurement times out", measure_only=True, live_pods=[], measurement="timeout"
+    )
+    check(
+        "a timeout while measuring releases the Pod",
+        terminated == ["pod-new"] and not leaked,
+        f"terminated={terminated} leaked={leaked}",
+    )
+
+    # 3. Malformed and incomplete log streams are never fatal, and never buy anything.
+    for label, mode in (("malformed", "malformed"), ("truncated SHA", "truncated")):
+        terminated, posts, calls, leaked = scenario(
+            f"{label} log stream", measure_only=False, live_pods=[], measurement=mode
+        )
+        check(
+            f"a {label} log stream stops before any purchase and releases the Pod",
+            terminated == ["pod-new"] and calls["volume_posts"] == 0 and not leaked,
+            f"terminated={terminated} volumes={calls['volume_posts']} leaked={leaked}",
+        )
+
+    # 4. An exception inside the copy stage may escape the pipeline, but not with a Pod alive.
+    terminated, posts, calls, leaked = scenario(
+        "copy stream dies",
+        measure_only=False,
+        live_pods=[],
+        copy_dies=True,
+    )
+    check(
+        "an exception during the copy releases BOTH Pods",
+        sorted(terminated) == ["pod-dest", "pod-new"]
+        and calls["volume_posts"] == 1
+        and not leaked,
+        f"terminated={terminated} leaked={leaked} escaped={calls.get('escaped', '')}",
+    )
+
+    # 5. Two live Pods are an incident: both released, nothing created.
+    two = [
+        {"id": "pod-a", "name": f"{MIGRATION_POD_PREFIX}1", "status": "RUNNING", "createdAt": now()},
+        {"id": "pod-b", "name": f"{COPY_POD_PREFIX}1", "status": "RUNNING", "createdAt": now()},
+    ]
+    terminated, posts, calls, leaked = scenario(
+        "two live Pods", measure_only=True, live_pods=two
+    )
+    check(
+        "two live canalla Pods: both released, nothing created",
+        sorted(terminated) == ["pod-a", "pod-b"] and not posts and not leaked,
+        f"terminated={terminated} posts={len(posts)} leaked={leaked}",
+    )
+
+    return results
 
 
 def self_test() -> int:
@@ -1411,10 +1809,26 @@ def self_test() -> int:
                 probe.returncode == 3,
                 f"rc={probe.returncode} out={probe.stdout.strip()}",
             )
+        else:
+            probe = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve()), "--lock-probe"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+            check(
+                "no watcher running: the lock is free for exactly one new one",
+                probe.returncode == 0,
+                f"rc={probe.returncode} out={probe.stdout.strip()}",
+            )
     finally:
         (module.call, module.terminate, module.cheapest_cpu, module.gpu_rows, module.volume_support) = patch
         (module.STATE, module.LOG, module.PIDFILE, module.ARTIFACTS, module.PRIMARY_DC) = settings
         shutil.rmtree(sandbox, ignore_errors=True)
+
+    # The failure paths that could leave a paid Pod alive, driven through the real pipeline.
+    results.extend(safety_drill())
 
     failures = [name for name, ok, _ in results if not ok]
     for name, ok, detail in results:
@@ -1454,6 +1868,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--self-test", action="store_true", help="offline proof of the watcher guards"
     )
+    parser.add_argument(
+        "--measure-only",
+        action="store_true",
+        help="controlled recovery: measure the primary and stop — no volume, no copy, no GPU test",
+    )
     parser.add_argument("--lock-probe", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
@@ -1479,10 +1898,15 @@ def main(argv: list[str] | None = None) -> int:
             state = load_state()
             state["pid"] = os.getpid()
             save_state(state)
-            run_pipeline(key, state, allow_cpu=not candidates)
+            run_pipeline(
+                key,
+                state,
+                allow_cpu=not candidates,
+                measure_only=args.measure_only,
+            )
             print_status()
         return 0
-    return watch(key, run_when_ready=True)
+    return watch(key, run_when_ready=True, measure_only=args.measure_only)
 
 
 if __name__ == "__main__":
