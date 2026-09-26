@@ -160,11 +160,29 @@ async function waitCdp(timeoutMs = 150000) {
 async function openApp() {
   const free = await closeRunningInstances();
   if (!free) return null;
-  child = launchApp();
-  if (!(await waitCdp())) return null;
-  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
-  const page = browser.contexts()[0].pages()[0];
-  return { browser, page };
+  // The product is single-instance: if a previous instance is still exiting, a launch is absorbed
+  // by it and the window this harness attaches to shows «Локальный сервер недоступен» instead of
+  // the workspace. So a launch that does not produce a workspace is closed and retried once.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    child = launchApp();
+    if (!(await waitCdp())) {
+      await quitApp();
+      await sleep(5000);
+      continue;
+    }
+    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
+    const page = browser.contexts()[0].pages()[0];
+    const workspace = await page
+      .locator(".status-chip")
+      .first()
+      .waitFor({ timeout: 90000 })
+      .then(() => true)
+      .catch(() => false);
+    if (workspace) return { browser, page };
+    await quitApp();
+    await sleep(5000);
+  }
+  return null;
 }
 
 async function aiState(page) {
@@ -395,7 +413,11 @@ async function closeRunningInstances() {
   }
   const deadline = Date.now() + 45000;
   while (Date.now() < deadline) {
-    if (!runningInstances().length) return true;
+    if (!runningInstances().length) {
+      // A process that has left the list may still be closing its backend and its window.
+      await sleep(4000);
+      return true;
+    }
     await sleep(1000);
   }
   return false;

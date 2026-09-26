@@ -793,3 +793,207 @@ def test_explicit_clearnet_tool_under_a_tor_route_is_typed_unsupported(client, a
     assert "event: tool_result" in allowed.text
     called = [fake for fake in web_fakes if fake.calls]
     assert len(called) == 1 and called[0].capability == "fetch"
+
+
+# ---------------------- production shared mode: no model tools, and Tor still works
+
+
+class SharedNoToolsModel:
+    """Production shared mode: the model answers, model-driven tool calling is unavailable.
+
+    `GatewayProvider.supports_tools = False` is the whole difference: the generated text is
+    irrelevant here, the point is that the server's own Tor policy still runs and that arbitrary
+    model-driven tools stay blocked.
+    """
+
+    supports_tools = False
+
+    def __init__(self, text="Shared answer"):
+        self.text = text
+        self.seen: list = []
+
+    async def stream_with_usage(self, messages, usage):
+        self.seen.extend(messages)
+        yield self.text
+
+    async def stream_chat(self, messages):
+        self.seen.extend(messages)
+        yield self.text
+
+
+def shared_chat(client, headers, content, web_mode="on"):
+    chat = client.post("/chats", headers=headers, json={}).json()["id"]
+    response = client.post(
+        f"/chats/{chat}/stream",
+        headers=headers,
+        json={"content": content, "tor_mode": "auto", "web_mode": web_mode},
+    )
+    assert "event: done" in response.text
+    return chat, response
+
+
+def test_shared_mode_still_fetches_a_named_tor_url(client, auth, monkeypatch, route_service):
+    """The release blocker: production shared mode cannot call model tools, so the server's own
+    policy has to fetch «Открой example.com через Tor» — over SOCKS5h, with the proof on the run."""
+    web_fakes = []
+    attempts, _install_loop_guard = dns_tripwire(monkeypatch)
+    with FakeSocks5hServer() as server:
+        service = route_service(FakeTorService(server.endpoint, verified=True))
+        monkeypatch.setattr(
+            client.app.state,
+            "tools",
+            tor_route_registry(web_fakes, fetch_provider=TorFetchProvider()),
+        )
+        monkeypatch.setattr(client.app.state, "provider", SharedNoToolsModel())
+        headers = auth()
+        chat, _response = shared_chat(client, headers, "Открой http://example.com/ через Tor")
+        runs = client.get("/tools/runs", headers=headers).json()
+        requests = list(server.requests)
+        messages = client.get(f"/chats/{chat}/messages", headers=headers).json()
+        sources = client.get(f"/messages/{messages[-1]['id']}/web-sources", headers=headers).json()
+
+    fetches = [row for row in runs if row["tool_name"] == "tor_fetch"]
+    assert len(fetches) == 1, runs
+    assert fetches[0]["status"] == "completed"
+    assert fetches[0]["origin"] == "server_policy"
+    # Bytes on the wire: the name reached the proxy as a name (ATYP 3), on port 80.
+    assert requests == [("example.com", 80, 3)]
+    metadata = fetches[0]["result_metadata"]
+    assert metadata["transport"] == "tor-socks5h"
+    assert metadata["socks"]["atyp"] == 3
+    assert metadata["socks"]["local_dns"] is False
+    assert metadata["socks"]["dest_host"] == "example.com"
+    assert metadata["route"] == "TOR_ONLY"
+    assert metadata["verified_chain"] is True
+    assert metadata["managed"] is True
+    assert service.snapshot_calls >= 1
+    # No local resolution, no clearnet tool, even with web mode fully on.
+    assert attempts == []
+    assert clearnet_runs(runs) == []
+    assert web_fakes and all(fake.calls == [] for fake in web_fakes)
+    # The fetched source reaches the answer context, labelled and on the Tor channel.
+    assert sources and all(row["channel"] == "tor" for row in sources)
+    assert any(row["label"].startswith("T") for row in sources)
+
+
+def test_shared_mode_tor_unavailable_is_typed_and_never_clearnet(client, auth, monkeypatch, route_service):
+    """No listener: a typed failure and zero clearnet runs — bounded recovery once, nothing else."""
+    web_fakes = []
+    attempts, _install_loop_guard = dns_tripwire(monkeypatch)
+    service = route_service(FakeTorService(("127.0.0.1", closed_port()), verified=False))
+    monkeypatch.setattr(
+        client.app.state,
+        "tools",
+        tor_route_registry(web_fakes, fetch_provider=TorFetchProvider()),
+    )
+    monkeypatch.setattr(client.app.state, "provider", SharedNoToolsModel())
+    headers = auth()
+    chat, _response = shared_chat(client, headers, "Открой example.com через Tor")
+    runs = client.get("/tools/runs", headers=headers).json()
+    messages = client.get(f"/chats/{chat}/messages", headers=headers).json()
+    sources = client.get(f"/messages/{messages[-1]['id']}/web-sources", headers=headers).json()
+
+    fetches = [row for row in runs if row["tool_name"] == "tor_fetch"]
+    assert len(fetches) == 1, runs
+    assert fetches[0]["status"] == "failed"
+    assert fetches[0]["error_code"] == "tor_unavailable"
+    assert fetches[0]["result_metadata"].get("transport") is None
+    assert service.recovery_calls == 1
+    assert 0 < service.deadlines[0] <= 60
+    assert clearnet_runs(runs) == []
+    assert all(fake.calls == [] for fake in web_fakes)
+    assert attempts == []
+    assert sources == []
+
+
+def test_shared_mode_route_that_cannot_serve_the_url_fails_typed(client, auth, monkeypatch, route_service):
+    """A route that cannot carry the request (https against an HTTP-only proxy) is a typed
+    failure too: the URL is not silently fetched outside Tor."""
+    web_fakes = []
+    attempts, _install_loop_guard = dns_tripwire(monkeypatch)
+    with FakeSocks5hServer() as server:
+        route_service(FakeTorService(server.endpoint, verified=True))
+        monkeypatch.setattr(
+            client.app.state,
+            "tools",
+            tor_route_registry(web_fakes, fetch_provider=TorFetchProvider()),
+        )
+        monkeypatch.setattr(client.app.state, "provider", SharedNoToolsModel())
+        headers = auth()
+        _, _response = shared_chat(client, headers, "Открой https://example.com/ через Tor")
+        runs = client.get("/tools/runs", headers=headers).json()
+        requests = list(server.requests)
+
+    fetches = [row for row in runs if row["tool_name"] == "tor_fetch"]
+    assert fetches and fetches[0]["status"] in {"failed", "completed"}, runs
+    if fetches[0]["status"] == "failed":
+        assert fetches[0]["error_code"] == "tor_unavailable"
+    # Either way the destination travelled as a name and nothing left Tor.
+    assert requests and all(entry[2] == 3 for entry in requests)
+    assert all(entry[0] == "example.com" for entry in requests)
+    assert clearnet_runs(runs) == []
+    assert all(fake.calls == [] for fake in web_fakes)
+    assert attempts == []
+
+
+def test_shared_mode_still_refuses_model_driven_tools(client, auth, monkeypatch):
+    """The security boundary is unchanged: with no deterministic policy to run, a prompt that
+    would need model-driven tool calling is still refused in shared mode."""
+    web_fakes = []
+    monkeypatch.setattr(client.app.state, "tools", tor_route_registry(web_fakes))
+    provider = SharedNoToolsModel()
+    monkeypatch.setattr(client.app.state, "provider", provider)
+    headers = auth()
+    _, _response = shared_chat(client, headers, "Найди через Tor свежий onion-сервис Tor Project")
+    runs = client.get("/tools/runs", headers=headers).json()
+    notes = "\n".join(str(message.get("content") or "") for message in provider.seen)
+
+    assert runs == [], runs
+    assert all(fake.calls == [] for fake in web_fakes)
+    assert "tool calling unsupported" in notes
+
+
+def test_shared_mode_ordinary_chat_is_untouched(client, auth, monkeypatch):
+    """A normal message keeps the plain path: no tools, no policy, the model's own answer."""
+    web_fakes = []
+    monkeypatch.setattr(client.app.state, "tools", tor_route_registry(web_fakes))
+    provider = SharedNoToolsModel(text="Обычный ответ")
+    monkeypatch.setattr(client.app.state, "provider", provider)
+    headers = auth()
+    chat, response = shared_chat(client, headers, "Привет", web_mode="off")
+    runs = client.get("/tools/runs", headers=headers).json()
+    messages = client.get(f"/chats/{chat}/messages", headers=headers).json()
+
+    assert runs == [], runs
+    assert messages[-1]["content"] == "Обычный ответ"
+    assert "Обычный ответ" in response.text
+
+
+def test_shared_mode_keeps_the_existing_tor_url_safety(client, auth, monkeypatch, route_service):
+    """URL safety is not relaxed by the new path: local, loopback and non-http schemes are filtered
+    exactly as before, nothing is fetched, and nothing leaves over clearnet."""
+    web_fakes = []
+    attempts, _install_loop_guard = dns_tripwire(monkeypatch)
+    with FakeSocks5hServer() as server:
+        route_service(FakeTorService(server.endpoint, verified=True))
+        monkeypatch.setattr(
+            client.app.state,
+            "tools",
+            tor_route_registry(web_fakes, fetch_provider=TorFetchProvider()),
+        )
+        monkeypatch.setattr(client.app.state, "provider", SharedNoToolsModel())
+        headers = auth()
+        for content in (
+            "Открой http://127.0.0.1:8080/ через Tor",
+            "Открой http://localhost/ через Tor",
+            "Открой file:///C:/Windows/win.ini через Tor",
+        ):
+            _chat, _response = shared_chat(client, headers, content)
+        runs = client.get("/tools/runs", headers=headers).json()
+        requests = list(server.requests)
+
+    assert requests == [], requests
+    assert not [row for row in runs if row["tool_name"] == "tor_fetch"], runs
+    assert clearnet_runs(runs) == []
+    assert all(fake.calls == [] for fake in web_fakes)
+    assert attempts == []

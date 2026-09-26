@@ -85,6 +85,36 @@ class ToolOrchestrator:
                 selected.append(definition)
         return selected
 
+    async def _server_policy_tor_url(self, context, prompt, tor_intent, notes) -> bool:
+        """The server's own decision about a Tor-required prompt that names a URL.
+
+        «Открой example.com через Tor» is an instruction to the server, not a suggestion to the
+        model, so it is executed here and never depends on model-driven tool calling. One
+        implementation serves both callers: the normal path, and the path where the model cannot
+        call tools at all (production shared mode).
+
+        Returns True when the policy ran; the caller decides what to do with the result. A failure
+        leaves its typed code in ``notes`` through the executor and fetches nothing else: the Tor
+        route fails closed, so a failure here is never a clearnet fetch.
+        """
+        if not tor_intent.required:
+            return False
+        urls = [
+            url
+            for url in http_urls_from_prompt(prompt)
+            if (normalize_http_url(url) or url) not in context.tor_visited
+        ]
+        if not urls:
+            return False
+        await self._run(
+            "tor_fetch",
+            json.dumps({"urls": urls[:3], "fresh": True}, ensure_ascii=False),
+            context,
+            notes,
+            origin="server_policy",
+        )
+        return True
+
     async def prepare(self, provider, history, insert_at, context, usage):
         from ..database import SessionLocal
         from .local.devices import active_device
@@ -145,6 +175,20 @@ class ToolOrchestrator:
 
         paid_needed = select_tinyfish_route(prompt, context).paid in {"browser", "agent"}
         local_needed = bool(select_local_route(prompt, context).action)
+        if not getattr(provider, "supports_tools", False):
+            # Deterministic server policies run before the model-tool capability check. A Tor
+            # request naming a URL is the server's own instruction — it never depends on the model
+            # deciding to call tor_fetch — so it has to work even where the model cannot call tools
+            # at all (production shared mode, `GatewayProvider.supports_tools = False`). Arbitrary
+            # model-driven tools stay blocked right below: this is a server policy, not a widening
+            # of the tool boundary.
+            policy_notes: list[str] = []
+            if await self._server_policy_tor_url(context, prompt, tor_intent, policy_notes):
+                if tor_intent.required and not context.sources:
+                    policy_notes.append("No Tor results available. Do not claim to have checked Tor.")
+                await context.emit("web_status", {"state": "finishing", "sources": len(context.sources)})
+                close_task()
+                return ContextBuilder.with_web(history, insert_at, context.sources, policy_notes)
         if not definitions and not paid_needed and not local_needed:
             if (
                 getattr(context, "autonomous", False)
@@ -391,21 +435,15 @@ class ToolOrchestrator:
                     notes.append("Tool context limit reached.")
                     break
             named_urls = http_urls_from_prompt(prompt)
-            prompt_urls = [
-                url for url in named_urls if (normalize_http_url(url) or url) not in context.tor_visited
-            ]
-            if tor_intent.required and prompt_urls:
-                # A URL the user named is a direct instruction, so it is fetched through the Tor
-                # route before anything else is tried: «Открой example.com через Tor» must not
-                # depend on the model deciding to call tor_fetch.
-                await self._run(
-                    "tor_fetch",
-                    json.dumps({"urls": prompt_urls[:3], "fresh": True}, ensure_ascii=False),
-                    context,
-                    notes,
-                    origin="server_policy",
-                )
-            elif tor_intent.required and context.tor_search_done and not context.tor_fetch_done:
+            # The same single implementation the no-model-tools path uses, so the policy cannot
+            # drift into two behaviours.
+            explicit_fetch = await self._server_policy_tor_url(context, prompt, tor_intent, notes)
+            if (
+                not explicit_fetch
+                and tor_intent.required
+                and context.tor_search_done
+                and not context.tor_fetch_done
+            ):
                 urls = pick_tor_fetch_urls(context.sources, visited=context.tor_visited)
                 if urls:
                     await self._run(
