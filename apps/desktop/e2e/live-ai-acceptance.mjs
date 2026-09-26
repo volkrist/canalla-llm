@@ -79,6 +79,31 @@ const TOR_ANSWER_WAIT_MS = Number(process.env.LIVE_AI_TOR_ANSWER_WAIT_MS || 3000
 
 const failures = [];
 let child = null;
+let lastPage = null;
+
+// Evidence, not a stack trace: every path that gives up writes what the window actually showed.
+const ARTIFACTS = path.resolve(__dirname, "..", "..", "..", "artifacts", "final-acceptance");
+
+async function dumpPage(page, label) {
+  try {
+    fs.mkdirSync(ARTIFACTS, { recursive: true });
+    await page.screenshot({
+      path: path.join(ARTIFACTS, `dom-${label}.png`),
+      fullPage: true,
+    });
+    const text = await page
+      .evaluate(() => document.body?.innerText || "")
+      .catch(() => "");
+    fs.writeFileSync(
+      path.join(ARTIFACTS, `dom-${label}.txt`),
+      `${page.url()}\n\n${text.slice(0, 6000)}\n`,
+      "utf8",
+    );
+    console.log(`  window dumped to artifacts/final-acceptance/dom-${label}.{png,txt}`);
+  } catch (error) {
+    console.log(`  could not dump the window: ${error?.message}`);
+  }
+}
 
 function check(name, ok, detail = "") {
   console.log(
@@ -480,9 +505,21 @@ async function main() {
     return 1;
   }
   const { page } = opened;
+  lastPage = page;
 
   // The chip row only exists once the workspace is up; the first-run flow would show instead.
-  await page.locator(".status-chip").first().waitFor({ timeout: 180000 });
+  try {
+    await page.locator(".status-chip").first().waitFor({ timeout: 180000 });
+  } catch (error) {
+    check(
+      "the workspace came up (the chip row is visible)",
+      false,
+      `${error?.name}: ${error?.message}`,
+    );
+    await dumpPage(page, "no-workspace");
+    await quitApp();
+    return 1;
+  }
   const firstRun = await page
     .getByRole("button", { name: "Создать владельца Canalla" })
     .count();
@@ -648,5 +685,11 @@ async function main() {
   return failures.length === 0 ? 0 : 1;
 }
 
-const code = await main();
+const code = await main().catch(async (error) => {
+  console.log(`UNCAUGHT ${error?.name}: ${error?.message}`);
+  if (lastPage) await dumpPage(lastPage, "crash");
+  check("the run finished without an uncaught error", false, `${error?.name}`);
+  await quitApp();
+  return 1;
+});
 process.exit(code);
