@@ -29,6 +29,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -201,7 +202,13 @@ def enforce_deadline(key: str, state: dict) -> list[str]:
 
 
 def harness(phase: str, timeout: int) -> dict:
-    """Run one live phase through the installed product; capture its whole output."""
+    """Run the live acceptance through the installed product; capture its whole output.
+
+    ``text=True`` alone decoded the child's UTF-8 with the console code page and threw inside the
+    reader thread: the 1.2.0 run lost its whole output and the triage then believed a real Pod had
+    never existed. The encoding is explicit here, and the output is written to its own file as well,
+    so a failure can always be read afterwards.
+    """
     log(f"acceptance phase {phase}: starting")
     started = time.monotonic()
     try:
@@ -210,6 +217,8 @@ def harness(phase: str, timeout: int) -> dict:
             cwd=str(REPO / "apps" / "desktop"),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
             check=False,
         )
@@ -218,11 +227,14 @@ def harness(phase: str, timeout: int) -> dict:
         output = (error.stdout or "") + (error.stderr or "") if error.stdout else ""
         output = output if isinstance(output, str) else output.decode("utf-8", "replace")
         code = 124
+    phase_log = ARTIFACTS / f"acceptance-{phase}.log"
+    phase_log.write_text(output, encoding="utf-8", errors="replace")
     return {
         "phase": phase,
         "exit_code": code,
         "seconds": round(time.monotonic() - started, 1),
         "output": output[-20000:],
+        "log": str(phase_log.relative_to(REPO)),
         "pass": code == 0,
     }
 
@@ -238,27 +250,59 @@ def last_code(output: str) -> str:
     return code
 
 
+def capacity_race(pods_seen: int, released: int, code: str) -> bool:
+    """May the watcher go back to watching, or must it stop?
+
+    Only a run that never brought a Pod into existence may continue: the 1.2.0 run created a Pod,
+    the Pod answered nothing, and the triage called it a race because the Pod was already gone when
+    the harness returned — and lost output made the code look like «none». A Pod that lived and then
+    failed is a real failure, and a real failure never spends again by itself.
+    """
+    return pods_seen == 0 and released == 0 and code in CAPACITY_CODES
+
+
 def run_acceptance(key: str, state: dict) -> dict:
-    """One acceptance run: chat, then Tor only if the chat passed, then always stop."""
-    chat = harness("chat", 1500)
-    live = pods(key)
+    """One acceptance run: chat, Tor, then the product's own Stop — in a single launch.
+
+    One launch, not three. Quitting Canalla stops a managed Pod (the product's documented lifecycle),
+    so separate phase processes each stopped the Pod the next phase was meant to reuse: the tor run
+    then talked to a Gateway that answered 503 and its answer never came. The run also samples the
+    provider in the background, so a Pod that existed during the run is known even if it is gone by
+    the time the harness returns — otherwise a real failure reads as a capacity race.
+    """
+    seen: list[dict] = []
+    stop_sampler = threading.Event()
+
+    def sample() -> None:
+        while not stop_sampler.wait(20):
+            try:
+                for pod in pods(key):
+                    if pod["id"] not in [item["id"] for item in seen]:
+                        seen.append(pod)
+            except (RuntimeError, OSError, ValueError):
+                continue
+
+    sampler = threading.Thread(target=sample, daemon=True)
+    sampler.start()
+    try:
+        all_phases = harness("all", 1200)
+    finally:
+        stop_sampler.set()
     record = {
         "started_at": now(),
-        "chat": {k: v for k, v in chat.items() if k != "output"},
-        "chat_output": chat["output"],
-        "last_ai_code": last_code(chat["output"]),
-        "pods_after_chat": live,
+        "all": {k: v for k, v in all_phases.items() if k != "output"},
+        "output": all_phases["output"],
+        "last_ai_code": last_code(all_phases["output"]),
+        "pods_seen_during_run": seen,
+        "pods_after_run": pods(key),
     }
-    if not chat["pass"]:
-        record["result"] = "chat_failed"
-        state["last_attempt"] = {k: record[k] for k in ("started_at", "result", "last_ai_code")}
-        return record
-
-    tor = harness("tor", 900)
-    record["tor"] = {k: v for k, v in tor.items() if k != "output"}
-    record["tor_output"] = tor["output"]
-    record["result"] = "pass" if tor["pass"] else "tor_failed"
-    state["last_attempt"] = {k: record[k] for k in ("started_at", "result")}
+    record["result"] = "pass" if all_phases["pass"] else "failed"
+    state["last_attempt"] = {
+        "started_at": record["started_at"],
+        "result": record["result"],
+        "last_ai_code": record["last_ai_code"],
+        "pods_seen": len(seen),
+    }
     return record
 
 
@@ -317,7 +361,7 @@ def watch(key: str) -> int:
             log("capacity detected — starting the live acceptance now")
             record = run_acceptance(key, state)
             write_json(RECORD, record)
-            created = record.get("pods_after_chat") or []
+            created = record.get("pods_seen_during_run") or []
 
             if record["result"] == "pass":
                 released = release_everything(key, state)
@@ -328,11 +372,12 @@ def watch(key: str) -> int:
                 PIDFILE.unlink(missing_ok=True)
                 return 0
 
-            # Failure: terminate first, then decide whether watching may continue.
+            # Failure: terminate first, then decide whether watching may continue. A capacity race is
+            # only a race when no Pod came into existence during the whole run: a Pod that lived and
+            # then failed is a real failure, and a real failure never spends again on its own.
             released = release_everything(key, state)
             code = record.get("last_ai_code", "")
-            capacity_race = not created and not released and code in CAPACITY_CODES
-            if capacity_race:
+            if capacity_race(len(created), len(released), code):
                 log(f"capacity race before any Pod existed (code={code or 'none'}) — back to watching")
                 write_json(STATE, state)
                 time.sleep(POLL_SECONDS)
@@ -346,7 +391,7 @@ def watch(key: str) -> int:
                     "last_ai_code": code,
                     "pods_seen": created,
                     "released": released,
-                    "chat_output": record.get("chat_output", "")[-4000:],
+                    "output_tail": record.get("output", "")[-4000:],
                 },
             )
             state["result"] = "failed"
@@ -387,6 +432,15 @@ def self_test() -> int:
         (DC, MIN_VRAM, round(MAX_HOURLY, 2), POD_DEADLINE_SECONDS) == ("US-TX-3", 48, 2.0, 1200),
         f"{DC} {MIN_VRAM} {MAX_HOURLY} {POD_DEADLINE_SECONDS}",
     )
+    # The exact mis-triage of the 1.2.0 run: a Pod that lived and failed must never read as a race.
+    check("no Pod seen and a capacity code is a race", capacity_race(0, 0, "gpu_unavailable"))
+    check("an empty code with no Pod is still a race", capacity_race(0, 0, ""))
+    check(
+        "a Pod that existed makes the same code a real failure",
+        not capacity_race(1, 0, "gpu_unavailable"),
+    )
+    check("a released Pod is never a race", not capacity_race(0, 1, ""))
+    check("a policy refusal is never a race", not capacity_race(0, 0, "compute_policy_invalid"))
     failures = [name for name, ok, _ in results if not ok]
     for name, ok, detail in results:
         print(f"{'PASS' if ok else 'FAIL'}  {name}{'  — ' + detail if detail and not ok else ''}")

@@ -28,6 +28,7 @@ test-results/
 apps/desktop/src-tauri/sidecar/alex-backend/
 apps/desktop/src-tauri/sidecar/*.exe
 apps/desktop/src-tauri/sidecar/SHA256SUMS.txt
+artifacts/final-acceptance/
 apps/backend/build/
 
 # The bundled Tor runtime: fetched and verified by scripts/fetch-tor-runtime.py from the pin in
