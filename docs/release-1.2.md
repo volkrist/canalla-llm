@@ -1,5 +1,39 @@
 # Canalla LLM 1.2.0 — состояние релиза (26.09.2026)
 
+## БЛОКЕР ЖИВОЙ ПРИЁМКИ (26.09, 16:19–16:38Z) — RELEASE BLOCKED
+
+`node e2e/live-ai-acceptance.mjs --phase chat` против установленной 1.2.0:
+
+```
+ai before   {"state":"disconnected","code":"provider_unavailable"}
+ai states   disconnected/provider_unavailable -> disconnected/snapshot_stale
+FAIL  the chat started compute by itself
+FAIL  the model became Ready and the chip turned Connected   [null after 1200690 ms]
+FAIL  the chat produced an answer
+```
+
+В логе локального backend — единственная попытка оркестрации:
+
+```
+2026-09-26 16:03:08,612 INFO httpx HTTP Request:
+  POST https://gateway.12testers.store/compute/ensure "HTTP/1.1 422 Unprocessable Entity"
+```
+
+**422 — это валидационный отказ, а не отсутствие ёмкости** (`gpu_capacity_unavailable`/`gpu_unavailable`
+выглядят иначе). Причина по фактам: развёрнутый Gateway — сборка **`/opt/alex-gateway/releases/6e2eca83e0c2`
+от 24.09 15:00**, то есть **старше** compute-коммитов этого цикла (`origin`, стратегии, storage kinds,
+`/v1/models` gating — все от 25.09). Это ровно тот случай, о котором предупреждает §12 задания:
+«Deploy the CURRENT accepted final source. Do NOT deploy stale Gateway code.»
+
+**Деньги: $0.00.** Pod не создавался ни разу (`GET /v2/pods` → 0), приложение закрыто harness'ом само
+(`POST /runtime/shutdown 200`), watcher/reaper остановлены, `v1.0.0` не тронут, `main` не менялся,
+манифест не публиковался.
+
+**Исправление (авторизованное):** развернуть текущий исходник Gateway на VPS (новая release-директория +
+атомарная смена `current` + `alembic upgrade head` + рестарт сервиса), проверить `/health` (200, 1.2.0) и
+`/updates/latest` (204), затем повторить `--phase chat`, `--phase tor`, `--phase stop` — и только после PASS
+идти в merge/tag/manifest. Ожидаемая стоимость повтора: ≈$0.30–0.40 (та же авторизация).
+
 **Ветка:** `release/canalla-1.1.0` · **HEAD на момент записи:** см. `git log -1`
 **Публикация:** **НЕ выполнена** — манифест не опубликован, `main` не смёржен, тег `v1.2.0` не создан.
 **Решение о placement'ах:** 1.2.0 выходит с **ОДНИМ** production placement'ом. Вторичный том отложен
