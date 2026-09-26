@@ -575,6 +575,28 @@ def test_pod_that_disappears_is_reported_stopped(gateway, client):
     assert body["last_session"]["stopped_at"] is not None
 
 
+def test_the_tick_finalizes_a_pod_the_provider_no_longer_knows(gateway, client):
+    """The periodic tick — not only an explicit reconcile — must clear a vanished Pod.
+
+    The provider answers `not_found` for the tracked Pod, which is evidence. Before this the tick
+    returned with the control row still on `generating`/`not_found`, so the five-chip layer showed
+    a green «Connected» while the account had no Pod at all and `/v1/models` answered 503.
+    """
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    ensure(client, headers, operation_id="op-vanished-000001")
+    assert status(client, headers)["state"] in {"starting_pod", "loading_model", "ready"}
+
+    gateway.runpod.pods.clear()
+    run(gateway.authority.tick())
+
+    body = status(client, headers)
+    assert body["state"] == "stopped"
+    assert body["session"] is None
+    assert body["error_code"] == "not_found"
+    assert body["last_session"]["stop_reason"] == "provider_missing"
+
+
 def test_unconfigured_provider_is_honest(gateway, client):
     installation = enroll(gateway, client)
     headers = auth_header(client, installation)

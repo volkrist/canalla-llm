@@ -1657,6 +1657,15 @@ class ComputeAuthority:
                 pod = await self.api.get_pod(session.pod_id) if session.pod_id else None
             except Exception as error:
                 code = getattr(error, "code", "runpod_unavailable")
+                if code == "not_found":
+                    # The provider answered that this Pod does not exist. That is evidence, not a
+                    # transient read failure, so reconciliation owns it: the session is finalized
+                    # as `provider_missing` and the client is never told a model is ready while no
+                    # Pod is left to serve it. Without this the row kept `generating`/`not_found`
+                    # until some later ensure, and the AI badge showed a green «Connected» with
+                    # nothing running at all.
+                    await self._reconcile_locked()
+                    return
                 with self.sessions() as db:
                     control = self.control(db)
                     control.error_code = code

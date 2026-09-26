@@ -213,7 +213,12 @@ class FakeRunPod:
                 return httpx.Response(self.list_failure, json={"detail": "provider internal detail"})
             return httpx.Response(200, json={"pods": self.pods})
         if "/pods/" in path and request.method == "GET":
-            return httpx.Response(200, json=self.pods[0])
+            wanted = path.rsplit("/", 1)[-1]
+            found = next((pod for pod in self.pods if str(pod.get("id")) == wanted), None)
+            if found is None:
+                # A terminated or vanished Pod answers 404, which the provider maps to `not_found`.
+                return httpx.Response(404, json={"detail": "pod not found"})
+            return httpx.Response(200, json=found)
         if "/billing/pods" in path:
             return httpx.Response(200, json={"records": []})
         raise AssertionError(f"Unexpected provider request {request.method} {path}")
