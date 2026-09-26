@@ -450,8 +450,24 @@ async function checkTorRoute(page, before) {
  * is measuring. Every phase before this one keeps the window open.
  */
 async function stopCompute(page) {
-  const stop = page.getByRole("button", { name: "Остановить AI" }).first();
-  const present = await stop.isVisible().catch(() => false);
+  let stop = page.getByRole("button", { name: "Остановить AI" }).first();
+  let present = await stop.isVisible().catch(() => false);
+  if (!present) {
+    // The control lives in Settings -> Canalla Cloud, and the workspace binds Ctrl+, to Settings.
+    await page.keyboard.press("Control+,");
+    const tab = page
+      .getByRole("button", { name: "Canalla Cloud", exact: true })
+      .first();
+    const opened = await tab
+      .waitFor({ timeout: 20000 })
+      .then(() => true)
+      .catch(() => false);
+    if (opened) {
+      await tab.click();
+      stop = page.getByRole("button", { name: "Остановить AI" }).first();
+      present = await stop.isVisible().catch(() => false);
+    }
+  }
   check("the product offers a Stop AI control", present);
   if (!present) return;
   await stop.click();
@@ -668,7 +684,7 @@ async function main() {
     `${torAnswered.count} assistant messages, ${torAnswered.text.length} chars`,
   );
   console.log(`  answer: ${torAnswered.text.slice(0, 300)}`);
-  checkTorRoute(page, torProofBefore);
+  await checkTorRoute(page, torProofBefore);
   const torTranscript = await transcript(page);
   console.log(`\n  transcript after the Tor request:\n${torTranscript}\n`);
 
