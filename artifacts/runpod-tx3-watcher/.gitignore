@@ -5,6 +5,13 @@ watcher.stdout.log
 watcher.stderr.log
 watcher.pid
 watcher.lock
+reaper.log
+reaper.stdout.log
+reaper.stderr.log
+reaper-state.json
+reaper.lock
 
 # Evidence worth committing when the pipeline produces it stays visible:
-# primary-manifest.json, start-llm.sh, check-llm.sh, secondary-replica.json, placements.env
+# primary-manifest.json, start-llm.sh, check-llm.sh, measurement-pod.json, primary-raw-log.txt,
+# secondary-volume.json, secondary-replica.json, placements.env, reaper-incident.json,
+# reaper-copy-incomplete.json
