@@ -445,7 +445,12 @@ def pod_billing_usd(key: str, pod_id: str) -> float | None:
 
 
 def create_migration_pod(
-    key: str, state: dict, candidates: list[dict], *, allow_cpu: bool = True
+    key: str,
+    state: dict,
+    candidates: list[dict],
+    *,
+    allow_cpu: bool = True,
+    max_hourly: float = MIGRATION_MAX_HOURLY,
 ) -> dict:
     """At most ONE migration Pod: a new run never inherits one, and never leaves one behind.
 
@@ -492,11 +497,18 @@ def create_migration_pod(
             past_budget=age is None or age > MIGRATION_MAX_SECONDS,
         )
         terminate(key, abandoned["id"])
-    return _create_migration_pod(key, state, candidates, allow_cpu=allow_cpu)
+    return _create_migration_pod(
+        key, state, candidates, allow_cpu=allow_cpu, max_hourly=max_hourly
+    )
 
 
 def _create_migration_pod(
-    key: str, state: dict, candidates: list[dict], *, allow_cpu: bool = True
+    key: str,
+    state: dict,
+    candidates: list[dict],
+    *,
+    allow_cpu: bool = True,
+    max_hourly: float = MIGRATION_MAX_HOURLY,
 ) -> dict:
     """One attempt with exactly one spec: the catalogue's card, or a CPU flavour on a blind probe.
 
@@ -511,7 +523,7 @@ def _create_migration_pod(
         except SystemExit:
             cpu = None
     bodies = []
-    if cpu and cpu["price_per_vcpu"] * cpu["vcpuCount"] <= MIGRATION_MAX_HOURLY:
+    if cpu and cpu["price_per_vcpu"] * cpu["vcpuCount"] <= max_hourly:
         bodies.append(
             {"kind": "cpu", "cpu": {"id": cpu["flavor"], "vcpuCount": cpu["vcpuCount"]}}
         )
@@ -857,22 +869,35 @@ def _finish_measurement(
 
 
 def run_pipeline(
-    key: str, state: dict, *, allow_cpu: bool = True, measure_only: bool = False
+    key: str,
+    state: dict,
+    *,
+    allow_cpu: bool = True,
+    measure_only: bool = False,
+    max_hourly: float = MIGRATION_MAX_HOURLY,
 ) -> None:
     """One migration run. Everything after a successful create is inside a ``finally`` guard.
 
     ``measure_only=True`` is the controlled-recovery mode: measure the primary and stop — no
     secondary volume, no copy, no llama.cpp. The full pipeline (volume, replica, live test) stays
     available but is not used until a controlled measurement has passed.
+
+    ``max_hourly`` is the operator's own ceiling for *this* run. The default is the approved
+    ``$1.00/h``; raising it is a deliberate, explicit act (``--max-hourly``) and is recorded in the
+    state so the spend is never silent.
     """
-    candidates = tx3_candidates(key, max_hourly=MIGRATION_MAX_HOURLY)
+    candidates = tx3_candidates(key, max_hourly=max_hourly)
     event(
         state,
-        f"US-TX-3 candidates within ${MIGRATION_MAX_HOURLY:.2f}/h: {len(candidates)}",
+        f"US-TX-3 candidates within ${max_hourly:.2f}/h: {len(candidates)}",
         found=candidates[:4],
     )
+    state["max_hourly"] = max_hourly
+    save_state(state)
     started = time.monotonic()
-    session = create_migration_pod(key, state, candidates, allow_cpu=allow_cpu)
+    session = create_migration_pod(
+        key, state, candidates, allow_cpu=allow_cpu, max_hourly=max_hourly
+    )
     if not session:
         state["phase"] = "watching"
         event(
@@ -1167,7 +1192,13 @@ def _migrate(
     save_state(state)
 
 
-def watch(key: str, *, run_when_ready: bool, measure_only: bool = False) -> int:
+def watch(
+    key: str,
+    *,
+    run_when_ready: bool,
+    measure_only: bool = False,
+    max_hourly: float = MIGRATION_MAX_HOURLY,
+) -> int:
     """The loop. In ``measure_only`` mode it stops after ONE controlled measurement.
 
     A failure of that measurement is not retried and not waited out: the run ends, the Pod was
@@ -1182,13 +1213,13 @@ def watch(key: str, *, run_when_ready: bool, measure_only: bool = False) -> int:
     save_state(state)
     event(
         state,
-        f"watcher started (poll every {POLL_SECONDS}s, budget ${MIGRATION_MAX_HOURLY:.2f}/h, "
+        f"watcher started (poll every {POLL_SECONDS}s, budget ${max_hourly:.2f}/h, "
         f"mode={'measure-only' if measure_only else 'full'})",
     )
     while True:
         try:
             state["poll_count"] = int(state.get("poll_count", 0)) + 1
-            candidates = tx3_candidates(key, max_hourly=MIGRATION_MAX_HOURLY)
+            candidates = tx3_candidates(key, max_hourly=max_hourly)
             cpu_allowed = (
                 time.time() - float(state.get("last_cpu_probe", 0)) > CPU_PROBE_COOLDOWN
             )
@@ -1217,13 +1248,21 @@ def watch(key: str, *, run_when_ready: bool, measure_only: bool = False) -> int:
                         "US-TX-3 GPU signal — attempting the migration Pod now (CPU cooldown bypassed)",
                         card=candidates[0],
                     )
-                    run_pipeline(key, state, allow_cpu=False, measure_only=measure_only)
+                    run_pipeline(
+                        key,
+                        state,
+                        allow_cpu=False,
+                        measure_only=measure_only,
+                        max_hourly=max_hourly,
+                    )
                 elif cpu_allowed:
                     # The blind probe: only its own cooldown applies, and nothing was seen yet.
                     state["last_cpu_probe"] = time.time()
                     state["last_signal"] = {"at": now(), "kind": "cpu_blind_probe"}
                     save_state(state)
-                    run_pipeline(key, state, measure_only=measure_only)
+                    run_pipeline(
+                        key, state, measure_only=measure_only, max_hourly=max_hourly
+                    )
             stop_on = {"done", "measured"} | ({"error"} if measure_only else set())
             if state.get("phase") in stop_on:
                 event(state, f"watcher exiting: phase={state['phase']}")
@@ -1873,6 +1912,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="controlled recovery: measure the primary and stop — no volume, no copy, no GPU test",
     )
+    parser.add_argument(
+        "--max-hourly",
+        type=float,
+        default=MIGRATION_MAX_HOURLY,
+        help=(
+            "this run's own ceiling for migration compute (default "
+            f"${MIGRATION_MAX_HOURLY:.2f}/h); raising it is an explicit operator decision"
+        ),
+    )
     parser.add_argument("--lock-probe", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
@@ -1896,7 +1944,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     key = key_or_exit()
     if args.once or args.run:
-        candidates = tx3_candidates(key, max_hourly=MIGRATION_MAX_HOURLY)
+        candidates = tx3_candidates(key, max_hourly=args.max_hourly)
         print(
             json.dumps(
                 {"us_tx3_candidates": candidates, "running_pods": running_pods(key)},
@@ -1913,10 +1961,16 @@ def main(argv: list[str] | None = None) -> int:
                 state,
                 allow_cpu=not candidates,
                 measure_only=args.measure_only,
+                max_hourly=args.max_hourly,
             )
             print_status()
         return 0
-    return watch(key, run_when_ready=True, measure_only=args.measure_only)
+    return watch(
+        key,
+        run_when_ready=True,
+        measure_only=args.measure_only,
+        max_hourly=args.max_hourly,
+    )
 
 
 if __name__ == "__main__":
