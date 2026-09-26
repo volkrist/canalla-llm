@@ -1884,6 +1884,16 @@ def main(argv: list[str] | None = None) -> int:
         return self_test()
     if args.status:
         return print_status()
+    if not args.measure_only and not args.once:
+        # The old "full pipeline" tail (secondary volume, copy, live test) is retired here: copying
+        # now belongs to scripts/finish-secondary-replica.py, which uses the reaper's explicit
+        # transaction names (one source + one destination of the SAME transaction). Running the old
+        # tail would create a Pod shape the kill-switch must treat as an incident.
+        print(
+            "This watcher measures only. Use --measure-only for the measurement loop; "
+            "the copy stage belongs to scripts/finish-secondary-replica.py."
+        )
+        return 2
     key = key_or_exit()
     if args.once or args.run:
         candidates = tx3_candidates(key, max_hourly=MIGRATION_MAX_HOURLY)

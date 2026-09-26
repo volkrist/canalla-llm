@@ -1,21 +1,34 @@
-"""CANALLA LLM — the hard kill-switch for paid migration Pods. Independent by construction.
+"""CANALLA LLM — the hard kill-switch for paid migration/copy Pods. Independent by construction.
 
 A separate process that reads **only** provider data (``GET /v2/pods``) and the clock. It imports no
 log parser, no migration state machine, no ownership bookkeeping, and it never reads the watcher's
 state file — so a bug in any of those cannot keep a Pod billing. This is the layer that answers the
-$6.0869 incident, where a crashed pipeline plus an "it's my Pod, skip it" rule left a migration Pod
+$6.3351 incident, where a crashed pipeline plus an "it's my Pod, skip it" rule left a migration Pod
 running for almost six hours.
 
-Two absolute rules, applied on every pass:
+The allowed shapes are *explicit* — everything else is an incident:
 
-1. **TTL** — a live ``canalla-migrate-*`` or ``canalla-copy-*`` Pod older than 15 minutes is
-   terminated. The age comes from the provider's own ``createdAt``, never from our bookkeeping.
-2. **SINGLE** — more than one live ``canalla-*`` Pod account-wide is an incident: all of them are
-   terminated, the incident is written to ``reaper-incident.json``, and the reaper stops (exit 2,
-   with no retry loop of its own).
+===============================  ==========================================
+shape                            meaning
+===============================  ==========================================
+one ``canalla-migrate-*``        a measurement Pod (primary measurement)
+one pair                         a copy transaction: exactly one
+                                 ``canalla-copy-source-<tx>`` **and** exactly
+                                 one ``canalla-copy-destination-<tx>``, with
+                                 the *same* ``<tx>``
+anything else with ``canalla-``  unrecognized → incident
+===============================  ==========================================
 
-An age that cannot be read counts as expired: the money-safe answer is "terminate", and the Network
-Volume keeps every byte either way.
+Rules applied on every pass (30 s):
+
+1. **TTL** — every live migration/copy Pod older than 15 minutes is terminated, using the provider's
+   own ``createdAt``. A pair is two Pods on one clock: if *either* end reaches the TTL, **both** are
+   terminated, the attempt is marked incomplete/resumable, and the reaper stops.
+2. **SHAPE** — more than one migration Pod, two sources, two destinations, different transaction ids,
+   a measurement Pod next to a copy transaction, or any unrecognized ``canalla-`` Pod is an incident:
+   all of them are terminated, ``reaper-incident.json`` is written, and the reaper stops (exit 2).
+3. An age that cannot be read counts as expired: the money-safe answer is "terminate", and the
+   Network Volume keeps every byte either way.
 
     python scripts/canalla-pod-reaper.py --self-test   # offline proof of the rules, no provider call
     python scripts/canalla-pod-reaper.py --once        # one pass, then exit
@@ -38,10 +51,14 @@ ARTIFACTS = Path(__file__).resolve().parents[1] / "artifacts" / "runpod-tx3-watc
 LOG = ARTIFACTS / "reaper.log"
 STATE = ARTIFACTS / "reaper-state.json"
 INCIDENT = ARTIFACTS / "reaper-incident.json"
+COPY_INCOMPLETE = ARTIFACTS / "reaper-copy-incomplete.json"
 LOCKFILE = ARTIFACTS / "reaper.lock"
 
 # The names this product creates for paid, short-lived work.
-POD_PREFIXES = ("canalla-migrate-", "canalla-copy-")
+MIGRATION_PREFIX = "canalla-migrate-"
+COPY_SOURCE_PREFIX = "canalla-copy-source-"
+COPY_DESTINATION_PREFIX = "canalla-copy-destination-"
+CANALLA_PREFIX = "canalla-"
 TTL_SECONDS = 15 * 60
 POLL_SECONDS = 30
 LIVE_STATUSES = {"RUNNING", "STARTING", "PROVISIONING"}
@@ -106,20 +123,36 @@ def age_seconds(stamp: object) -> float | None:
     return (datetime.now(timezone.utc) - parsed).total_seconds()
 
 
+def classify(name: str) -> tuple[str, str]:
+    """(family, transaction) — ``("unknown", "")`` for anything we did not create."""
+    if name.startswith(COPY_SOURCE_PREFIX):
+        tx = name[len(COPY_SOURCE_PREFIX) :]
+        return ("copy_source", tx) if tx else ("unknown", "")
+    if name.startswith(COPY_DESTINATION_PREFIX):
+        tx = name[len(COPY_DESTINATION_PREFIX) :]
+        return ("copy_destination", tx) if tx else ("unknown", "")
+    if name.startswith(MIGRATION_PREFIX):
+        return ("migration", name[len(MIGRATION_PREFIX) :])
+    return ("unknown", "")
+
+
 def our_pods(rows: list[dict] | None) -> list[dict]:
     """Live Pods this product owns, matched by the provider's own name and status fields."""
     found = []
     for row in rows or []:
         name = str(row.get("name") or "")
         status = str(row.get("status") or "").upper()
-        if not name.startswith(POD_PREFIXES) or status not in LIVE_STATUSES:
+        if not name.startswith(CANALLA_PREFIX) or status not in LIVE_STATUSES:
             continue
+        family, tx = classify(name)
         age = age_seconds(row.get("createdAt"))
         found.append(
             {
                 "id": str(row.get("id") or ""),
                 "name": name,
                 "status": status,
+                "family": family,
+                "transaction": tx,
                 "createdAt": row.get("createdAt"),
                 "age_seconds": None if age is None else int(age),
             }
@@ -127,33 +160,81 @@ def our_pods(rows: list[dict] | None) -> list[dict]:
     return found
 
 
+def expired(pod: dict) -> bool:
+    """An unreadable age fails closed: the Volume keeps the data, the Pod costs money."""
+    return pod["age_seconds"] is None or pod["age_seconds"] > TTL_SECONDS
+
+
+def incident(reason: str, pods: list[dict]) -> dict:
+    return {
+        "action": "incident",
+        "reason": reason,
+        "terminate": [pod["id"] for pod in pods],
+        "copy_incomplete": False,
+    }
+
+
 def decide(pods: list[dict]) -> dict:
-    """The whole policy, as a pure function of provider facts: what to do about these Pods."""
-    if len(pods) > 1:
-        return {
-            "action": "incident",
-            "reason": f"{len(pods)} canalla Pods alive at once — at most one is ever allowed",
-            "terminate": [pod["id"] for pod in pods],
-        }
+    """The whole policy as a pure function of provider facts: what to do about these Pods."""
     if not pods:
-        return {"action": "none", "reason": "no canalla Pod alive", "terminate": []}
-    pod = pods[0]
-    if pod["age_seconds"] is None:
+        return {"action": "none", "reason": "no canalla Pod alive", "terminate": [], "copy_incomplete": False}
+
+    unknown = [pod for pod in pods if pod["family"] == "unknown"]
+    if unknown:
+        return incident(
+            f"unrecognized canalla Pod(s): {[pod['name'] for pod in unknown]}", pods
+        )
+
+    migrations = [pod for pod in pods if pod["family"] == "migration"]
+    sources = [pod for pod in pods if pod["family"] == "copy_source"]
+    destinations = [pod for pod in pods if pod["family"] == "copy_destination"]
+
+    if len(migrations) > 1:
+        return incident(f"{len(migrations)} measurement Pods alive at once", pods)
+    if len(sources) > 1 or len(destinations) > 1:
+        return incident(
+            f"duplicate copy end(s): {len(sources)} source, {len(destinations)} destination", pods
+        )
+    if migrations and (sources or destinations):
+        return incident("a measurement Pod and a copy transaction are alive at once", pods)
+
+    if (
+        sources
+        and destinations
+        and sources[0]["transaction"] != destinations[0]["transaction"]
+    ):
+        return incident(
+            "copy ends belong to different transactions: "
+            f"{sources[0]['transaction']} != {destinations[0]['transaction']}",
+            pods,
+        )
+
+    if len(pods) > 2:
+        return incident(f"{len(pods)} canalla Pods alive at once — at most two (one copy pair)", pods)
+
+    over = [pod for pod in pods if expired(pod)]
+    if over:
+        pair = len(pods) == 2
+        detail = ", ".join(
+            f"{pod['name']} age={pod['age_seconds']}" for pod in over
+        )
         return {
-            "action": "terminate",
-            "reason": "age unreadable from the provider's createdAt — fail closed",
-            "terminate": [pod["id"]],
+            "action": "copy_incomplete" if pair else "terminate",
+            "reason": (
+                f"a copy end reached the {TTL_SECONDS}s TTL ({detail}) — both ends are released"
+                if pair
+                else f"{over[0]['name']} is past the {TTL_SECONDS}s TTL ({detail})"
+            ),
+            "terminate": [pod["id"] for pod in pods] if pair else [over[0]["id"]],
+            "copy_incomplete": pair,
         }
-    if pod["age_seconds"] > TTL_SECONDS:
-        return {
-            "action": "terminate",
-            "reason": f"age {pod['age_seconds']}s exceeds the {TTL_SECONDS}s TTL",
-            "terminate": [pod["id"]],
-        }
+
+    shape = "copy pair" if len(pods) == 2 else pods[0]["family"]
     return {
         "action": "none",
-        "reason": f"one live Pod, age {pod['age_seconds']}s, inside the TTL",
+        "reason": f"one {shape}, oldest age {max(pod['age_seconds'] for pod in pods)}s, inside the TTL",
         "terminate": [],
+        "copy_incomplete": False,
     }
 
 
@@ -190,6 +271,25 @@ def enforce(key: str) -> int:
         except (RuntimeError, OSError, ValueError) as error:
             log(f"could not terminate {pod_id}: {type(error).__name__}: {error}")
 
+    if decision["action"] == "copy_incomplete":
+        COPY_INCOMPLETE.write_text(
+            json.dumps(
+                {
+                    "at": now(),
+                    "reason": decision["reason"],
+                    "pods": pods,
+                    "terminated": released,
+                    "resumable": True,
+                    "ttl_seconds": TTL_SECONDS,
+                },
+                ensure_ascii=False,
+                indent=1,
+            ),
+            encoding="utf-8",
+        )
+        log(f"COPY INCOMPLETE — released {released}, resumable, reaper stops")
+        return 4
+
     if decision["action"] == "incident":
         INCIDENT.write_text(
             json.dumps(
@@ -211,7 +311,9 @@ def enforce(key: str) -> int:
 
 
 def self_test() -> int:
-    """Offline proof of the two rules, from provider-shaped rows only."""
+    """Offline proof of the rules, from provider-shaped rows only."""
+    import datetime as dt
+
     results: list[tuple[str, bool, str]] = []
 
     def check(name: str, ok: bool, detail: str = "") -> None:
@@ -221,76 +323,136 @@ def self_test() -> int:
         stamp = (
             "not-a-date"
             if age is None
-            else (datetime.now(timezone.utc) - __import__("datetime").timedelta(seconds=age))
-            .strftime("%Y-%m-%dT%H:%M:%SZ")
+            else (datetime.now(timezone.utc) - dt.timedelta(seconds=age)).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
         )
-        return {
-            "id": pod_id,
-            "name": name,
-            "status": status,
-            "createdAt": stamp,
-        }
+        return {"id": pod_id, "name": name, "status": status, "createdAt": stamp}
 
-    fresh = our_pods([row("canalla-migrate-1", 60)])
-    check("a fresh migration Pod is left alone", decide(fresh)["action"] == "none", str(fresh))
+    def plan(rows: list[dict]) -> dict:
+        return decide(our_pods(rows))
 
-    old = our_pods([row("canalla-migrate-1", TTL_SECONDS + 1)])
+    fresh = plan([row("canalla-migrate-1", 60)])
+    check("a fresh measurement Pod is left alone", fresh["action"] == "none", str(fresh))
+
+    old = plan([row("canalla-migrate-1", TTL_SECONDS + 1)])
     check(
         "a Pod past the 15-minute TTL is terminated",
-        decide(old)["terminate"] == ["p1"],
-        str(decide(old)),
+        old["action"] == "terminate" and old["terminate"] == ["p1"],
+        str(old),
     )
 
-    boundary = our_pods([row("canalla-copy-1", TTL_SECONDS - 1)])
-    check("the TTL boundary is inclusive-safe", decide(boundary)["action"] == "none")
+    boundary = plan([row("canalla-migrate-1", TTL_SECONDS - 1)])
+    check("the TTL boundary is inclusive-safe", boundary["action"] == "none")
 
-    copy_old = our_pods([row("canalla-copy-1", TTL_SECONDS + 5, pod_id="p2")])
-    check("a copy Pod obeys the same TTL", decide(copy_old)["terminate"] == ["p2"])
+    unreadable = plan([row("canalla-migrate-1", None)])
+    check("an unreadable createdAt fails closed", unreadable["terminate"] == ["p1"])
 
-    two = our_pods(
+    pair_fresh = plan(
         [
-            row("canalla-migrate-1", 30, pod_id="p1"),
-            row("canalla-copy-1", 30, pod_id="p2"),
+            row("canalla-copy-source-tx7", 40, pod_id="s1"),
+            row("canalla-copy-destination-tx7", 35, pod_id="d1"),
         ]
     )
-    decision = decide(two)
     check(
-        "two live canalla Pods are an incident and both are released",
-        decision["action"] == "incident" and sorted(decision["terminate"]) == ["p1", "p2"],
-        str(decision),
+        "one source plus one destination of the same transaction is allowed",
+        pair_fresh["action"] == "none" and not pair_fresh["terminate"],
+        str(pair_fresh),
     )
 
-    check("no canalla Pod is a no-op", decide(our_pods([]))["action"] == "none")
-
-    unreadable = our_pods([row("canalla-migrate-1", None)])
+    pair_source_old = plan(
+        [
+            row("canalla-copy-source-tx7", TTL_SECONDS + 3, pod_id="s1"),
+            row("canalla-copy-destination-tx7", 20, pod_id="d1"),
+        ]
+    )
     check(
-        "an unreadable createdAt fails closed",
-        decide(unreadable)["terminate"] == ["p1"],
-        str(decide(unreadable)),
+        "a source past the TTL releases BOTH ends and marks the copy incomplete",
+        pair_source_old["action"] == "copy_incomplete"
+        and sorted(pair_source_old["terminate"]) == ["d1", "s1"]
+        and pair_source_old["copy_incomplete"],
+        str(pair_source_old),
     )
 
-    strangers = our_pods(
+    pair_dest_old = plan(
+        [
+            row("canalla-copy-source-tx7", 20, pod_id="s1"),
+            row("canalla-copy-destination-tx7", TTL_SECONDS + 30, pod_id="d1"),
+        ]
+    )
+    check(
+        "a destination past the TTL releases both ends too",
+        sorted(pair_dest_old["terminate"]) == ["d1", "s1"],
+        str(pair_dest_old),
+    )
+
+    mixed_tx = plan(
+        [
+            row("canalla-copy-source-tx7", 20, pod_id="s1"),
+            row("canalla-copy-destination-tx8", 20, pod_id="d1"),
+        ]
+    )
+    check(
+        "different transaction ids are an incident",
+        mixed_tx["action"] == "incident" and sorted(mixed_tx["terminate"]) == ["d1", "s1"],
+        str(mixed_tx),
+    )
+
+    two_sources = plan(
+        [
+            row("canalla-copy-source-tx7", 20, pod_id="s1"),
+            row("canalla-copy-source-tx7", 20, pod_id="s2"),
+        ]
+    )
+    check("two sources are an incident", two_sources["action"] == "incident", str(two_sources))
+
+    two_destinations = plan(
+        [
+            row("canalla-copy-destination-tx7", 20, pod_id="d1"),
+            row("canalla-copy-destination-tx7", 20, pod_id="d2"),
+        ]
+    )
+    check(
+        "two destinations are an incident",
+        two_destinations["action"] == "incident",
+        str(two_destinations),
+    )
+
+    three = plan(
+        [
+            row("canalla-copy-source-tx7", 20, pod_id="s1"),
+            row("canalla-copy-destination-tx7", 20, pod_id="d1"),
+            row("canalla-migrate-9", 20, pod_id="m1"),
+        ]
+    )
+    check(
+        "a copy pair plus a measurement Pod is an incident",
+        three["action"] == "incident" and len(three["terminate"]) == 3,
+        str(three),
+    )
+
+    legacy = plan([row("canalla-copy-1790383189", 20, pod_id="x1")])
+    check(
+        "an unrecognized canalla Pod is an incident",
+        legacy["action"] == "incident" and legacy["terminate"] == ["x1"],
+        str(legacy),
+    )
+
+    empty_tx = plan([row("canalla-copy-source-", 20, pod_id="x2")])
+    check("a copy name without a transaction id is unrecognized", empty_tx["action"] == "incident")
+
+    strangers = plan(
         [
             row("not-canalla-migrate-1", TTL_SECONDS + 600, pod_id="x1"),
             row("my-own-pod", TTL_SECONDS + 600, pod_id="x2"),
         ]
     )
-    check("foreign Pods are never touched", decide(strangers)["action"] == "none", str(strangers))
+    check("foreign Pods are never touched", strangers["action"] == "none", str(strangers))
 
-    settled = our_pods([row("canalla-migrate-1", TTL_SECONDS + 600, status="EXITED")])
-    check("an already exited Pod is not a live Pod", decide(settled)["action"] == "none")
+    settled = plan([row("canalla-migrate-1", TTL_SECONDS + 600, status="EXITED")])
+    check("an already exited Pod is not a live Pod", settled["action"] == "none")
 
-    check(
-        "our own Pods are read from provider fields only",
-        our_pods([row("canalla-migrate-9", 10, pod_id="p9")])[0]
-        == {
-            "id": "p9",
-            "name": "canalla-migrate-9",
-            "status": "RUNNING",
-            "createdAt": our_pods([row("canalla-migrate-9", 10)])[0]["createdAt"],
-            "age_seconds": our_pods([row("canalla-migrate-9", 10)])[0]["age_seconds"],
-        },
-    )
+    check("no canalla Pod is a no-op", plan([])["action"] == "none")
 
     failures = [name for name, ok, _ in results if not ok]
     for name, ok, detail in results:
@@ -319,11 +481,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.once:
         return enforce(key)
 
-    log(f"reaper started (TTL {TTL_SECONDS}s, single-Pod rule, every {POLL_SECONDS}s)")
+    log(
+        f"reaper started (TTL {TTL_SECONDS}s, shapes: one measurement Pod or one copy pair, "
+        f"every {POLL_SECONDS}s)"
+    )
     while True:
         try:
             code = enforce(key)
-            if code == 2:  # incident: terminate everything, stop, do not retry by itself
+            if code in {2, 4}:  # incident or aborted copy: nothing left to watch, stop
                 return code
         except (RuntimeError, OSError, ValueError, TimeoutError) as error:
             log(f"pass failed: {type(error).__name__}: {error} — will look again")
