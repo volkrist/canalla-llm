@@ -48,6 +48,16 @@ const CHAT_PROMPT =
 const TOR_PROMPT =
   process.env.LIVE_AI_TOR_PROMPT || "Открой https://example.com через Tor";
 
+// The product's own allocation lifecycle is bounded (60 s), so a chat-triggered ensure either moves
+// the badge out of `disconnected/<code>` promptly or it was REFUSED. The previous run waited 20
+// minutes behind a terminal 422 and hid a contract mismatch; these two windows fix that without
+// touching production semantics: a short one for the transition to appear, a long one for the real
+// model load once it has.
+const CONNECT_TRIGGER_WAIT_MS = Number(
+  process.env.LIVE_AI_TRIGGER_WAIT_MS || 150000,
+);
+const READY_WAIT_MS = Number(process.env.LIVE_AI_READY_WAIT_MS || 900000);
+
 const failures = [];
 let child = null;
 
@@ -302,10 +312,30 @@ async function main() {
   }
 
   const chatStarted = Date.now();
+  const beforeChat = await aiState(page);
   await send(page, CHAT_PROMPT);
   console.log(`  sent: ${CHAT_PROMPT}`);
 
-  const connected = await waitForAi(page, ["connected"], 1200000);
+  const transition = await waitForAi(
+    page,
+    ["connecting", "connected"],
+    CONNECT_TRIGGER_WAIT_MS,
+  );
+  let connected = transition;
+  if (transition.reached === null) {
+    const afterChat = await aiState(page);
+    console.log(
+      `  no transition within ${CONNECT_TRIGGER_WAIT_MS} ms — the ensure was refused, not slow ` +
+        `[${beforeChat.state}/${beforeChat.code} -> ${afterChat.state}/${afterChat.code}]`,
+    );
+  } else if (transition.reached !== "connected") {
+    const ready = await waitForAi(page, ["connected"], READY_WAIT_MS);
+    connected = {
+      reached: ready.reached,
+      seen: [...new Set([...transition.seen, ...ready.seen])],
+      at: ready.at,
+    };
+  }
   const connectMs = Date.now() - chatStarted;
   console.log(`  ai states seen: ${connected.seen.join(" -> ")}`);
   check(
@@ -331,7 +361,11 @@ async function main() {
     `${connected.reached} after ${connectMs} ms`,
   );
 
-  const answered = await waitForAnswer(page, await messagesInDom(page), 900000);
+  const answered = await waitForAnswer(
+    page,
+    await messagesInDom(page),
+    connected.reached === "connected" ? READY_WAIT_MS : 30000,
+  );
   check(
     "the chat produced an answer",
     answered.done,
