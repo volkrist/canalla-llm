@@ -328,7 +328,12 @@ async function waitForTorReady(page, timeoutMs = TOR_READY_WAIT_MS) {
   return { ready: false, seen: [...seen], chip: await torChipState(page) };
 }
 
-/** How many web sources the product attached to the newest answer, and how it labels them. */
+/** How many web sources the product attached to the newest answer, and how it labels them.
+ *
+ * Each source is one `<details><summary>[T1] Title · AUTHORITY</summary>` inside its own labelled
+ * section, so the count is the number of those entries — the previous `li, article` selector counted
+ * zero while the answer already carried «Tor sources · 1».
+ */
 async function lastAnswerSources(page) {
   return await page
     .evaluate(() => {
@@ -336,16 +341,20 @@ async function lastAnswerSources(page) {
         document.querySelectorAll(".messages article.message.assistant"),
       );
       const last = articles[articles.length - 1];
-      if (!last) return { tor: 0, summary: "" };
+      if (!last) return { tor: 0, summary: "", labels: [] };
       const section = last.querySelector('section[aria-label="Tor sources"]');
+      if (!section) return { tor: 0, summary: "", labels: [] };
+      const entries = Array.from(section.querySelectorAll("details"));
+      const labels = entries
+        .map((entry) => (entry.querySelector("summary")?.textContent || "").trim())
+        .filter(Boolean);
       return {
-        tor: section ? section.querySelectorAll("li, article").length : 0,
-        summary: section
-          ? (section.querySelector("summary")?.textContent || "").trim()
-          : "",
+        tor: entries.length,
+        summary: (section.querySelector("summary")?.textContent || "").trim(),
+        labels,
       };
     })
-    .catch(() => ({ tor: 0, summary: "" }));
+    .catch(() => ({ tor: 0, summary: "", labels: [] }));
 }
 
 async function quitApp() {
@@ -428,7 +437,7 @@ async function closeRunningInstances() {
  * proof, the proof is a managed SOCKS5h round trip, and the answer carries the sources the fetch
  * returned. Nothing here is inferred from «the answer arrived».
  */
-async function checkTorRoute(page, before) {
+async function checkTorRoute(page, before, answer) {
   const after = readTorProof();
   const chip = await torChipState(page);
   const sources = await lastAnswerSources(page);
@@ -456,6 +465,16 @@ async function checkTorRoute(page, before) {
     JSON.stringify(sources),
   );
   check(
+    "the fetched sources carry the product's own labels",
+    sources.labels.some((label) => /^\[T\d+\]/.test(label)),
+    JSON.stringify(sources.labels),
+  );
+  check(
+    "the answer is built from the fetched page, not from a claim",
+    /\[T\d+\]/.test(answer) && /example\.com/i.test(answer),
+    answer.slice(0, 200),
+  );
+  check(
     "the proof was proved again while the request was in flight",
     !!after &&
       !!before &&
@@ -472,28 +491,50 @@ async function checkTorRoute(page, before) {
  * is measuring. Every phase before this one keeps the window open.
  */
 async function stopCompute(page) {
-  let stop = page.getByRole("button", { name: "Остановить AI" }).first();
-  let present = await stop.isVisible().catch(() => false);
-  if (!present) {
-    // The control lives in Settings -> Canalla Cloud, and the workspace binds Ctrl+, to Settings.
-    await page.keyboard.press("Control+,");
-    const tab = page
-      .getByRole("button", { name: "Canalla Cloud", exact: true })
-      .first();
-    const opened = await tab
-      .waitFor({ timeout: 20000 })
-      .then(() => true)
-      .catch(() => false);
-    if (opened) {
-      await tab.click();
-      stop = page.getByRole("button", { name: "Остановить AI" }).first();
-      present = await stop.isVisible().catch(() => false);
+  // The product may offer the control in more than one place (the compute bar and the AI / Compute
+  // panel), and one of them can be disabled while a read or a generation is in flight: press the
+  // first *enabled* one, and answer the confirmation the panel asks for. Bounded, and it never
+  // throws — a control that cannot be pressed is a reported fact, not a crash.
+  const deadline = Date.now() + 180000;
+  let present = false;
+  let settled = { reached: null, seen: [] };
+  let pressed = false;
+  while (Date.now() < deadline) {
+    const controls = page.getByRole("button", { name: "Остановить AI" });
+    const count = await controls.count().catch(() => 0);
+    for (let index = 0; index < count; index += 1) {
+      const candidate = controls.nth(index);
+      if (await candidate.isVisible().catch(() => false)) present = true;
+      if (
+        !(await candidate.isVisible().catch(() => false)) ||
+        !(await candidate.isEnabled().catch(() => false))
+      ) {
+        continue;
+      }
+      try {
+        await candidate.click({ timeout: 15000 });
+        pressed = true;
+      } catch {
+        continue;
+      }
+      const confirm = page
+        .getByRole("button", { name: "Подтвердить остановку" })
+        .first();
+      if (await confirm.isVisible().catch(() => false)) {
+        await confirm.click().catch(() => {});
+      }
+      settled = await waitForAi(page, ["disconnected"], 60000);
+      if (settled.reached === "disconnected") break;
     }
+    if (settled.reached === "disconnected") break;
+    await sleep(3000);
   }
   check("the product offers a Stop AI control", present);
-  if (!present) return;
-  await stop.click();
-  const settled = await waitForAi(page, ["disconnected"], 180000);
+  check("the product's Stop AI control became usable and was pressed", pressed);
+  if (!pressed) return;
+  if (settled.reached !== "disconnected") {
+    settled = await waitForAi(page, ["disconnected"], 180000);
+  }
   check(
     "AI returns to Disconnected after Stop AI (not Connecting, not a stale Connected)",
     settled.reached === "disconnected",
@@ -706,7 +747,7 @@ async function main() {
     `${torAnswered.count} assistant messages, ${torAnswered.text.length} chars`,
   );
   console.log(`  answer: ${torAnswered.text.slice(0, 300)}`);
-  await checkTorRoute(page, torProofBefore);
+  await checkTorRoute(page, torProofBefore, torAnswered.text);
   const torTranscript = await transcript(page);
   console.log(`\n  transcript after the Tor request:\n${torTranscript}\n`);
 
