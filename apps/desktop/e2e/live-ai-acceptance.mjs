@@ -511,6 +511,13 @@ async function stopCompute(page) {
   };
 
   const stopControls = () => page.getByRole("button", { name: "Остановить AI" });
+  // The Settings dialog renders after the workspace, so an unscoped search for «Запустить AI» finds
+  // the compact bar's button — which only opens the compute section and never performs the ensure
+  // that would teach the Cloud panel about the running session. Everything below is scoped to the
+  // dialog, where the panel's own controls live.
+  const dialog = () => page.locator("dialog").first();
+  const panelButton = (name) =>
+    dialog().getByRole("button", { name, exact: true }).first();
   const enabledStop = async () => {
     const controls = stopControls();
     const count = await controls.count().catch(() => 0);
@@ -524,7 +531,7 @@ async function stopCompute(page) {
     return null; // not on this screen
   };
 
-  const deadline = Date.now() + 240000;
+  const deadline = Date.now() + 300000;
   let present = false;
   let pressed = false;
   let offered = false; // the panel showed a prewarm, which is what a disabled Stop means
@@ -532,11 +539,14 @@ async function stopCompute(page) {
     const found = await enabledStop();
     if (found === false) {
       present = true;
-      const prewarm = page.getByRole("button", { name: "Запустить AI" }).first();
+      const prewarm = await panelButton("Запустить AI").isVisible().catch(() => false)
+        ? panelButton("Запустить AI")
+        : page.getByRole("button", { name: "Запустить AI" }).first();
       if (await prewarm.isVisible().catch(() => false)) {
         offered = true;
         await prewarm.click().catch(() => {});
-        await sleep(8000);
+        // The panel learns the session from this answer: give it time to arrive and re-render.
+        await sleep(10000);
       }
       await cloudPanel();
       await sleep(3000);
@@ -782,6 +792,15 @@ async function main() {
     torReady.ready,
     `states: ${torReady.seen.join(" -> ")}`,
   );
+  // A Tor request needs a model to answer it, so if the chat could not bring compute up (a capacity
+  // race at the start of the run) the run waits — bounded — for the badge to reach Connected before
+  // it spends the window's Tor request on a model that is not there yet.
+  if (!(await aiState(page)).state.includes("connected")) {
+    const late = await waitForAi(page, ["connected"], 300000);
+    console.log(
+      `  model before the Tor request: ${late.reached ?? "not ready"} (seen: ${late.seen.join(" -> ")})`,
+    );
+  }
   await send(page, TOR_PROMPT);
   console.log(`  sent: ${TOR_PROMPT}`);
   const torAnswered = await waitForAnswer(page, torBefore, TOR_ANSWER_WAIT_MS);
