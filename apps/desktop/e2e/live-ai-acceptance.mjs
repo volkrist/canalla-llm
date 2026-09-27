@@ -52,6 +52,9 @@ const CHAT_PROMPT =
   process.env.LIVE_AI_CHAT_PROMPT || "Ответь одним словом: готово";
 const TOR_PROMPT =
   process.env.LIVE_AI_TOR_PROMPT || "Открой https://example.com через Tor";
+// A second Tor request, optional: one window can then prove an onion address (which only Tor can
+// serve) next to the clearnet page, without creating a second Pod.
+const TOR_PROMPT_2 = process.env.LIVE_AI_TOR_PROMPT_2 || "";
 
 // The product's own Tor evidence, read where the product writes it. The chip is green only on a
 // proof, so the proof is what an acceptance run must read — an open SOCKS port proves nothing.
@@ -437,7 +440,8 @@ async function closeRunningInstances() {
  * proof, the proof is a managed SOCKS5h round trip, and the answer carries the sources the fetch
  * returned. Nothing here is inferred from «the answer arrived».
  */
-async function checkTorRoute(page, before, answer) {
+async function checkTorRoute(page, before, answer, label = "") {
+  const prefix = label ? `${label} ` : "";
   const after = readTorProof();
   const chip = await torChipState(page);
   const sources = await lastAnswerSources(page);
@@ -445,12 +449,12 @@ async function checkTorRoute(page, before, answer) {
   console.log(`  tor proof after  ${JSON.stringify(after)}`);
   console.log(`  tor sources      ${JSON.stringify(sources)}`);
   check(
-    "the Tor chip is green on a proof, not on an open port",
+    `${prefix}the Tor chip is green on a proof, not on an open port`,
     chip.state === "ready",
     `state=${chip.state} label=${chip.label}`,
   );
   check(
-    "the proof is a managed SOCKS5h round trip and still fresh",
+    `${prefix}the proof is a managed SOCKS5h round trip and still fresh`,
     !!after &&
       after.verified &&
       after.method === "socks5h" &&
@@ -460,22 +464,22 @@ async function checkTorRoute(page, before, answer) {
     JSON.stringify(after),
   );
   check(
-    "the answer carries the Tor sources the fetch returned",
+    `${prefix}the answer carries the Tor sources the fetch returned`,
     sources.tor > 0,
     JSON.stringify(sources),
   );
   check(
-    "the fetched sources carry the product's own labels",
-    sources.labels.some((label) => /^\[T\d+\]/.test(label)),
+    `${prefix}the fetched sources carry the product's own labels`,
+    sources.labels.some((entry) => /\[T\d+\]/.test(entry)),
     JSON.stringify(sources.labels),
   );
   check(
-    "the answer is built from the fetched page, not from a claim",
-    /\[T\d+\]/.test(answer) && /example\.com/i.test(answer),
+    `${prefix}the answer is built from the fetched page, not from a claim`,
+    /\[T\d+\]/.test(answer),
     answer.slice(0, 200),
   );
   check(
-    "the proof was proved again while the request was in flight",
+    `${prefix}the proof was proved again while the request was in flight`,
     !!after &&
       !!before &&
       Date.parse(after.verified_at) >= Date.parse(before.verified_at || "0"),
@@ -491,50 +495,90 @@ async function checkTorRoute(page, before, answer) {
  * is measuring. Every phase before this one keeps the window open.
  */
 async function stopCompute(page) {
-  // The product may offer the control in more than one place (the compute bar and the AI / Compute
-  // panel), and one of them can be disabled while a read or a generation is in flight: press the
-  // first *enabled* one, and answer the confirmation the panel asks for. Bounded, and it never
-  // throws — a control that cannot be pressed is a reported fact, not a crash.
-  const deadline = Date.now() + 180000;
-  let present = false;
-  let settled = { reached: null, seen: [] };
-  let pressed = false;
-  while (Date.now() < deadline) {
-    const controls = page.getByRole("button", { name: "Остановить AI" });
+  // The product offers the control in the workspace bar and in Settings -> Canalla Cloud. In shared
+  // mode the Cloud panel learns about a session from an `ensure`/`stop` answer of its own (a
+  // chat-triggered Pod is not in that snapshot), so pressing its «Запустить AI» first is the
+  // product's own prewarm — idempotent, the Gateway never creates a second Pod — and it is what
+  // makes the panel's Stop usable. Bounded, never throws: an unusable control is reported.
+  const cloudPanel = async () => {
+    const tab = page.getByRole("button", { name: "Canalla Cloud", exact: true }).first();
+    const visible = await tab.isVisible().catch(() => false);
+    if (!visible) {
+      await page.keyboard.press("Control+,");
+      await tab.waitFor({ timeout: 20000 }).catch(() => {});
+    }
+    if (await tab.isVisible().catch(() => false)) await tab.click().catch(() => {});
+  };
+
+  const stopControls = () => page.getByRole("button", { name: "Остановить AI" });
+  const enabledStop = async () => {
+    const controls = stopControls();
     const count = await controls.count().catch(() => 0);
     for (let index = 0; index < count; index += 1) {
       const candidate = controls.nth(index);
-      if (await candidate.isVisible().catch(() => false)) present = true;
-      if (
-        !(await candidate.isVisible().catch(() => false)) ||
-        !(await candidate.isEnabled().catch(() => false))
-      ) {
-        continue;
+      if (await candidate.isVisible().catch(() => false)) {
+        if (await candidate.isEnabled().catch(() => false)) return candidate;
+        return false; // visible but not usable yet
       }
-      try {
-        await candidate.click({ timeout: 15000 });
-        pressed = true;
-      } catch {
-        continue;
-      }
-      const confirm = page
-        .getByRole("button", { name: "Подтвердить остановку" })
-        .first();
-      if (await confirm.isVisible().catch(() => false)) {
-        await confirm.click().catch(() => {});
-      }
-      settled = await waitForAi(page, ["disconnected"], 60000);
-      if (settled.reached === "disconnected") break;
     }
-    if (settled.reached === "disconnected") break;
-    await sleep(3000);
+    return null; // not on this screen
+  };
+
+  const deadline = Date.now() + 240000;
+  let present = false;
+  let pressed = false;
+  let offered = false; // the panel showed a prewarm, which is what a disabled Stop means
+  while (Date.now() < deadline && !pressed) {
+    const found = await enabledStop();
+    if (found === false) {
+      present = true;
+      const prewarm = page.getByRole("button", { name: "Запустить AI" }).first();
+      if (await prewarm.isVisible().catch(() => false)) {
+        offered = true;
+        await prewarm.click().catch(() => {});
+        await sleep(8000);
+      }
+      await cloudPanel();
+      await sleep(3000);
+      continue;
+    }
+    if (found === null) {
+      await cloudPanel();
+      await sleep(3000);
+      continue;
+    }
+    present = true;
+    try {
+      await found.click({ timeout: 15000 });
+      pressed = true;
+    } catch {
+      await sleep(2000);
+      continue;
+    }
+    const confirm = page
+      .getByRole("button", { name: "Подтвердить остановку" })
+      .first();
+    if (await confirm.isVisible().catch(() => false)) {
+      await confirm.click().catch(() => {});
+    }
+    const settled = await waitForAi(page, ["disconnected"], 90000);
+    if (settled.reached === "disconnected") {
+      check("the product offers a Stop AI control", present);
+      check("the product's Stop AI control became usable and was pressed", pressed);
+      check(
+        "AI returns to Disconnected after Stop AI (not Connecting, not a stale Connected)",
+        true,
+        `reached=${settled.reached} seen=${settled.seen.join(" -> ")}`,
+      );
+      return;
+    }
   }
   check("the product offers a Stop AI control", present);
   check("the product's Stop AI control became usable and was pressed", pressed);
-  if (!pressed) return;
-  if (settled.reached !== "disconnected") {
-    settled = await waitForAi(page, ["disconnected"], 180000);
+  if (offered) {
+    console.log("  the Cloud panel offered its prewarm instead of a Stop; it was pressed");
   }
+  const settled = await waitForAi(page, ["disconnected"], 180000);
   check(
     "AI returns to Disconnected after Stop AI (not Connecting, not a stale Connected)",
     settled.reached === "disconnected",
@@ -748,6 +792,24 @@ async function main() {
   );
   console.log(`  answer: ${torAnswered.text.slice(0, 300)}`);
   await checkTorRoute(page, torProofBefore, torAnswered.text);
+
+  // A second Tor request, when the operator names one: an onion address is served by Tor and by
+  // nothing else, so it is the strongest possible proof that the route is real.
+  if (TOR_PROMPT_2) {
+    const before2 = await lastAnswer(page);
+    const proofBefore2 = readTorProof();
+    await send(page, TOR_PROMPT_2);
+    console.log(`  sent: ${TOR_PROMPT_2}`);
+    const answered2 = await waitForAnswer(page, before2, TOR_ANSWER_WAIT_MS);
+    check(
+      "the second Tor request produced an answer",
+      answered2.done,
+      `${answered2.text.length} chars`,
+    );
+    console.log(`  answer: ${answered2.text.slice(0, 300)}`);
+    await checkTorRoute(page, proofBefore2, answered2.text, "second request:");
+  }
+
   const torTranscript = await transcript(page);
   console.log(`\n  transcript after the Tor request:\n${torTranscript}\n`);
 

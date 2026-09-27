@@ -201,6 +201,27 @@ def enforce_deadline(key: str, state: dict) -> list[str]:
 # --------------------------------------------------------------------- the acceptance
 
 
+def harness_env() -> dict:
+    """The child environment for the acceptance, plus optional UTF-8 prompt overrides.
+
+    The prompts are Russian text that must survive the trip through a Windows environment into node,
+    so an operator names them in a file next to this watcher instead of in a shell variable.
+    """
+    env = dict(os.environ)
+    path = ARTIFACTS / "prompts.json"
+    if path.is_file():
+        try:
+            overrides = json.loads(path.read_text(encoding="utf-8"))
+        except (ValueError, OSError) as error:
+            log(f"prompts.json ignored: {type(error).__name__}: {error}")
+            return env
+        for key, value in overrides.items():
+            if isinstance(key, str) and key.startswith("LIVE_") and isinstance(value, str):
+                env[key] = value
+        log(f"prompt overrides: {sorted(key for key in overrides if key.startswith('LIVE_'))}")
+    return env
+
+
 def harness(phase: str, timeout: int) -> dict:
     """Run the live acceptance through the installed product; capture its whole output.
 
@@ -221,6 +242,7 @@ def harness(phase: str, timeout: int) -> dict:
             errors="replace",
             timeout=timeout,
             check=False,
+            env=harness_env(),
         )
         output, code = (result.stdout or "") + (result.stderr or ""), result.returncode
     except subprocess.TimeoutExpired as error:
