@@ -84,8 +84,19 @@ function state(input: Partial<AiConnectionInput> & { ai?: SubsystemStatus }) {
     snapshot: ai ? snapshot(ai) : null,
     stale: false,
     backendReady: true,
+    // Every assertion is explicit about time: the snapshot fixtures are stamped 10:00:00 and the
+    // transition rules are bounded, so «now» is part of the input rather than the wall clock.
+    now: FIXTURE_NOW,
     ...rest,
   });
+}
+
+/** The moment the fixtures describe, half a minute after the snapshot was generated. */
+const FIXTURE_NOW = Date.parse("2026-09-23T10:00:30+00:00");
+
+/** A moment `seconds` after the fixtures' own time, for the bounded-transition tests. */
+function at(seconds: number): number {
+  return FIXTURE_NOW + seconds * 1000;
 }
 
 const NOT_CONFIGURED = aiChip("not_configured", {
@@ -425,7 +436,9 @@ describe("a stage is only amber while a bounded operation is running", () => {
     });
 
     expect(result.state).toBe("disconnected");
-    expect(result.code).toBe("waiting");
+    // More precise than the old «waiting»: this attempt really existed and outlived its window.
+    expect(result.code).toBe("expired");
+    expect(result.action).toBe("retry");
   });
 
   it("carries the backend's typed capacity reason when the search is over", () => {

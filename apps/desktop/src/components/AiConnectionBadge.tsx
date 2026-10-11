@@ -18,6 +18,8 @@ const HINT: Partial<Record<AiConnectionCode, string>> = {
   off: "Запустить AI можно в управлении compute.",
   stopping: "Остановка идёт; новое состояние появится само.",
   configured_only: "Готовность подтвердится, когда модель ответит.",
+  expired:
+    "Попытка подключения завершена: нажмите «Повторить», чтобы начать заново.",
 };
 
 /**
@@ -36,6 +38,14 @@ export function AiConnectionDetail({
   onAction: (action: RecoveryAction) => void;
 }) {
   const hint = HINT[connection.code];
+  const stageLine =
+    connection.stage === null
+      ? null
+      : `${connection.stage}${
+          connection.elapsedSeconds === null
+            ? ""
+            : ` · ${connection.elapsedSeconds} с`
+        }`;
   return (
     <div
       className="status-detail connection-detail"
@@ -44,6 +54,13 @@ export function AiConnectionDetail({
       <p>
         <strong>AI: {connection.label}</strong> — {connection.reason}
       </p>
+      {/* The stage is a fact (what is happening now), never a progress bar: no percentages are
+          invented for a GPU or a model that reports none. */}
+      {stageLine ? (
+        <p className="connection-stage" data-testid="ai-connection-stage">
+          Стадия: {stageLine}
+        </p>
+      ) : null}
       {rows.length ? (
         <dl>
           {rows.map(([label, value]) => (
@@ -104,9 +121,14 @@ export default function AiConnectionBadge({
   onAction: (action: RecoveryAction) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const connection = aiConnection({ snapshot, stale, backendReady });
+  const connection = aiConnection({
+    snapshot,
+    stale,
+    backendReady,
+    cloudState: cloud.state,
+  });
   // A stale snapshot is never a source of detail rows either: it is history.
-  const rows = aiConnectionRows(snapshot, stale);
+  const rows = aiConnectionRows(snapshot, stale, connection);
   const infra = aiInfrastructure({
     backendReady,
     cloudState: cloud.state,
@@ -123,7 +145,15 @@ export default function AiConnectionBadge({
         data-code={connection.code}
         aria-expanded={open}
         aria-label={`AI: ${connection.label}. ${connection.reason}`}
-        title={`AI · ${connection.label} — ${connection.reason}`}
+        title={
+          connection.stage
+            ? `AI · ${connection.label} — ${connection.stage}${
+                connection.elapsedSeconds === null
+                  ? ""
+                  : ` (${connection.elapsedSeconds} с)`
+              }`
+            : `AI · ${connection.label} — ${connection.reason}`
+        }
         onClick={() => setOpen(!open)}
       >
         <span className="tiny-dot" />
