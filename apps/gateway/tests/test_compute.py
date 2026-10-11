@@ -388,6 +388,20 @@ def test_client_auto_stop_outside_the_allowed_set_is_replaced(gateway, client):
     assert body["session"]["auto_stop_minutes"] == gateway.settings.compute_idle_minutes
 
 
+def test_the_session_keeps_the_clients_own_auto_stop_value(gateway, client):
+    """A14: a value inside the allowed set is the session's own policy, not the server default."""
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    assert gateway.settings.compute_idle_minutes != 5
+
+    body = ensure(client, headers, operation_id="op-idle-0000002", auto_stop_minutes=5)
+
+    assert body["session"]["auto_stop_minutes"] == 5
+    # The value the panel reads back is the value the session actually runs with.
+    current = client.get("/compute/status", headers=headers).json()
+    assert current["session"]["auto_stop_minutes"] == 5
+
+
 def test_ambiguous_create_becomes_create_unknown_and_is_not_retried(gateway, client):
     installation = enroll(gateway, client)
     headers = auth_header(client, installation)

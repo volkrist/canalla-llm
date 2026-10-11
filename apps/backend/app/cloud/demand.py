@@ -105,6 +105,10 @@ def policy_caps(controller, user_id: str) -> dict:
         "strategy": prefs.strategy,
         "gpu_id": prefs.gpu_id,
         "allow_community": bool(prefs.allow_community),
+        # A14: the saved idle-stop setting travels with every automatic and manual ensure, so the
+        # session is held to the value the user chose instead of the Gateway's own default. It is
+        # the user's own policy; the server may still refuse an unknown value and fall back.
+        "auto_stop_minutes": int(prefs.auto_stop_minutes),
     }
 
 

@@ -613,6 +613,69 @@ def test_the_chat_carries_the_user_s_own_allocation_strategy(shared_app, client,
     assert body["strategy"] == "fastest"
 
 
+def test_the_chat_carries_the_saved_auto_stop_setting(shared_app, client, auth):
+    """A14: the idle-stop the user saved reaches the session through the chat's own ensure.
+
+    The chat path used to send every Compute Preference *except* ``auto_stop_minutes``, so the
+    Gateway applied its own default and the value on screen was not the value that ran.
+    """
+    headers = auth()
+    saved = client.put("/compute/preferences", json={"auto_stop_minutes": 5}, headers=headers)
+    assert saved.status_code == 200, saved.text
+    shared_app.gateway.compute_steps = [compute_payload("ready", ai="ready")]
+
+    start_chat(client, headers)
+
+    body = shared_app.gateway.ensure_bodies[0]
+    assert body["origin"] == "chat"
+    assert body["auto_stop_minutes"] == 5
+
+
+def test_the_manual_prewarm_carries_the_saved_auto_stop_setting(shared_app, client, auth):
+    headers = auth()
+    saved = client.put("/compute/preferences", json={"auto_stop_minutes": 30}, headers=headers)
+    assert saved.status_code == 200, saved.text
+    shared_app.gateway.compute_steps = [compute_payload("ready", ai="ready")]
+
+    response = client.post("/cloud/compute/ensure", json={}, headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert shared_app.gateway.ensure_bodies[0]["auto_stop_minutes"] == 30
+
+
+def test_policy_caps_never_invents_an_auto_stop_without_preferences():
+    """Missing preferences are an empty policy, not a fabricated idle-stop value."""
+    from app.cloud.demand import policy_caps
+
+    assert policy_caps(None, "user") == {}
+
+
+def test_policy_caps_carries_every_preference_the_panel_shows():
+    """The one policy vocabulary: a saved preference is sent, never silently dropped."""
+    from app.cloud.demand import policy_caps
+
+    class Preferences:
+        max_hourly_price = 0.75
+        session_budget = 4.5
+        min_vram_gb = 48
+        selection = "automatic"
+        strategy = "balanced"
+        gpu_id = None
+        allow_community = False
+        auto_stop_minutes = 5
+
+    class Controller:
+        def preferences(self, user_id):
+            return Preferences()
+
+    caps = policy_caps(Controller(), "user")
+    assert caps["max_hourly_price"] == 0.75
+    assert caps["session_budget"] == 4.5
+    assert caps["min_vram_gb"] == 48
+    assert caps["selection"] == "automatic"
+    assert caps["auto_stop_minutes"] == 5
+
+
 def test_an_attaching_retry_never_relabels_the_attempt(shared_app):
     """The origin belongs to the attempt, not to whoever joined it.
 
