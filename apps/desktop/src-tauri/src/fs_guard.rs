@@ -17,6 +17,17 @@ const SECRET_NAMES: &[&str] = &[
     "wallet.dat",
     "credentials.json",
     "ntuser.dat",
+    // Canalla's own runtime secrets (A17). The OS would let the user read them; the Computer
+    // tools must not, so a canary value can never reach a model, a log or the UI.
+    "jwt.secret",
+    "shutdown.token",
+    "install.id",
+    "session.id",
+    "backend.lock",
+    "migration.json",
+    "host-journal.json",
+    "user-credential-names.json",
+    "device.json",
 ];
 
 const SECRET_FRAGMENTS: &[&str] = &[
@@ -28,6 +39,8 @@ const SECRET_FRAGMENTS: &[&str] = &[
     "\\appdata\\local\\microsoft\\edge\\user data",
     "\\1password\\",
     "\\keepass\\",
+    "\\alex llm\\runtime\\",
+    "\\alex-llm\\runtime\\",
 ];
 
 fn strip_extended(path: PathBuf) -> PathBuf {
@@ -63,7 +76,10 @@ fn is_local_absolute(value: &str) -> bool {
 }
 
 fn deny_secret(canonical: &Path) -> Result<(), String> {
-    let lowered = canonical.to_string_lossy().replace('/', "\\").to_lowercase();
+    let lowered = canonical
+        .to_string_lossy()
+        .replace('/', "\\")
+        .to_lowercase();
     let name = canonical
         .file_name()
         .map(|v| v.to_string_lossy().to_lowercase())
@@ -73,6 +89,7 @@ fn deny_secret(canonical: &Path) -> Result<(), String> {
         || name.ends_with(".pem")
         || name.ends_with(".ppk")
         || name.ends_with(".kdbx")
+        || name.ends_with(".dpapi")
         || name.contains("wallet")
     {
         return Err("secret_path".into());
@@ -171,6 +188,41 @@ mod tests {
         assert!(resolve(secret.to_str().unwrap(), &[]).is_err());
         let _ = fs::remove_file(&secret);
         let _ = fs::remove_dir(&dir);
+    }
+
+    /// A17: Canalla's own runtime secrets live where the OS lets the user read them. The Computer
+    /// tools must refuse them by name and by the runtime directory, so a canary value cannot reach
+    /// a model, a log or the UI even though a plain read would succeed.
+    #[test]
+    fn canalla_runtime_secrets_are_denied() {
+        let root = env::temp_dir().join("alex-llm-fs-runtime-secret");
+        let runtime = root.join("Alex LLM").join("runtime");
+        fs::create_dir_all(&runtime).unwrap();
+        for name in [
+            "jwt.secret",
+            "shutdown.token",
+            "install.id",
+            "session.id",
+            "host-journal.json",
+            "cred-session-abc.dpapi",
+        ] {
+            let file = runtime.join(name);
+            fs::write(&file, "canary").unwrap();
+            assert!(
+                resolve(file.to_str().unwrap(), &[]).is_err(),
+                "{name} must be denied"
+            );
+            let _ = fs::remove_file(&file);
+        }
+        // The runtime directory denies even a name nobody listed explicitly.
+        let unknown = runtime.join("anything-else.bin");
+        fs::write(&unknown, "canary").unwrap();
+        assert!(resolve(unknown.to_str().unwrap(), &[]).is_err());
+        // The device record is internal identity, not a user file.
+        let record = root.join("Alex LLM").join("device.json");
+        fs::write(&record, "canary").unwrap();
+        assert!(resolve(record.to_str().unwrap(), &[]).is_err());
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

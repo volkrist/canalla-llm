@@ -53,12 +53,20 @@ class PairRequest(BaseModel):
 class HostResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     digest: str = Field(min_length=64, max_length=64)
+    claim_id: str = Field(default="", max_length=64)
     status: str = Field(default="completed", max_length=32)
     exit_code: int | None = Field(default=None, ge=-1, le=255)
     stdout: str = Field(default="", max_length=20000)
     stderr: str = Field(default="", max_length=20000)
     text: str = Field(default="", max_length=20000)
     metadata: dict = Field(default_factory=dict)
+
+
+class HostClaim(BaseModel):
+    """The lease a device references when it starts, acks or declines a job."""
+
+    model_config = ConfigDict(extra="forbid")
+    claim_id: str = Field(default="", max_length=64)
 
 
 def require_device(db: Session, user: User, device_id: str | None, credential: str | None) -> PairedDevice:

@@ -40,6 +40,8 @@ STATES = {
 
 
 def public_run(row):
+    from .host_protocol import job_state
+
     metadata = dict(getattr(row, "result_metadata", None) or {})
     metadata.pop("host_args", None)
     payload = {
@@ -66,6 +68,7 @@ def public_run(row):
         )
         if hasattr(row, key)
     }
+    payload["state"] = job_state(row)
     payload["result_metadata"] = metadata
     return payload
 
@@ -73,6 +76,9 @@ def public_run(row):
 def public_job(row):
     payload = public_run(row)
     payload["host_args"] = (row.result_metadata or {}).get("host_args") or {}
+    # The lease id travels only to the paired device polling for work, never to the UI: it binds
+    # the device's result delivery to the claim it was granted.
+    payload["claim_id"] = getattr(row, "claim_id", None)
     return payload
 
 
@@ -115,12 +121,17 @@ def _run_row(db: Session, run_id: str) -> ToolRun:
 
 
 def reconcile_tools():
+    from .host_protocol import PRESERVED_ON_RESTART
     from .local.task import recover_interrupted
 
     with SessionLocal() as db:
+        # A backend restart must not discard a host job whose side effect may already have run: the
+        # claimed/started/result_awaiting_ack/unknown rows are preserved so the host can still
+        # deliver (or explicitly decline) the result. Only runs that never left the backend are
+        # failed, so nothing is silently re-planned around a live claim.
         db.execute(
             update(ToolRun)
-            .where(ToolRun.status.not_in(TERMINAL))
+            .where(ToolRun.status.not_in(TERMINAL | PRESERVED_ON_RESTART))
             .values(status="failed", finished_at=now(), error_code="backend_interrupted")
         )
         db.commit()
@@ -767,7 +778,12 @@ class ToolExecutor:
             with SessionLocal() as db:
                 row = db.get(ToolRun, run_id)
                 if row:
-                    row.status = "stopped" if cancelled else "failed"
+                    if code == "host_result_unknown":
+                        # The effect's outcome is genuinely unknown: keep the honest state instead of
+                        # collapsing it into a plain failure that a retry could act on.
+                        row.status = "unknown"
+                    else:
+                        row.status = "stopped" if cancelled else "failed"
                     row.finished_at, row.error_code = now(), code
                     if cancelled:
                         row.cancelled_at = now()
@@ -793,6 +809,8 @@ class ToolExecutor:
             await asyncio.sleep(0.25)
 
     async def wait_host(self, run_id, context):
+        from .host_protocol import DELIVERED, UNKNOWN
+
         while True:
             with SessionLocal() as db:
                 row = db.get(ToolRun, run_id)
@@ -800,6 +818,10 @@ class ToolExecutor:
                     raise ToolError("host_offline")
                 if row.status == "stopped":
                     raise ToolError("cancelled")
+                if row.status == UNKNOWN:
+                    # The host could not determine whether its side effect ran. Surfacing a typed
+                    # "verify" outcome is the honest answer; the command is never retried here.
+                    raise ToolError("host_result_unknown")
                 if row.status in TERMINAL:
                     raise ToolError("host_offline")
                 from .local.devices import public_device
@@ -816,7 +838,11 @@ class ToolExecutor:
                         {"state": "WAITING_DEVICE", "code": "host_offline", "task_id": context.task_id},
                     )
                     raise ToolError("host_offline")
-                elif getattr(context, "task_id", None) and row.status == "waiting_host":
+                elif getattr(context, "task_id", None) and row.status in {
+                    "waiting_host",
+                    "claimed",
+                    "started",
+                }:
                     from .local.machine import WAITING_DEVICE
                     from .local.task import LocalTaskController
                     from .models import LocalTask as TaskRow
@@ -830,7 +856,7 @@ class ToolExecutor:
                         raise ToolError("timeout")
                 elif row.started_at.replace(tzinfo=timezone.utc) < timeout_at:
                     raise ToolError("timeout")
-                if row.status == "host_ready":
+                if row.status in DELIVERED:
                     return
             await asyncio.sleep(0.25)
 

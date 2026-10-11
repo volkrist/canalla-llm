@@ -1,6 +1,6 @@
 import asyncio
 import socket
-from datetime import timedelta, timezone
+from datetime import timedelta
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -16,7 +16,7 @@ from ..models import Chat, Message, User, now
 from ..security import current_user
 from .contracts import ToolError
 from .executor import ExecutionContext, ToolExecutor, public_job, public_run, public_source
-from .local.devices import HostResult, PairRequest, public_device, require_device
+from .local.devices import HostClaim, HostResult, PairRequest, public_device, require_device
 from .models import PairedDevice, ToolPreferences, ToolRun, WebSourceSnapshot
 from .policy import ToolLimits, WebSettings, preferences
 from .tor.browser import browser_status
@@ -464,14 +464,134 @@ def device_heartbeat(device: PairedDevice = Depends(_device)):
 def device_jobs(
     user: User = Depends(current_user), db: Session = Depends(get_db), device: PairedDevice = Depends(_device)
 ):
-    rows = db.scalars(
-        select(ToolRun).where(
+    """Hand the device the jobs it may run, claiming an unclaimed one at most once.
+
+    The claim is the durable guard against a duplicate side effect: a poll that does not
+    change the stored claim hands back the *same* lease, so a device that lost its result
+    POST can retry delivery without a second execution. An expired lease that never began
+    executing is released so the job can be claimed again; a started lease is never
+    released, because its effect may already have run.
+    """
+    from .host_protocol import (
+        CLAIM_TTL_SECONDS,
+        CLAIMED,
+        PENDING,
+        RESULT_AWAITING_ACK,
+        STARTED,
+        claim_expired,
+        new_claim_id,
+    )
+
+    current = now()
+    candidates = db.scalars(
+        select(ToolRun)
+        .where(
             ToolRun.user_id == user.id,
             ToolRun.assigned_device_id == device.id,
-            ToolRun.status == "waiting_host",
+            ToolRun.status.in_([PENDING, CLAIMED, STARTED, RESULT_AWAITING_ACK]),
+        )
+        .order_by(ToolRun.started_at)
+    ).all()
+    jobs = []
+    for row in candidates:
+        if row.status != PENDING:
+            released = False
+            if (
+                row.status == CLAIMED
+                and row.claim_owner == device.id
+                and row.exec_started_at is None
+                and claim_expired(row.claim_expires_at, current)
+            ):
+                db.execute(
+                    update(ToolRun)
+                    .where(ToolRun.id == row.id, ToolRun.status == CLAIMED, ToolRun.claim_id == row.claim_id)
+                    .values(
+                        status=PENDING,
+                        claim_id=None,
+                        claim_owner=None,
+                        claimed_at=None,
+                        claim_expires_at=None,
+                    )
+                    .execution_options(synchronize_session=False)
+                )
+                db.commit()
+                # expire_on_commit is off, so the in-session row is still the pre-UPDATE copy.
+                db.refresh(row)
+                released = True
+            if not released:
+                # This device's own in-flight job: it must be able to finish or retry delivery.
+                jobs.append(public_job(row))
+                continue
+        claim_id = new_claim_id()
+        changed = db.execute(
+            update(ToolRun)
+            .where(ToolRun.id == row.id, ToolRun.status == PENDING)
+            .values(
+                status=CLAIMED,
+                claim_id=claim_id,
+                claim_owner=device.id,
+                claimed_at=now(),
+                claim_expires_at=now() + timedelta(seconds=CLAIM_TTL_SECONDS),
+                attempt_count=ToolRun.attempt_count + 1,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        db.commit()
+        # An UPDATE always runs on a cursor; the base Result type does not expose rowcount.
+        if cast("CursorResult[Any]", changed).rowcount != 1:
+            # Another poll claimed it first. Nothing was created and nothing will run here.
+            continue
+        db.refresh(row)
+        jobs.append(public_job(row))
+    return jobs
+
+
+def _load_host_run(db: Session, key: str, user: User, device: PairedDevice) -> ToolRun:
+    row = db.scalar(
+        select(ToolRun).where(
+            ToolRun.id == key,
+            ToolRun.user_id == user.id,
+            ToolRun.assigned_device_id == device.id,
         )
     )
-    return [public_job(row) for row in rows]
+    if not row:
+        raise HTTPException(404, "Запуск не найден")
+    return row
+
+
+@router.post("/tools/runs/{key}/host-started")
+def host_started(
+    key: str,
+    body: HostClaim,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+    device: PairedDevice = Depends(_device),
+):
+    """Record that the device is about to perform the effect.
+
+    After this the lease is no longer releasable: a crash from here on leaves an effect of
+    unknown outcome, so the backend must not hand the job to anyone else to run again.
+    """
+    from .host_protocol import CLAIMED, STARTED
+
+    row = _load_host_run(db, key, user, device)
+    if row.claim_id and body.claim_id and body.claim_id != row.claim_id:
+        raise HTTPException(409, "claim_mismatch")
+    if row.status == STARTED:
+        return {"status": STARTED, "claim_id": row.claim_id}
+    if row.status != CLAIMED:
+        # Already delivered, unknown or terminal: never claim a start that did not happen.
+        return {"status": row.status, "claim_id": row.claim_id}
+    changed = db.execute(
+        update(ToolRun)
+        .where(ToolRun.id == key, ToolRun.status == CLAIMED, ToolRun.claim_id == row.claim_id)
+        .values(status=STARTED, exec_started_at=now())
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+    if cast("CursorResult[Any]", changed).rowcount != 1:
+        raise HTTPException(409, "claim_mismatch")
+    return {"status": STARTED, "claim_id": row.claim_id}
 
 
 @router.post("/tools/runs/{key}/host-result")
@@ -482,23 +602,26 @@ def host_result(
     db: Session = Depends(get_db),
     device: PairedDevice = Depends(_device),
 ):
+    from .host_protocol import (
+        CLAIMED,
+        IN_FLIGHT,
+        RESULT_AWAITING_ACK,
+        STARTED,
+        UNKNOWN,
+        result_digest,
+    )
     from .security import sanitized
 
-    row = db.scalar(
-        select(ToolRun).where(
-            ToolRun.id == key,
-            ToolRun.user_id == user.id,
-            ToolRun.assigned_device_id == device.id,
-            ToolRun.status == "waiting_host",
-        )
-    )
-    if not row:
-        raise HTTPException(404, "Запуск не найден")
+    row = _load_host_run(db, key, user, device)
+    if row.claim_id and body.claim_id and body.claim_id != row.claim_id:
+        raise HTTPException(409, "claim_mismatch")
     if row.input_digest != body.digest:
         raise HTTPException(409, "confirmation_mismatch")
-    started = row.started_at.replace(tzinfo=timezone.utc) if row.started_at.tzinfo is None else row.started_at
-    if started < now() - timedelta(minutes=5):
-        raise HTTPException(409, "confirmation_expired")
+    if row.status == UNKNOWN:
+        # Idempotent: a device retrying a delivery of an unknown outcome gets the same answer.
+        return {"status": UNKNOWN, "claim_id": row.claim_id}
+    if row.status not in IN_FLIGHT:
+        raise HTTPException(409, "already_delivered")
     metadata = {
         **row.result_metadata,
         "host_result": {
@@ -542,14 +665,75 @@ def host_result(
             },
         },
     }
+    delivered = metadata["host_result"]
+    digest_value = result_digest(
+        status=body.status,
+        exit_code=body.exit_code,
+        stdout=delivered["stdout"],
+        stderr=delivered["stderr"],
+        text=delivered["text"],
+        metadata=delivered,
+    )
+    if body.status == UNKNOWN:
+        # The device cannot tell whether its effect ran. Record that honestly and stop: nothing
+        # here is a success and nothing repeats the command.
+        changed = db.execute(
+            update(ToolRun)
+            .where(
+                ToolRun.id == key, ToolRun.status.in_([CLAIMED, STARTED]), ToolRun.claim_id == row.claim_id
+            )
+            .values(
+                status=UNKNOWN,
+                error_code="host_result_unknown",
+                result_metadata=metadata,
+                finished_at=now(),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        db.commit()
+        if cast("CursorResult[Any]", changed).rowcount != 1:
+            raise HTTPException(409, "claim_mismatch")
+        return {"status": UNKNOWN, "claim_id": row.claim_id}
+    if row.status == RESULT_AWAITING_ACK:
+        # A re-delivery of the same result is not a conflict; a different one is.
+        if row.result_digest != digest_value:
+            raise HTTPException(409, "result_conflict")
+        return {"status": RESULT_AWAITING_ACK, "claim_id": row.claim_id}
     changed = db.execute(
         update(ToolRun)
-        .where(ToolRun.id == key, ToolRun.status == "waiting_host", ToolRun.assigned_device_id == device.id)
-        .values(status="host_ready", result_metadata=metadata)
+        .where(ToolRun.id == key, ToolRun.status.in_([CLAIMED, STARTED]), ToolRun.claim_id == row.claim_id)
+        .values(status=RESULT_AWAITING_ACK, result_digest=digest_value, result_metadata=metadata)
         .execution_options(synchronize_session=False)
     )
     db.commit()
-    # An UPDATE statement always runs on a cursor; the base Result type does not expose rowcount.
     if cast("CursorResult[Any]", changed).rowcount != 1:
         raise HTTPException(409, "Результат уже принят")
-    return {"status": "host_ready"}
+    return {"status": RESULT_AWAITING_ACK, "claim_id": row.claim_id}
+
+
+@router.post("/tools/runs/{key}/host-ack")
+def host_ack(
+    key: str,
+    body: HostClaim,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+    device: PairedDevice = Depends(_device),
+):
+    """Acknowledge a delivered result so the device may clear its local journal.
+
+    Idempotent and accepted after the executor has already consumed the result, so a device
+    that lost the response can confirm receipt on its next poll without a second execution.
+    """
+    from .host_protocol import ACKNOWLEDGED, COMPLETED, RESULT_AWAITING_ACK
+
+    row = _load_host_run(db, key, user, device)
+    if row.claim_id and body.claim_id and body.claim_id != row.claim_id:
+        raise HTTPException(409, "claim_mismatch")
+    if row.status == ACKNOWLEDGED or row.acknowledged_at is not None:
+        return {"status": ACKNOWLEDGED, "claim_id": row.claim_id}
+    if row.status not in {RESULT_AWAITING_ACK, COMPLETED}:
+        raise HTTPException(409, "not_delivered")
+    row.status = ACKNOWLEDGED
+    row.acknowledged_at = now()
+    db.commit()
+    return {"status": ACKNOWLEDGED, "claim_id": row.claim_id}

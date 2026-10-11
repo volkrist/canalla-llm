@@ -16,7 +16,10 @@ class ToolPreferences(Base):
 
 class ToolRun(Base):
     __tablename__ = "tool_runs"
-    __table_args__ = (Index("ix_tool_runs_owner_started", "user_id", "started_at"),)
+    __table_args__ = (
+        Index("ix_tool_runs_owner_started", "user_id", "started_at"),
+        Index("ix_tool_runs_status", "status"),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     chat_id: Mapped[str] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), index=True)
@@ -41,6 +44,16 @@ class ToolRun(Base):
     assigned_device_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     task_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    # Durable host claim/lease ledger (A05). Nullable and additive so a pre-0016 row keeps
+    # reading; a host job acquires a claim before it executes anything.
+    claim_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    claim_owner: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    claim_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    exec_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    result_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class WebSourceSnapshot(Base):

@@ -87,17 +87,27 @@ export default function Workspace({
   }, []);
   useEffect(() => {
     let live = true;
-    const token = api.authToken();
-    if (!token) return;
     const refresh = async () => {
+      // Read the token on every pass: the Api rotates it on refresh (A07), and a copy captured
+      // once would make the host poll and post with an expired JWT until the app is restarted.
+      const token = api.authToken();
+      if (!token) return;
       try {
         const prefs = await api.json<{
           device_display_name?: string;
           workspace_roots?: string[];
         }>("/tools/preferences");
         const alias = prefs.device_display_name?.trim() || "Windows device";
-        await pairLocalDevice(api.base, token, alias);
-        const status = await readDeviceStatus();
+        // `userId` binds the device record to this account, so another user cannot reuse it.
+        const heartbeat = await pairLocalDevice(api.base, token, alias, user.id);
+        const local = await readDeviceStatus();
+        // `online` is the verified heartbeat answer, never the mere presence of a credential.
+        const status = {
+          ...local,
+          paired: true,
+          display_name: heartbeat.display_name || local.display_name,
+          online: !!heartbeat.online,
+        };
         if (live) {
           setDevice(status);
           // Single source of truth: chips, the compact bar and Settings subscribe to this.
@@ -105,10 +115,12 @@ export default function Workspace({
         }
         await runHostJobs(api.base, token, prefs.workspace_roots || []);
       } catch {
-        const status = await readDeviceStatus().catch(() => ({
+        const local = await readDeviceStatus().catch(() => ({
           paired: false,
           online: false,
         }));
+        // A failed heartbeat is Offline: the loop retries, so a temporary outage recovers itself.
+        const status = { ...local, online: false };
         if (live) {
           setDevice(status);
           publishDevice(status);
@@ -126,7 +138,7 @@ export default function Workspace({
       window.removeEventListener("alex-host-jobs", onJobs);
       window.removeEventListener(DEVICE_REFRESH_EVENT, onJobs);
     };
-  }, [api]);
+  }, [api, user.id]);
   const prefix = draftPrefix(api.base, user.id);
   const [draft, updateDraft] = useState(() => readDraft(prefix, null));
   const setDraft = (value: string) => {

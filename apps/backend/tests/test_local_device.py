@@ -240,6 +240,7 @@ def test_paired_device_host_result(setup, client):
                     headers=device_headers,
                     json={
                         "digest": digest_value,
+                        "claim_id": job.get("claim_id"),
                         "status": "completed",
                         "exit_code": 0,
                         "stdout": "file-contents",
@@ -446,6 +447,7 @@ def test_sensitive_explanation_and_immutable_digest(setup, client):
                     headers=device_headers,
                     json={
                         "digest": digest_value,
+                        "claim_id": job.get("claim_id"),
                         "status": "completed",
                         "text": "deleted",
                         "stdout": "deleted",
@@ -535,6 +537,7 @@ def test_explicit_execute_uses_preference_computer_mode(setup, client):
                     headers=device_headers,
                     json={
                         "digest": digest_value,
+                        "claim_id": job.get("claim_id"),
                         "status": "completed",
                         "text": "platform=windows",
                         "stdout": "platform=windows",

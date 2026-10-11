@@ -36,7 +36,7 @@ def test_upgrade_preserves_existing_history(tmp_path):
         assert db.execute("SELECT is_owner FROM users").fetchone() == (1,)
         assert db.execute("SELECT search_state FROM compute_control WHERE id=1").fetchone() == ("offline",)
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0015",)
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0016",)
         for table in (
             "tool_runs",
             "web_source_snapshots",
@@ -106,7 +106,7 @@ def test_upgrade_from_0014_preserves_representative_data(tmp_path):
     )
     subprocess.run([sys.executable, "-m", "alembic", "check"], env=env, check=True, capture_output=True)
     with sqlite3.connect(path) as db:
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0015",)
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0016",)
         assert db.execute("SELECT count(*) FROM users").fetchone() == (2,)
         assert db.execute("SELECT count(*) FROM chats").fetchone() == (1,)
         assert db.execute("SELECT content FROM messages").fetchone() == ("Сообщение — юникод 🚀",)

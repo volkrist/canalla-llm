@@ -11,7 +11,9 @@ SECRET_NAME = re.compile(
     r"login data|logins\.json|key4\.db|signons\.sqlite|cookies\.sqlite|"
     r".*\.(kdbx|kdb|1pif)|wallet\.dat|.*wallet.*\.(json|dat)|"
     r"credentials\.json|gdrive\.json|service-account.*\.json|"
-    r"masterkey\.key|ntuser\.dat|sam|system\.hive)$"
+    r"masterkey\.key|ntuser\.dat|sam|system\.hive|jwt\.secret|shutdown\.token|"
+    r"install\.id|session\.id|backend\.lock|migration\.json|host-journal\.json|"
+    r"user-credential-names\.json|device\.json|.*\.dpapi)$"
 )
 SECRET_DIR = re.compile(
     r"(?i)([\\/](\.ssh|\.gnupg|\.aws|\.azure|password-store|1password|keepass|"
@@ -24,6 +26,8 @@ SECRET_FRAGMENT = re.compile(
     r"[\\/]appdata[\\/]roaming[\\/]mozilla[\\/]firefox|"
     r"[\\/]appdata[\\/]local[\\/]microsoft[\\/]edge[\\/]user data|"
     r"[\\/]\.ssh[\\/]|"
+    r"[\\/]alex llm[\\/]runtime[\\/]|"
+    r"[\\/]alex-llm[\\/]runtime[\\/]|"
     r"[\\/]wallet",
     re.I,
 )

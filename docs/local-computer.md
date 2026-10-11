@@ -52,10 +52,10 @@ and is stored by the native host:
 2. Fallback: DPAPI-protected `%LOCALAPPDATA%\Alex LLM\device.cred.dpapi`
 
 The renderer never receives the device credential after `pair_device`.
-`device.json` keeps only `device_id` and a user-defined display name. Default
-display name is `Windows device` (rename to `PC-1`, `Laptop`, …). Pairing does
-not collect MAC, motherboard/disk serial, MachineGuid, CPU id, Wi-Fi ids,
-hardware fingerprint, IP-as-identity, or the real hostname.
+`device.json` keeps only `device_id`, a user-defined display name and the account and backend
+it was paired with, so another user or backend never reuses it. Default display name is
+`Windows device` (rename to `PC-1`, `Laptop`, …). Pairing does not collect MAC, motherboard/disk
+serial, MachineGuid, CPU id, Wi-Fi ids, hardware fingerprint, IP-as-identity, or the real hostname.
 
 **Forget this device** revokes the backend credential hash and deletes OS
 storage.
@@ -90,6 +90,12 @@ Lifecycle, all of it owned by the running Desktop:
 The chip, the compact bar and Settings all read one frontend source of truth
 (`publishDevice`), so they cannot drift apart.
 
+Since 1.2.1 (A07) the loop reads the access token on every pass, so a token rotated
+by the Api's refresh is used without restarting the app; the native host also
+refreshes the token itself when a call is rejected. `online` means a heartbeat the
+backend actually answered — never the bare presence of a credential — and a failed
+or unauthorised heartbeat shows Offline and is retried on the next pass.
+
 **Honest limitation — no autostart at Windows login.** The installer deliberately registers no
 `Run` entry (on upgrade it only *deletes* the legacy `Alex LLM` value), and 1.1.0 ships no
 «start with Windows» toggle. After a Windows restart the device comes back when Canalla is
@@ -117,6 +123,43 @@ such as `github-main`. The host reads the secret from
 `Alex LLM/user/{name}` in Windows Credential Manager. Raw secrets are not
 returned to the model, OrcaRouter, RunPod or TinyFish. Backend `resolve()`
 raises `credentials_stay_on_host`.
+
+Credential storage is isolated **per logical target** (A16). The device
+credential, every named credential and every scoped session/provider secret
+write their own DPAPI fallback file (`device.cred.dpapi`,
+`runtime/cred-user-{name}.dpapi`, `runtime/cred-{scope}-{name}.dpapi`), so a
+fallback write for one never overwrites another. On a platform whose secure
+store is unavailable the write is refused with `secure_storage_unavailable`
+rather than landing in a shared file; a read never consults another target's
+fallback, because an old file of unknown ownership is not guessed at.
+
+Canalla's own runtime secrets are denied to the Computer tools (A17).
+`runtime/jwt.secret`, `runtime/shutdown.token`, `runtime/install.id`,
+`runtime/session.id`, `device.json`, `*cred*.dpapi`, `host-journal.json` and
+anything under a `runtime` directory are refused by name and by path, even
+though the OS would let the user read them, and any recognised secret that
+reaches a sanitizer is scrubbed from text and outputs.
+
+## Durable host jobs (1.2.1 / A05)
+
+A local command may have a side effect, so the backend and the host agree on a
+claim before anything runs and on an acknowledgement before anything is forgotten.
+The job states are `pending`, `claimed`, `started`, `result_awaiting_ack`,
+`acknowledged` and `unknown`.
+
+* The backend leases a job to one device (`GET /tools/devices/jobs` claims it
+  atomically; a re-poll returns the same lease). The lease expires; an expired
+  lease that never began executing is released, a started lease is not.
+* The host records `started` in its durable journal before it runs the command
+  and `done` (with the result) before it delivers it. `POST …/host-started`,
+  `POST …/host-result` and `POST …/host-ack` carry the lease id.
+* A lost result POST is retried: the job stays visible to the same device and the
+  journal re-delivers the stored result — the command is **not** run again.
+* A crash between the effect and the recorded result becomes `unknown`; it needs a
+  human decision and is never replayed automatically. There is deliberately **no**
+  exactly-once promise for an arbitrary shell.
+* In-flight jobs survive a backend restart (`reconcile_tools` preserves them); only
+  a run that never left the backend is failed.
 
 ## Network
 

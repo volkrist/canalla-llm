@@ -22,7 +22,8 @@ use std::time::Duration;
 
 #[tokio::main]
 async fn main() {
-    let backend = std::env::var("ALEX_BACKEND_URL").unwrap_or_else(|_| "http://127.0.0.1:8000".into());
+    let backend =
+        std::env::var("ALEX_BACKEND_URL").unwrap_or_else(|_| "http://127.0.0.1:8000".into());
     let token = match std::env::var("ALEX_TOKEN") {
         Ok(value) if !value.is_empty() => value,
         _ => {
@@ -38,7 +39,7 @@ async fn main() {
         .filter(|item| !item.is_empty())
         .map(|item| item.to_string())
         .collect();
-    match host::pair_device(backend.clone(), token.clone(), name).await {
+    match host::pair_device(backend.clone(), token.clone(), name, None).await {
         Ok(status) => {
             let line = json!({
                 "event": "paired",
@@ -63,7 +64,10 @@ async fn main() {
         maybe_post_wrong_digest(&backend, &token).await;
         match host::execute_host_jobs(backend.clone(), token.clone(), roots.clone()).await {
             Ok(value) => {
-                let started = value.get("started").and_then(|item| item.as_u64()).unwrap_or(0);
+                let started = value
+                    .get("started")
+                    .and_then(|item| item.as_u64())
+                    .unwrap_or(0);
                 if started > 0 {
                     println!("{}", json!({ "event": "jobs", "started": started }));
                     let _ = io::stdout().flush();
@@ -143,11 +147,14 @@ async fn maybe_post_wrong_digest(backend: &str, token: &str) {
         }))
         .send()
         .await;
-    let status = posted.map(|response| response.status().as_u16()).unwrap_or(0);
+    let status = posted
+        .map(|response| response.status().as_u16())
+        .unwrap_or(0);
     let report = flag.with_extension("json");
     let _ = std::fs::write(
         report,
-        json!({ "http": status, "device_auth": true, "method": "native_host_wrong_digest" }).to_string(),
+        json!({ "http": status, "device_auth": true, "method": "native_host_wrong_digest" })
+            .to_string(),
     );
     let _ = std::fs::remove_file(&flag);
     println!("{}", json!({ "event": "wrong_digest", "http": status }));
