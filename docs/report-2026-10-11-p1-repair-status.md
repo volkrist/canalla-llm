@@ -1,8 +1,61 @@
 # Canalla LLM 1.2.1 — P1 reliability/security repair: status
 
-**Branch:** `fix/canalla-1.2.1-p1` (pushed to origin) · **Base:** `ae832c5` (`v1.2.0`) · **HEAD:** `e1f47b6`
-**Production changes so far: NONE** (no deploy, no merge, no tag, no manifest, no installer rebuilt).
-**Paid GPU spend: $0.** No Pod, volume or account setting was created, changed or deleted.
+**Branch:** `fix/canalla-1.2.1-p1` (pushed) · **Base:** `ae832c5` (`v1.2.0`) · **HEAD:** `d26340a`
+**Production/modifications: NONE.** **Paid GPU spend: $0.** No Pod, volume, account setting, deploy, merge, tag or manifest.
+
+## Block 2 (11 Oct 2026) — what this block added
+
+| ID | Status |
+|---|---|
+| A06 | **FIXED** — readiness has a TTL (`compute_ready_ttl_seconds`, default 30 s), a failed probe leaves green immediately with the typed `model_unavailable`, and a model that stays unreachable past `compute_ready_grace_seconds` (default 120 s) is stopped through the managed path (A02 retries it). Active generations are never probed. Migration `0003_ready_probe` (`ready_probe_at`, `unready_since`). 6 tests in `apps/gateway/tests/test_readiness_ttl.py`. |
+| A30/A31/A32 | **PARTIAL** — the Gateway half is honest now (bounded transition, typed terminal reason the client already maps to Retry, no fabricated percentages, status stays read-only and starts nothing). The *client* half (one operation id per attempt with started_at/deadline/last_success_at, explicit stage labels, and the agreed client/queue/first-byte budgets) is **not implemented** — it needs the desktop/backend work and the audit's exact acceptance wording. |
+| A05, A07, A08 | **NOT STARTED** (this block's budget went to Phase 0 + A06). A08's defect is confirmed by reading the code: `apps/backend/app/tools/tor/socks.py` fetches through a default `127.0.0.1:9050` with **no** current-proof check bound to that endpoint/process. |
+| A09, A10, A11, A12 | **NOT STARTED.** |
+| A16/A17 | Not reached (they touch the same credential/secret paths A05/A07 would). |
+| §7 Defender | **ANSWERED with evidence** (see below). |
+| §8 inventory | **DONE** (read-only, timestamped) — `scripts/region-inventory.py --history <file>`. |
+
+## Phase 0 — security evidence (read-only, 11 Oct 2026)
+
+* Threat: `Trojan:Win32/LummaStealer.DO!MTB`, severity 5, `ThreatStatusID=3`, `ActionSuccess=True`,
+  `IsActive=False`, **`DidThreatExecute=True`** (expected: we ran our own app and our own test binaries).
+* **Every** detection resource is our own build output, our own installed app, or registry/shortcut
+  entries created by **our own NSIS installer** (`...\Programs\Canalla LLM\alex-llm.exe`,
+  `target\{debug,release}\deps\alex_{llm,host_loop}-*.exe`, the `Canalla LLM.lnk`, the HKCU Run and
+  Uninstall keys). **Nothing outside our tree was detected.**
+* No dropper artefacts: no new `%TEMP%` executables/scripts/archives in the detection window, no new
+  Run keys, no stray copies of browser credential databases, no suspicious autostart entries, no
+  unexpected listening process (all standard Windows/Intel/OneDrive services).
+* The accepted installer is intact (95 340 864 B, sha256 `61a99cfc…beac4`), its **updater signature
+  verifies** with the production public key, and the published manifest matches it. The repository has
+  no uncommitted source change, so the deleted binaries came from the tracked source.
+* **Not verified (stated, not glossed):** the Defender exclusion list (needs an elevated prompt — this
+  session is not elevated), no full disk scan has ever been run on this PC, the toolchain was not
+  hash-verified against upstream, and the Chrome/Edge `Login Data` timestamps (11 Oct 12:19 / 11:31)
+  fall inside the detection window and cannot be attributed from here.
+* **Verdict:** no positive evidence of compromise was found, but a false positive is **not proven**
+  either. Therefore no destructive, credential or production action was taken (nothing was going to be),
+  the quarantined executables were **not** restored, **no** exclusion was added, **no** protection was
+  disabled, and nothing private was uploaded to a public scanner. `cargo test` on this host is reported
+  **BLOCKED-BY-DEFENDER** rather than bypassed.
+* Operator plan: full Defender scan from an elevated session; verify exclusions there; if certainty is
+  wanted, rotate only this PC's secrets (updater identity `CanallaLLM/UpdaterSigning/Production` + its
+  key file, and the dev `Alex LLM/*` credentials — the RunPod master key is **not** on this PC);
+  Authenticode-sign future builds (the root cause of an aggressive ML heuristic on unsigned Rust PEs).
+
+## Tests (Block 2)
+
+| Suite | Result |
+|---|---|
+| Gateway pytest | **213 passed** (207 + 6 new) |
+| Gateway Ruff check / format | PASS (34 files) |
+| Gateway Alembic | head `0003_ready_probe`; `alembic check` clean |
+| Backend pytest | **787 passed, 1 skipped, 1 failed = `test_sidecar_stamp`** — the expected `BACKEND_SIDECAR_STALE`, red only until the sidecar is rebuilt (the backend source changed in this block) |
+| Backend Ruff | PASS |
+| Rust `cargo test` | **NOT RUN — BLOCKED-BY-DEFENDER** (builds+executes the binaries Defender flags) |
+| Frontend Vitest/Playwright | not run (untouched by this block) |
+
+## Block 1 (11 Oct 2026) — carried status
 
 ## 0. Production verification before any change
 
