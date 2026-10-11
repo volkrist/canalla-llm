@@ -48,6 +48,10 @@ fn fallback_path() -> PathBuf {
     data_dir().join("device.cred.dpapi")
 }
 
+/// One fallback file per logical target. Before A16 the device credential and every named user
+/// credential shared `device.cred.dpapi`, so on a machine whose Credential Manager write failed
+/// the last write silently clobbered the others. The device credential keeps its old path for
+/// compatibility; every other target is isolated by its scope and name.
 fn scoped_fallback_path(scope: &str, name: &str) -> PathBuf {
     let dir = data_dir().join("runtime");
     let _ = fs::create_dir_all(&dir);
@@ -143,7 +147,9 @@ fn save_names(names: &[String]) {
 
 pub fn store_named(name: &str, value: &str) -> Result<(), String> {
     let target = user_target(name)?;
-    crate::platform::secret_write(&target, value, &fallback_path())?;
+    // Its own fallback file, so a named credential can never overwrite the device credential or
+    // a different named credential (A16).
+    crate::platform::secret_write(&target, value, &scoped_fallback_path("user", name))?;
     let mut names = load_names();
     if !names.iter().any(|item| item == name) {
         names.push(name.to_string());
@@ -154,13 +160,19 @@ pub fn store_named(name: &str, value: &str) -> Result<(), String> {
 
 pub fn load_named(name: &str) -> Option<String> {
     let target = user_target(name).ok()?;
-    crate::platform::secret_read(&target, &fallback_path()).ok()
+    // Only this name's own fallback is read. The shared device fallback is never consulted: an old
+    // file that may hold the device credential (or another user's secret) is of unknown ownership,
+    // so reading it would be guessing whose secret it is.
+    crate::platform::secret_read(&target, &scoped_fallback_path("user", name)).ok()
 }
 
 pub fn delete_named(name: &str) -> Result<(), String> {
     let target = user_target(name)?;
-    crate::platform::secret_delete(&target, &fallback_path())?;
-    let names: Vec<String> = load_names().into_iter().filter(|item| item != name).collect();
+    crate::platform::secret_delete(&target, &scoped_fallback_path("user", name))?;
+    let names: Vec<String> = load_names()
+        .into_iter()
+        .filter(|item| item != name)
+        .collect();
     save_names(&names);
     Ok(())
 }
@@ -223,10 +235,16 @@ mod tests {
         let name = format!("unit-{}", unique());
         match store_scoped("session", &name, "secret-value") {
             Ok(()) => {
-                assert_eq!(load_scoped("session", &name).as_deref(), Some("secret-value"));
+                assert_eq!(
+                    load_scoped("session", &name).as_deref(),
+                    Some("secret-value")
+                );
                 assert!(load_scoped("session", "no-such-name").is_none());
                 assert!(load_scoped("provider", &name).is_none());
-                assert_eq!(load_scoped("session", &name).as_deref(), Some("secret-value"));
+                assert_eq!(
+                    load_scoped("session", &name).as_deref(),
+                    Some("secret-value")
+                );
                 delete_scoped("session", &name).unwrap();
                 assert!(load_scoped("session", &name).is_none());
             }
@@ -236,7 +254,10 @@ mod tests {
                 let leftovers: Vec<_> = fs::read_dir(&temp)
                     .map(|entries| entries.filter_map(Result::ok).collect())
                     .unwrap_or_default();
-                assert!(leftovers.is_empty(), "a secret never lands in the data directory");
+                assert!(
+                    leftovers.is_empty(),
+                    "a secret never lands in the data directory"
+                );
             }
         }
         restore_device_dir(previous);
@@ -268,6 +289,62 @@ mod tests {
             }
         }
         assert_eq!(credential_target(), target);
+        match previous {
+            Some(value) => std::env::set_var("ALEX_DEVICE_CREDENTIAL_TARGET", value),
+            None => std::env::remove_var("ALEX_DEVICE_CREDENTIAL_TARGET"),
+        }
+        restore_device_dir(previous_dir);
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    /// A16: the device credential, a named credential and a second named credential must not
+    /// share a fallback file. Before the fix every user secret and the device credential wrote
+    /// `device.cred.dpapi`, so the last write silently clobbered the others.
+    #[test]
+    fn named_credentials_and_the_device_credential_do_not_share_a_fallback() {
+        assert_ne!(fallback_path(), scoped_fallback_path("user", "alpha"));
+        assert_ne!(
+            scoped_fallback_path("user", "alpha"),
+            scoped_fallback_path("user", "beta")
+        );
+        assert_ne!(scoped_fallback_path("session", "s1"), fallback_path());
+    }
+
+    /// Every write targets its own store, so storing one secret never destroys another - on the
+    /// Credential Manager or on the file fallback that stands behind it.
+    #[test]
+    fn storing_named_credentials_never_overwrites_the_device_credential() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+        let (temp, previous_dir) = isolated_device_dir();
+        let previous = std::env::var("ALEX_DEVICE_CREDENTIAL_TARGET").ok();
+        let target = format!("Alex LLM/device-credential-unit-{}", unique());
+        std::env::set_var("ALEX_DEVICE_CREDENTIAL_TARGET", &target);
+        let alpha = format!("unit-{}-a", unique());
+        let beta = format!("unit-{}-b", unique());
+        match store("device-secret") {
+            Ok(()) => {
+                assert!(store_named(&alpha, "alpha-secret").is_ok());
+                assert!(store_named(&beta, "beta-secret").is_ok());
+                assert_eq!(load().as_deref(), Some("device-secret"));
+                assert_eq!(load_named(&alpha).as_deref(), Some("alpha-secret"));
+                assert_eq!(load_named(&beta).as_deref(), Some("beta-secret"));
+                // A second read proves none of the writes clobbered another.
+                assert_eq!(load_named(&alpha).as_deref(), Some("alpha-secret"));
+                assert_eq!(load().as_deref(), Some("device-secret"));
+                let _ = delete_named(&alpha);
+                let _ = delete_named(&beta);
+                let _ = delete();
+            }
+            Err(error) => {
+                // No secure store here: the refusal is typed, and nothing is written anywhere.
+                assert_eq!(error, crate::platform::SECURE_STORAGE_UNAVAILABLE);
+                let named_error = store_named(&alpha, "alpha-secret").unwrap_err();
+                assert_eq!(named_error, crate::platform::SECURE_STORAGE_UNAVAILABLE);
+                assert!(load_named(&alpha).is_none());
+                assert!(!fallback_path().exists());
+                assert!(!scoped_fallback_path("user", &alpha).exists());
+            }
+        }
         match previous {
             Some(value) => std::env::set_var("ALEX_DEVICE_CREDENTIAL_TARGET", value),
             None => std::env::remove_var("ALEX_DEVICE_CREDENTIAL_TARGET"),
