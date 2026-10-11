@@ -147,6 +147,29 @@ def test_backend_log_redacts_secrets_and_records_identity(tmp_path, monkeypatch)
     assert "[redacted]" in str(record.msg)
 
 
+def test_backend_log_redacts_a_secret_inside_a_traceback(tmp_path, monkeypatch):
+    """V03: the formatter appends the traceback *after* the filter, so the whole record is redacted.
+
+    A secret embedded in an exception message would otherwise reach the file, because
+    ``Formatter.format`` adds ``exc_text`` once the filter has already run on the message.
+    """
+    secret = "super-secret-connect-token-0123456789"
+    monkeypatch.setenv("JWT_SECRET", secret)
+    path = tmp_path / "backend.log"
+    configure_backend_logging(path, port=8020, mode="packaged")
+
+    logger = logging.getLogger("alex.runtime")
+    try:
+        raise RuntimeError(f"upstream rejected bearer {secret} for host")
+    except RuntimeError:
+        logger.exception("request failed against ?token=abc")
+
+    text = path.read_text(encoding="utf-8")
+    assert secret not in text
+    assert "[redacted]" in text
+    assert "upstream rejected" in text  # the diagnosis still survives
+
+
 def test_embeddings_absent_are_unavailable(tmp_path):
     provider = LocalEmbeddingProvider(verified_root=tmp_path)
     try:
