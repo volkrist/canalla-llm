@@ -81,11 +81,22 @@ def run(name: str, command: list[str], *, cwd: Path, timeout: int = 3600) -> Res
         resolved[0] = executable
     try:
         completed = subprocess.run(
-            resolved, cwd=str(cwd), capture_output=True, text=True, timeout=timeout
+            resolved,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            # The test output carries UTF-8 (Russian UI strings). Without an explicit encoding the
+            # child is decoded with the host locale codec (cp1252 on a Windows runner), the decode
+            # raises and both streams come back as ``None`` — the gate then crashed instead of
+            # reporting. Decode as UTF-8 and never lose a result to a stray byte.
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
         )
     except FileNotFoundError:
         return Result(name, BLOCKED, f"tool not found: {command[0]}")
-    tail = "\n".join((completed.stdout + completed.stderr).strip().splitlines()[-8:])
+    output = (completed.stdout or "") + (completed.stderr or "")
+    tail = "\n".join(output.strip().splitlines()[-8:])
     if completed.returncode == 0:
         return Result(name, PASS, command[-1] if command else "")
     return Result(name, FAIL, tail or f"exit {completed.returncode}")
@@ -154,7 +165,13 @@ def product_version() -> str:
 def git_head() -> str:
     try:
         return subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=str(REPO), capture_output=True, text=True, check=True
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(REPO),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
         ).stdout.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return ""
