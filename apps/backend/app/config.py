@@ -205,6 +205,11 @@ class Settings(BaseSettings):
     alex_gateway_installation_secret: SecretStr = SecretStr("")
     alex_gateway_protocol_version: int = 1
     alex_gateway_timeout_seconds: float = Field(default=30, ge=1, le=300)
+    # A32: the Gateway admits an inference request into its queue for up to 120 s before the first
+    # byte. A 30 s read timeout on the stream would expire *before* that admitted wait and report a
+    # dead model for a request that was only queued. The streaming client therefore gets its own,
+    # longer read budget; it is still bounded and never waits for hardware.
+    alex_gateway_stream_timeout_seconds: float = Field(default=180, ge=30, le=1800)
     gateway_status_active_seconds: float = Field(default=5, ge=1, le=300)
     gateway_status_idle_seconds: float = Field(default=15, ge=1, le=600)
     balance_background_enabled: bool = True

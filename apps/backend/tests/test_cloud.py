@@ -216,6 +216,21 @@ def client_for(gateway, **extra):
 # --------------------------------------------------------------------------------- config
 
 
+def test_the_stream_read_budget_covers_the_gateway_queue_admission():
+    """A32: the client must not expire before the Gateway's own admitted queue window.
+
+    The Gateway admits an inference request into its queue for up to 120 s before the first byte;
+    the plain 30 s request timeout would expire inside that window and blame the model. The
+    streaming client therefore uses a longer, still-bounded read budget, with a short connect.
+    """
+    client = GatewayClient(shared_settings())
+    plain = client.timeout()
+    stream = client.stream_timeout()
+    assert plain.read == 30
+    assert stream.read >= 120
+    assert stream.connect == plain.connect == 10
+
+
 def test_remote_plaintext_gateway_is_rejected():
     with pytest.raises(ValueError):
         get_settings().model_copy(

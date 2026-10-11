@@ -102,6 +102,15 @@ class GatewayClient:
     def timeout(self, value: float | None = None) -> httpx.Timeout:
         return httpx.Timeout(value or self.settings.alex_gateway_timeout_seconds, connect=10)
 
+    def stream_timeout(self) -> httpx.Timeout:
+        """A read budget that covers the Gateway's own queue admission (A32).
+
+        The Gateway may hold a request in its queue for up to 120 s before the first byte, so a
+        request read timeout of 30 s would expire before the server's admitted window and blame
+        the model for a request that was only waiting. The stream gets its own longer timeout.
+        """
+        return httpx.Timeout(self.settings.alex_gateway_stream_timeout_seconds, connect=10)
+
     # -------------------------------------------------------------------------- tokens
 
     async def token(self, *, force: bool = False) -> str:
@@ -232,6 +241,11 @@ class GatewayClient:
 
     def client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(timeout=self.timeout(), follow_redirects=False, transport=self.transport)
+
+    def stream_client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            timeout=self.stream_timeout(), follow_redirects=False, transport=self.transport
+        )
 
 
 def _code_of(body) -> str | None:

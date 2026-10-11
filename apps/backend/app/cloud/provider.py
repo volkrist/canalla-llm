@@ -177,7 +177,9 @@ class GatewayProvider(LLMProvider):
         }
         headers = self.client.stream_headers()
         headers["Authorization"] = "Bearer " + await self.client.token()
-        client = self.client.client()
+        # A32: the stream uses the longer read budget so a legitimate queue wait is not turned into
+        # a dead-model error before the Gateway's admitted window ends.
+        client = self.client.stream_client()
         try:
             request = client.build_request(
                 "POST", self.client.url + "/v1/chat/completions", json=body, headers=headers
