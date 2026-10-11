@@ -134,6 +134,24 @@ def test_a_sequence_of_sessions_exhausts_the_period_budget(gateway, client):
 # ---------------------------------------------------- scenario 3: atomic, single reservation
 
 
+def test_a_null_entitlement_is_no_bound_not_zero(gateway, client):
+    """A10: an installation the operator never constrained keeps its own full policy.
+
+    The entitlement columns are NULL, which means "no extra bound" — never a numeric zero that
+    would refuse every session.
+    """
+    b = enroll(gateway, client, label="REGYNA")
+    headers = auth_header(client, b)
+
+    body = ensure_ok(client, headers, "op-a10-null-001", session_budget=3.0, max_hourly_price=0.52)
+
+    assert Decimal(body["session"]["budget_usd"]) == money("3.00")
+    assert body["caller"]["session_budget_usd"] is None
+    assert body["caller"]["period_budget_usd"] is None
+    assert body["caller"]["max_hourly_price_usd"] is None
+    assert body["caller"]["role"] == "member"
+
+
 def test_two_requests_reserve_once_and_create_one_pod(gateway, client):
     b = enroll(gateway, client, label="REGYNA")
     grant(gateway, b["installation_id"], period="5.00", days=30)

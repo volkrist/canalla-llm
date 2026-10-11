@@ -216,6 +216,21 @@ def client_for(gateway, **extra):
 # --------------------------------------------------------------------------------- config
 
 
+def test_the_legacy_client_sees_a_named_refusal_not_a_502():
+    """A11: a 1.2.0 client's Stop against compute it does not own must read as forbidden.
+
+    The Gateway answers ``gateway_stop_forbidden``; the local backend must map it to a clear
+    message and a 4xx, not fall through to the generic 502 that would read as an outage.
+    """
+    from app.cloud.client import CloudError, map_code
+    from app.cloud.routes import _http
+
+    assert map_code("gateway_stop_forbidden") == "gateway_stop_forbidden"
+    assert map_code("gateway_budget_denied") == "gateway_budget_denied"
+    assert _http(CloudError("gateway_stop_forbidden")).status_code == 409
+    assert _http(CloudError("gateway_budget_denied")).status_code == 409
+
+
 def test_the_stream_read_budget_covers_the_gateway_queue_admission():
     """A32: the client must not expire before the product's own staged budgets.
 
