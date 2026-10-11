@@ -18,6 +18,13 @@ jobs:
   developer-gate:
     runs-on: windows-latest
     timeout-minutes: 60
+    env:
+      # The suites print and assert UTF-8 (Russian UI strings), and several tests spawn a Python
+      # child whose stdout/stderr is a pipe. Without UTF-8 mode the pipe is encoded with the host
+      # codec (cp1252 on a Windows runner) and a child crashes with UnicodeEncodeError, which the
+      # gate then reports as a test failure. One encoding, all the way down.
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
     steps:
       - uses: actions/checkout@v4
 

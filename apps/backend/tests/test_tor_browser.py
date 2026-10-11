@@ -27,6 +27,31 @@ from app.tools.tor.snapshot import (
 )
 
 
+def _breakaway_from_job_allowed() -> bool:
+    """Whether this host lets a process break away from its own Job Object.
+
+    A GitHub-hosted runner puts every step inside a Job Object with breakaway disabled, so
+    ``CreateProcess`` with ``CREATE_BREAKAWAY_FROM_JOB`` is refused with ``ERROR_ACCESS_DENIED``.
+    The Job-Object proof below needs that primitive; in such a sandbox it is inapplicable, not
+    failing, and it skips with the reason rather than reporting a result it never measured. A
+    developer host and the installed product are unaffected.
+    """
+    import subprocess
+    import sys
+
+    try:
+        probe = subprocess.Popen(
+            [sys.executable, "-c", "pass"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=0x01000000,
+        )
+    except OSError:
+        return False
+    probe.wait(timeout=10)
+    return True
+
+
 def test_detects_tor_browser_executable():
     path = existing_tor_browser()
     info = browser_install_info()
@@ -205,6 +230,10 @@ def test_fail_closed_invalid_socks(monkeypatch):
 
 
 @pytest.mark.skipif(__import__("sys").platform != "win32", reason="Windows Job Objects only")
+@pytest.mark.skipif(
+    __import__("sys").platform == "win32" and not _breakaway_from_job_allowed(),
+    reason="this sandbox forbids CREATE_BREAKAWAY_FROM_JOB (nested Job Object)",
+)
 def test_job_process_closes_only_own_tree(tmp_path):
     import subprocess
     import sys

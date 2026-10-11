@@ -8,14 +8,44 @@ from ctypes import wintypes
 
 import pytest
 
-pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows Job Objects only")
-
 CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 CREATE_NO_WINDOW = 0x08000000
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 STILL_ACTIVE = 259
 JobObjectExtendedLimitInformation = 9
 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+
+
+def _breakaway_allowed() -> bool:
+    """Whether this host lets a process break away from its own Job Object.
+
+    A CI sandbox — a GitHub-hosted runner — puts every step inside a Job Object with breakaway
+    disabled, so ``CreateProcess`` with ``CREATE_BREAKAWAY_FROM_JOB`` is refused with
+    ``ERROR_ACCESS_DENIED``. The proof below exercises exactly that primitive, which a real host
+    has; where the environment forbids it the test is *inapplicable*, and it says so instead of
+    reporting a result it never measured. A developer host and the installed product are
+    unaffected.
+    """
+    try:
+        probe = subprocess.Popen(
+            [sys.executable, "-c", "pass"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW,
+        )
+    except OSError:
+        return False
+    probe.wait(timeout=10)
+    return True
+
+
+pytestmark = [
+    pytest.mark.skipif(sys.platform != "win32", reason="Windows Job Objects only"),
+    pytest.mark.skipif(
+        sys.platform == "win32" and not _breakaway_allowed(),
+        reason="this sandbox forbids CREATE_BREAKAWAY_FROM_JOB (nested Job Object)",
+    ),
+]
 
 
 class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
