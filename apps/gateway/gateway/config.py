@@ -105,6 +105,12 @@ class GatewaySettings(BaseSettings):
     # Policy defaults for a request without caps (NOT ceilings; see the module docstring).
     max_hourly_price: Decimal = Field(default=DEFAULT_MAX_HOURLY_PRICE, gt=0, le=100)
     max_session_budget: Decimal = Field(default=DEFAULT_SESSION_BUDGET, gt=0, le=1000)
+    # An *optional* operator ceiling. When set (> 0) it is an extra bound the deployment imposes
+    # on every user's own maximum; the authorization ceiling is then ``min(user, operator)``.
+    # Off by default (0 = unset): the product has no hard cap, and this is deliberately NOT a
+    # candidate's quoted price — the ceiling a running Pod is held to belongs to the user and
+    # the operator, never to whichever GPU happened to be tried first (A12).
+    operator_max_hourly_price: Decimal = Field(default=Decimal("0"), ge=0, le=100)
     compute_idle_minutes: int = Field(default=10, ge=1, le=240)
     compute_poll_seconds: float = Field(default=5, ge=1, le=60)
     balance_active_seconds: float = Field(default=5, ge=1, le=300)

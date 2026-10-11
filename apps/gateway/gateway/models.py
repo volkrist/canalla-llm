@@ -97,6 +97,14 @@ class GatewaySession(Base):
     intent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     pending_stop: Mapped[bool] = mapped_column(Boolean, default=False)
     created_by_installation_id: Mapped[str | None] = mapped_column(String(36))
+    # A09: the placement identity of the Pod this session owns — the Volume it mounts and the
+    # datacenter it runs in. Recorded at create time so a Gateway restart recognises the Pod in
+    # *any* allowed placement (never by the primary Volume alone) and the ownership record is
+    # complete without a live provider read. ``operation_id`` is the ensure that opened the
+    # attempt, so the intent and its allocation record share one identity across a restart.
+    volume_id: Mapped[str | None] = mapped_column(String(80))
+    datacenter: Mapped[str | None] = mapped_column(String(40))
+    operation_id: Mapped[str | None] = mapped_column(String(64))
     managed: Mapped[bool] = mapped_column(Boolean, default=True)
     adopted: Mapped[bool] = mapped_column(Boolean, default=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

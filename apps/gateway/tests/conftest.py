@@ -70,9 +70,17 @@ class FakeRunPod:
         self.refuse_gpus: set[str] = set()  # creates refused for these GPU ids (400/404/409)
         self.refuse_status = 400
         self.create_refusal = None  # status code refusing every create (a "no capacity" host)
+        # Per-GPU created cost, so a test can prove the *actual* rate of the chosen card (the
+        # catalogue price) rather than the generic ``price``. Default: the generic price.
+        self.create_costs: dict[str, float] = {}
         self.create_delay_seconds = 0  # mock seconds a create "takes" before answering
         self.create_timeouts: list[float | None] = []  # httpx timeout of every create call
         self.catalog_timeouts: list[float | None] = []
+        # A01/A09: an ambiguous create whose *response* is lost but which really did take effect,
+        # and a provider read that is momentarily empty while the Pod becomes visible (the
+        # consistency lag that must never be mistaken for proof that no Pod exists).
+        self.create_after_timeout = False  # create the Pod, then raise the timeout
+        self.list_empty_reads = 0  # how many initial `GET /pods` reads report nothing
 
     def _centers(self, availability: str) -> list[dict]:
         if self.datacenters is None:
@@ -180,6 +188,17 @@ class FakeRunPod:
             if self.create_delay_seconds:
                 self.time += timedelta(seconds=self.create_delay_seconds)
             if self.create_failure == "timeout":
+                if self.create_after_timeout:
+                    # The provider created the Pod; only the answer was lost. The Pod must be
+                    # discoverable later so the ambiguous intent resolves by evidence (A01/A09).
+                    pod = self.pod(
+                        body["name"],
+                        mounts=body["mounts"],
+                        pod_id=f"pod-{len(self.pods) + 1}",
+                        cost=self.price,
+                    )
+                    pod["dataCenterId"] = body["dataCenterIds"][0]
+                    self.pods.append(pod)
                 raise httpx.ReadTimeout("upstream detail must never surface")
             if self.create_failure == "server":
                 return httpx.Response(503, json={"detail": "provider internal detail"})
@@ -194,6 +213,7 @@ class FakeRunPod:
             cost = self.price
             if body.get("cloud") == "COMMUNITY" and self.community_price is not None:
                 cost = self.community_price
+            cost = self.create_costs.get(body["gpu"]["id"], cost)
             pod = self.pod(body["name"], mounts=body["mounts"], pod_id=f"pod-{len(self.pods) + 1}", cost=cost)
             pod["dataCenterId"] = body["dataCenterIds"][0]
             self.pods.append(pod)
@@ -211,6 +231,9 @@ class FakeRunPod:
         if path.endswith("/pods") and request.method == "GET":
             if self.list_failure:
                 return httpx.Response(self.list_failure, json={"detail": "provider internal detail"})
+            if self.list_empty_reads > 0:
+                self.list_empty_reads -= 1
+                return httpx.Response(200, json={"pods": []})
             return httpx.Response(200, json={"pods": self.pods})
         if "/pods/" in path and request.method == "GET":
             wanted = path.rsplit("/", 1)[-1]
@@ -237,6 +260,7 @@ class FakeLlama:
         self.stream_started = False
         self.stream_closed = False
         self.failure = None
+        self.malformed = False  # answer 200 with a non-JSON body (A04)
         self.expected_key = POD_KEY
         self.gate: asyncio.Event | None = None
         self.pending_second_chunk = False
@@ -251,6 +275,11 @@ class FakeLlama:
         self.requests.append(body)
         if self.failure:
             return httpx.Response(self.failure, json={"detail": "internal upstream detail"})
+        if self.malformed:
+            # A 200 whose body is not JSON: the proxy must fail typed and release the slot.
+            return httpx.Response(
+                200, content=b"this is not json", headers={"content-type": "application/json"}
+            )
         if body.get("stream"):
             self.stream_started = True
             owner = self
