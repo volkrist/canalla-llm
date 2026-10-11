@@ -192,6 +192,38 @@ bounded way and ends it if it has to, so a clean Quit leaves no orphan daemon an
 no listening SOCKS port. An external Tor is never killed, adopted or
 reconfigured.
 
+## Tor fetch hardening (1.2.1)
+
+The route a `tor_fetch`/`tor_search` travels on is now proven **before the URL is
+sent**, not merely present:
+
+- **No byte before a proof.** The action asks the running service for a
+  `proven_endpoint()` — the endpoint a *current* proof vouches for — and refuses
+  with `tor_unavailable` if there is none. A SOCKS listener that answers on the
+  right port but is not Tor never receives the destination.
+- **The proof binds to the endpoint and the process.** It carries the endpoint it
+  was taken through, a TTL (`tor_proof_ttl_seconds`) and, for the daemon Canalla
+owns, the pid that served it. A moved port, a restarted process or an expired
+  proof all read as *not proven*; the single bounded recovery re-probes and
+  re-proves before the request is retried. There is still no clearnet fallback.
+- **A bounded HTTP reader, not a blind read.** `app.tools.tor.http_response`
+  frames the response itself: exact `Content-Length`, chunked reassembly,
+  bounded gzip/deflate decoding and a size ceiling. Every incomplete or hostile
+  response is a typed failure — `tor_response_truncated`, `tor_response_too_large`,
+  `tor_response_invalid`, `tor_response_timeout` — and a timeout is never reported
+  as a partial `HTTP 200`.
+- **A literal-address URL guard.** `app.tools.tor.urls` parses every textual IP
+  form a browser accepts (dotted quad, integer, hex, shortened IPv4, bracketed
+  IPv6, IPv4-mapped IPv6) and refuses loopback, private, link-local (including
+  `169.254.169.254`), multicast, reserved, unspecified and metadata literals
+  before a request leaves the process. Names and `.onion` hosts are still sent to
+  the proxy as names and never resolved locally. Every redirect hop is
+  re-validated and travels through the same proven SOCKS5h connector.
+- **Honest limit.** This guards *literal* addresses; it cannot defeat a name the
+  remote resolver maps onto a private address. Without a server-side route policy
+  the claim is "no unsafe literal leaves this process", not "no request can reach
+  a private host".
+
 ## Bundled Tor runtime (1.2.0)
 
 Canalla ships the Tor daemon, so the product is self-contained: install the app,

@@ -315,8 +315,38 @@ class TorService:
         host, port = self._endpoint
         return self._proof.get("host") == host and int(self._proof.get("port") or 0) == port
 
+    def proof_process_matches(self) -> bool:
+        """A managed proof dies with the process it was taken through.
+
+        The proof records which process serves a *managed* endpoint. A restart gives a new pid (or no
+        process at all), and a proof taken through the old process may not vouch for the new one. An
+        external endpoint has no process we own — it is bound by endpoint and TTL only.
+        """
+        if not self._proof:
+            return False
+        pid = self._proof.get("pid")
+        if pid is None:
+            return True
+        return pid == self._process_pid()
+
     def verified(self) -> bool:
-        return bool(self.proof_fresh() and self.proof_endpoint_matches() and self._listening)
+        return bool(
+            self.proof_fresh()
+            and self.proof_endpoint_matches()
+            and self.proof_process_matches()
+            and self._listening
+        )
+
+    def proven_endpoint(self) -> tuple[str, int] | None:
+        """The endpoint a *current* proof vouches for, or ``None``.
+
+        This is the authority a fetch asks before it sends anything: it combines the TTL, the endpoint
+        binding and the process binding, so a stale proof, a moved port or a restarted process all
+        read as "not proven" — never as "some Tor exists somewhere". It performs no network call.
+        """
+        if not self.verified():
+            return None
+        return self._endpoint
 
     # ------------------------------------------------------------------------------- status
 
