@@ -137,8 +137,8 @@ class InferenceProxy:
 
     @staticmethod
     def _digest(body: dict) -> str:
-        """The request body is part of the identity too: the same id with a different request
-        is a new generation, never a replay of the answer to another question."""
+        """The request body is part of the identity: the same id with a different request is a
+        conflict, never a replay of the answer to another question."""
         canonical = json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -155,10 +155,11 @@ class InferenceProxy:
             self._recent.pop(key, None)
             return None
         if entry.get("digest") != digest:
-            # Same id, different request: the stale record is dropped so the new request owns
-            # the id from here on, instead of being answered with someone else's question.
-            self._recent.pop(key, None)
-            return None
+            # Same installation, same id, different request: an identifier conflict, refused
+            # loudly. Dropping the record and generating a second answer under the same id would
+            # be exactly the silent re-use A03 forbids — the id names one request, and a new
+            # question needs a new id.
+            raise GatewayError("gateway_request_conflict")
         return entry
 
     def _forget(self, key: str) -> None:

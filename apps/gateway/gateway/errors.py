@@ -30,6 +30,9 @@ CODES = {
     "compute_policy_invalid": 422,
     "gateway_request_in_flight": 409,
     "gateway_request_completed": 409,
+    # A03: same installation, same request id, *different* body is an identifier conflict — never
+    # a silent second generation and never another request's answer.
+    "gateway_request_conflict": 409,
     "compute_offline": 409,
     "compute_unknown": 409,
     "multiple_compute": 409,
@@ -56,6 +59,7 @@ DETAILS = {
     "compute_policy_invalid": "Недопустимая политика расходов: проверьте максимум $/час и бюджет сессии.",
     "gateway_request_in_flight": "Этот запрос уже выполняется.",
     "gateway_request_completed": "Этот запрос уже завершён.",
+    "gateway_request_conflict": "Идентификатор запроса уже использован для другого запроса.",
     "compute_offline": "AI не запущен. Запустите его перед запросом.",
     "compute_unknown": "Результат запуска AI пока неизвестен. Выполняется сверка с провайдером.",
     "multiple_compute": "Обнаружено несколько compute для этого аккаунта. Требуется проверка оператора.",

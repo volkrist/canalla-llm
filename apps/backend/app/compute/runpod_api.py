@@ -33,9 +33,7 @@ ERROR_MESSAGES = {
     "create_unknown": "Результат создания пока неизвестен. Повторное создание заблокировано; выполняется сверка с RunPod.",
     "startup_failed": "Не удалось запустить AI. Compute освобождается; данные Volume сохраняются.",
     "startup_timeout": "Превышено время запуска AI. Compute освобождается.",
-    "model_unavailable": (
-        "Модель перестала отвечать. Compute освобождается; отправьте сообщение ещё раз."
-    ),
+    "model_unavailable": ("Модель перестала отвечать. Compute освобождается; отправьте сообщение ещё раз."),
     "external_compute": "Обнаружен существующий compute. Дополнительный Pod не создаётся.",
     "multiple_compute": "Обнаружено несколько Pods для этого Volume. Требуется проверка администратора.",
     "session_budget": "Достигнут бюджет compute-сессии.",
@@ -59,6 +57,7 @@ ERROR_MESSAGES = {
     "gateway_budget_denied": "Запрос превышает установленные лимиты расходов.",
     "gateway_request_in_flight": "Этот запрос уже выполняется.",
     "gateway_request_completed": "Этот запрос уже завершён.",
+    "gateway_request_conflict": "Идентификатор запроса уже использован для другого запроса.",
     "gateway_managed_compute": (
         "Compute управляется Canalla Cloud. Запуск и остановка доступны через Canalla Cloud."
     ),

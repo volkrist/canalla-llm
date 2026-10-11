@@ -215,6 +215,48 @@ def test_replaying_a_request_id_never_generates_twice(gateway, client):
     assert gateway.llama.requests == []
 
 
+def test_a_streaming_request_id_conflicts_on_a_different_body(gateway, client):
+    """The streaming and non-stream paths share one identity rule (A03)."""
+    installation, headers = ready_compute(gateway, client)
+    request_id = "req-conflict-stream"
+    first = client.post(
+        "/v1/chat/completions",
+        json={**CHAT, "stream": True},
+        headers={**headers, "X-Alex-Request-Id": request_id},
+    )
+    assert first.status_code == 200
+
+    other = {**CHAT, "stream": True, "messages": [{"role": "user", "content": "другой"}]}
+    conflict = client.post(
+        "/v1/chat/completions", json=other, headers={**headers, "X-Alex-Request-Id": request_id}
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["code"] == "gateway_request_conflict"
+    assert gateway.llama.requests and len(gateway.llama.requests) == 1
+
+
+def test_two_installations_with_the_same_request_id_are_isolated(gateway, client):
+    """A03: the replay identity includes the installation, so a shared id is not a shared answer."""
+    first_installation, first_headers = ready_compute(gateway, client)
+    second = enroll(gateway, client, label="PC B")
+    second_headers = auth_header(client, second)
+    request_id = "req-shared-000001"
+
+    a = client.post(
+        "/v1/chat/completions", json=CHAT, headers={**first_headers, "X-Alex-Request-Id": request_id}
+    )
+    assert a.status_code == 200
+    gateway.llama.requests.clear()
+
+    # The same id and body from another installation is a separate request: it generates on its
+    # own and is never served the first installation's cached answer.
+    b = client.post(
+        "/v1/chat/completions", json=CHAT, headers={**second_headers, "X-Alex-Request-Id": request_id}
+    )
+    assert b.status_code == 200
+    assert len(gateway.llama.requests) == 1
+
+
 def test_upstream_failure_is_reported_without_leaking_the_response(gateway, client):
     installation, headers = ready_compute(gateway, client)
     gateway.llama.failure = 500
@@ -316,9 +358,12 @@ def test_another_installation_never_receives_a_cached_answer(gateway, client):
     assert len(gateway.llama.requests) == 1
 
 
-def test_the_same_id_with_a_different_request_is_a_new_generation(gateway, client):
-    """A03: the request body is part of the identity — an id cannot replay the answer to a
-    different question."""
+def test_the_same_id_with_a_different_request_is_a_conflict(gateway, client):
+    """A03: the request body is part of the identity — an id names exactly one request.
+
+    A different body under the same id is refused with a typed conflict: never another
+    question's answer, and never a silent second generation under the same id.
+    """
     installation, headers = ready_compute(gateway, client)
     request_id = "req-digest-000001"
     first = client.post(
@@ -331,9 +376,11 @@ def test_the_same_id_with_a_different_request_is_a_new_generation(gateway, clien
     second = client.post(
         "/v1/chat/completions", json=other, headers={**headers, "X-Alex-Request-Id": request_id}
     )
-    assert second.status_code == 200, second.text
-    assert len(gateway.llama.requests) == 1
-    assert gateway.llama.requests[0]["messages"][0]["content"] == "другой вопрос"
+    assert second.status_code == 409
+    assert second.json()["code"] == "gateway_request_conflict"
+    # No second generation, and the first request's answer is not leaked.
+    assert gateway.llama.requests == []
+    assert "Привет, мир" not in second.text
 
 
 def test_a_concurrent_duplicate_never_starts_a_second_generation(gateway, client):

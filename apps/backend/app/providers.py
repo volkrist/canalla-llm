@@ -523,6 +523,9 @@ class LLMError(RuntimeError):
             "no_compatible_gpu": "Подходящих GPU сейчас нет.",
             "startup_timeout": "AI не успел запуститься вовремя. Попробуйте ещё раз.",
             "model_unavailable": "Модель перестала отвечать. Отправьте сообщение ещё раз.",
+            "gateway_request_conflict": (
+                "Идентификатор запроса уже использован для другого запроса. Начните новый запрос."
+            ),
         }
         super().__init__(messages.get(code, messages["llm_unavailable"]))
 

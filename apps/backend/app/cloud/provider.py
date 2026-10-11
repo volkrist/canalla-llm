@@ -196,7 +196,17 @@ class GatewayProvider(LLMProvider):
             if response.status_code in (401, 403):
                 raise LLMError("gateway_auth_failed")
             if response.status_code == 409:
-                raise LLMError("offline")
+                # A 409 is either `compute_offline` or an A03 identifier conflict. The product
+                # never sends a request id, but if one is ever reused the reason must be named,
+                # not dressed as "AI выключен".
+                code = "offline"
+                try:
+                    body = json.loads(await response.aread())
+                    if isinstance(body, dict) and body.get("code") == "gateway_request_conflict":
+                        code = "gateway_request_conflict"
+                except (ValueError, httpx.HTTPError):
+                    pass
+                raise LLMError(code)
             if response.status_code == 429:
                 raise LLMError("gateway_busy")
             if response.status_code == 503:
