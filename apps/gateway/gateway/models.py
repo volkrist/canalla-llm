@@ -104,6 +104,9 @@ class GatewaySession(Base):
     stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     stop_reason: Mapped[str | None] = mapped_column(String(64))
+    # A02: when the last terminate attempt was made. Persisted, so a stop the provider refused
+    # is retried with backoff from durable state instead of an in-process timer.
+    stop_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_code: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 

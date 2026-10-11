@@ -623,3 +623,102 @@ def test_provider_outage_reconciles_without_destroying_state(gateway, client):
     gateway.runpod.list_failure = None
     run(gateway.authority.reconcile())
     assert status(client, headers)["error_code"] is None
+
+
+# ------------------------------------------------------------------- A01: create_unknown
+
+
+def test_the_tick_keeps_an_ambiguous_create_under_observation(gateway, client):
+    """A01: an ambiguous create is watched server-side after the client has gone.
+
+    The Pod the provider actually created is found by the durable name the intent committed,
+    adopted as *managed* and therefore kept under budget control — instead of hanging as an
+    unresolvable intent until the next client call, and without a blind second create.
+    """
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    gateway.runpod.create_failure = "timeout"
+
+    response = client.post(
+        "/compute/ensure", json=ensure_body(operation_id="op-a01-00000001"), headers=headers
+    )
+    assert response.json()["state"] == "create_unknown"
+    assert gateway.runpod.pods == []
+
+    # The create really did take effect: the Pod answers under the name the intent committed.
+    intent_name = gateway.sessions_rows[0].pod_name
+    assert intent_name
+    gateway.runpod.attached_pod(name=intent_name)
+    gateway.runpod.time += timedelta(seconds=5)
+
+    # Only the background loop runs now: no client asks for anything.
+    run(gateway.authority.tick())
+
+    row = gateway.sessions_rows[0]
+    assert row.managed is True
+    assert row.adopted is False
+    assert row.pod_id == "pod-1"
+    assert row.state in {"starting_pod", "loading_model"}
+    assert gateway.control.state in {"starting_pod", "loading_model"}
+    assert gateway.control.active_session_id == row.id
+    assert len(gateway.runpod.creates) == 1
+
+
+def test_the_tick_resolves_an_ambiguous_create_by_provider_evidence(gateway, client):
+    """A01: with no Pod on the Volume the intent is resolved by provider evidence — bounded,
+    server-side, and never by firing a second create."""
+    from gateway.compute import CREATE_RESOLVE_SECONDS
+
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    gateway.runpod.create_failure = "timeout"
+    client.post("/compute/ensure", json=ensure_body(operation_id="op-a01-00000002"), headers=headers)
+    assert gateway.control.state == "create_unknown"
+
+    gateway.runpod.time += timedelta(seconds=CREATE_RESOLVE_SECONDS + 1)
+    run(gateway.authority.tick())
+
+    assert gateway.control.state == "offline"
+    assert gateway.control.error_code == "create_unknown"
+    assert gateway.control.active_session_id is None
+    assert len(gateway.runpod.creates) == 1
+    assert gateway.runpod.pods == []
+
+
+# ------------------------------------------------------------------------ A02: stop retry
+
+
+def test_a_refused_stop_is_retried_until_the_provider_confirms(gateway, client):
+    """A02: «stopped» is only reported once the provider confirmed the termination.
+
+    The intent is durable: the refused stop keeps owning the state (a later pod-status read
+    does not re-report a healthy startup), the client keeps seeing «stopping», and the
+    background loop retries from persisted state with a bounded backoff.
+    """
+    from gateway.compute import STOP_RETRY_SECONDS
+
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    ensure(client, headers, operation_id="op-a02-00000001")
+    assert gateway.runpod.pods[0]["status"] == "RUNNING"
+
+    # The provider refuses the first termination and would accept the next one.
+    gateway.runpod.action_failure = 500
+    gateway.runpod.action_failures = 1
+    stopped = client.post("/compute/stop", json={"operation_id": "op-a02-00000002"}, headers=headers)
+    assert stopped.status_code == 200
+    assert stopped.json()["state"] == "stopping"
+    assert gateway.runpod.pods[0]["status"] == "RUNNING"
+
+    # A status read agrees, and the intent survives a pod-status read from the loop.
+    assert status(client, headers)["state"] == "stopping"
+    run(gateway.authority.tick())
+    assert status(client, headers)["state"] == "stopping"
+    assert len(gateway.runpod.actions) == 1
+
+    # After the backoff window the retry lands — and only then is «stopped» reported.
+    gateway.runpod.time += timedelta(seconds=STOP_RETRY_SECONDS + 1)
+    run(gateway.authority.tick())
+    assert gateway.runpod.pods[0]["status"] == "TERMINATED"
+    assert len(gateway.runpod.actions) == 2
+    assert status(client, headers)["state"] == "stopped"

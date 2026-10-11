@@ -7,6 +7,8 @@ import json
 
 from conftest import POD_KEY, auth_header, enroll, ensure_body, run, wait_for
 
+from gateway.errors import GatewayError
+
 CHAT = {"model": "orcarouter-qwen38-27b-q5km", "messages": [{"role": "user", "content": "привет"}]}
 FIRST_DELTA = "Привет".encode("utf-8")
 DONE = b"[DONE]"
@@ -131,7 +133,13 @@ def test_client_disconnect_cancels_the_upstream(gateway, client):
     assert released is True
     assert gateway.proxy.queue._slot.locked() is False
     assert gateway.llama.stream_closed is True
-    assert gateway.proxy._lookup("req-disconnect-1")["state"] == "cancelled"
+    assert (
+        gateway.proxy._lookup(
+            gateway.proxy._key(installation["installation_id"], "req-disconnect-1"),
+            gateway.proxy._digest({**CHAT, "stream": True}),
+        )["state"]
+        == "cancelled"
+    )
 
 
 def test_queue_full_and_busy_are_reported_with_stable_codes(gateway, client):
@@ -194,7 +202,11 @@ def test_replaying_a_request_id_never_generates_twice(gateway, client):
     assert replay.json() == first.json()
     assert gateway.llama.requests == []
 
-    gateway.proxy._remember("req-inflight-0001", "in_flight")
+    gateway.proxy._remember(
+        gateway.proxy._key(installation["installation_id"], "req-inflight-0001"),
+        "in_flight",
+        gateway.proxy._digest(CHAT),
+    )
     inflight = client.post(
         "/v1/chat/completions", json=CHAT, headers={**headers, "X-Alex-Request-Id": "req-inflight-0001"}
     )
@@ -270,3 +282,89 @@ def test_passthrough_endpoints_do_not_exist(gateway, client):
         assert client.get(path, headers=headers).status_code == 404
         assert client.post(path, json={}, headers=headers).status_code == 404
     assert gateway.runpod.creates and len(gateway.runpod.creates) == 1
+
+
+# --------------------------------------------- A03/A13: one installation, one generation
+
+
+def test_another_installation_never_receives_a_cached_answer(gateway, client):
+    """A03: replay identity is the installation *plus* the request id.
+
+    A request id is chosen by the client, so a shared id space would let installation B read
+    installation A's answer out of the cache. B must generate instead.
+    """
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    client.post("/compute/ensure", json=ensure_body(operation_id="op-iso-00000001"), headers=headers)
+    run(gateway.authority.tick())
+    assert client.get("/compute/status", headers=headers).json()["state"] == "ready"
+    shared_id = "req-shared-000001"
+
+    first = client.post(
+        "/v1/chat/completions", json=CHAT, headers={**headers, "X-Alex-Request-Id": shared_id}
+    )
+    assert first.status_code == 200
+
+    gateway.llama.requests.clear()
+    second_installation = enroll(gateway, client, label="PC B")
+    second_headers = auth_header(client, second_installation)
+    second = client.post(
+        "/v1/chat/completions", json=CHAT, headers={**second_headers, "X-Alex-Request-Id": shared_id}
+    )
+    assert second.status_code == 200, second.text
+    # The second installation had to generate: it could not be served from A's cache.
+    assert len(gateway.llama.requests) == 1
+
+
+def test_the_same_id_with_a_different_request_is_a_new_generation(gateway, client):
+    """A03: the request body is part of the identity — an id cannot replay the answer to a
+    different question."""
+    installation, headers = ready_compute(gateway, client)
+    request_id = "req-digest-000001"
+    first = client.post(
+        "/v1/chat/completions", json=CHAT, headers={**headers, "X-Alex-Request-Id": request_id}
+    )
+    assert first.status_code == 200
+
+    gateway.llama.requests.clear()
+    other = {**CHAT, "messages": [{"role": "user", "content": "другой вопрос"}]}
+    second = client.post(
+        "/v1/chat/completions", json=other, headers={**headers, "X-Alex-Request-Id": request_id}
+    )
+    assert second.status_code == 200, second.text
+    assert len(gateway.llama.requests) == 1
+    assert gateway.llama.requests[0]["messages"][0]["content"] == "другой вопрос"
+
+
+def test_a_concurrent_duplicate_never_starts_a_second_generation(gateway, client):
+    """A13: the id is claimed before any await, so a simultaneous copy of the same request is
+    refused immediately instead of queueing up behind the first and generating a second time."""
+    installation, headers = ready_compute(gateway, client)
+    installation_id = installation["installation_id"]
+
+    async def race():
+        first = await gateway.proxy.completions(
+            {**CHAT, "stream": True}, installation_id=installation_id, task_id=None, request_id=request_id
+        )
+        # The first generation is in flight: the slot is taken and the id is claimed.
+        error = None
+        try:
+            await gateway.proxy.completions(
+                {**CHAT, "stream": True},
+                installation_id=installation_id,
+                task_id=None,
+                request_id=request_id,
+            )
+        except GatewayError as failure:
+            error = failure
+        return first, error
+
+    request_id = "req-race-00000001"
+    first, error = run(race())
+    assert error is not None and error.code == "gateway_request_in_flight"
+    assert len(gateway.llama.requests) == 1
+    assert gateway.proxy.queue.active() == 1
+    # The claim is released when the generation really ends.
+    run(first.body_iterator.aclose())
+    assert gateway.proxy.queue.active() == 0
+    assert gateway.proxy._in_flight == {}

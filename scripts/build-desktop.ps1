@@ -39,6 +39,12 @@ try {
 } finally { Pop-Location }
 & (Join-Path $PSScriptRoot 'stage-native-runtime.ps1')
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+# The compiled enrollment default. ``gateway.rs`` reads it with ``option_env!``, so it is baked at
+# compile time and may be overridden at runtime — but a release build must never omit it: the
+# 1.2.0 installer shipped without it and every fresh install showed an empty «Адрес Gateway» with
+# a disabled «Подключить». An explicit value wins, so a test build can still point elsewhere.
+if (-not $env:ALEX_GATEWAY_URL) { $env:ALEX_GATEWAY_URL = 'https://gateway.12testers.store' }
+Write-Host ('ALEX_GATEWAY_URL=' + $env:ALEX_GATEWAY_URL)
 Push-Location (Join-Path $repo 'apps\desktop')
 try {
   if ($bundlerSigns) {
@@ -68,6 +74,12 @@ $desktop = @(
   (Join-Path $repo 'apps\desktop\src-tauri\target\release\Canalla LLM.exe'),
   (Join-Path $repo 'apps\desktop\src-tauri\target\release\Alex LLM.exe')
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+# The guard for exactly the 1.2.0 defect: the built executable must carry the production Gateway
+# URL as a standalone literal, or the build stops here instead of shipping a client that cannot
+# enroll without a human typing the address.
+if (-not $desktop) { throw 'PACKAGED_EXE_MISSING: no built desktop executable to verify' }
+& $python (Join-Path $PSScriptRoot 'verify-packaged-gateway-url.py') $desktop
+if ($LASTEXITCODE -ne 0) { throw 'GATEWAY_URL_NOT_BAKED: the client would not know its Gateway' }
 $sidecar = Join-Path $repo 'apps\desktop\src-tauri\sidecar\alex-backend\alex-backend.exe'
 $sum = Join-Path $repo 'apps\desktop\src-tauri\sidecar\SHA256SUMS.txt'
 function Write-Hash($path) {

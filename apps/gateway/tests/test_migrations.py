@@ -41,6 +41,7 @@ def test_upgrade_creates_the_gateway_schema(tmp_path):
     with sqlite3.connect(path) as db:
         tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         revision = db.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+        columns = {row[1] for row in db.execute("PRAGMA table_info(gateway_sessions)")}
     assert tables == {
         "alembic_version",
         "installations",
@@ -50,7 +51,9 @@ def test_upgrade_creates_the_gateway_schema(tmp_path):
         "gateway_operations",
         "audit_events",
     }
-    assert revision == "0001_gateway_core"
+    assert revision == "0002_stop_attempt"
+    # A02: the durable stop-attempt clock the retry backoff reads.
+    assert "stop_attempt_at" in columns
     # The Gateway owns its own history: the local backend's revisions are absent.
     assert revision not in {f"00{index:02d}" for index in range(1, 15)}
 

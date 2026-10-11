@@ -331,18 +331,35 @@ switch ($Action) {
     }
     $previousKey = $env:TAURI_SIGNING_PRIVATE_KEY
     $previousPassword = $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+    $previousGatewayUrl = $env:ALEX_GATEWAY_URL
     $env:TAURI_SIGNING_PRIVATE_KEY = (Get-Content $KeyPath -Raw)
     $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $password
+    # The compiled enrollment default (`option_env!` in gateway.rs). A release build must never
+    # omit it: 1.2.0 shipped without it and a fresh install could not enroll without a human
+    # typing the address. An explicit value still wins.
+    if (-not $env:ALEX_GATEWAY_URL) { $env:ALEX_GATEWAY_URL = 'https://gateway.12testers.store' }
+    Write-Output "ALEX_GATEWAY_URL=$($env:ALEX_GATEWAY_URL)"
     try {
       $result = Invoke-NativeCommand -Command 'npx tauri build --bundles nsis' -WorkingDirectory (Join-Path $repo 'apps\desktop')
       if ($result.Code -ne 0) {
         throw "the release build failed ($($result.Code)): $($result.Output)"
       }
       Write-Output $result.Output
+      # Fail the release instead of shipping a client that does not know its Gateway.
+      $builtExe = @(
+        (Join-Path $repo 'apps\desktop\src-tauri\target\release\alex-llm.exe'),
+        (Join-Path $repo 'apps\desktop\src-tauri\target\release\Canalla LLM.exe')
+      ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+      if (-not $builtExe) { throw 'PACKAGED_EXE_MISSING: no built desktop executable to verify' }
+      $python = Join-Path $repo 'apps\backend\.venv\Scripts\python.exe'
+      & $python (Join-Path $repo 'scripts\verify-packaged-gateway-url.py') $builtExe
+      if ($LASTEXITCODE -ne 0) { throw 'GATEWAY_URL_NOT_BAKED: the client would not know its Gateway' }
     } finally {
       $env:TAURI_SIGNING_PRIVATE_KEY = $previousKey
       if ($null -eq $previousPassword) { Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue }
       else { $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $previousPassword }
+      if ($null -eq $previousGatewayUrl) { Remove-Item Env:\ALEX_GATEWAY_URL -ErrorAction SilentlyContinue }
+      else { $env:ALEX_GATEWAY_URL = $previousGatewayUrl }
     }
   }
 

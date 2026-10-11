@@ -12,12 +12,17 @@ Properties kept from the product's direct mode:
 * ``--parallel 1`` means one generation at a time, so requests wait in a **bounded FIFO
   queue** instead of being silently dropped;
 * stopping a generation is not stopping compute;
-* a replayed request id never produces a second generation.
+* a replayed request id never produces a second generation, and the replay identity is the
+  installation *plus* the request id *plus* the request body — one installation can never be
+  served another's answer, and a concurrent copy of the same request never queues up to
+  generate twice;
+* the single generation slot is released even when the client never reads the body at all.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -77,6 +82,35 @@ class InferenceQueue:
         self._slot.release()
 
 
+class GenerationBody:
+    """The streaming body of one generation, with a guaranteed finalizer.
+
+    Starlette may close the body *before* it ever starts — a client that drops the connection
+    between the response headers and the first chunk, or a cancelled request that never
+    iterated. A bare async generator would then never enter its own ``finally``, and the single
+    generation slot (``--parallel 1``) would stay occupied forever: every later request would
+    queue until it reported ``gateway_busy``. ``aclose`` is therefore the release point,
+    whether or not the iteration ever began; the finalizer is idempotent, so a generation that
+    really finished keeps the outcome it recorded.
+    """
+
+    def __init__(self, inner, finish):
+        self._inner = inner
+        self._finish = finish
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        return await self._inner.__anext__()
+
+    async def aclose(self) -> None:
+        try:
+            await self._inner.aclose()
+        finally:
+            self._finish("cancelled")
+
+
 class InferenceProxy:
     def __init__(self, settings, authority, *, transport=None, queue: InferenceQueue | None = None):
         self.settings = settings
@@ -92,19 +126,45 @@ class InferenceProxy:
 
     # ------------------------------------------------------------------ request memory
 
-    def _remember(self, request_id: str, state: str, body: dict | None = None) -> None:
-        self._recent[request_id] = {"state": state, "body": body, "at": time.time()}
+    @staticmethod
+    def _key(installation_id: str, request_id: str) -> str:
+        """Request identity is the *installation plus* its request id.
+
+        The id is chosen by the client, so a shared id space would let one installation read
+        another's answer out of the replay cache. Identity is therefore part of the key.
+        """
+        return f"{installation_id}\x00{request_id}"
+
+    @staticmethod
+    def _digest(body: dict) -> str:
+        """The request body is part of the identity too: the same id with a different request
+        is a new generation, never a replay of the answer to another question."""
+        canonical = json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def _remember(self, key: str, state: str, digest: str, body: dict | None = None) -> None:
+        self._recent[key] = {"state": state, "body": body, "digest": digest, "at": time.time()}
         while len(self._recent) > REQUEST_MEMORY_MAX:
             self._recent.popitem(last=False)
 
-    def _lookup(self, request_id: str) -> dict | None:
-        entry = self._recent.get(request_id)
+    def _lookup(self, key: str, digest: str) -> dict | None:
+        entry = self._recent.get(key)
         if entry is None:
             return None
         if time.time() - entry["at"] > REQUEST_MEMORY_SECONDS:
-            self._recent.pop(request_id, None)
+            self._recent.pop(key, None)
+            return None
+        if entry.get("digest") != digest:
+            # Same id, different request: the stale record is dropped so the new request owns
+            # the id from here on, instead of being answered with someone else's question.
+            self._recent.pop(key, None)
             return None
         return entry
+
+    def _forget(self, key: str) -> None:
+        """An admission failure leaves no trace, so a retry with the same id is possible."""
+        self._recent.pop(key, None)
+        self._in_flight.pop(key, None)
 
     # --------------------------------------------------------------------------- models
 
@@ -143,7 +203,9 @@ class InferenceProxy:
         self, body: dict, *, installation_id: str, task_id: str | None, request_id: str | None
     ) -> JSONResponse | StreamingResponse:
         request_id = request_id or str(uuid4())
-        known = self._lookup(request_id)
+        key = self._key(installation_id, request_id)
+        digest = self._digest(body)
+        known = self._lookup(key, digest)
         if known is not None:
             if known["state"] == "completed" and known.get("body") is not None and not body.get("stream"):
                 return JSONResponse(content=known["body"], headers={"X-Alex-Request-Id": request_id})
@@ -154,30 +216,40 @@ class InferenceProxy:
         if target is None:
             raise GatewayError("compute_offline")
 
+        # A13: the id is claimed *before* any await, so two simultaneous copies of the same
+        # request can never both reach the model — one request stays one generation. The claim
+        # is released again if admission itself fails, so a legitimate retry still works.
+        self._in_flight[key] = installation_id
+        self._remember(key, "in_flight", digest)
         try:
             await asyncio.wait_for(self.queue.acquire(), timeout=self.queue.timeout)
         except TimeoutError:
+            self._forget(key)
             raise GatewayError("gateway_busy") from None
+        except GatewayError:
+            self._forget(key)
+            raise
         except asyncio.CancelledError:
+            self._forget(key)
             raise
 
-        base_url, key = target
-        headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
+        base_url, key_value = target
+        headers = {"Authorization": "Bearer " + key_value, "Content-Type": "application/json"}
         if task_id:
             headers["X-Alex-Task-Id"] = task_id
-        self._in_flight[request_id] = installation_id
-        self._remember(request_id, "in_flight")
         self.authority.mark_activity()
         released = False
 
         def finish(state: str, result: dict | None = None):
-            """Synchronous by design: the generation slot is never released across an await."""
+            """Synchronous by design, and single-outcome: the generation slot is never released
+            across an await, and one generation records exactly one result."""
             nonlocal released
-            self._in_flight.pop(request_id, None)
-            self._remember(request_id, state, result)
-            if not released:
-                released = True
-                self.queue.release()
+            if released:
+                return
+            released = True
+            self._in_flight.pop(key, None)
+            self._remember(key, state, digest, result)
+            self.queue.release()
 
         stream = bool(body.get("stream"))
         client = self._client()
@@ -246,7 +318,7 @@ class InferenceProxy:
                     pass
 
         return StreamingResponse(
-            relay(),
+            GenerationBody(relay(), finish),
             media_type="text/event-stream",
             headers={
                 "X-Alex-Request-Id": request_id,

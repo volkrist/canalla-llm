@@ -115,6 +115,10 @@ STARTUP_TIMEOUT = "startup_timeout"
 MAX_CREATE_ATTEMPTS = 2
 CREATE_RESOLVE_SECONDS = 45
 LEASE_SECONDS = 120
+# A stop the provider refused is retried from persisted state until termination is confirmed:
+# «stopped» is only ever reported after the provider confirmed it. The window keeps a provider
+# that keeps failing from turning the retry into a hot loop.
+STOP_RETRY_SECONDS = 15
 OPERATION_TTL_SECONDS = 24 * 3600
 ALLOWED_AUTO_STOP = (0, 5, 10, 15, 30)
 
@@ -505,11 +509,17 @@ class ComputeAuthority:
             "allow_community": bool(community and self.settings.runpod_allow_community_cloud),
         }
 
-    def _operation(self, db, operation_id: str, installation_id: str, kind: str) -> dict | None:
+    def _operation(
+        self, db, operation_id: str, installation_id: str, kind: str, digest: str | None = None
+    ) -> dict | None:
         row = db.get(GatewayOperation, operation_id)
         if row is None:
             return None
         if (row.installation_id and row.installation_id != installation_id) or row.kind != kind:
+            raise GatewayError("gateway_invalid_request", detail="Идентификатор операции уже использован.")
+        if digest is not None and row.request_digest and row.request_digest != digest:
+            # The id is idempotency for one request, not a way to skip a different one: a
+            # replay must carry the same request, or it is refused like a foreign operation id.
             raise GatewayError("gateway_invalid_request", detail="Идентификатор операции уже использован.")
         return dict(row.result or {})
 
@@ -893,6 +903,26 @@ class ComputeAuthority:
             session is not None and session.state == "stopping" and session.stop_reason == STARTUP_TIMEOUT
         )
 
+    def stop_retry_due(self, session: GatewaySession | None) -> bool:
+        """A durable stop intent the provider has not confirmed yet, due for a retry.
+
+        Every reason except the D-9 startup stop (which ``startup_expired`` already retries)
+        qualifies: a refused manual, idle, session-budget or price stop must be retried from
+        persisted state instead of leaving the Pod billing behind a permanent «stopping». The
+        persisted attempt clock is the backoff, so a provider that keeps failing is approached
+        at most once per window and never in a hot loop.
+        """
+        if session is None or session.pod_id is None:
+            return False
+        if session.state != "stopping" or not session.stop_reason:
+            return False
+        if session.stop_reason == STARTUP_TIMEOUT:
+            return False
+        last = utc(session.stop_attempt_at)
+        if last is None:
+            return True
+        return (utc_present(self.clock()) - last).total_seconds() >= STOP_RETRY_SECONDS
+
     def startup_expired(self, session: GatewaySession | None) -> bool:
         """Has this session outlived the server-side startup deadline?"""
         if not self.startup_started(session):
@@ -1150,12 +1180,12 @@ class ComputeAuthority:
         caps = self._caps(caps)
         digest = repr(sorted(caps.items()))
         with self.sessions() as db:
-            cached = self._operation(db, operation_id, installation_id, "ensure")
+            cached = self._operation(db, operation_id, installation_id, "ensure", digest)
         if cached is not None:
             return self._live_payload(cached)
         async with self.lease(installation_id):
             with self.sessions() as db:
-                cached = self._operation(db, operation_id, installation_id, "ensure")
+                cached = self._operation(db, operation_id, installation_id, "ensure", digest)
             if cached is not None:
                 return self._live_payload(cached)
             self._last_allocation = None
@@ -1520,12 +1550,12 @@ class ComputeAuthority:
 
     async def stop(self, installation_id: str, *, operation_id: str, reason: str = "manual") -> dict:
         with self.sessions() as db:
-            cached = self._operation(db, operation_id, installation_id, "stop")
+            cached = self._operation(db, operation_id, installation_id, "stop", reason)
         if cached is not None:
             return cached
         async with self.lease(installation_id):
             with self.sessions() as db:
-                cached = self._operation(db, operation_id, installation_id, "stop")
+                cached = self._operation(db, operation_id, installation_id, "stop", reason)
                 if cached is not None:
                     return cached
                 session = self.session_row(db)
@@ -1562,8 +1592,10 @@ class ComputeAuthority:
             row.state = "stopping"
             row.pending_stop = False
             # The *request* reason is written before the provider call, so a refused termination
-            # can be retried from persisted state instead of being forgotten (D-9).
+            # can be retried from persisted state instead of being forgotten (D-9). The attempt
+            # clock is what the retry backoff reads.
             row.stop_reason = reason
+            row.stop_attempt_at = self.clock()
             if reason == "session_budget":
                 row.error_code = "COMPUTE_BUDGET_REACHED"
             elif reason in {"price_violation", "startup_failed", "startup_timeout"}:
@@ -1647,11 +1679,23 @@ class ComputeAuthority:
         async with self.lease("tick"):
             with self.sessions() as db:
                 session = self.session_row(db)
-            if session is None or session.state not in ACTIVE_STATES:
-                # No Pod to look after. The one thing left to own is a capacity search that
+            if session is None:
+                # Nothing is tracked. The one thing left to own is a capacity search that
                 # outlived its deadline: it is collapsed here, server-side, so no client (and
                 # no vanished harness) can leave the control row answering `searching` forever.
                 self.collect_expired_search()
+                return
+            if session.state not in ACTIVE_STATES:
+                if session.state == "create_unknown":
+                    # A01: an ambiguous create stays under Gateway observation after the client
+                    # has left and across a service restart. The background loop reconciles it
+                    # against the provider, so a Pod that was actually created is discovered by
+                    # its durable identity and adopted — with its budget controlled — instead of
+                    # waiting for the next client call. Reconciliation never creates compute: it
+                    # adopts what exists or resolves the intent by provider evidence.
+                    await self._reconcile_locked()
+                else:
+                    self.collect_expired_search()
                 return
             try:
                 pod = await self.api.get_pod(session.pod_id) if session.pod_id else None
@@ -1699,10 +1743,15 @@ class ComputeAuthority:
                 # D-9: a startup stop the provider refused is still in flight. It owns the state
                 # until a retry lands, so the Pod is never re-reported as a healthy startup.
                 startup_stop_pending = self.startup_stop_pending(row)
-                if state == "loading_model" and not startup_stop_pending:
+                # A02: a stop intent is durable for *every* reason, not only the startup stop. A
+                # refused manual, idle, budget or price stop keeps owning the state until the
+                # provider confirms it, instead of a pod-status read quietly re-reporting a
+                # healthy startup while the Pod is still billing.
+                stop_intent = row.state == "stopping" and bool(row.stop_reason)
+                if state == "loading_model" and not startup_stop_pending and not stop_intent:
                     row.state = "loading_model"
                 control = self.control(db)
-                if startup_stop_pending:
+                if startup_stop_pending or stop_intent:
                     state = "stopping"
                 if state != control.state:
                     control.revision += 1
@@ -1735,6 +1784,8 @@ class ComputeAuthority:
                 global_idle = (utc_present(self.clock()) - global_last).total_seconds()
                 ready_state = row.state in {"ready", "generating"}
                 startup_expired = self.startup_expired(row)
+                stop_retry_due = self.stop_retry_due(row)
+                stop_reason = row.stop_reason
             busy = bool(self.active_inferences())
             if not managed and not pending:
                 # Never terminate provider resources Alex Cloud does not own: an adopted or
@@ -1748,6 +1799,12 @@ class ComputeAuthority:
                 return
             if pending and not busy:
                 await self._terminate(session.id, "manual")
+                return
+            if stop_retry_due and not busy:
+                # A02: a stop the provider refused is retried with backoff until termination is
+                # confirmed. The retry is driven by persisted state, so a Gateway restart or a
+                # vanished client never abandons a Pod that is still billing.
+                await self._terminate(session.id, stop_reason or "manual")
                 return
             if over_budget:
                 await self._terminate(session.id, "session_budget")
