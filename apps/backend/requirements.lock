@@ -48,8 +48,8 @@ pydantic-core==2.46.5
 pydantic-settings==2.15.0
 pyee==13.0.1
 pygments==2.21.0
-pyjwt==2.14.0
-pypdf==6.18.1
+pyjwt==2.15.0
+pypdf==6.19.0
 pytest==9.1.1
 python-docx==1.2.0
 python-dotenv==1.2.3
@@ -64,7 +64,7 @@ tqdm==4.70.1
 typing-extensions==4.16.0
 typing-inspection==0.4.4
 tzdata==2026.4
-urllib3==2.7.0
+urllib3==2.8.0
 uvicorn==0.52.4
 watchfiles==1.2.0
 websockets==17.1
