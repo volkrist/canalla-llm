@@ -1,3 +1,9 @@
+param(
+  # A test build never touches the production updater signing key and is never published. It is
+  # otherwise identical to a release build, so what it produces is a real installer to install and
+  # upgrade with.
+  [switch]$TestBuild
+)
 $ErrorActionPreference = 'Stop'
 $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
 if (Test-Path $cargoBin) { $env:PATH = "$cargoBin;$env:PATH" }
@@ -19,18 +25,23 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 # The split is therefore explicit: with a password-protected key the bundler signs the artifact
 # itself, and without one the bundler step is skipped and the installer is signed right here. The
 # updater accepts the installer as its artifact, so the signature is the same either way.
-if (-not $env:TAURI_SIGNING_PRIVATE_KEY -and -not $env:TAURI_SIGNING_PRIVATE_KEY_PATH) {
-  $candidate = Join-Path $env:USERPROFILE '.canalla-updater\canalla-updater-test.key'
-  if (Test-Path $candidate) { $env:TAURI_SIGNING_PRIVATE_KEY_PATH = $candidate }
+#
+# `-TestBuild` skips this whole block: no key is read and no signature is produced.
+$bundlerSigns = $false
+if (-not $TestBuild) {
+  if (-not $env:TAURI_SIGNING_PRIVATE_KEY -and -not $env:TAURI_SIGNING_PRIVATE_KEY_PATH) {
+    $candidate = Join-Path $env:USERPROFILE '.canalla-updater\canalla-updater-test.key'
+    if (Test-Path $candidate) { $env:TAURI_SIGNING_PRIVATE_KEY_PATH = $candidate }
+  }
+  if (-not $env:TAURI_SIGNING_PRIVATE_KEY -and -not $env:TAURI_SIGNING_PRIVATE_KEY_PATH) {
+    throw 'UPDATER_SIGNING_KEY_MISSING: set TAURI_SIGNING_PRIVATE_KEY_PATH before a release build'
+  }
+  if ($env:TAURI_SIGNING_PRIVATE_KEY_PATH) {
+    $resolved = Resolve-Path $env:TAURI_SIGNING_PRIVATE_KEY_PATH -ErrorAction SilentlyContinue
+    if ($resolved) { $env:TAURI_SIGNING_PRIVATE_KEY_PATH = $resolved.Path }
+  }
+  $bundlerSigns = [bool]($env:TAURI_SIGNING_PRIVATE_KEY -and $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD)
 }
-if (-not $env:TAURI_SIGNING_PRIVATE_KEY -and -not $env:TAURI_SIGNING_PRIVATE_KEY_PATH) {
-  throw 'UPDATER_SIGNING_KEY_MISSING: set TAURI_SIGNING_PRIVATE_KEY_PATH before a release build'
-}
-if ($env:TAURI_SIGNING_PRIVATE_KEY_PATH) {
-  $resolved = Resolve-Path $env:TAURI_SIGNING_PRIVATE_KEY_PATH -ErrorAction SilentlyContinue
-  if ($resolved) { $env:TAURI_SIGNING_PRIVATE_KEY_PATH = $resolved.Path }
-}
-$bundlerSigns = [bool]($env:TAURI_SIGNING_PRIVATE_KEY -and $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD)
 $srcTauri = Join-Path $repo 'apps\desktop\src-tauri'
 Push-Location $srcTauri
 try {
@@ -53,7 +64,7 @@ try {
     $override = Join-Path $env:TEMP 'canalla-build-without-updater-signing.json'
     '{"bundle":{"createUpdaterArtifacts":false}}' | Set-Content -Encoding ascii $override
     npm run tauri build -- --config $override
-    if ($LASTEXITCODE -eq 0) {
+    if ($LASTEXITCODE -eq 0 -and -not $TestBuild) {
       $built = Get-ChildItem (Join-Path $srcTauri 'target\release\bundle\nsis') -Filter '*setup.exe' -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
       if (-not $built) { throw 'INSTALLER_MISSING: the bundle step produced no setup.exe' }
@@ -63,6 +74,7 @@ try {
       if ($LASTEXITCODE -ne 0) { throw 'UPDATER_SIGNING_FAILED: the installer was not signed' }
       Write-Host ('SIGNED ' + $built.FullName + '.sig')
     }
+    if ($TestBuild) { Write-Host 'TEST BUILD: no updater signing key was read and no signature was produced' }
   }
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } finally { Pop-Location }

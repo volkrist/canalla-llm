@@ -184,3 +184,117 @@ jobs:
       - name: Playwright
         working-directory: apps/desktop
         run: npm run test:e2e
+
+  installer-build:
+    # A TEST build: the full product assembled exactly as a release is — PyInstaller sidecar with
+    # its stamp, the native host, the bundled Tor runtime, the baked Gateway URL and the NSIS
+    # installer — but never signed with the production updater key and never published. The
+    # production release gate is a separate, authorized action on a trusted host.
+    runs-on: windows-latest
+    timeout-minutes: 150
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Create the backend venv the sidecar build uses
+        run: |
+          python -m venv apps/backend/.venv
+          apps/backend/.venv/Scripts/python.exe -m pip install --upgrade pip
+          apps/backend/.venv/Scripts/python.exe -m pip install -r apps/backend/requirements.lock
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Build the test installer (no production signing)
+        shell: pwsh
+        run: ./scripts/build-desktop.ps1 -TestBuild
+
+      - name: The production release gate must refuse an unsigned test build
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem apps/desktop/src-tauri/target/release/bundle/nsis -Filter *setup.exe |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          python scripts/release-gate.py verify-artifact --installer $installer.FullName --version 1.2.0
+          if ($LASTEXITCODE -eq 0) {
+            throw "the production release gate accepted an unsigned test build — it must not"
+          }
+          Write-Host "the release gate correctly refused the unsigned test build (exit $LASTEXITCODE)"
+
+      - name: Upload the test installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: canalla-test-installer
+          path: apps/desktop/src-tauri/target/release/bundle/nsis/*setup.exe
+          if-no-files-found: error
+
+      - name: Install it silently and check what the bundle laid down
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem apps/desktop/src-tauri/target/release/bundle/nsis -Filter *setup.exe |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          Start-Process -FilePath $installer.FullName -ArgumentList "/S" -Wait
+          Start-Sleep -Seconds 5
+          $root = $null
+          $entry = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' |
+            Get-ItemProperty | Where-Object { $_.DisplayName -like '*Canalla*' } | Select-Object -First 1
+          if ($entry -and $entry.InstallLocation -and (Test-Path $entry.InstallLocation)) {
+            $root = $entry.InstallLocation
+          }
+          if (-not $root) {
+            $exe = Get-ChildItem $env:LOCALAPPDATA -Recurse -Filter alex-llm.exe -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+            if ($exe) { $root = $exe.Directory.FullName }
+          }
+          if (-not $root) { throw "the installed client was not found" }
+          Write-Host "installed to $root"
+          $client = Join-Path $root 'alex-llm.exe'
+          $sidecar = Join-Path $root 'sidecar\alex-backend\alex-backend.exe'
+          $tor = Join-Path $root 'runtime\tor\tor.exe'
+          foreach ($path in @($client, $sidecar, $tor)) {
+            if (-not (Test-Path $path)) { throw "missing from the installed tree: $path" }
+            Write-Host ("{0}  {1} bytes" -f $path, (Get-Item $path).Length)
+          }
+          python scripts/verify-packaged-gateway-url.py $client
+          "root=$root" | Out-File -FilePath $env:RUNNER_TEMP/installed-root.txt -Encoding ascii
+
+      - name: The installed sidecar answers /health on its own
+        shell: pwsh
+        run: |
+          $root = (Get-Content $env:RUNNER_TEMP/installed-root.txt).Trim() -replace '^root=', ''
+          $sidecar = Join-Path $root 'sidecar\alex-backend\alex-backend.exe'
+          $data = Join-Path $env:RUNNER_TEMP 'canalla-install-smoke'
+          New-Item -ItemType Directory -Force -Path $data | Out-Null
+          $env:ALEX_LLM_DATA_DIR = $data
+          $env:ALEX_BACKEND_HOST = '127.0.0.1'
+          $env:ALEX_BACKEND_PORT = '8137'
+          $env:APP_ENV = 'test'
+          $env:LLM_PROVIDER = 'mock'
+          $env:JWT_SECRET = 'install-smoke-not-a-real-secret-' + ('a' * 24)
+          $process = Start-Process -FilePath $sidecar -PassThru -WindowStyle Hidden
+          try {
+            $ok = $false
+            for ($i = 0; $i -lt 90; $i++) {
+              Start-Sleep -Seconds 1
+              try {
+                $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8137/health' -TimeoutSec 3
+                if ($health.product -eq 'alex-llm') { $ok = $true; Write-Host ($health | ConvertTo-Json -Compress); break }
+              } catch {}
+              if ($process.HasExited) { break }
+            }
+            if (-not $ok) { throw "the installed sidecar did not answer /health (exited=$($process.HasExited))" }
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
