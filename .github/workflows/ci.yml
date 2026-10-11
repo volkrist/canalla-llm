@@ -59,8 +59,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Stage the bundled Tor runtime (the Tauri build script requires runtime/tor)
-        run: python scripts/fetch-tor-runtime.py
+      - name: Provide the runtime/tor resource the Tauri build script requires
+        shell: pwsh
+        run: |
+          # The compile/test gate ships no bundle, so — exactly like build.rs does for the sidecar —
+          # it only needs the resource path to exist. A release build stages the real pinned runtime
+          # with scripts/fetch-tor-runtime.py; that pin is an operator/supply-chain concern and is
+          # NOT downloaded here.
+          New-Item -ItemType Directory -Force -Path apps/desktop/src-tauri/runtime/tor | Out-Null
 
       - name: Install frontend dependencies
         working-directory: apps/desktop
@@ -102,6 +108,7 @@ jobs:
           python -m venv apps/backend/.venv
           apps/backend/.venv/Scripts/python.exe -m pip install --upgrade pip
           apps/backend/.venv/Scripts/python.exe -m pip install -r apps/backend/requirements.lock
+          apps/backend/.venv/Scripts/python.exe -m pip install -e apps/backend
 
       - name: Install frontend dependencies
         working-directory: apps/desktop
