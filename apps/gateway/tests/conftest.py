@@ -233,6 +233,7 @@ class FakeLlama:
 
     def __init__(self):
         self.requests: list[dict] = []
+        self.models = 0  # readiness probes: the alias contract the Gateway re-verifies
         self.stream_started = False
         self.stream_closed = False
         self.failure = None
@@ -244,6 +245,7 @@ class FakeLlama:
         if request.headers.get("Authorization") != "Bearer " + self.expected_key:
             return httpx.Response(401)
         if request.url.path.endswith("/v1/models"):
+            self.models += 1
             return httpx.Response(200, json={"object": "list", "data": [{"id": ALIAS, "object": "model"}]})
         body = json.loads(request.content)
         self.requests.append(body)

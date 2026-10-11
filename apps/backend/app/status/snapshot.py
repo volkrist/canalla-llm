@@ -60,6 +60,9 @@ AI_ERRORS = {
     "price_changed": (ERROR, "retry", True),
     "startup_failed": (ERROR, "retry", True),
     "startup_timeout": (ERROR, "retry", True),
+    # A06: the model answered once and then stopped. Recoverable and actionable — the user is told
+    # and offered Retry instead of a chip that can never turn green.
+    "model_unavailable": (ERROR, "retry", True),
     "malformed_response": (ERROR, "retry", True),
     "model_mismatch": (ERROR, "retry", True),
     "volume_mismatch": (ERROR, "configure", False),

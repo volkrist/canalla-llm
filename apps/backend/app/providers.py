@@ -522,6 +522,7 @@ class LLMError(RuntimeError):
             "price_limit": "Подходящий GPU существует, но превышает ваш лимит.",
             "no_compatible_gpu": "Подходящих GPU сейчас нет.",
             "startup_timeout": "AI не успел запуститься вовремя. Попробуйте ещё раз.",
+            "model_unavailable": "Модель перестала отвечать. Отправьте сообщение ещё раз.",
         }
         super().__init__(messages.get(code, messages["llm_unavailable"]))
 

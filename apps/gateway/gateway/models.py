@@ -101,6 +101,11 @@ class GatewaySession(Base):
     adopted: Mapped[bool] = mapped_column(Boolean, default=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ready_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # A06: the readiness liveness clock. ``ready_probe_at`` is the last successful probe (the TTL
+    # the Gateway re-verifies against) and ``unready_since`` is when the model stopped answering
+    # after having been ready — the grace window before the Pod is stopped.
+    ready_probe_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    unready_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     stop_reason: Mapped[str | None] = mapped_column(String(64))

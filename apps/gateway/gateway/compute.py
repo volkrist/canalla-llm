@@ -109,6 +109,12 @@ STARTUP_STATES = {"creating", "starting_pod", "loading_model"}
 # reports it as a recoverable model-startup failure.
 STARTUP_TIMEOUT = "startup_timeout"
 
+# A06: the typed reason a *proven* model that stopped answering carries, front to back. The client
+# already understands the startup codes as recoverable model failures; this is the precise variant
+# for "it worked and then died", so the user is told the truth and offered Retry instead of a chip
+# that can never turn green again.
+MODEL_UNAVAILABLE = "model_unavailable"
+
 # An unresolved create is confirmed by provider evidence, then retried at most once per
 # attempt budget. The budget lives on the singleton control row, not on a session row, so
 # a resolved-and-retried create cannot reset it.
@@ -923,6 +929,36 @@ class ComputeAuthority:
             return True
         return (utc_present(self.clock()) - last).total_seconds() >= STOP_RETRY_SECONDS
 
+    def ready_probe_due(self, session: GatewaySession | None) -> bool:
+        """Is a proven model due for its liveness re-check?
+
+        A06: ``ready`` is a claim about a *running* model gateway, so it is re-verified against a
+        TTL instead of being treated as a permanent fact. The clock is persisted, so a Gateway
+        restart cannot turn a dead model into a green chip, and the check is read-only: it never
+        creates, resumes or replaces compute.
+        """
+        if session is None or session.state not in {"ready", "generating"}:
+            return False
+        last = utc(session.ready_probe_at) or utc(session.ready_at)
+        if last is None:
+            return True
+        return (utc_present(self.clock()) - last).total_seconds() >= self.settings.compute_ready_ttl_seconds
+
+    def model_unready_expired(self, session: GatewaySession | None) -> bool:
+        """Has a model that stopped answering outlived the grace window?
+
+        The grace exists so a probe that fails once (a momentary blip) is not reported as a dead
+        model, while one that never comes back cannot bill behind a chip that cannot turn green.
+        """
+        if session is None or session.state != "loading_model":
+            return False
+        since = utc(session.unready_since)
+        if since is None:
+            return False
+        return (
+            utc_present(self.clock()) - since
+        ).total_seconds() >= self.settings.compute_ready_grace_seconds
+
     def startup_expired(self, session: GatewaySession | None) -> bool:
         """Has this session outlived the server-side startup deadline?"""
         if not self.startup_started(session):
@@ -1598,7 +1634,7 @@ class ComputeAuthority:
             row.stop_attempt_at = self.clock()
             if reason == "session_budget":
                 row.error_code = "COMPUTE_BUDGET_REACHED"
-            elif reason in {"price_violation", "startup_failed", "startup_timeout"}:
+            elif reason in {"price_violation", "startup_failed", STARTUP_TIMEOUT, MODEL_UNAVAILABLE}:
                 row.error_code = reason
             pod_id = row.pod_id
             control = self.control(db)
@@ -1795,6 +1831,7 @@ class ComputeAuthority:
                         row = db.get(GatewaySession, session.id)
                         row.state = "ready"
                         row.ready_at = row.ready_at or self.clock()
+                        row.ready_probe_at = self.clock()
                         self._set_state(db, "ready", error_code=None, touch=True)
                 return
             if pending and not busy:
@@ -1833,8 +1870,41 @@ class ComputeAuthority:
                     row = db.get(GatewaySession, session.id)
                     row.state = "ready"
                     row.ready_at = row.ready_at or self.clock()
+                    row.ready_probe_at = self.clock()
+                    row.unready_since = None
                     row.error_code = None
                     self._set_state(db, "ready", error_code=None, touch=True)
+                return
+            if row.state in {"ready", "generating"} and pod.status == "RUNNING" and not busy:
+                if self.ready_probe_due(row):
+                    # A06: a model that was proven ready is re-verified. A failing probe takes the
+                    # chip out of green immediately (the honest «Connecting» while the grace runs)
+                    # and a model that never comes back is stopped below — never a cached Ready.
+                    healthy = await self.probe_ready()
+                    with self.sessions() as db:
+                        row = db.get(GatewaySession, session.id)
+                        if healthy:
+                            row.ready_probe_at = self.clock()
+                            row.unready_since = None
+                        else:
+                            row.ready_probe_at = None
+                            row.unready_since = row.unready_since or self.clock()
+                            row.state = "loading_model"
+                            row.error_code = MODEL_UNAVAILABLE
+                            control = self.control(db)
+                            control.state = "loading_model"
+                            control.error_code = MODEL_UNAVAILABLE
+                            control.revision += 1
+                            control.updated_at = self.clock()
+                            self.event(db, MODEL_UNAVAILABLE, "error", error_code=MODEL_UNAVAILABLE)
+                        db.commit()
+                    return
+            if self.model_unready_expired(row) and not busy:
+                # A06: it answered once and is gone. The Pod is stopped through the normal managed
+                # path (and A02 retries that stop until the provider confirms), so a dead model can
+                # never keep billing behind a state the user cannot act on.
+                await self._terminate(session.id, MODEL_UNAVAILABLE)
+                return
 
     async def serve(self) -> None:
         """Background loop. Never starts compute on its own: trust is unchanged by time."""

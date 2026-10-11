@@ -51,9 +51,11 @@ def test_upgrade_creates_the_gateway_schema(tmp_path):
         "gateway_operations",
         "audit_events",
     }
-    assert revision == "0002_stop_attempt"
+    assert revision == "0003_ready_probe"
     # A02: the durable stop-attempt clock the retry backoff reads.
     assert "stop_attempt_at" in columns
+    # A06: the readiness liveness clock (the last successful probe) and the grace clock.
+    assert {"ready_probe_at", "unready_since"} <= columns
     # The Gateway owns its own history: the local backend's revisions are absent.
     assert revision not in {f"00{index:02d}" for index in range(1, 15)}
 

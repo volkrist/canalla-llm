@@ -86,6 +86,13 @@ class GatewaySettings(BaseSettings):
     # create intent, so it survives a client or Gateway restart, and it is server-side only:
     # no client may set, widen or disable it.
     compute_startup_timeout_seconds: int = Field(default=300, ge=60, le=3600)
+    # A06: readiness is not a permanent fact. Once the model gateway has answered with the
+    # configured alias the Gateway re-verifies it at this interval — a llama.cpp that died must
+    # stop being reported as Connected — and a model that stays unreachable for this long is
+    # stopped with a typed reason instead of billing behind a chip that can never turn green.
+    # Both are server-side and neither may be widened by a client.
+    compute_ready_ttl_seconds: int = Field(default=30, ge=5, le=600)
+    compute_ready_grace_seconds: int = Field(default=120, ge=15, le=3600)
     # The 60-second capacity rule, server-side: a search that found no bookable GPU is a real
     # operation with an identity and this deadline — never a state that keeps answering
     # `searching` forever. The hard ceiling is 60 s on purpose: a client cannot widen it, and a
