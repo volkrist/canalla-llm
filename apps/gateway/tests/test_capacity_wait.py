@@ -404,6 +404,31 @@ def test_a_revoked_installation_cannot_be_started_by_a_parked_wait(gateway, clie
     assert gateway.control.wait_active is False  # and the intent cannot resurrect compute
 
 
+def test_a_pod_that_appears_during_a_wait_is_adopted_not_duplicated(gateway, client):
+    """A Pod that becomes visible while a wait is parked is adopted, never followed by a second."""
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    no_capacity(gateway)
+    ensure(
+        client,
+        headers,
+        "op-wait-adopt-001",
+        wait_for_capacity=True,
+        background_start=True,
+        max_hourly_price=1.20,
+    )
+    # A Pod for the model's Volume becomes visible — created by another path or a resolved
+    # ambiguous create. The Gateway must adopt it, not create its own on top.
+    gateway.runpod.attached_pod(name="alex-llm-other")
+
+    gateway.runpod.time += timedelta(hours=1)
+    run(gateway.authority.tick())
+
+    assert gateway.runpod.creates == []  # adopted, never a duplicate Pod
+    assert gateway.control.wait_active is False
+    assert gateway.control.active_session_id is not None
+
+
 def test_another_installations_one_shot_request_does_not_downgrade_the_wait(gateway, client):
     a = enroll(gateway, client, label="PC A")
     b = enroll(gateway, client, label="REGYNA")

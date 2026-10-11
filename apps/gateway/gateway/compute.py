@@ -2525,6 +2525,15 @@ class ComputeAuthority:
                     )
                 db.commit()
             return self.status_payload()
+        # Reconcile first, exactly as an ordinary ensure does: never create on top of a Pod the
+        # provider already has (the one-Pod rule). A Pod that appears is adopted here and the wait
+        # is cleared by the adoption, so the next tick serves it instead of creating a second one.
+        payload = await self._reconcile_locked()
+        if payload["state"] in {"multiple_compute", "create_unknown", "external_compute", "not_configured"}:
+            return payload
+        with self.sessions() as db:
+            if self.control(db).active_session_id:
+                return payload
         try:
             return await self._create_locked(installation_id, caps, None, operation_id=operation_id)
         except GatewayError:
