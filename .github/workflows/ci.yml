@@ -235,6 +235,7 @@ jobs:
             throw "the production release gate accepted an unsigned test build — it must not"
           }
           Write-Host "the release gate correctly refused the unsigned test build (exit $LASTEXITCODE)"
+          exit 0
 
       - name: Upload the test installer
         uses: actions/upload-artifact@v4
@@ -271,6 +272,7 @@ jobs:
           python scripts/verify-packaged-gateway-url.py $client
           if ($LASTEXITCODE -ne 0) { throw "the installed client does not carry the production Gateway URL" }
           "root=$root" | Out-File -FilePath $env:RUNNER_TEMP/installed-root.txt -Encoding ascii
+          exit 0
 
       - name: The installed sidecar answers /health on its own
         shell: pwsh
@@ -300,3 +302,4 @@ jobs:
           } finally {
             if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
+          exit 0
