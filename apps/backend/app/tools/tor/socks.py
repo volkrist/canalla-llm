@@ -6,15 +6,8 @@ from typing import Any, cast
 from urllib.parse import urljoin, urlsplit
 
 from ..contracts import ToolError
+from .http_response import read_http_response
 from .urls import validate_tor_url
-
-
-def header_value(raw_headers: str, name: str) -> str:
-    needle = name.lower() + ":"
-    for line in raw_headers.splitlines():
-        if line.lower().startswith(needle):
-            return line.split(":", 1)[1].strip()
-    return ""
 
 
 class Socks5hConnector:
@@ -105,56 +98,45 @@ class TorTransport:
         path = parsed.path or "/"
         if parsed.query:
             path += "?" + parsed.query
-        status = 0
-        raw_headers = ""
-        page = {"url": url, "status": 0, "text": "", "raw_headers": "", "socks": {}}
         reader, writer = await self.connector.open(
             host, port, tls=parsed.scheme == "https", server_hostname=host, timeout=timeout
         )
         try:
             request = (
                 f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: AlexLLM-Tor/0.8\r\n"
-                "Accept: text/html,application/json,text/plain,*/*\r\nConnection: close\r\n\r\n"
+                "Accept: text/html,application/json,text/plain,*/*\r\n"
+                # Ask for an uncompressed body; a server that compresses anyway is handled by the
+                # bounded reader, which decodes gzip/deflate and refuses what it cannot prove.
+                "Accept-Encoding: identity\r\nConnection: close\r\n\r\n"
             )
             writer.write(request.encode())
             await writer.drain()
-            chunks = []
-            while True:
-                try:
-                    chunk = await asyncio.wait_for(reader.read(65536), timeout)
-                except asyncio.TimeoutError:
-                    break
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                if sum(len(part) for part in chunks) > 500_000:
-                    break
-            raw = b"".join(chunks)
-            header, _, body = raw.partition(b"\r\n\r\n")
-            status_line = header.split(b"\r\n", 1)[0].decode("latin1", "replace")
-            status = 0
-            parts = status_line.split()
-            if len(parts) >= 2 and parts[1].isdigit():
-                status = int(parts[1])
-            text = body.decode("utf-8", "replace")
-            handshake = getattr(self.connector, "last_handshake", None) or {}
-            raw_headers = header.decode("latin1", "replace")
-            page = {
-                "url": url,
-                "status": status,
-                "text": text,
-                "raw_headers": raw_headers,
-                "socks": handshake,
-            }
+            response = await read_http_response(reader, timeout=timeout)
         finally:
             writer.close()
             try:
                 await writer.wait_closed()
             except Exception:
                 pass
-        if 300 <= status < 400 and _hops < 3:
-            location = header_value(raw_headers, "location")
+        handshake = getattr(self.connector, "last_handshake", None) or {}
+        page = {
+            "url": url,
+            "status": response.status,
+            "text": response.text,
+            "raw_headers": response.head_text,
+            "socks": handshake,
+            "http": {
+                "transfer_encoding": response.transfer_encoding,
+                "content_encoding": response.content_encoding,
+                "content_length": response.content_length,
+                "body_bytes": len(response.body),
+            },
+        }
+        if 300 <= response.status < 400 and _hops < 3:
+            location = response.header("location")
             if location:
+                # Every hop is re-validated and travels through this same verified SOCKS5h
+                # connector: a redirect cannot move the request off the proven Tor route.
                 next_url = urljoin(url, location)
                 await validate_tor_url(next_url)
                 followed = await self.fetch(next_url, timeout=timeout, _hops=_hops + 1)

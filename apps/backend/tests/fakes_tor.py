@@ -58,10 +58,23 @@ class FakeSocks5hServer:
     resolved the destination locally would show up as an ATYP 1/4 request and get no page.
     """
 
-    def __init__(self, *, body: str = PAGE, status: int = 200, refuse: list[str] | None = None):
+    def __init__(
+        self,
+        *,
+        body: str = PAGE,
+        status: int = 200,
+        refuse: list[str] | None = None,
+        raw_response: bytes | None = None,
+        responder=None,
+    ):
         self.requests: list[tuple[str, int, int]] = []
         self.body, self.status = body, status
         self.refuse = {host.lower() for host in (refuse or [])}
+        # ``raw_response`` sends one canned byte sequence to every destination; ``responder(host,
+        # port, request)`` scripts per-request responses (a redirect for /start, a page for /final).
+        # Both keep the SOCKS framing real, so the transport's own parser is what is exercised.
+        self.raw_response = raw_response
+        self.responder = responder
         self._server = socket.socket()
         self._server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._server.bind(("127.0.0.1", 0))
@@ -126,6 +139,14 @@ class FakeSocks5hServer:
                 if not first.startswith(b"GET "):
                     # Not an HTTP request (a TLS ClientHello, for instance): answer nothing.
                     return
+                if self.responder is not None:
+                    payload = self.responder(host, port, first)
+                    if payload is not None:
+                        conn.sendall(payload)
+                    return
+                if self.raw_response is not None:
+                    conn.sendall(self.raw_response)
+                    return
                 body = self.body.encode()
                 conn.sendall(
                     f"HTTP/1.1 {self.status} OK\r\nContent-Type: text/html; charset=utf-8\r\n"
@@ -155,6 +176,10 @@ class FakeTorService:
     def active(self):
         return self.endpoint
 
+    def proven_endpoint(self):
+        """The endpoint a *current* proof vouches for — the same authority the real service exposes."""
+        return self.endpoint if self.verified else None
+
     def snapshot(self):
         self.snapshot_calls += 1
         host, port = self.endpoint
@@ -171,6 +196,10 @@ class FakeTorService:
     async def reestablish(self, *, deadline_seconds: float) -> bool:
         self.recovery_calls += 1
         self.deadlines.append(float(deadline_seconds))
+        if self.recover:
+            # A recovery that succeeds means the route is proven again: the fake mirrors the real
+            # service, where ``ensure()`` ends by saving a fresh proof for the endpoint it used.
+            self.verified = True
         return self.recover
 
 

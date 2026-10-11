@@ -46,7 +46,7 @@ async def _handle(reader, writer, received):
     await writer.drain()
     rest = await reader.read(4096)
     if rest.startswith(b"GET "):
-        writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 12\r\n\r\nhello onion")
+        writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nhello onion")
         await writer.drain()
     writer.close()
 
@@ -163,10 +163,11 @@ class _FakeTorTransport:
         }
 
 
-def test_tor_search_configured_template_uses_transport(monkeypatch):
+def test_tor_search_configured_template_uses_transport(monkeypatch, route_service):
     from app.config import get_settings
 
     transport = _FakeTorTransport()
+    route_service(FakeTorService(("127.0.0.1", 9050), verified=True))
     monkeypatch.setattr(
         get_settings(),
         "tor_search_providers",
@@ -271,10 +272,11 @@ class _TokenTransport:
         }
 
 
-def test_tor_search_uses_public_form_token(monkeypatch):
+def test_tor_search_uses_public_form_token(monkeypatch, route_service):
     from app.config import get_settings
 
     transport = _TokenTransport()
+    route_service(FakeTorService(("127.0.0.1", 9050), verified=True))
     monkeypatch.setattr(
         get_settings(),
         "tor_search_providers",
@@ -296,13 +298,14 @@ def test_tor_search_uses_public_form_token(monkeypatch):
     assert result.metadata["socks"]["local_dns"] is False
 
 
-def test_tor_search_empty_hits_are_failed_not_unconfigured(monkeypatch):
+def test_tor_search_empty_hits_are_failed_not_unconfigured(monkeypatch, route_service):
     from app.config import get_settings
 
     class EmptyTransport:
         async def fetch(self, url, timeout=45):
             return {"status": 200, "text": "<html><body>no onions here</body></html>", "socks": {}}
 
+    route_service(FakeTorService(("127.0.0.1", 9050), verified=True))
     monkeypatch.setattr(
         get_settings(),
         "tor_search_providers",

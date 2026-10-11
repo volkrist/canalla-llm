@@ -658,13 +658,14 @@ def test_named_clearnet_url_is_fetched_through_tor_over_socks5h(client, auth, mo
 def test_bare_host_is_normalised_to_https_and_retried_once_inside_tor(
     client, auth, monkeypatch, route_service
 ):
-    """A bare `example.com` becomes `https://example.com`, is sent to the proxy as a name, and one
-    bounded recovery may retry it — still inside Tor."""
+    """A bare `example.com` becomes `https://example.com` and is sent to the proxy as a name. The
+    route is established with one bounded recovery before anything leaves, and when the https leg
+    then fails, no second recovery and no clearnet fetch happen."""
     web_fakes = []
     attempts, _install_loop_guard = dns_tripwire(monkeypatch)
     with FakeSocks5hServer() as server:
         # The fake origin answers HTTP only, so the https leg cannot complete; that is fine — the
-        # assertion is that the destination travelled as a name and that the retry stayed in Tor.
+        # assertion is that the destination travelled as a name and that the recovery stayed in Tor.
         service = route_service(FakeTorService(server.endpoint, verified=False, recover=True))
         monkeypatch.setattr(
             client.app.state,
@@ -690,7 +691,8 @@ def test_bare_host_is_normalised_to_https_and_retried_once_inside_tor(
     fetches = [row for row in runs if row["tool_name"] == "tor_fetch"]
     assert len(fetches) == 1, runs
     assert "https://example.com" in json.dumps(fetches[0]["input_summary"])
-    assert requests == [("example.com", 443, 3), ("example.com", 443, 3)]
+    # One bounded recovery proves the route first; the single https attempt then fails typed.
+    assert requests == [("example.com", 443, 3)]
     assert fetches[0]["error_code"] == "tor_unavailable"
     assert service.recovery_calls == 1
     assert clearnet_runs(runs) == []

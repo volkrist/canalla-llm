@@ -9,6 +9,7 @@ from ...config import get_settings
 from ..contracts import ToolError, ToolProvider, ToolResult
 from ..tinyfish.web import bounded_excerpt
 from .classify import classify_authority
+from .http_response import RESPONSE_ERRORS
 from .router import blocked_link, extract_page_links
 from .service import active_endpoint, active_service
 from .snapshot import fetch_needs_browser
@@ -18,8 +19,11 @@ from .urls import validate_tor_url
 logger = logging.getLogger(__name__)
 
 # The codes the SOCKS5h transport raises when the route itself is the problem: these, and only
-# these, are what a fresh ``ensure()`` can honestly help with.
+# these, are what a fresh ``ensure()`` can honestly help with, so they alone justify a recovery.
 TOR_TRANSPORT_ERRORS = frozenset({"tor_not_configured", "tor_unavailable"})
+# A response that is not a complete document is a failed action too, but re-proving the route will
+# not mend a truncated transfer — it is reported typed, never retried into a clearnet fetch.
+TOR_FAILURE_ERRORS = TOR_TRANSPORT_ERRORS | RESPONSE_ERRORS
 # One bounded recovery per action for a Tor-required call: long enough to re-probe the endpoint and
 # restart the process Canalla owns, short enough that a down Tor fails the action instead of hanging
 # it. The supervisor keeps working in the background either way.
@@ -78,10 +82,14 @@ def typed_route_failure(code: str) -> str:
 class TorRoute:
     """The transport of one Tor-required action: proven endpoint, at most one recovery.
 
-    A transport failure is the one case where asking the service again is honest — it re-probes,
-    restarts the process Canalla owns and re-proves the route — and it happens **once** per action
-    inside a fixed budget, so a down Tor produces a typed failure rather than a retry loop, and
-    never a direct request.
+    Nothing is sent before the service vouches for the very endpoint the request will travel
+    through. If the proof is missing, expired, or bound to another process or port, the action spends
+    its single bounded recovery trying to re-establish it; if the route still cannot be proven the
+    action fails closed with ``tor_unavailable`` — and there is no clearnet fallback to take over.
+
+    A transport failure is the one other case where asking the service again is honest: it re-probes,
+    restarts the process Canalla owns and re-proves the route. It happens **once** per action, inside
+    a fixed budget, so a down Tor produces a typed failure rather than a retry loop.
     """
 
     def __init__(self, build):
@@ -89,7 +97,43 @@ class TorRoute:
         self.transport = build()
         self.recovery_used = False
 
+    def _proven_endpoint(self) -> tuple[str, int] | None:
+        check = getattr(active_service(), "proven_endpoint", None)
+        if check is None:
+            return None
+        try:
+            return check()
+        except Exception as error:  # a proof check must never crash the action that asked for it
+            logger.warning("tor_proof_check_failed type=%s", type(error).__name__)
+            return None
+
+    def _route_endpoint(self) -> tuple[str, int] | None:
+        active = getattr(active_service(), "active", None)
+        if active is None:
+            return None
+        try:
+            return active()
+        except Exception:
+            return None
+
+    def _has_current_proof(self) -> bool:
+        """True only when the service proves exactly the endpoint this route will use."""
+        proven = self._proven_endpoint()
+        route = self._route_endpoint()
+        return proven is not None and route is not None and proven == route
+
+    async def _require_proof(self) -> None:
+        if self._has_current_proof():
+            return
+        if not self.recovery_used:
+            self.recovery_used = True
+            if await reestablish_route():
+                self.transport = self._build()
+        if not self._has_current_proof():
+            raise ToolError("tor_unavailable")
+
     async def fetch(self, url: str, *, timeout: int = 45) -> dict:
+        await self._require_proof()
         try:
             return await self.transport.fetch(url, timeout=timeout)
         except ToolError as error:
@@ -98,8 +142,9 @@ class TorRoute:
             self.recovery_used = True
             if not await reestablish_route():
                 raise
-            # The recovery may have moved the endpoint, so the retry uses a transport built from
-            # the endpoint that was just proven, not the object that failed.
+            await self._require_proof()
+            # The recovery may have moved the endpoint, so the retry uses a transport built from the
+            # endpoint that was just proven, not the object that failed.
             self.transport = self._build()
             return await self.transport.fetch(url, timeout=timeout)
 
@@ -289,7 +334,7 @@ class TorFetchProvider(ToolProvider[TorFetchArgs]):
                 page = await route.fetch(url)
             except ToolError as error:
                 errors.append(error.code)
-                if error.code in TOR_TRANSPORT_ERRORS:
+                if error.code in TOR_FAILURE_ERRORS:
                     transport_errors.append(error.code)
                 sources.append(
                     {
