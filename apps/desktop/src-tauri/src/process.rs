@@ -9,8 +9,9 @@ use crate::host::LocalOutcome;
 use crate::platform::OwnedJob;
 use serde_json::json;
 use std::collections::HashMap;
+use std::io::Read;
 use std::process::{Child, Command, Stdio};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 struct JobEntry {
@@ -30,6 +31,45 @@ fn jobs() -> &'static Mutex<HashMap<String, JobEntry>> {
 /// The environment a tool may see: the machine's own variables, never this application's secrets.
 pub fn sanitized_env() -> HashMap<String, String> {
     crate::platform::sanitized_env()
+}
+
+/// Keep at most this many bytes from each stream while still draining the pipe to EOF, so a child
+/// that writes far more than the OS pipe buffer never blocks on a full pipe (A15).
+const OUTPUT_BYTE_LIMIT: usize = 80_000;
+const OUTPUT_CHAR_LIMIT: usize = 20_000;
+
+/// Drain a child pipe on its own thread. It stops *keeping* bytes after `limit` but keeps reading,
+/// so the writer is never stalled by a pipe nobody is emptying.
+fn drain_stream(
+    mut reader: impl Read + Send + 'static,
+    sink: Arc<Mutex<Vec<u8>>>,
+    limit: usize,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if let Ok(mut data) = sink.lock() {
+                        if data.len() < limit {
+                            let room = limit - data.len();
+                            data.extend_from_slice(&buf[..n.min(room)]);
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    })
+}
+
+fn collected(sink: &Arc<Mutex<Vec<u8>>>) -> String {
+    let data = sink.lock().map(|guard| guard.clone()).unwrap_or_default();
+    String::from_utf8_lossy(&data)
+        .chars()
+        .take(OUTPUT_CHAR_LIMIT)
+        .collect()
 }
 
 pub fn run_job(
@@ -107,39 +147,57 @@ pub fn run_job(
             pid,
         },
     );
+    // Read both pipes in parallel from the very first byte: the old runner read them only after the
+    // child exited, so enough output filled the OS pipe and the child blocked forever.
+    let stdout_sink = Arc::new(Mutex::new(Vec::new()));
+    let stderr_sink = Arc::new(Mutex::new(Vec::new()));
+    let mut stdout_handle = child
+        .stdout
+        .take()
+        .map(|stream| drain_stream(stream, stdout_sink.clone(), OUTPUT_BYTE_LIMIT));
+    let mut stderr_handle = child
+        .stderr
+        .take()
+        .map(|stream| drain_stream(stream, stderr_sink.clone(), OUTPUT_BYTE_LIMIT));
     let started = Instant::now();
+    let mut exit_status = None;
     loop {
         if should_stop() || started.elapsed() > timeout {
             stop_job(tool_run_id);
             let _ = child.kill();
-            let output = child.wait_with_output().ok();
+            let _ = child.wait();
+            if let Some(handle) = stdout_handle.take() {
+                let _ = handle.join();
+            }
+            if let Some(handle) = stderr_handle.take() {
+                let _ = handle.join();
+            }
             return LocalOutcome {
-                exit_code: output.as_ref().and_then(|o| o.status.code()),
-                stdout: output
-                    .as_ref()
-                    .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-                    .unwrap_or_default(),
+                exit_code: None,
+                stdout: collected(&stdout_sink),
                 stderr: "stopped".into(),
                 text: "stopped".into(),
                 metadata: json!({"status": "stopped", "pid": pid}),
             };
         }
         match child.try_wait() {
-            Ok(Some(_)) => break,
+            Ok(Some(status)) => {
+                exit_status = Some(status);
+                break;
+            }
             Ok(None) => std::thread::sleep(Duration::from_millis(80)),
             Err(_) => break,
         }
     }
     jobs().lock().expect("job map").remove(tool_run_id);
-    let output = child.wait_with_output().ok();
-    let stdout: String = output
-        .as_ref()
-        .map(|o| String::from_utf8_lossy(&o.stdout).chars().take(20000).collect())
-        .unwrap_or_default();
-    let stderr: String = output
-        .as_ref()
-        .map(|o| String::from_utf8_lossy(&o.stderr).chars().take(20000).collect())
-        .unwrap_or_default();
+    if let Some(handle) = stdout_handle.take() {
+        let _ = handle.join();
+    }
+    if let Some(handle) = stderr_handle.take() {
+        let _ = handle.join();
+    }
+    let stdout = collected(&stdout_sink);
+    let stderr = collected(&stderr_sink);
     let combined = if stderr.is_empty() {
         stdout.clone()
     } else if stdout.is_empty() {
@@ -148,8 +206,8 @@ pub fn run_job(
         format!("{stdout}\nstderr:\n{stderr}")
     };
     LocalOutcome {
-        exit_code: output.as_ref().and_then(|o| o.status.code()),
-        text: combined.chars().take(20000).collect(),
+        exit_code: exit_status.and_then(|status| status.code()),
+        text: combined.chars().take(OUTPUT_CHAR_LIMIT).collect(),
         stdout,
         stderr,
         metadata: json!({"pid": pid}),
@@ -207,9 +265,16 @@ fn run_elevated(exe: &str, args: &[String], cwd: Option<&str>) -> LocalOutcome {
     fn ps_quote(value: &str) -> String {
         format!("'{}'", value.replace('\'', "''"))
     }
-    let mut command = format!("Start-Process -Verb RunAs -Wait -FilePath {}", ps_quote(exe));
+    let mut command = format!(
+        "Start-Process -Verb RunAs -Wait -FilePath {}",
+        ps_quote(exe)
+    );
     if !args.is_empty() {
-        let list = args.iter().map(|item| ps_quote(item)).collect::<Vec<_>>().join(",");
+        let list = args
+            .iter()
+            .map(|item| ps_quote(item))
+            .collect::<Vec<_>>()
+            .join(",");
         command.push_str(&format!(" -ArgumentList {list}"));
     }
     if let Some(dir) = cwd {
@@ -219,7 +284,12 @@ fn run_elevated(exe: &str, args: &[String], cwd: Option<&str>) -> LocalOutcome {
     run_job(
         "elevate",
         powershell,
-        &["-NoProfile".into(), "-NonInteractive".into(), "-Command".into(), command],
+        &[
+            "-NoProfile".into(),
+            "-NonInteractive".into(),
+            "-Command".into(),
+            command,
+        ],
         None,
         Duration::from_secs(120),
         || false,
@@ -256,5 +326,28 @@ mod tests {
             assert!(!env.contains_key(key));
         }
         assert!(env.contains_key("SystemRoot") || env.contains_key("PATH"));
+    }
+
+    /// A15: draining must keep reading past the cap, or a child that writes more than the OS pipe
+    /// buffer would block forever. The sink keeps only the first `limit` bytes but reads to EOF.
+    #[test]
+    fn drain_stream_reads_past_the_cap_without_blocking() {
+        let payload = vec![b'x'; 5_000_000];
+        let sink = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let handle = super::drain_stream(
+            std::io::Cursor::new(payload),
+            sink.clone(),
+            super::OUTPUT_BYTE_LIMIT,
+        );
+        handle.join().unwrap();
+        let data = sink.lock().unwrap();
+        assert_eq!(data.len(), super::OUTPUT_BYTE_LIMIT);
+    }
+
+    #[test]
+    fn collected_caps_the_text_length() {
+        let sink = std::sync::Arc::new(std::sync::Mutex::new(vec![b'x'; super::OUTPUT_BYTE_LIMIT]));
+        let text = super::collected(&sink);
+        assert_eq!(text.chars().count(), super::OUTPUT_CHAR_LIMIT);
     }
 }
