@@ -4,10 +4,11 @@ name: CI
 # production secret, so it is safe to run on any checkout — including an untrusted one. The
 # release-candidate gate (release-candidate.yml) is the one that touches a real installer.
 #
-# `native-gate` is the trusted host that finally runs what an untrusted Windows PC cannot: the
-# Rust `cargo check`/`cargo test` for the desktop shell and the native host. `frontend-e2e` runs
-# the Playwright suites against a real backend sidecar. Neither job needs a signing key, so both
-# are safe on GitHub-hosted runners.
+# The other jobs are the trusted hosts that run what an untrusted Windows PC cannot, and none of
+# them needs a signing key:
+#   * `native-gate`  — Rust `cargo check`/`cargo test` for the desktop shell and the native host;
+#   * `tor-runtime`  — the bundled Tor pin's provenance, then a real stage + run + package;
+#   * `frontend-e2e` — Playwright against a real backend sidecar, with the real embedding model.
 on:
   push:
     branches: ["integration/**", "fix/**", "release/**", "main"]
@@ -70,9 +71,8 @@ jobs:
         shell: pwsh
         run: |
           # The compile/test gate ships no bundle, so — exactly like build.rs does for the sidecar —
-          # it only needs the resource path to exist. A release build stages the real pinned runtime
-          # with scripts/fetch-tor-runtime.py; that pin is an operator/supply-chain concern and is
-          # NOT downloaded here.
+          # it only needs the resource path to exist. The real pinned runtime is staged and run by
+          # the dedicated `tor-runtime` job.
           New-Item -ItemType Directory -Force -Path apps/desktop/src-tauri/runtime/tor | Out-Null
 
       - name: Install frontend dependencies
@@ -91,9 +91,53 @@ jobs:
         working-directory: apps/desktop/src-tauri
         run: cargo test
 
+  tor-runtime:
+    # The bundled Tor runtime, proven end to end: the pin's provenance (the Tor Project's signed
+    # checksums + detached signature), a real verified download, and the staged daemon running on
+    # its own. No GPU, no Pod, no signing key.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify the pin against the Tor Project's signed checksums
+        run: python scripts/verify-tor-runtime-pin.py
+
+      - name: Fetch, verify and stage the pinned runtime
+        run: python scripts/fetch-tor-runtime.py --print
+
+      - name: The staged daemon runs on its own and reports the pinned version
+        shell: pwsh
+        run: |
+          $exe = "apps/desktop/src-tauri/runtime/tor/tor.exe"
+          if (-not (Test-Path $exe)) { throw "the daemon was not staged at $exe" }
+          $output = (& $exe --version 2>&1 | Out-String)
+          Write-Host $output
+          if ($LASTEXITCODE -ne 0) { throw "tor --version exited $LASTEXITCODE" }
+          if ($output -notmatch "0\.4\.9\.13") { throw "the staged daemon is not the pinned version" }
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r apps/backend/requirements.lock
+
+      - name: The Tor bundling and service suites
+        working-directory: apps/backend
+        run: python -m pytest tests/test_tor_bundle.py tests/test_tor_service.py -q
+
   frontend-e2e:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
     steps:
       - uses: actions/checkout@v4
 
@@ -124,6 +168,18 @@ jobs:
       - name: Install Playwright browsers
         working-directory: apps/desktop
         run: npx playwright install --with-deps chromium
+
+      # The real embedding model, pinned by revision and verified by hash. Cached by revision so a
+      # repeat run does not re-download ~136 MB; the cache never masks a bad model because the
+      # manager re-verifies every artifact by size and hash, and runs the embedding smoke, on load.
+      - name: Restore the embedding model cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.LOCALAPPDATA }}\Alex LLM\models\embeddings\multilingual-e5-small
+          key: embedding-model-761b726dd34fb83930e26aab4e9ac3899aa1fa78
+
+      - name: Provision the real embedding model (no GPU, no secret)
+        run: python scripts/provision-embedding-model.py
 
       - name: Playwright
         working-directory: apps/desktop

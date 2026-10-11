@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -20,11 +22,13 @@ import pytest
 REPO = Path(__file__).resolve().parents[3]
 PIN_FILE = REPO / "scripts" / "tor-runtime.json"
 FETCH_SCRIPT = REPO / "scripts" / "fetch-tor-runtime.py"
+VERIFY_SCRIPT = REPO / "scripts" / "verify-tor-runtime-pin.py"
 TAURI_CONFIG = REPO / "apps" / "desktop" / "src-tauri" / "tauri.conf.json"
 STAGING = REPO / "apps" / "desktop" / "src-tauri" / "runtime" / "tor"
 GITIGNORE = REPO / ".gitignore"
 PLATFORMS = ("windows-x86_64", "linux-x86_64")
 DAEMON_NAME = {"windows-x86_64": "tor.exe", "linux-x86_64": "tor"}
+TOR_SIGNING_KEY = "EF6E286DDA85EA2A4BA7DE684E2C6E8793298290"
 
 
 def pin() -> dict:
@@ -88,6 +92,42 @@ def test_the_fetch_step_is_the_only_thing_that_downloads() -> None:
     assert "sha256_of" in script, "the download is verified by hash"
     assert "does not match the pin" in script, "a mismatch must stop the build"
     assert "tor-runtime.json" in script
+
+
+def test_the_pin_records_where_its_hashes_came_from() -> None:
+    """A pinned hash is only as good as its provenance: the signed checksums must be named."""
+    checks = pin()["checksums"]
+
+    assert checks["url"].startswith("https://dist.torproject.org/")
+    assert checks["url"].endswith("sha256sums-signed-build.txt")
+    assert checks["signature_url"] == checks["url"] + ".asc"
+    assert checks["key_url"].startswith("https://keys.openpgp.org/")
+    assert checks["key_fingerprint"] == TOR_SIGNING_KEY
+    assert len(checks["sha256"]) == 64 and checks["sha256"] == checks["sha256"].lower()
+
+
+def test_the_provenance_verifier_self_test_passes_offline() -> None:
+    """The verifier proves parsing and mismatch detection with no network, like the fetch step."""
+    result = subprocess.run(
+        [sys.executable, str(VERIFY_SCRIPT), "--self-test"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    output = (result.stdout or "") + (result.stderr or "")
+    assert result.returncode == 0, output
+    assert "self-test PASS" in output
+
+
+def test_the_provenance_verifier_never_downloads_the_bundle() -> None:
+    """It checks the signed checksums, not the 22 MB archive: fetching is the other script's job."""
+    script = VERIFY_SCRIPT.read_text(encoding="utf-8")
+
+    assert "import tarfile" not in script
+    assert "sha256sums-signed-build" in script
+    assert 'checks["key_fingerprint"]' in script, "the signature is checked against the pinned key"
 
 
 def test_the_installer_ships_the_runtime() -> None:
