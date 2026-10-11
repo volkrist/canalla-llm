@@ -46,6 +46,9 @@ AI_ERRORS = {
     "gateway_queue_full": (UNAVAILABLE, "retry", True),
     "gateway_request_in_flight": (UNAVAILABLE, "retry", True),
     "gateway_request_completed": (UNAVAILABLE, "retry", True),
+    # A03: an id reused for a different request is a client-side misuse — retrying the same id
+    # cannot help, so the chip names the conflict without offering a blind retry.
+    "gateway_request_conflict": (ERROR, None, False),
     "gateway_protocol_mismatch": (ERROR, "configure", False),
     "gateway_auth_failed": (ERROR, "configure", False),
     "installation_revoked": (ERROR, "configure", False),
@@ -165,6 +168,19 @@ def ai_status(controller, user: User):
         "managed": diagnostic.get("managed"),
         "datacenter": diagnostic.get("datacenter"),
         "idle_deadline": diagnostic.get("idle_deadline"),
+        # A30-A32: the transition contract the interface reads (docs/gateway-status-contract.md).
+        # Every value comes from the owner of the lifecycle (Gateway, or the local controller in
+        # direct mode); a missing field stays None so the client derives its own bounded deadline
+        # instead of the backend inventing an operation, a stage or a ready proof.
+        "operation_id": diagnostic.get("operation_id"),
+        "current_stage": diagnostic.get("current_stage"),
+        "started_at": diagnostic.get("started_at"),
+        "observed_at": diagnostic.get("observed_at"),
+        "startup_deadline": diagnostic.get("startup_deadline"),
+        "last_success_at": diagnostic.get("last_success_at"),
+        "readiness_valid_until": diagnostic.get("readiness_valid_until"),
+        "terminal_state": diagnostic.get("terminal_state"),
+        "typed_error": diagnostic.get("typed_error") or (error_code if isinstance(error_code, str) else None),
     }
     return entry(
         state,

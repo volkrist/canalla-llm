@@ -242,6 +242,12 @@ class CloudAi:
         state = compute.get("state")
         live_search = self.search_active()
         gateway_ai = compute.get("ai")
+        # A30-A32: the Gateway's own connection contract (one operation, one stage, one
+        # deadline), relayed verbatim. It is additive and read-only, and a Gateway that
+        # predates it simply omits the block — never a value invented here.
+        connection = compute.get("connection")
+        if not isinstance(connection, dict):
+            connection = {}
         ai = gateway_ai
         if ai is None:
             # No successful Gateway read yet: an unenrolled or unreachable installation is
@@ -271,6 +277,17 @@ class CloudAi:
                 "session": compute.get("session"),
                 "revision": compute.get("revision"),
                 "global": True,
+                # The transition contract the interface reads (docs/gateway-status-contract.md).
+                # `startup_deadline` also falls back to the top-level field for an older Gateway.
+                "operation_id": connection.get("operation_id"),
+                "current_stage": connection.get("current_stage"),
+                "started_at": connection.get("started_at"),
+                "observed_at": connection.get("observed_at"),
+                "startup_deadline": connection.get("startup_deadline") or compute.get("startup_deadline"),
+                "last_success_at": connection.get("last_success_at"),
+                "readiness_valid_until": connection.get("readiness_valid_until"),
+                "terminal_state": connection.get("terminal_state"),
+                "typed_error": connection.get("typed_error") or last_error,
             },
         }
 

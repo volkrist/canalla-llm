@@ -1163,6 +1163,16 @@ class RunPodController:
                 "compute_state": compute.get("state"),
                 "search_active": search_active,
                 "search_deadline": search_deadline,
+                # The same A30-A32 transition contract the Gateway reports, from the local
+                # authority. `current_stage` is left None on purpose: the interface derives it
+                # from `compute_state`, so there is exactly one vocabulary for both modes.
+                "observed_at": compute.get("server_now"),
+                "operation_id": (compute.get("session") or {}).get("id"),
+                "last_success_at": (compute.get("session") or {}).get("ready_at"),
+                "startup_deadline": None,
+                "readiness_valid_until": None,
+                "terminal_state": None,
+                "typed_error": compute.get("error_code"),
             },
         }
         if self.settings.llm_provider == "llamacpp":

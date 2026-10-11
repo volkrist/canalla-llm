@@ -203,6 +203,55 @@ def test_a_provider_error_is_disconnected_with_its_reason(gateway):
     assert chip["recoverable"] is True
 
 
+def test_the_gateway_connection_block_reaches_the_chip_details(gateway):
+    """A30-A32: the Gateway's own transition contract is relayed to the interface unchanged.
+
+    The chip renders «Connecting» from a real attempt only: the operation id, the stage, the
+    server's startup deadline and the moment it observed this snapshot all have to arrive in
+    `details`, because that is exactly what the desktop reads (docs/gateway-status-contract.md).
+    """
+    deadline = (gateway.time + timedelta(minutes=5)).isoformat()
+    gateway.compute = compute_payload(
+        "starting_pod",
+        ai="starting",
+        connection={
+            "operation_id": "op-42",
+            "started_at": gateway.time.isoformat(),
+            "startup_deadline": deadline,
+            "last_success_at": None,
+            "observed_at": gateway.time.isoformat(),
+            "current_stage": "starting",
+            "terminal_state": False,
+            "typed_error": None,
+            "readiness_valid_until": None,
+        },
+    )
+    details = chip_for(refreshed(gateway))["details"]
+
+    assert details["operation_id"] == "op-42"
+    assert details["current_stage"] == "starting"
+    assert details["startup_deadline"] == deadline
+    assert details["observed_at"] == gateway.time.isoformat()
+    assert details["terminal_state"] is False
+    assert details["typed_error"] is None
+
+
+def test_a_gateway_without_the_connection_block_stays_additive(gateway):
+    """An older Gateway that predates the contract omits `connection`; nothing is invented.
+
+    The client then derives its own bounded deadline from `compute_state`, so the bridge must
+    report no operation and no server deadline rather than guessing one.
+    """
+    gateway.compute = compute_payload("loading_model", ai="starting")
+    details = chip_for(refreshed(gateway))["details"]
+
+    assert details["operation_id"] is None
+    assert details["current_stage"] is None
+    assert details["startup_deadline"] is None
+    # The capacity window still reaches the chip through the older field.
+    assert "compute_search_active" in details
+
+
 @pytest.mark.parametrize(
     "state,code,active,expected",
     [
