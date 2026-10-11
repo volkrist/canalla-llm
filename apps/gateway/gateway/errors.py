@@ -27,6 +27,8 @@ CODES = {
     "gateway_busy": 503,
     "gateway_unavailable": 503,
     "gateway_budget_denied": 409,
+    # A11: a non-owner, non-operator installation may not stop the shared managed Pod.
+    "gateway_stop_forbidden": 403,
     "compute_policy_invalid": 422,
     "gateway_request_in_flight": 409,
     "gateway_request_completed": 409,
@@ -56,6 +58,7 @@ DETAILS = {
     "gateway_busy": "AI занят другим запросом. Повторите позже.",
     "gateway_unavailable": "Canalla Cloud сейчас недоступен.",
     "gateway_budget_denied": "Запрос превышает установленные лимиты расходов.",
+    "gateway_stop_forbidden": "Остановить общий compute может только его владелец или оператор.",
     "compute_policy_invalid": "Недопустимая политика расходов: проверьте максимум $/час и бюджет сессии.",
     "gateway_request_in_flight": "Этот запрос уже выполняется.",
     "gateway_request_completed": "Этот запрос уже завершён.",

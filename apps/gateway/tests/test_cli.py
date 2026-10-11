@@ -120,3 +120,60 @@ def test_audit_command_lists_operations_without_prompts(gateway, client):
 def test_cli_help_does_not_require_a_database(gateway, command):
     result = cli(gateway, command, "--help")
     assert result.returncode == 0, result.stderr
+
+
+def test_set_role_promotes_an_installation_to_operator(gateway, client):
+    """A11: the operator role is assigned only through the local operator CLI."""
+    from conftest import enroll
+
+    enrollment = enroll(gateway, client, label="Operator")
+    result = cli(
+        gateway, "set-role", "--installation-id", enrollment["installation_id"], "--role", "operator"
+    )
+    assert result.returncode == 0, result.stderr
+
+    from gateway.models import Installation
+
+    with gateway.sessions() as db:
+        row = db.get(Installation, enrollment["installation_id"])
+    assert row.role == "operator"
+
+
+def test_set_entitlement_writes_and_clears_the_money_ceiling(gateway, client):
+    """A10: the operator grants and revokes a money ceiling; no secret is printed."""
+    from decimal import Decimal
+
+    from conftest import enroll
+
+    from gateway.models import Installation
+
+    enrollment = enroll(gateway, client, label="REGYNA")
+    result = cli(
+        gateway,
+        "set-entitlement",
+        "--installation-id",
+        enrollment["installation_id"],
+        "--max-hourly-price",
+        "0.52",
+        "--session-budget",
+        "1.00",
+        "--period-budget",
+        "5.00",
+        "--period-days",
+        "30",
+    )
+    assert result.returncode == 0, result.stderr
+    assert enrollment["installation_secret"] not in result.stdout
+    with gateway.sessions() as db:
+        row = db.get(Installation, enrollment["installation_id"])
+        assert row.entitlement_max_hourly_price == Decimal("0.52")
+        assert row.entitlement_session_budget == Decimal("1.00")
+        assert row.entitlement_period_budget == Decimal("5.00")
+        assert row.entitlement_period_days == 30
+
+    cleared = cli(gateway, "set-entitlement", "--installation-id", enrollment["installation_id"], "--clear")
+    assert cleared.returncode == 0, cleared.stderr
+    with gateway.sessions() as db:
+        row = db.get(Installation, enrollment["installation_id"])
+        assert row.entitlement_max_hourly_price is None
+        assert row.entitlement_period_budget is None

@@ -123,6 +123,9 @@ class InferenceProxy:
         )
         self._recent: OrderedDict[str, dict] = OrderedDict()
         self._in_flight: dict[str, str] = {}
+        # A11-A: the request task of each admitted generation, so an installation can cancel its
+        # own generation (and only its own) without reaching for the shared Pod at all.
+        self._tasks: dict[str, asyncio.Task] = {}
 
     # ------------------------------------------------------------------ request memory
 
@@ -166,6 +169,24 @@ class InferenceProxy:
         """An admission failure leaves no trace, so a retry with the same id is possible."""
         self._recent.pop(key, None)
         self._in_flight.pop(key, None)
+        self._tasks.pop(key, None)
+
+    def cancel_own(self, installation_id: str) -> int:
+        """A11-A: cancel this installation's own in-flight generations, and no one else's.
+
+        Each admitted generation runs in its own request task, so cancelling that task is exactly
+        what a client disconnect does: the ``finally`` in the streaming body releases the single
+        generation slot and closes the upstream response. Another installation's generation lives
+        in a different task and is never touched.
+        """
+        keys = [key for key, owner in list(self._in_flight.items()) if owner == installation_id]
+        cancelled = 0
+        for key in keys:
+            task = self._tasks.get(key)
+            if task is not None and not task.done():
+                task.cancel()
+                cancelled += 1
+        return cancelled
 
     # --------------------------------------------------------------------------- models
 
@@ -222,6 +243,9 @@ class InferenceProxy:
         # is released again if admission itself fails, so a legitimate retry still works.
         self._in_flight[key] = installation_id
         self._remember(key, "in_flight", digest)
+        current = asyncio.current_task()
+        if current is not None:
+            self._tasks[key] = current
         try:
             await asyncio.wait_for(self.queue.acquire(), timeout=self.queue.timeout)
         except TimeoutError:
@@ -249,6 +273,7 @@ class InferenceProxy:
                 return
             released = True
             self._in_flight.pop(key, None)
+            self._tasks.pop(key, None)
             self._remember(key, state, digest, result)
             self.queue.release()
 

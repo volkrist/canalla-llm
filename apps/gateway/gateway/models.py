@@ -43,6 +43,15 @@ class Installation(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_reason: Mapped[str | None] = mapped_column(String(200))
     meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    # A10/A11: the operator-defined entitlement, never auto-assigned. A new installation is a
+    # plain ``member`` with no extra bound (``None`` = only the deployment/global policy applies),
+    # and only the operator CLI promotes a role or narrows a money ceiling. Every one of these is a
+    # server-side fact: it is never read from a client body, header, role or preference.
+    role: Mapped[str] = mapped_column(String(16), default="member", server_default="member")
+    entitlement_max_hourly_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))
+    entitlement_session_budget: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))
+    entitlement_period_budget: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))
+    entitlement_period_days: Mapped[int | None] = mapped_column(Integer)
 
 
 class EnrollmentCode(Base):

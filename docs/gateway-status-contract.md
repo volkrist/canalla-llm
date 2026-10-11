@@ -134,3 +134,47 @@ Pod останавливается: `state` → `stopped`, `terminal_state` → 
 `session.max_hourly_price_usd`: теперь это **разрешённый потолок** (максимум пользователя,
 возможно ужесточённый оператором — A12), а не цена дешёвого кандидата. Фактическая цена —
 `session.hourly_rate_usd`.
+
+## 7. A10/A11 — entitlement и права Stop (1.2.1)
+
+Поля аддитивны; старый клиент их не видит и продолжает работать.
+
+**`caller`** (в `GET /compute/status` и в ответе `POST /compute/ensure`) — read-only блок того,
+кто спрашивает и что ему реально разрешено:
+
+```json
+"caller": {
+  "installation_id": "…",
+  "role": "member",
+  "max_hourly_price_usd": "1.00",
+  "session_budget_usd": "1.00",
+  "period_budget_usd": "5.00",
+  "period_days": 30,
+  "effective_max_hourly_price_usd": "0.52",
+  "effective_session_budget_usd": "1.00"
+}
+```
+`null` на любом из `max_hourly_price_usd`/`session_budget_usd`/`period_budget_usd` означает
+«оператор не ограничивал» — продуктового потолка нет.
+
+**`POST /compute/stop`** получает необязательное поле `scope`:
+
+| `scope` | Кто может | Что делает |
+|---|---|---|
+| `global` (по умолчанию, как шлёт 1.2.0) | владелец сессии или оператор | останавливает общий managed Pod (durable Stop) |
+| `own` | любая установка | только отзывает собственный спрос; Pod не трогается |
+
+Отказ не-владельца/не-оператора — `gateway_stop_forbidden` (403), Pod остаётся неизменным.
+
+**`POST /compute/emergency-stop`** — только оператор: глобальный Stop общего Pod; для обычной
+установки — `gateway_stop_forbidden`. Аварийный Stop идёт тем же durable-путём, что и обычный
+(RunPod 500/timeout сохраняет intent и повторяется).
+
+**`POST /compute/cancel`** — отменяет собственные in-flight генерации вызывающей установки
+(и только их). Под не трогается; генерация другой установки не затрагивается.
+
+Роль и entitlement назначаются только локальным операторским CLI:
+`gateway.cli set-role --installation-id … --role operator|member` и
+`gateway.cli set-entitlement --installation-id … [--max-hourly-price …] [--session-budget …]
+[--period-budget …] [--period-days …] | --clear`. Ни одно поле тела запроса не влияет ни на роль,
+ни на entitlement.

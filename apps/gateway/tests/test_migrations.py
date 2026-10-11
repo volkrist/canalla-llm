@@ -42,6 +42,7 @@ def test_upgrade_creates_the_gateway_schema(tmp_path):
         tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         revision = db.execute("SELECT version_num FROM alembic_version").fetchone()[0]
         columns = {row[1] for row in db.execute("PRAGMA table_info(gateway_sessions)")}
+        install_columns = {row[1] for row in db.execute("PRAGMA table_info(installations)")}
     assert tables == {
         "alembic_version",
         "installations",
@@ -51,13 +52,21 @@ def test_upgrade_creates_the_gateway_schema(tmp_path):
         "gateway_operations",
         "audit_events",
     }
-    assert revision == "0004_session_placement"
+    assert revision == "0005_installation_entitlements"
     # A02: the durable stop-attempt clock the retry backoff reads.
     assert "stop_attempt_at" in columns
     # A06: the readiness liveness clock (the last successful probe) and the grace clock.
     assert {"ready_probe_at", "unready_since"} <= columns
     # A09: the placement identity and the ensure operation a managed session owns.
     assert {"volume_id", "datacenter", "operation_id"} <= columns
+    # A10/A11: the operator role and the money entitlement columns (additive; role defaults member).
+    assert {
+        "role",
+        "entitlement_max_hourly_price",
+        "entitlement_session_budget",
+        "entitlement_period_budget",
+        "entitlement_period_days",
+    } <= install_columns
     # The Gateway owns its own history: the local backend's revisions are absent.
     assert revision not in {f"00{index:02d}" for index in range(1, 15)}
 
@@ -97,3 +106,34 @@ def test_enrollments_and_codes_survive_a_later_upgrade(tmp_path):
         assert db.execute("SELECT name FROM installations").fetchone() == ("PC A",)
         assert db.execute("SELECT label FROM enrollment_codes").fetchone() == ("PC B",)
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_entitlement_migration_preserves_installations_and_defaults_to_member(tmp_path):
+    """A10/A11: the migration is additive, and no installation is silently made an operator."""
+    url = "sqlite:///" + (tmp_path / "entitle.db").as_posix()
+    assert alembic(url, "upgrade", "0004_session_placement").returncode == 0
+    with sqlite3.connect(tmp_path / "entitle.db") as db:
+        db.execute(
+            "INSERT INTO installations (id,name,platform,client_version,secret_hash,created_at,"
+            "last_seen_at,meta) VALUES ('owner','PC A','windows','1.2.0','hash-a',"
+            "'2026-09-21 00:00:00','2026-09-21 00:00:00','{}')"
+        )
+        db.execute(
+            "INSERT INTO installations (id,name,platform,client_version,secret_hash,created_at,"
+            "last_seen_at,meta) VALUES ('regyna','REGYNA','windows','1.2.0','hash-b',"
+            "'2026-09-21 00:00:00','2026-09-21 00:00:00','{}')"
+        )
+    assert alembic(url, "upgrade", "head").returncode == 0
+    with sqlite3.connect(tmp_path / "entitle.db") as db:
+        digests = dict(db.execute("SELECT id, secret_hash FROM installations").fetchall())
+        roles = dict(db.execute("SELECT id, role FROM installations").fetchall())
+        grants = db.execute(
+            "SELECT entitlement_max_hourly_price, entitlement_period_budget FROM installations "
+            "WHERE id='owner'"
+        ).fetchone()
+        revision = db.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+    # Every installation — including REGYNA and the owner's — keeps its identity untouched.
+    assert digests == {"owner": "hash-a", "regyna": "hash-b"}
+    assert roles == {"owner": "member", "regyna": "member"}
+    assert grants == (None, None)
+    assert revision == "0005_installation_entitlements"

@@ -53,7 +53,7 @@ from .config import (
     GatewaySettings,
 )
 from .errors import GatewayError
-from .models import AuditEvent, GatewayCompute, GatewayOperation, GatewaySession, now
+from .models import AuditEvent, GatewayCompute, GatewayOperation, GatewaySession, Installation, now
 from .provider import (
     allocation_policy,
     compact_ai,
@@ -63,6 +63,7 @@ from .provider import (
     provider_error_messages,
     replicas_module,
 )
+from .security import MEMBER_ROLE, OPERATOR_ROLE, role_of
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +173,16 @@ MIN_START_BUDGET = Decimal("0.01")
 # Money values are quantized down to whole 1/100ths of a cent, the precision the shared
 # money schema accepts; rounding down never widens a spend bound.
 MONEY_QUANTUM = Decimal("0.0001")
+
+# A10/A11: who an installation is, server-side. A member is the default and may never be assumed
+# to be an operator; only the operator CLI sets a role, and no client field can ever influence it.
+# ``OPERATOR_ROLE``/``MEMBER_ROLE``/``role_of`` live in ``security`` so the operator CLI stays
+# importable without the provider library.
+
+# A normal Stop may either stop the shared managed Pod (owner/operator only) or withdraw the
+# caller's own demand without touching the Pod (`own`). The scope is a request intent, never a
+# privilege: the server decides which one the caller is allowed to perform.
+STOP_SCOPES = ("global", "own")
 
 # Conditions that describe the provider catalogue rather than a broken compute.
 SEARCH_ERRORS = {"no_compatible_gpu", "price_limit", "gpu_unavailable"}
@@ -556,6 +567,103 @@ class ComputeAuthority:
             # behaviour change — see docs/compute-preferences.md §11).
             "allow_community": bool(community and self.settings.runpod_allow_community_cloud),
         }
+
+    # ------------------------------------------------------------------- A10 entitlement
+
+    def _apply_entitlement(self, installation, caps: dict) -> tuple[dict, dict]:
+        """Narrow the caller's own policy by the operator's entitlement. Never widen it.
+
+        The user's *saved* preference is untouched: only the effective bound of this session is the
+        minimum of what the user asked for, what the deployment imposes globally (already applied in
+        ``_caps``) and what the operator granted this installation. ``None`` on an entitlement means
+        "no extra bound", so an installation nobody has constrained keeps behaving exactly as before.
+        """
+        hourly = caps["max_hourly_price"]
+        granted_hourly = decimal_or_none(getattr(installation, "entitlement_max_hourly_price", None))
+        if granted_hourly is not None and granted_hourly > 0:
+            hourly = min(hourly, granted_hourly)
+        budget = caps["session_budget"]
+        granted_budget = decimal_or_none(getattr(installation, "entitlement_session_budget", None))
+        if granted_budget is not None and granted_budget > 0:
+            budget = min(budget, granted_budget)
+        authorized = min(caps["authorized_max_hourly_price"], hourly)
+        narrowed = {
+            **caps,
+            "max_hourly_price": hourly,
+            "session_budget": budget,
+            "authorized_max_hourly_price": authorized,
+        }
+        return narrowed, self._entitlement_record(installation)
+
+    def _entitlement_record(self, installation) -> dict:
+        """The caller's entitlement, read-only and never secret."""
+        granted_hourly = decimal_or_none(getattr(installation, "entitlement_max_hourly_price", None))
+        granted_budget = decimal_or_none(getattr(installation, "entitlement_session_budget", None))
+        period_budget = decimal_or_none(getattr(installation, "entitlement_period_budget", None))
+        period_days = getattr(installation, "entitlement_period_days", None)
+        return {
+            "role": role_of(installation),
+            "max_hourly_price_usd": str(granted_hourly) if granted_hourly and granted_hourly > 0 else None,
+            "session_budget_usd": str(granted_budget) if granted_budget and granted_budget > 0 else None,
+            "period_budget_usd": str(period_budget) if period_budget and period_budget > 0 else None,
+            "period_days": int(period_days) if period_days else None,
+        }
+
+    def caller_payload(self, installation, caps: dict | None = None) -> dict:
+        """Who is asking and what they are actually allowed to spend, for the interface."""
+        record = {"installation_id": installation.id, **self._entitlement_record(installation)}
+        if caps is not None:
+            record["effective_max_hourly_price_usd"] = str(caps["authorized_max_hourly_price"])
+            record["effective_session_budget_usd"] = str(caps["session_budget"])
+        return record
+
+    def _period_commitment(self, db, installation_id: str, since: datetime) -> Decimal:
+        """What this installation has already committed inside the window, from persisted rows.
+
+        A finished session commits its actual estimated cost; one still active (or an unresolved
+        create) commits its *reserved* session budget, so a run in progress is counted at its
+        ceiling, never at its current partial cost. Because it is derived from the session rows it
+        survives a Gateway restart without a separate ledger.
+        """
+        rows = db.scalars(
+            select(GatewaySession).where(
+                GatewaySession.created_by_installation_id == installation_id,
+                GatewaySession.created_at >= since,
+            )
+        ).all()
+        total = Decimal("0")
+        for row in rows:
+            if row.state in ACTIVE_STATES or row.state == "create_unknown":
+                amount = decimal_or_none(row.session_budget) or Decimal("0")
+            else:
+                amount = decimal_or_none(row.estimated_cost) or Decimal("0")
+            total += max(amount, Decimal("0"))
+        return total
+
+    def _reserve_budget(self, installation_id: str, amount: Decimal) -> None:
+        """Atomic reservation check: the new session's ceiling must fit the period budget.
+
+        Called under the database lease (serialised with every other ``ensure``), so two concurrent
+        requests cannot both pass the check and double-reserve: the first commits its session row in
+        ``_open_candidate`` before the second reads the commitment. Refusing here creates nothing.
+        """
+        with self.sessions() as db:
+            installation = db.get(Installation, installation_id)
+            period = decimal_or_none(getattr(installation, "entitlement_period_budget", None))
+            if period is None or period <= 0:
+                return
+            days = int(getattr(installation, "entitlement_period_days", None) or 30)
+            since = utc_present(self.clock()) - timedelta(days=days)
+            committed = self._period_commitment(db, installation_id, since)
+            if committed + amount > period:
+                raise GatewayError(
+                    "gateway_budget_denied",
+                    detail=(
+                        "Исчерпан общий лимит расходов этой установки: "
+                        f"{committed.quantize(MONEY_QUANTUM)} + {amount.quantize(MONEY_QUANTUM)} > "
+                        f"{period.quantize(MONEY_QUANTUM)} за {days} дн."
+                    ),
+                )
 
     def _operation(
         self, db, operation_id: str, installation_id: str, kind: str, digest: str | None = None
@@ -1068,9 +1176,12 @@ class ComputeAuthority:
             return None
         return (reference + timedelta(seconds=self.settings.compute_startup_timeout_seconds)).isoformat()
 
-    async def status(self) -> dict:
+    async def status(self, installation=None) -> dict:
         payload = self.status_payload()
         payload["balance"] = await self.balance.snapshot()
+        if installation is not None:
+            # A10: the caller's own entitlement, read-only. It never changes compute and never spends.
+            payload["caller"] = self.caller_payload(installation)
         return payload
 
     async def pod_target(self) -> tuple[str, str] | None:
@@ -1334,6 +1445,12 @@ class ComputeAuthority:
         origin: str | None = None,
     ) -> dict:
         caps = self._caps(caps)
+        # A10: the entitlement is a server-side fact read from the installation row, applied here and
+        # never taken from the request body. An installation the operator has not constrained keeps
+        # exactly its own policy.
+        with self.sessions() as db:
+            installation = db.get(Installation, installation_id)
+        caps, _entitlement = self._apply_entitlement(installation, caps)
         digest = repr(sorted(caps.items()))
         with self.sessions() as db:
             cached = self._operation(db, operation_id, installation_id, "ensure", digest)
@@ -1375,6 +1492,7 @@ class ComputeAuthority:
             payload = self.status_payload()
             payload["balance"] = await self.balance.snapshot()
             payload["task_id"] = task_id
+            payload["caller"] = self.caller_payload(installation, caps)
             if origin is not None:
                 # Echoed back so the client can show, and an acceptance can prove, which event
                 # started this attempt.
@@ -1439,6 +1557,11 @@ class ComputeAuthority:
                     self._set_state(db, "offline", error_code="runpod_balance")
                 return self.status_payload()
             caps = {**caps, "session_budget": effective}
+
+        # A10: reserve this session's own ceiling against the installation's period budget *before*
+        # any paid resource is created. Under the lease, so two concurrent requests cannot both pass
+        # and double-reserve; a refusal here creates nothing and spends nothing.
+        self._reserve_budget(installation_id, caps["session_budget"])
 
         # The shared schema still validates exactly like direct mode (one policy vocabulary).
         compute_preferences(
@@ -1731,20 +1854,53 @@ class ComputeAuthority:
 
     # ---------------------------------------------------------------------------- stop
 
-    async def stop(self, installation_id: str, *, operation_id: str, reason: str = "manual") -> dict:
+    async def stop(
+        self,
+        installation_id: str,
+        *,
+        operation_id: str,
+        reason: str = "manual",
+        scope: str = "global",
+        role: str = MEMBER_ROLE,
+    ) -> dict:
+        """A11: stopping the shared managed Pod needs ownership or the operator role.
+
+        ``scope="own"`` is the caller withdrawing **its own** demand: it succeeds for anyone and
+        never touches the Pod, so it can never interrupt another installation's generation.
+        ``scope="global"`` (the default, and what the 1.2.0 client sends) stops the shared Pod, and
+        is allowed only to the installation that created the session or to an operator.
+        """
+        scope = scope if scope in STOP_SCOPES else "global"
+        digest = f"{reason}:{scope}"
         with self.sessions() as db:
-            cached = self._operation(db, operation_id, installation_id, "stop", reason)
+            cached = self._operation(db, operation_id, installation_id, "stop", digest)
         if cached is not None:
             return cached
         async with self.lease(installation_id):
             with self.sessions() as db:
-                cached = self._operation(db, operation_id, installation_id, "stop", reason)
+                cached = self._operation(db, operation_id, installation_id, "stop", digest)
                 if cached is not None:
                     return cached
                 session = self.session_row(db)
             if session is not None:
                 if not session.managed:
                     raise GatewayError("external_compute")
+                if scope == "own":
+                    return await self._withdraw_own(installation_id, operation_id, digest)
+                if installation_id != session.created_by_installation_id and role != OPERATOR_ROLE:
+                    # A non-owner, non-operator installation may not stop compute that is (or may be)
+                    # serving others. The refusal is recorded, and the Pod is left untouched.
+                    with self.sessions() as db:
+                        self.event(
+                            db,
+                            "stop",
+                            "error",
+                            installation_id=installation_id,
+                            error_code="gateway_stop_forbidden",
+                            detail=reason,
+                        )
+                        db.commit()
+                    raise GatewayError("gateway_stop_forbidden")
                 if self.active_inferences() and reason == "manual":
                     with self.sessions() as db:
                         row = self.session_row(db)
@@ -1760,7 +1916,56 @@ class ComputeAuthority:
                 db.commit()
             payload = self.status_payload()
             payload["balance"] = await self.balance.snapshot()
-            self._record_operation(operation_id, installation_id, "stop", payload, reason)
+            self._record_operation(operation_id, installation_id, "stop", payload, digest)
+            return payload
+
+    async def _withdraw_own(self, installation_id: str, operation_id: str, digest: str) -> dict:
+        """The safe half of A11: release the caller's own demand, never touch the shared Pod."""
+        with self.sessions() as db:
+            self.event(db, "stop", "ok", installation_id=installation_id, detail="own_demand")
+            db.commit()
+        payload = self.status_payload()
+        payload["balance"] = await self.balance.snapshot()
+        payload["scoped"] = "own_demand_released"
+        self._record_operation(operation_id, installation_id, "stop", payload, digest)
+        return payload
+
+    async def emergency_stop(self, installation_id: str, *, operation_id: str, role: str) -> dict:
+        """A11-D: the operator-only path that may stop the shared managed Pod outright.
+
+        Reuses the durable Stop: a RunPod 500/timeout keeps the stop intent and is retried from
+        persisted state on the next tick. An unmanaged Pod is never terminated.
+        """
+        if role != OPERATOR_ROLE:
+            with self.sessions() as db:
+                self.event(
+                    db,
+                    "emergency_stop",
+                    "error",
+                    installation_id=installation_id,
+                    error_code="gateway_stop_forbidden",
+                )
+                db.commit()
+            raise GatewayError("gateway_stop_forbidden")
+        digest = "operator"
+        with self.sessions() as db:
+            cached = self._operation(db, operation_id, installation_id, "emergency_stop", digest)
+        if cached is not None:
+            return cached
+        async with self.lease(installation_id):
+            with self.sessions() as db:
+                cached = self._operation(db, operation_id, installation_id, "emergency_stop", digest)
+                if cached is not None:
+                    return cached
+                session = self.session_row(db)
+            if session is not None and session.managed:
+                await self._terminate(session.id, "operator_emergency")
+            with self.sessions() as db:
+                self.event(db, "emergency_stop", "ok", installation_id=installation_id)
+                db.commit()
+            payload = self.status_payload()
+            payload["balance"] = await self.balance.snapshot()
+            self._record_operation(operation_id, installation_id, "emergency_stop", payload, digest)
             return payload
 
     async def _terminate(self, session_id: str, reason: str) -> None:

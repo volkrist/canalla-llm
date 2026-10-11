@@ -16,12 +16,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import select
 
 from .config import get_settings
 from .models import AuditEvent, EnrollmentCode, GatewayCompute, Installation
-from .security import activate_code, now, utc
+from .security import ROLES, activate_code, now, utc
 
 
 def _db():
@@ -50,7 +51,8 @@ def list_installations(args) -> int:
         for row in rows:
             state = "revoked" if row.revoked_at else "active"
             print(
-                f"{row.id}  {state:8s}  name={row.name or '-':<20.20s} "
+                f"{row.id}  {state:8s}  role={row.role or 'member':<8.8s} "
+                f"name={row.name or '-':<20.20s} "
                 f"platform={row.platform or '-':<10.10s} version={row.client_version or '-':<10.10s} "
                 f"created={utc(row.created_at).isoformat()} last_seen={utc(row.last_seen_at).isoformat()}"
             )
@@ -60,6 +62,81 @@ def list_installations(args) -> int:
                 f"compute: state={control.state} error={control.error_code or '-'} "
                 f"session={control.active_session_id or '-'} create_attempts={control.create_attempts}"
             )
+    return 0
+
+
+def set_role(args) -> int:
+    """A10/A11: promote or demote an installation. Only ever run by the operator, locally."""
+    with _db()() as db:
+        installation = db.get(Installation, args.installation_id)
+        if installation is None:
+            print("installation not found", file=sys.stderr)
+            return 1
+        installation.role = args.role
+        db.add(
+            AuditEvent(
+                operation="set_role",
+                result="ok",
+                installation_id=installation.id,
+                detail=f"role={args.role}",
+                created_at=now(),
+            )
+        )
+        db.commit()
+    print(f"{args.installation_id} role={args.role}")
+    return 0
+
+
+def _money(value: str | None) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        amount = Decimal(value)
+    except (InvalidOperation, ValueError):
+        raise SystemExit(f"not a decimal: {value}") from None
+    if not amount.is_finite() or amount <= 0:
+        raise SystemExit(f"must be a positive finite decimal: {value}")
+    return amount
+
+
+def set_entitlement(args) -> int:
+    """A10: grant or clear an installation's money ceiling. Never a client-side operation."""
+    with _db()() as db:
+        installation = db.get(Installation, args.installation_id)
+        if installation is None:
+            print("installation not found", file=sys.stderr)
+            return 1
+        if args.clear:
+            installation.entitlement_max_hourly_price = None
+            installation.entitlement_session_budget = None
+            installation.entitlement_period_budget = None
+            installation.entitlement_period_days = None
+        else:
+            if args.max_hourly_price is not None:
+                installation.entitlement_max_hourly_price = _money(args.max_hourly_price)
+            if args.session_budget is not None:
+                installation.entitlement_session_budget = _money(args.session_budget)
+            if args.period_budget is not None:
+                installation.entitlement_period_budget = _money(args.period_budget)
+            if args.period_days is not None:
+                installation.entitlement_period_days = args.period_days
+        db.add(
+            AuditEvent(
+                operation="set_entitlement",
+                result="ok",
+                installation_id=installation.id,
+                detail="cleared" if args.clear else "updated",
+                created_at=now(),
+            )
+        )
+        db.commit()
+        print(
+            f"{args.installation_id} role={installation.role or 'member'} "
+            f"max_hourly_price={installation.entitlement_max_hourly_price} "
+            f"session_budget={installation.entitlement_session_budget} "
+            f"period_budget={installation.entitlement_period_budget} "
+            f"period_days={installation.entitlement_period_days}"
+        )
     return 0
 
 
@@ -162,6 +239,20 @@ def main(argv=None) -> int:
     revoke_cmd.add_argument("--installation-id", required=True)
     revoke_cmd.add_argument("--reason", default="")
     revoke_cmd.set_defaults(func=revoke)
+
+    role_cmd = sub.add_parser("set-role", help="set an installation's role (member|operator)")
+    role_cmd.add_argument("--installation-id", required=True)
+    role_cmd.add_argument("--role", required=True, choices=ROLES)
+    role_cmd.set_defaults(func=set_role)
+
+    entitlement_cmd = sub.add_parser("set-entitlement", help="set or clear an installation's limits")
+    entitlement_cmd.add_argument("--installation-id", required=True)
+    entitlement_cmd.add_argument("--max-hourly-price", default=None)
+    entitlement_cmd.add_argument("--session-budget", default=None)
+    entitlement_cmd.add_argument("--period-budget", default=None)
+    entitlement_cmd.add_argument("--period-days", type=int, default=None)
+    entitlement_cmd.add_argument("--clear", action="store_true")
+    entitlement_cmd.set_defaults(func=set_entitlement)
 
     audit_cmd = sub.add_parser("audit", help="recent audit events")
     audit_cmd.add_argument("--limit", type=int, default=20)

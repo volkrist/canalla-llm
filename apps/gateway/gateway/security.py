@@ -31,6 +31,18 @@ from .models import EnrollmentCode, Installation
 INSTALLATION_SECRET_BYTES = 32  # 256 bits of entropy before urlsafe encoding
 ACTIVATION_CODE_BYTES = 24
 
+# A10/A11: who an installation is, server-side. A member is the default and may never be assumed to
+# be an operator; only the operator CLI sets a role, and no client field can ever influence it.
+OPERATOR_ROLE = "operator"
+MEMBER_ROLE = "member"
+ROLES = (OPERATOR_ROLE, MEMBER_ROLE)
+
+
+def role_of(installation) -> str:
+    """The installation's server-side role, defaulting to member for anything unknown."""
+    role = getattr(installation, "role", None)
+    return role if role in ROLES else MEMBER_ROLE
+
 
 def now() -> datetime:
     return datetime.now(timezone.utc)

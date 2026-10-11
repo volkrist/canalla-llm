@@ -28,6 +28,7 @@ from .security import (
     new_installation_secret,
     now,
     redeem_code,
+    role_of,
     utc,
 )
 
@@ -114,6 +115,15 @@ class EnsureRequest(BaseModel):
 class StopRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     operation_id: str = Field(min_length=8, max_length=64)
+    # A11: `global` (the default, and what the 1.2.0 client sends) stops the shared managed Pod and
+    # needs ownership or the operator role; `own` only withdraws the caller's own demand and never
+    # touches the Pod. The scope is a request intent — the server still decides what is allowed.
+    scope: Literal["global", "own"] = "global"
+
+
+class CancelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation_id: str | None = Field(default=None, max_length=64)
 
 
 class RevokeRequest(BaseModel):
@@ -268,7 +278,7 @@ async def revoke(
 @router.get("/compute/status")
 async def compute_status(request: Request, installation: InstallationDep) -> dict:
     request.app.state.limiter.check("compute", installation.id)
-    return await request.app.state.authority.status()
+    return await request.app.state.authority.status(installation)
 
 
 @router.post("/compute/ensure")
@@ -299,7 +309,42 @@ async def compute_ensure(request: Request, payload: EnsureRequest, installation:
 @router.post("/compute/stop")
 async def compute_stop(request: Request, payload: StopRequest, installation: InstallationDep) -> dict:
     request.app.state.limiter.check("compute", installation.id)
-    return await request.app.state.authority.stop(installation.id, operation_id=payload.operation_id)
+    return await request.app.state.authority.stop(
+        installation.id,
+        operation_id=payload.operation_id,
+        scope=payload.scope,
+        role=role_of(installation),
+    )
+
+
+@router.post("/compute/emergency-stop")
+async def compute_emergency_stop(
+    request: Request, payload: StopRequest, installation: InstallationDep
+) -> dict:
+    """A11-D: the operator-only global Stop. Refused for an ordinary installation, on the server."""
+    request.app.state.limiter.check("compute", installation.id)
+    return await request.app.state.authority.emergency_stop(
+        installation.id, operation_id=payload.operation_id, role=role_of(installation)
+    )
+
+
+@router.post("/compute/cancel")
+async def compute_cancel(request: Request, payload: CancelRequest, installation: InstallationDep) -> dict:
+    """A11-A: cancel the caller's own in-flight generations; never the shared Pod."""
+    request.app.state.limiter.check("compute", installation.id)
+    cancelled = request.app.state.proxy.cancel_own(installation.id)
+    with request.app.state.session_factory() as db:
+        db.add(
+            AuditEvent(
+                operation="cancel",
+                result="ok",
+                installation_id=installation.id,
+                detail=f"cancelled={cancelled}",
+                created_at=now(),
+            )
+        )
+        db.commit()
+    return {"cancelled": cancelled}
 
 
 @router.get("/balance")
