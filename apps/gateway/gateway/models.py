@@ -84,6 +84,19 @@ class GatewayCompute(Base):
     last_operation_id: Mapped[str | None] = mapped_column(String(64))
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    # A persistent capacity wait: the user chose to keep waiting for a free GPU. It is durable so
+    # it survives a brief network loss, a Gateway restart, an app restart and a transient provider
+    # error — none of which may cancel the intent. ``wait_caps`` holds the effective policy the
+    # next attempt must honour; ``wait_background`` is the user's explicit permission to start a
+    # *paid* Pod while the app is closed (never assumed).
+    wait_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    wait_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    wait_next_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    wait_operation_id: Mapped[str | None] = mapped_column(String(64))
+    wait_installation_id: Mapped[str | None] = mapped_column(String(36))
+    wait_caps: Mapped[dict | None] = mapped_column(JSON, default=dict)
+    wait_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    wait_background: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class GatewaySession(Base):

@@ -98,6 +98,12 @@ class GatewaySettings(BaseSettings):
     # `searching` forever. The hard ceiling is 60 s on purpose: a client cannot widen it, and a
     # server operator cannot configure an unbounded "searching" (that is the defect this fixes).
     compute_search_timeout_seconds: int = Field(default=60, ge=5, le=60)
+    # A persistent capacity wait: when the user chooses to keep waiting, the *operation* has no
+    # arbitrary 60/300 s deadline — it is re-attempted on this bounded backoff (respecting RunPod
+    # rate limits) until a GPU appears or the user cancels. Each attempt is still bounded by
+    # ``compute_search_timeout_seconds``; only the wait between attempts is unbounded.
+    compute_wait_backoff_seconds: int = Field(default=30, ge=5, le=600)
+    compute_wait_backoff_max_seconds: int = Field(default=180, ge=30, le=3600)
     llm_provider: Literal["mock", "llamacpp"] = "llamacpp"
     llm_model: str = "orcarouter-qwen38-27b-q5km"
     llm_api_key: str = ""

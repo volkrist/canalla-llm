@@ -43,6 +43,7 @@ def test_upgrade_creates_the_gateway_schema(tmp_path):
         revision = db.execute("SELECT version_num FROM alembic_version").fetchone()[0]
         columns = {row[1] for row in db.execute("PRAGMA table_info(gateway_sessions)")}
         install_columns = {row[1] for row in db.execute("PRAGMA table_info(installations)")}
+        compute_columns = {row[1] for row in db.execute("PRAGMA table_info(gateway_compute)")}
     assert tables == {
         "alembic_version",
         "installations",
@@ -52,7 +53,7 @@ def test_upgrade_creates_the_gateway_schema(tmp_path):
         "gateway_operations",
         "audit_events",
     }
-    assert revision == "0005_installation_entitlements"
+    assert revision == "0006_capacity_wait"
     # A02: the durable stop-attempt clock the retry backoff reads.
     assert "stop_attempt_at" in columns
     # A06: the readiness liveness clock (the last successful probe) and the grace clock.
@@ -67,6 +68,8 @@ def test_upgrade_creates_the_gateway_schema(tmp_path):
         "entitlement_period_budget",
         "entitlement_period_days",
     } <= install_columns
+    # Task-1: the durable persistent-wait columns on the compute singleton.
+    assert {"wait_active", "wait_started_at", "wait_next_at", "wait_caps", "wait_attempts"} <= compute_columns
     # The Gateway owns its own history: the local backend's revisions are absent.
     assert revision not in {f"00{index:02d}" for index in range(1, 15)}
 
@@ -136,4 +139,4 @@ def test_entitlement_migration_preserves_installations_and_defaults_to_member(tm
     assert digests == {"owner": "hash-a", "regyna": "hash-b"}
     assert roles == {"owner": "member", "regyna": "member"}
     assert grants == (None, None)
-    assert revision == "0005_installation_entitlements"
+    assert revision == "0006_capacity_wait"

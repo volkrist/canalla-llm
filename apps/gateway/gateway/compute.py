@@ -117,6 +117,7 @@ CONNECTION_STAGES = {
     "external_compute": "external",
     "error": "error",
     "not_configured": "unconfigured",
+    "waiting_capacity": "waiting",
 }
 
 # A stage from which no automatic transition is pending: the attempt has concluded, successfully
@@ -194,9 +195,15 @@ SEARCH_STATE = "searching"
 SEARCH_COLLAPSED_STATE = "offline"
 CAPACITY_UNAVAILABLE = "gpu_unavailable"
 
+# A7/Task-1: the persistent wait. `searching` still means "one bounded attempt is in flight"; this
+# state means "the user chose to keep waiting, and the Gateway will re-attempt on its own schedule
+# until a GPU appears or the user cancels". It has no arbitrary deadline.
+WAIT_STATE = "waiting_capacity"
+
 MESSAGES = {
     "offline": "AI не запущен. GPU запускается только по запросу.",
     "searching": "Ищу подходящую GPU…",
+    "waiting_capacity": "Ожидаем свободную GPU…",
     "gpu_found": "GPU найдена, готовлю запуск…",
     "creating": "Создаю compute…",
     "starting_pod": "Запускаю Pod…",
@@ -437,7 +444,10 @@ class ComputeAuthority:
         }
 
     def effective_state(self, control: GatewayCompute) -> str:
-        """What the state really is. A search that ran out of identity or deadline is over."""
+        """What the state really is. A search that ran out of identity or deadline is over; a
+        persistent wait is over only when it was cancelled."""
+        if control.state == WAIT_STATE:
+            return WAIT_STATE if control.wait_active else SEARCH_COLLAPSED_STATE
         if control.state == SEARCH_STATE and not self.search_active(control):
             return SEARCH_COLLAPSED_STATE
         return control.state
@@ -445,6 +455,11 @@ class ComputeAuthority:
     def _note_search(self, db, *, reason: str, operation_id: str | None, installation_id: str) -> None:
         """Record one bounded capacity search, or reuse the live window without extending it."""
         control = self.control(db)
+        if control.wait_active:
+            # A persistent wait is stronger than a bounded search: it already owns the single global
+            # intent and keeps re-attempting on its own schedule. A different installation's
+            # one-shot request must not downgrade it into a search that collapses after 60 s.
+            return
         if control.state == SEARCH_STATE and self.search_active(control):
             # An attempt inside a live window keeps the existing identity and deadline: a search
             # must never renew itself into an unbounded «searching».
@@ -496,6 +511,124 @@ class ComputeAuthority:
             )
             db.commit()
             return True
+
+    # ------------------------------------------------------------------ persistent GPU wait
+
+    def wait_due(self, control: GatewayCompute) -> bool:
+        """Is a background re-attempt allowed now (or does the backoff still hold)?"""
+        if not control.wait_active:
+            return False
+        next_at = utc(control.wait_next_at)
+        return next_at is None or utc_present(self.clock()) >= next_at
+
+    def wait_payload(self, control: GatewayCompute) -> dict | None:
+        """The read-only wait contract the interface shows: elapsed, attempts, next try, reason."""
+        if not control.wait_active:
+            return None
+        started = utc(control.wait_started_at)
+        elapsed = 0 if started is None else max(0, int((utc_present(self.clock()) - started).total_seconds()))
+        return {
+            "active": True,
+            "operation_id": control.wait_operation_id,
+            "installation_id": control.wait_installation_id,
+            "started_at": iso(started),
+            "elapsed_seconds": elapsed,
+            "attempts": int(control.wait_attempts or 0),
+            "next_attempt_at": iso(utc(control.wait_next_at)),
+            "reason": control.error_code,
+            # Only ever true when the user explicitly allowed a *paid* start with the app closed.
+            "background_start": bool(control.wait_background),
+        }
+
+    def _wait_backoff(self, attempts: int) -> timedelta:
+        base = int(self.settings.compute_wait_backoff_seconds)
+        cap = int(self.settings.compute_wait_backoff_max_seconds)
+        return timedelta(seconds=min(base * max(1, attempts), cap))
+
+    @staticmethod
+    def _caps_json(caps: dict) -> dict:
+        """A JSON-safe copy of the effective policy for the durable wait row.
+
+        Decimal money is stored as its exact string (never a float) so the re-attempt honours the
+        very value the user's own policy had. Nothing here is secret.
+        """
+        return {key: str(value) if isinstance(value, Decimal) else value for key, value in caps.items()}
+
+    @staticmethod
+    def _caps_from_json(stored: dict) -> dict:
+        """Inverse of :meth:`_caps_json`: restore the money fields to ``Decimal`` for arithmetic."""
+        caps = dict(stored)
+        for key in ("max_hourly_price", "authorized_max_hourly_price", "session_budget"):
+            value = caps.get(key)
+            if isinstance(value, str):
+                parsed = decimal_or_none(value)
+                if parsed is not None:
+                    caps[key] = parsed
+        return caps
+
+    def _open_wait(
+        self, db, *, installation_id: str, caps: dict, operation_id: str | None, reason: str
+    ) -> None:
+        """Persist (or re-arm) the durable wait intent; the state becomes ``waiting_capacity``.
+
+        The effective policy is stored *whole*, so the background loop can re-attempt without a
+        client. The original ``wait_started_at`` is preserved so the elapsed time keeps counting.
+        """
+        control = self.control(db)
+        now_value = utc_present(self.clock())
+        control.wait_active = True
+        control.wait_started_at = control.wait_started_at or now_value
+        control.wait_operation_id = operation_id or control.wait_operation_id
+        control.wait_installation_id = installation_id
+        control.wait_caps = self._caps_json(caps)
+        control.wait_background = bool(caps.get("background_start"))
+        first = not control.wait_attempts
+        control.wait_attempts = int(control.wait_attempts or 0) + 1
+        control.wait_next_at = now_value + self._wait_backoff(control.wait_attempts)
+        self._set_state(db, WAIT_STATE, error_code=reason)
+        self.event(
+            db,
+            "wait_open" if first else "wait_rearm",
+            "ok",
+            installation_id=installation_id,
+            error_code=reason,
+            detail=str(control.wait_attempts),
+        )
+        db.commit()
+
+    def _clear_wait(self, db) -> None:
+        control = self.control(db)
+        control.wait_active = False
+        control.wait_started_at = None
+        control.wait_next_at = None
+        control.wait_operation_id = None
+        control.wait_installation_id = None
+        control.wait_caps = {}
+        control.wait_attempts = 0
+        control.wait_background = False
+
+    async def cancel_wait(self, installation_id: str, *, operation_id: str, role: str = MEMBER_ROLE) -> dict:
+        """The user stops waiting. Frees the intent and forbids a Pod for it.
+
+        Never touches a running Pod and never stops another installation's generation: a wait
+        intent and a managed session are different things.
+        """
+        with self.sessions() as db:
+            control = self.control(db)
+            if control.wait_active:
+                if control.wait_installation_id != installation_id and role != OPERATOR_ROLE:
+                    raise GatewayError("gateway_stop_forbidden")
+                self._clear_wait(db)
+                if control.state == WAIT_STATE:
+                    control.state = SEARCH_COLLAPSED_STATE
+                control.error_code = None
+                control.revision += 1
+                control.updated_at = self.clock()
+                self.event(db, "wait_cancel", "ok", installation_id=installation_id, detail=operation_id)
+            db.commit()
+        payload = self.status_payload()
+        payload["balance"] = await self.balance.snapshot()
+        return payload
 
     def _caps(self, caps: dict | None) -> dict:
         """Honour the caller's own policy; enforce only technical validity.
@@ -566,6 +699,11 @@ class ComputeAuthority:
             # preference can never switch on a tier the server does not offer (no hidden
             # behaviour change — see docs/compute-preferences.md §11).
             "allow_community": bool(community and self.settings.runpod_allow_community_cloud),
+            # A7/Task-1: is the user keeping the search open, and did they explicitly allow a
+            # *paid* background start while the app is closed? Both default off and are never
+            # assumed; only a real boolean in the request turns them on.
+            "wait_for_capacity": caps.get("wait_for_capacity") is True,
+            "background_start": caps.get("background_start") is True,
         }
 
     # ------------------------------------------------------------------- A10 entitlement
@@ -964,6 +1102,20 @@ class ComputeAuthority:
         safe for a client to poll.
         """
         state = self.effective_state(control)
+        if state == WAIT_STATE:
+            # A persistent wait has no deadline and no session: it is a real, non-terminal
+            # transition until the user cancels it or a GPU appears.
+            return {
+                "operation_id": control.wait_operation_id,
+                "started_at": iso(utc(control.wait_started_at)),
+                "startup_deadline": None,
+                "last_success_at": None,
+                "observed_at": iso(control.updated_at),
+                "current_stage": "waiting",
+                "terminal_state": False,
+                "typed_error": control.error_code,
+                "readiness_valid_until": None,
+            }
         started = self.search_started(control)
         if started is None and session is not None:
             started = utc(session.intent_at) or utc(session.created_at) or utc(session.started_at)
@@ -1033,6 +1185,8 @@ class ComputeAuthority:
             "startup_deadline": self.startup_deadline(session),
             # A search is only reported as one while it has an identity and a live deadline.
             "search": self.search_payload(control),
+            # A7/Task-1: the persistent wait contract — active, elapsed, attempts, next try, reason.
+            "wait": self.wait_payload(control),
             # The interface-facing connection contract (A30-A32): one operation, one stage, one
             # deadline, plus the readiness expiry. Read-only and additive.
             "connection": self.connection_payload(control, session),
@@ -1307,6 +1461,11 @@ class ComputeAuthority:
                 pod = active[0]
                 session = self._adopt_pod(db, pod, session)
                 control = self.control(db)
+                # A real Pod exists for this Volume: whatever wait was parked can no longer
+                # produce another one, so the intent is cleared here rather than left answering
+                # «waiting» on top of live compute.
+                if control.wait_active:
+                    self._clear_wait(db)
                 control.active_session_id = session.id
                 state = POD_STATES.get(pod.status, session.state)
                 if session.state == "ready":
@@ -1345,6 +1504,12 @@ class ComputeAuthority:
                 # A live bounded search is kept as it is — and deliberately *not* restamped:
                 # refreshing the timestamp here is what used to renew the window on every
                 # reconciliation and make «searching» immortal.
+                return self.status_payload()
+            if control.state == WAIT_STATE and control.wait_active:
+                # A persistent wait has no deadline and no session: reconciliation must neither
+                # collapse nor restamp it. It ends only on cancel (`cancel_wait`) or on a booked
+                # Pod (`_clear_wait` in the walk). Restamping is not needed here because the
+                # backoff clock (`wait_next_at`) is owned by the wait itself, not by ticks.
                 return self.status_payload()
             # A failed GPU search stays visible (with its typed reason) until it is resolved or
             # retried — as a failure with no search in flight, never as a transition to green.
@@ -1465,7 +1630,22 @@ class ComputeAuthority:
             payload = await self._reconcile_locked()
             state = payload["state"]
             with self.sessions() as db:
-                tracked = self.control(db).active_session_id
+                control = self.control(db)
+                tracked = control.active_session_id
+                # The user is waiting and the backoff still holds: answer the current wait instead
+                # of firing a new attempt, so a client polling faster than the backoff cannot turn
+                # the wait into a hot loop against RunPod.
+                waiting_hold = bool(
+                    caps["wait_for_capacity"] and control.wait_active and not self.wait_due(control)
+                )
+            if waiting_hold and not tracked:
+                payload = self.status_payload()
+                payload["balance"] = await self.balance.snapshot()
+                payload["task_id"] = task_id
+                payload["caller"] = self.caller_payload(installation, caps)
+                if origin is not None:
+                    payload["origin"] = origin
+                return payload
             if (
                 state not in {"multiple_compute", "create_unknown", "not_configured", "external_compute"}
                 and not tracked
@@ -1527,6 +1707,9 @@ class ComputeAuthority:
         key = self.settings.llm_api_key
         if self.settings.llm_provider == "llamacpp" and len(key) < 32:
             with self.sessions() as db:
+                # A server misconfiguration cannot be waited out: the intent is cleared so the
+                # state and the wait intent never contradict each other.
+                self._clear_wait(db)
                 self._set_state(db, "error", error_code="llm_key_missing")
             return self.status_payload()
         with self.sessions() as db:
@@ -1534,6 +1717,7 @@ class ComputeAuthority:
             if int(control.create_attempts or 0) >= MAX_CREATE_ATTEMPTS:
                 # Hard server-side guard: the attempt budget is exhausted, so nothing is
                 # created until an operator reviews the provider and clears the budget.
+                self._clear_wait(db)
                 self._set_state(db, "create_unknown", error_code="create_unknown")
                 self.event(db, "create_blocked", "error", error_code="create_unknown")
                 db.commit()
@@ -1549,11 +1733,15 @@ class ComputeAuthority:
             # cent so the value always satisfies the money schema.
             if available < MIN_START_BUDGET:
                 with self.sessions() as db:
+                    # Money, not capacity: waiting cannot fix an empty account, so the intent is
+                    # cleared and the typed balance reason is shown honestly.
+                    self._clear_wait(db)
                     self._set_state(db, "offline", error_code="runpod_balance")
                 return self.status_payload()
             effective = min(caps["session_budget"], available).quantize(MONEY_QUANTUM, rounding=ROUND_DOWN)
             if effective < MIN_START_BUDGET:
                 with self.sessions() as db:
+                    self._clear_wait(db)
                     self._set_state(db, "offline", error_code="runpod_balance")
                 return self.status_payload()
             caps = {**caps, "session_budget": effective}
@@ -1580,14 +1768,35 @@ class ComputeAuthority:
         except Exception as error:
             code = getattr(error, "code", "runpod_unavailable")
             with self.sessions() as db:
-                self._set_state(db, "error", error_code=code)
+                if caps.get("wait_for_capacity"):
+                    # A transient provider read failure must never cancel the wait the user chose:
+                    # the durable intent stays and is re-attempted on the next backoff tick, with
+                    # the reason visible instead of a silent disappearance.
+                    self._open_wait(
+                        db,
+                        installation_id=installation_id,
+                        caps=caps,
+                        operation_id=operation_id,
+                        reason=code,
+                    )
+                else:
+                    self._set_state(db, "error", error_code=code)
             return self.status_payload()
         if not plan:
             # Say what is actually missing: capacity, price, or a GPU that fits the model.
             with self.sessions() as db:
-                self._note_search(
-                    db, reason=plan.reason, operation_id=operation_id, installation_id=installation_id
-                )
+                if caps.get("wait_for_capacity"):
+                    self._open_wait(
+                        db,
+                        installation_id=installation_id,
+                        caps=caps,
+                        operation_id=operation_id,
+                        reason=plan.reason,
+                    )
+                else:
+                    self._note_search(
+                        db, reason=plan.reason, operation_id=operation_id, installation_id=installation_id
+                    )
             self.record_allocation(
                 installation_id,
                 self.allocation_record(
@@ -1746,6 +1955,9 @@ class ComputeAuthority:
                     row.hourly_rate = pod.cost
                 control = self.control(db)
                 control.create_attempts = 0
+                # A GPU was booked: the wait intent is over, whether it was client- or
+                # background-driven. This is the only place the wait ends in success.
+                self._clear_wait(db)
                 self._set_state(db, "starting_pod", error_code=None)
                 self.event(db, "starting_pod", "ok", installation_id=installation_id)
             self.record_allocation(
@@ -1776,8 +1988,22 @@ class ComputeAuthority:
             row = db.get(GatewaySession, session_id) if opened else None
             if row is not None:
                 self._finalize(db, row, "create_failed", error_code=reason)
-            self._note_search(db, reason=reason, operation_id=operation_id, installation_id=installation_id)
-        self.collect_expired_search(force=True)
+            if caps.get("wait_for_capacity"):
+                # The user chose to keep waiting: register the durable intent instead of closing
+                # the search. Each attempt stays bounded; the wait between them does not.
+                self._open_wait(
+                    db,
+                    installation_id=installation_id,
+                    caps=caps,
+                    operation_id=operation_id,
+                    reason=reason,
+                )
+            else:
+                self._note_search(
+                    db, reason=reason, operation_id=operation_id, installation_id=installation_id
+                )
+        if not caps.get("wait_for_capacity"):
+            self.collect_expired_search(force=True)
         self.record_allocation(
             installation_id,
             self.allocation_record(
@@ -2068,9 +2294,18 @@ class ComputeAuthority:
             with self.sessions() as db:
                 session = self.session_row(db)
             if session is None:
-                # Nothing is tracked. The one thing left to own is a capacity search that
-                # outlived its deadline: it is collapsed here, server-side, so no client (and
-                # no vanished harness) can leave the control row answering `searching` forever.
+                # Nothing is tracked. A persistent background wait the user explicitly allowed is
+                # re-attempted here; otherwise a search that outlived its deadline is collapsed,
+                # server-side, so no client can leave the control row answering `searching`.
+                with self.sessions() as db:
+                    control = self.control(db)
+                    due = bool(control.wait_active and control.wait_background and self.wait_due(control))
+                    wait_caps = self._caps_from_json(dict(control.wait_caps or {}))
+                    wait_installation = control.wait_installation_id
+                    wait_operation = control.wait_operation_id
+                if due and wait_installation and wait_caps:
+                    await self._background_attempt(wait_installation, wait_caps, wait_operation)
+                    return
                 self.collect_expired_search()
                 return
             if session.state not in ACTIVE_STATES:
@@ -2257,6 +2492,52 @@ class ComputeAuthority:
                 # never keep billing behind a state the user cannot act on.
                 await self._terminate(session.id, MODEL_UNAVAILABLE)
                 return
+
+    async def _background_attempt(self, installation_id: str, caps: dict, operation_id: str | None) -> dict:
+        """One tick-driven create attempt for a wait the user parked with background permission.
+
+        Reuses the whole ensure path (balance, entitlement, price guard, one-Pod rule); a capacity
+        conclusion re-arms the wait inside the walk, a success clears it, and an ambiguous create
+        is left to the durable reconciliation. A policy refusal keeps the wait alive without a hot
+        loop.
+        """
+        with self.sessions() as db:
+            installation = db.get(Installation, installation_id)
+        if installation is None or installation.revoked_at is not None:
+            # The installation that parked the wait is gone or revoked. No paid resource may be
+            # created for it, and the wait must not resurrect compute: the durable intent would
+            # otherwise keep re-attempting a Pod for a client the operator already cut off.
+            with self.sessions() as db:
+                control = self.control(db)
+                if control.wait_active:
+                    self._clear_wait(db)
+                    if control.state == WAIT_STATE:
+                        control.state = SEARCH_COLLAPSED_STATE
+                    control.error_code = "installation_revoked"
+                    control.revision += 1
+                    control.updated_at = self.clock()
+                    self.event(
+                        db,
+                        "wait_cancel",
+                        "error",
+                        installation_id=installation_id,
+                        error_code="installation_revoked",
+                    )
+                db.commit()
+            return self.status_payload()
+        try:
+            return await self._create_locked(installation_id, caps, None, operation_id=operation_id)
+        except GatewayError:
+            with self.sessions() as db:
+                control = self.control(db)
+                if control.wait_active:
+                    control.wait_attempts = int(control.wait_attempts or 0) + 1
+                    control.wait_next_at = utc_present(self.clock()) + self._wait_backoff(
+                        control.wait_attempts
+                    )
+                    control.updated_at = self.clock()
+                    db.commit()
+            return self.status_payload()
 
     async def serve(self) -> None:
         """Background loop. Never starts compute on its own: trust is unchanged by time."""

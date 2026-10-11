@@ -104,6 +104,11 @@ class EnsureRequest(BaseModel):
     # technical or a product bound, and this is not a bound — it is a preference that the
     # server, not the client, decides whether to offer.
     allow_community: bool | None = Field(default=None)
+    # A7/Task-1: keep waiting for a free, affordable GPU instead of the search collapsing after
+    # its bounded window. ``background_start`` is the *separate*, explicit permission to create a
+    # paid Pod while the app is closed; it is never implied by waiting.
+    wait_for_capacity: bool | None = Field(default=None)
+    background_start: bool | None = Field(default=None)
     # Why this ensure happened. The four callers are genuinely different events, and without this
     # field an operator cannot tell a chat request from a background retry — which is exactly how
     # a 30-second retry was once read as evidence that a chat had started compute.
@@ -296,6 +301,8 @@ async def compute_ensure(request: Request, payload: EnsureRequest, installation:
         "strategy": payload.strategy,
         "gpu_id": payload.gpu_id,
         "allow_community": payload.allow_community,
+        "wait_for_capacity": payload.wait_for_capacity,
+        "background_start": payload.background_start,
     }
     return await request.app.state.authority.ensure(
         installation.id,
@@ -314,6 +321,15 @@ async def compute_stop(request: Request, payload: StopRequest, installation: Ins
         operation_id=payload.operation_id,
         scope=payload.scope,
         role=role_of(installation),
+    )
+
+
+@router.post("/compute/wait/cancel")
+async def compute_wait_cancel(request: Request, payload: StopRequest, installation: InstallationDep) -> dict:
+    """A7/Task-1: stop waiting for a GPU. Frees the intent; never touches a running Pod."""
+    request.app.state.limiter.check("compute", installation.id)
+    return await request.app.state.authority.cancel_wait(
+        installation.id, operation_id=payload.operation_id, role=role_of(installation)
     )
 
 
