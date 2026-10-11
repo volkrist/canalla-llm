@@ -140,7 +140,10 @@ test("test-only compute fixtures: live settings and automatic connection", async
     if (path.endsWith("/search")) {
       const body = route.request().postDataJSON();
       expect(body.auto_connect).toBe(true);
-      expect(body.gpu_id).toBe("NVIDIA L40S");
+      // Automatic mode never sends a pin (commit 0d29282): the fixture seeds a stale
+      // `gpu_id` in automatic mode precisely so this proves the panel drops it instead of
+      // spending on a card the user did not choose on this screen.
+      expect(body.gpu_id).toBeNull();
       creates++;
       state = "starting_pod";
       return route.fulfill({ json: { existing: true, status: { state } } });
