@@ -138,6 +138,9 @@ jobs:
     env:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: "utf-8"
+      # The real embedding model is provisioned into a workspace-relative data root and the e2e
+      # backend is pointed at it, so the cache path is stable across runs.
+      ALEX_LLM_DATA_DIR: ${{ github.workspace }}/.embedding-model
     steps:
       - uses: actions/checkout@v4
 
@@ -175,7 +178,7 @@ jobs:
       - name: Restore the embedding model cache
         uses: actions/cache@v4
         with:
-          path: ${{ env.LOCALAPPDATA }}\Alex LLM\models\embeddings\multilingual-e5-small
+          path: ${{ github.workspace }}/.embedding-model/models/embeddings/multilingual-e5-small
           key: embedding-model-761b726dd34fb83930e26aab4e9ac3899aa1fa78
 
       - name: Provision the real embedding model (no GPU, no secret)
@@ -247,18 +250,16 @@ jobs:
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
           Start-Process -FilePath $installer.FullName -ArgumentList "/S" -Wait
           Start-Sleep -Seconds 5
-          $root = $null
-          $entry = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' |
-            Get-ItemProperty | Where-Object { $_.DisplayName -like '*Canalla*' } | Select-Object -First 1
-          if ($entry -and $entry.InstallLocation -and (Test-Path $entry.InstallLocation)) {
-            $root = $entry.InstallLocation
+          # The NSIS hook pins the programme dir: %LOCALAPPDATA%\Programs\Canalla LLM.
+          $root = Join-Path $env:LOCALAPPDATA 'Programs\Canalla LLM'
+          if (-not (Test-Path $root)) {
+            $entry = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' |
+              Get-ItemProperty | Where-Object { $_.DisplayName -like '*Canalla*' } | Select-Object -First 1
+            if ($entry -and $entry.InstallLocation -and (Test-Path $entry.InstallLocation)) {
+              $root = $entry.InstallLocation
+            }
           }
-          if (-not $root) {
-            $exe = Get-ChildItem $env:LOCALAPPDATA -Recurse -Filter alex-llm.exe -ErrorAction SilentlyContinue |
-              Select-Object -First 1
-            if ($exe) { $root = $exe.Directory.FullName }
-          }
-          if (-not $root) { throw "the installed client was not found" }
+          if (-not (Test-Path $root)) { throw "the installed client was not found (expected $root)" }
           Write-Host "installed to $root"
           $client = Join-Path $root 'alex-llm.exe'
           $sidecar = Join-Path $root 'sidecar\alex-backend\alex-backend.exe'
@@ -268,6 +269,7 @@ jobs:
             Write-Host ("{0}  {1} bytes" -f $path, (Get-Item $path).Length)
           }
           python scripts/verify-packaged-gateway-url.py $client
+          if ($LASTEXITCODE -ne 0) { throw "the installed client does not carry the production Gateway URL" }
           "root=$root" | Out-File -FilePath $env:RUNNER_TEMP/installed-root.txt -Encoding ascii
 
       - name: The installed sidecar answers /health on its own
