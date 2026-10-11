@@ -368,3 +368,25 @@ def test_a_concurrent_duplicate_never_starts_a_second_generation(gateway, client
     run(first.body_iterator.aclose())
     assert gateway.proxy.queue.active() == 0
     assert gateway.proxy._in_flight == {}
+
+
+def test_a_corrupted_upstream_body_releases_the_generation_slot(gateway, client):
+    """A04: a 200 with a non-JSON body must not wedge the single generation slot.
+
+    The error is typed (``malformed_response``) and the slot *and* the claim are released, so the
+    next request can generate as soon as it wants to — never a permanently busy model.
+    """
+    installation, headers = ready_compute(gateway, client)
+    gateway.llama.malformed = True
+    response = client.post("/v1/chat/completions", json=CHAT, headers=headers)
+    assert response.status_code == 502
+    assert response.json()["code"] == "malformed_response"
+    assert gateway.proxy.queue.active() == 0
+    assert gateway.proxy.queue._slot.locked() is False
+    assert gateway.proxy._in_flight == {}
+
+    # The slot really is reusable: a healthy request succeeds right after.
+    gateway.llama.malformed = False
+    ok = client.post("/v1/chat/completions", json=CHAT, headers=headers)
+    assert ok.status_code == 200
+    assert gateway.proxy.queue._slot.locked() is False
