@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
@@ -12,6 +12,13 @@ use std::time::Duration;
 pub struct DeviceRecord {
     pub device_id: String,
     pub display_name: String,
+    /// Which account and backend this device was paired with. An installation that changes user
+    /// or backend must not keep using another identity's device record (A07). Empty on records
+    /// written before 1.2.1; they gain the binding on their next successful heartbeat.
+    #[serde(default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub backend: String,
 }
 
 fn data_dir() -> PathBuf {
@@ -29,7 +36,10 @@ fn load_record() -> Option<DeviceRecord> {
 }
 
 fn save_record(record: &DeviceRecord) {
-    let _ = fs::write(record_path(), serde_json::to_vec(record).unwrap_or_default());
+    let _ = fs::write(
+        record_path(),
+        serde_json::to_vec(record).unwrap_or_default(),
+    );
 }
 
 pub fn device_headers(token: &str) -> Result<reqwest::header::HeaderMap, String> {
@@ -78,20 +88,59 @@ pub(crate) fn local_client() -> reqwest::Client {
 }
 
 #[tauri::command]
-pub async fn pair_device(backend_url: String, token: String, display_name: String) -> Result<Value, String> {
+pub async fn pair_device(
+    backend_url: String,
+    token: String,
+    display_name: String,
+    user_id: Option<String>,
+) -> Result<Value, String> {
+    let account = user_id.unwrap_or_default();
     if let (Some(record), Some(_)) = (load_record(), crate::credential::load()) {
-        let client = local_client();
-        let _ = client
-            .post(format!("{backend_url}/tools/devices/heartbeat"))
-            .headers(device_headers(&token)?)
-            .send()
-            .await;
-        return Ok(json!({
-            "device_id": record.device_id,
-            "display_name": record.display_name,
-            "online": true,
-            "storage": crate::credential::storage_kind(),
-        }));
+        // An explicit change of account or backend must not reuse another identity's device.
+        let account_changed =
+            !record.user_id.is_empty() && !account.is_empty() && record.user_id != account;
+        let backend_changed = !record.backend.is_empty() && record.backend != backend_url;
+        if !account_changed && !backend_changed {
+            let client = local_client();
+            let heartbeat = client
+                .post(format!("{backend_url}/tools/devices/heartbeat"))
+                .headers(device_headers(&token)?)
+                .send()
+                .await;
+            if matches!(&heartbeat, Ok(response) if response.status() == reqwest::StatusCode::UNAUTHORIZED)
+            {
+                // The stored credential belongs to a different account: forget it and pair fresh.
+                let _ = crate::credential::delete();
+                let _ = fs::remove_file(record_path());
+            } else {
+                // `online` is the verified heartbeat answer, never the bare presence of a credential.
+                let online = matches!(&heartbeat, Ok(response) if response.status().is_success());
+                if online && (record.user_id.is_empty() || record.backend.is_empty()) {
+                    save_record(&DeviceRecord {
+                        user_id: if record.user_id.is_empty() {
+                            account.clone()
+                        } else {
+                            record.user_id.clone()
+                        },
+                        backend: if record.backend.is_empty() {
+                            backend_url.clone()
+                        } else {
+                            record.backend.clone()
+                        },
+                        ..record.clone()
+                    });
+                }
+                return Ok(json!({
+                    "device_id": record.device_id,
+                    "display_name": record.display_name,
+                    "online": online,
+                    "storage": crate::credential::storage_kind(),
+                }));
+            }
+        } else {
+            let _ = crate::credential::delete();
+            let _ = fs::remove_file(record_path());
+        }
     }
     let client = local_client();
     let alias = {
@@ -119,7 +168,10 @@ pub async fn pair_device(backend_url: String, token: String, display_name: Strin
         .and_then(Value::as_str)
         .ok_or("pair_failed")?
         .to_string();
-    let credential = body.get("credential").and_then(Value::as_str).ok_or("pair_failed")?;
+    let credential = body
+        .get("credential")
+        .and_then(Value::as_str)
+        .ok_or("pair_failed")?;
     crate::credential::store(credential)?;
     let record = DeviceRecord {
         device_id,
@@ -128,6 +180,8 @@ pub async fn pair_device(backend_url: String, token: String, display_name: Strin
             .and_then(Value::as_str)
             .unwrap_or("Windows device")
             .to_string(),
+        user_id: account,
+        backend: backend_url.clone(),
     };
     save_record(&record);
     Ok(json!({
@@ -157,7 +211,10 @@ pub async fn forget_device(backend_url: String, token: String) -> Result<Value, 
     if let Some(record) = load_record() {
         let client = local_client();
         let _ = client
-            .post(format!("{backend_url}/tools/devices/{}/forget", record.device_id))
+            .post(format!(
+                "{backend_url}/tools/devices/{}/forget",
+                record.device_id
+            ))
             .bearer_auth(&token)
             .send()
             .await;
@@ -172,13 +229,19 @@ pub async fn rotate_device_credential(backend_url: String, token: String) -> Res
     let record = load_record().ok_or("device_not_paired")?;
     let client = local_client();
     let response = client
-        .post(format!("{backend_url}/tools/devices/{}/rotate", record.device_id))
+        .post(format!(
+            "{backend_url}/tools/devices/{}/rotate",
+            record.device_id
+        ))
         .bearer_auth(&token)
         .send()
         .await
         .map_err(|e| e.to_string())?;
     let body: Value = response.json().await.map_err(|e| e.to_string())?;
-    let credential = body.get("credential").and_then(Value::as_str).ok_or("rotate_failed")?;
+    let credential = body
+        .get("credential")
+        .and_then(Value::as_str)
+        .ok_or("rotate_failed")?;
     crate::credential::store(credential)?;
     Ok(json!({
         "device_id": record.device_id,
@@ -211,20 +274,324 @@ fn inflight_jobs() -> &'static Mutex<HashSet<String>> {
     JOBS.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
+/// The native journal: what this device has already started or finished.
+///
+/// It is the reason a lost result POST (or a crash of this process) can never make a command
+/// run twice. `started` means the side effect may already have happened; `done` holds the
+/// result that must be re-delivered; `unknown` means the outcome could not be decided and
+/// must never be replayed automatically.
+#[derive(Clone, Serialize, Deserialize)]
+struct JournalEntry {
+    claim_id: String,
+    digest: String,
+    phase: String,
+    #[serde(default)]
+    result: Option<Value>,
+}
+
+fn journal_path() -> PathBuf {
+    data_dir().join("host-journal.json")
+}
+
+/// Serializes journal read-modify-write cycles. The file is the source of truth, so a fresh
+/// process (or a test with its own `ALEX_DEVICE_DIR`) sees exactly what the last write left.
+fn journal_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn journal_load() -> HashMap<String, JournalEntry> {
+    fs::read_to_string(journal_path())
+        .ok()
+        .and_then(|text| serde_json::from_str::<HashMap<String, JournalEntry>>(&text).ok())
+        .unwrap_or_default()
+}
+
+fn persist_journal(map: &HashMap<String, JournalEntry>) {
+    let tmp = journal_path().with_extension("json.tmp");
+    if let Ok(mut file) = File::create(&tmp) {
+        if file
+            .write_all(&serde_json::to_vec(map).unwrap_or_default())
+            .is_ok()
+        {
+            let _ = file.sync_all();
+            let _ = fs::rename(&tmp, journal_path());
+        }
+    }
+}
+
+fn journal_read(run_id: &str) -> Option<JournalEntry> {
+    let _guard = journal_lock().lock().ok()?;
+    journal_load().remove(run_id)
+}
+
+fn journal_write(run_id: &str, entry: JournalEntry) {
+    if let Ok(_guard) = journal_lock().lock() {
+        let mut map = journal_load();
+        map.insert(run_id.to_string(), entry);
+        persist_journal(&map);
+    }
+}
+
+fn journal_remove(run_id: &str) {
+    if let Ok(_guard) = journal_lock().lock() {
+        let mut map = journal_load();
+        if map.remove(run_id).is_some() {
+            persist_journal(&map);
+        }
+    }
+}
+
+/// Test seam: forget every local journal entry and delete the file.
+pub fn reset_journal() {
+    let _ = journal_lock().lock();
+    let _ = fs::remove_file(journal_path());
+}
+
+/// A POST with the device headers; `Err(())` means it never reached the backend.
+async fn backend_post(
+    client: &reqwest::Client,
+    url: &str,
+    token: &str,
+    body: &Value,
+) -> Result<reqwest::StatusCode, ()> {
+    let Ok(headers) = device_headers(token) else {
+        return Err(());
+    };
+    match client.post(url).headers(headers).json(body).send().await {
+        Ok(response) => Ok(response.status()),
+        Err(_) => Err(()),
+    }
+}
+
+/// A POST that refreshes the access token once if the current one is rejected. The refresh
+/// lives in the native layer, so the host keeps working after the JWT rolls over without the
+/// app being restarted.
+async fn authed_post(
+    client: &reqwest::Client,
+    base: &str,
+    token: &mut String,
+    url: &str,
+    body: &Value,
+) -> Option<reqwest::StatusCode> {
+    match backend_post(client, url, token, body).await {
+        Ok(status) if status != reqwest::StatusCode::UNAUTHORIZED => return Some(status),
+        _ => {}
+    }
+    let fresh = refresh_token(base).await?;
+    *token = fresh;
+    backend_post(client, url, token, body).await.ok()
+}
+
+/// Rotate the persistent session into a fresh access token, single-flight so a burst of 401s
+/// does not replay a consumed refresh secret against itself.
+async fn refresh_token(backend_url: &str) -> Option<String> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    let lock = LOCK.get_or_init(|| tokio::sync::Mutex::new(()));
+    let _guard = lock.lock().await;
+    match crate::auth::auth_restore(backend_url.to_string()).await {
+        Ok(value) => value
+            .get("access_token")
+            .and_then(Value::as_str)
+            .filter(|token| !token.is_empty())
+            .map(str::to_string),
+        Err(_) => None,
+    }
+}
+
+/// Fetch this device's jobs, refreshing the token once if it has expired.
+async fn fetch_jobs(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+) -> Result<(Vec<Value>, String), String> {
+    let url = format!("{base}/tools/devices/jobs");
+    let headers = device_headers(token)?;
+    match client.get(&url).headers(headers).send().await {
+        Ok(response) if response.status().is_success() => {
+            let jobs = response.json().await.map_err(|error| error.to_string())?;
+            Ok((jobs, token.to_string()))
+        }
+        Ok(response) if response.status() == reqwest::StatusCode::UNAUTHORIZED => {
+            let fresh = refresh_token(base).await.ok_or("unauthorized")?;
+            let headers = device_headers(&fresh)?;
+            let retry = client
+                .get(&url)
+                .headers(headers)
+                .send()
+                .await
+                .map_err(|error| error.to_string())?;
+            if !retry.status().is_success() {
+                return Err("unauthorized".into());
+            }
+            let jobs = retry.json().await.map_err(|error| error.to_string())?;
+            Ok((jobs, fresh))
+        }
+        Ok(response) => Err(format!("jobs_status_{}", response.status().as_u16())),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// Deliver a stored result and acknowledge it. Returns true only once the backend has it.
+async fn deliver_and_ack(
+    client: &reqwest::Client,
+    base: &str,
+    token: &mut String,
+    run_id: &str,
+    body: &Value,
+) -> bool {
+    let result_url = format!("{base}/tools/runs/{run_id}/host-result");
+    match authed_post(client, base, token, &result_url, body).await {
+        Some(status) if status.is_success() => {}
+        _ => return false,
+    }
+    let claim_id = body.get("claim_id").cloned().unwrap_or_else(|| json!(""));
+    let ack_url = format!("{base}/tools/runs/{run_id}/host-ack");
+    matches!(
+        authed_post(client, base, token, &ack_url, &json!({"claim_id": claim_id})).await,
+        Some(status) if status.is_success()
+    )
+}
+
+/// Decline a job whose effect may already have run. Never a success, never a replay.
+async fn report_unknown(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    run_id: &str,
+    claim_id: &str,
+    digest: &str,
+) {
+    let url = format!("{base}/tools/runs/{run_id}/host-result");
+    let body = json!({
+        "digest": digest,
+        "claim_id": claim_id,
+        "status": "unknown",
+        "exit_code": Value::Null,
+        "stdout": "",
+        "stderr": "",
+        "text": "",
+        "metadata": {},
+    });
+    let _ = backend_post(client, &url, token, &body).await;
+}
+
+/// One job, from claim to acknowledged result. The journal decides whether the command may run
+/// at all: a stored result is re-delivered, a started-but-unfinished entry is declined.
+async fn handle_job(
+    client: reqwest::Client,
+    backend: String,
+    mut token: String,
+    run_id: String,
+    claim_id: String,
+    digest: String,
+    name: String,
+    args: Value,
+    roots: Vec<String>,
+) {
+    if let Some(entry) = journal_read(&run_id) {
+        let phase = entry.phase.clone();
+        match phase.as_str() {
+            "done" => {
+                if let Some(result) = entry.result.clone() {
+                    if deliver_and_ack(&client, &backend, &mut token, &run_id, &result).await {
+                        journal_remove(&run_id);
+                    }
+                }
+                return;
+            }
+            "unknown" => return,
+            "started" => {
+                report_unknown(
+                    &client,
+                    &backend,
+                    &token,
+                    &run_id,
+                    &entry.claim_id,
+                    &entry.digest,
+                )
+                .await;
+                journal_write(
+                    &run_id,
+                    JournalEntry {
+                        phase: "unknown".into(),
+                        ..entry
+                    },
+                );
+                return;
+            }
+            _ => {}
+        }
+    }
+    let started_url = format!("{backend}/tools/runs/{run_id}/host-started");
+    let _ = backend_post(
+        &client,
+        &started_url,
+        &token,
+        &json!({"claim_id": claim_id}),
+    )
+    .await;
+    journal_write(
+        &run_id,
+        JournalEntry {
+            claim_id: claim_id.clone(),
+            digest: digest.clone(),
+            phase: "started".into(),
+            result: None,
+        },
+    );
+    let run_id_for_tool = run_id.clone();
+    let stop_token = token.clone();
+    let backend_stop = backend.clone();
+    let outcome = tokio::task::spawn_blocking(move || {
+        let stop_id = run_id_for_tool.clone();
+        run_local_tool(&name, &args, &roots, &run_id_for_tool, move || {
+            poll_stopped(&backend_stop, &stop_token, &stop_id)
+        })
+    })
+    .await;
+    let Ok(outcome) = outcome else {
+        return;
+    };
+    let result = json!({
+        "digest": digest,
+        "claim_id": claim_id,
+        "status": "completed",
+        "exit_code": outcome.exit_code,
+        "stdout": outcome.stdout,
+        "stderr": outcome.stderr,
+        "text": outcome.text,
+        "metadata": outcome.metadata,
+    });
+    journal_write(
+        &run_id,
+        JournalEntry {
+            claim_id: claim_id.clone(),
+            digest: digest.clone(),
+            phase: "done".into(),
+            result: Some(result.clone()),
+        },
+    );
+    if deliver_and_ack(&client, &backend, &mut token, &run_id, &result).await {
+        journal_remove(&run_id);
+    }
+}
+
 #[tauri::command]
-pub async fn execute_host_jobs(backend_url: String, token: String, roots: Vec<String>) -> Result<Value, String> {
+pub async fn execute_host_jobs(
+    backend_url: String,
+    token: String,
+    roots: Vec<String>,
+) -> Result<Value, String> {
     let client = local_client();
-    let headers = device_headers(&token)?;
-    let response = client
-        .get(format!("{backend_url}/tools/devices/jobs"))
-        .headers(headers.clone())
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    let jobs: Vec<Value> = response.json().await.map_err(|e| e.to_string())?;
+    let (jobs, token) = fetch_jobs(&client, &backend_url, &token).await?;
     let mut started = 0;
     for job in jobs {
-        let id = job.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
+        let id = job
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
         if id.is_empty() {
             continue;
         }
@@ -236,43 +603,43 @@ pub async fn execute_host_jobs(backend_url: String, token: String, roots: Vec<St
                 continue;
             }
         }
-        let digest = job.get("input_digest").and_then(Value::as_str).unwrap_or_default().to_string();
-        let name = job.get("tool_name").and_then(Value::as_str).unwrap_or_default().to_string();
-        let args = job.get("host_args").cloned().unwrap_or(Value::Object(Default::default()));
+        let digest = job
+            .get("input_digest")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let name = job
+            .get("tool_name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let args = job
+            .get("host_args")
+            .cloned()
+            .unwrap_or(Value::Object(Default::default()));
+        let claim_id = job
+            .get("claim_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
         let backend = backend_url.clone();
-        let post_url = backend_url.clone();
-        let token_copy = token.clone();
-        let token_post = token.clone();
+        let token_job = token.clone();
         let run_id = id.clone();
         let roots_for_job = roots.clone();
+        let client_job = client.clone();
         tokio::spawn(async move {
-            let result = tokio::task::spawn_blocking(move || {
-                let stop_id = run_id.clone();
-                let token_stop = token_copy.clone();
-                let backend_stop = backend.clone();
-                run_local_tool(&name, &args, &roots_for_job, &run_id, move || {
-                    poll_stopped(&backend_stop, &token_stop, &stop_id)
-                })
-            })
+            handle_job(
+                client_job,
+                backend,
+                token_job,
+                run_id,
+                claim_id,
+                digest,
+                name,
+                args,
+                roots_for_job,
+            )
             .await;
-            if let Ok(result) = result {
-                if let Ok(headers) = device_headers(&token_post) {
-                    let _ = local_client()
-                        .post(format!("{post_url}/tools/runs/{id}/host-result"))
-                        .headers(headers)
-                        .json(&json!({
-                            "digest": digest,
-                            "status": "completed",
-                            "exit_code": result.exit_code,
-                            "stdout": result.stdout,
-                            "stderr": result.stderr,
-                            "text": result.text,
-                            "metadata": result.metadata,
-                        }))
-                        .send()
-                        .await;
-                }
-            }
             if let Ok(mut guard) = inflight_jobs().lock() {
                 guard.remove(&id);
             }
@@ -291,7 +658,10 @@ fn poll_stopped(backend_url: &str, token: &str, run_id: &str) -> bool {
     let Ok(headers) = device_headers(token) else {
         return true;
     };
-    let client = match reqwest::blocking::Client::builder().timeout(Duration::from_secs(2)).build() {
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+    {
         Ok(client) => client,
         Err(_) => return false,
     };
@@ -348,14 +718,18 @@ fn run_local_tool(
         "delete_file" => fs_delete_file(str_arg(args, "path"), roots),
         "delete_directory" => fs_delete_dir(str_arg(args, "path"), roots),
         "mass_delete" => critical_tool("mass_delete", args),
-        "run_process" | "run_powershell" | "run_python" => run_exec(name, args, roots, tool_run_id, should_stop),
+        "run_process" | "run_powershell" | "run_python" => {
+            run_exec(name, args, roots, tool_run_id, should_stop)
+        }
         "stop_process" => {
             let pid = crate::process::stop_job(&str_arg(args, "tool_run_id"));
             let mut out = ok_text("stopped".into());
             out.metadata = json!({"pid": pid, "verified_dead": true});
             out
         }
-        "process_status" => ok_text(crate::process::job_status(&str_arg(args, "tool_run_id")).into()),
+        "process_status" => {
+            ok_text(crate::process::job_status(&str_arg(args, "tool_run_id")).into())
+        }
         "list_processes" => list_processes(tool_run_id),
         "inspect_process" => inspect_process(args, tool_run_id),
         "list_volumes" => list_volumes(tool_run_id),
@@ -376,9 +750,8 @@ fn run_local_tool(
         "set_environment" => set_environment(args, tool_run_id),
         "credential_list" => ok_text(crate::credential::list_named().join("\n")),
         "credential_use" => credential_use(args),
-        "format_volume" | "manage_partition" | "boot_config" | "bitlocker_change" | "system_shutdown" => {
-            critical_tool(name, args)
-        }
+        "format_volume" | "manage_partition" | "boot_config" | "bitlocker_change"
+        | "system_shutdown" => critical_tool(name, args),
         name if name.starts_with("git_") => crate::git::run_git(name, args, roots, tool_run_id),
         _ => err_text("unknown_tool"),
     }
@@ -520,7 +893,10 @@ fn fs_read(path: String, roots: &[String]) -> LocalOutcome {
     match fs::read(&file) {
         Ok(bytes) => {
             let digest = sha256_hex(&bytes);
-            let body: String = String::from_utf8_lossy(&bytes).chars().take(20000).collect();
+            let body: String = String::from_utf8_lossy(&bytes)
+                .chars()
+                .take(20000)
+                .collect();
             let mut out = ok_text(format!("sha256={digest}\n{body}"));
             out.metadata = json!({"before_sha256": digest, "sha256": digest, "path": path});
             out
@@ -604,7 +980,10 @@ fn fs_create_dir(path: String, roots: &[String]) -> LocalOutcome {
 fn fs_copy(args: &Value, roots: &[String]) -> LocalOutcome {
     let src = str_arg(args, "source");
     let dst = str_arg(args, "destination");
-    let (Ok(from), Ok(to)) = (crate::fs_guard::resolve(&src, roots), crate::fs_guard::resolve(&dst, roots)) else {
+    let (Ok(from), Ok(to)) = (
+        crate::fs_guard::resolve(&src, roots),
+        crate::fs_guard::resolve(&dst, roots),
+    ) else {
         return err_text("path_denied");
     };
     match fs::copy(from, to) {
@@ -620,7 +999,10 @@ fn fs_copy(args: &Value, roots: &[String]) -> LocalOutcome {
 fn fs_move(args: &Value, roots: &[String]) -> LocalOutcome {
     let src = str_arg(args, "source");
     let dst = str_arg(args, "destination");
-    let (Ok(from), Ok(to)) = (crate::fs_guard::resolve(&src, roots), crate::fs_guard::resolve(&dst, roots)) else {
+    let (Ok(from), Ok(to)) = (
+        crate::fs_guard::resolve(&src, roots),
+        crate::fs_guard::resolve(&dst, roots),
+    ) else {
         return err_text("path_denied");
     };
     match fs::rename(from, to) {
@@ -674,7 +1056,13 @@ fn fs_search_code(args: &Value, roots: &[String]) -> LocalOutcome {
         return err_text("path_denied");
     };
     let mut hits = Vec::new();
-    fn walk(dir: &std::path::Path, query: &str, hits: &mut Vec<String>, files: &mut u32, depth: u32) {
+    fn walk(
+        dir: &std::path::Path,
+        query: &str,
+        hits: &mut Vec<String>,
+        files: &mut u32,
+        depth: u32,
+    ) {
         if depth > 6 || hits.len() >= 50 || *files >= 400 {
             return;
         }
@@ -704,7 +1092,12 @@ fn fs_search_code(args: &Value, roots: &[String]) -> LocalOutcome {
             }
             for (index, line) in text.lines().enumerate() {
                 if line.contains(query) {
-                    hits.push(format!("{}:{}:{}", path.to_string_lossy(), index + 1, line.trim()));
+                    hits.push(format!(
+                        "{}:{}:{}",
+                        path.to_string_lossy(),
+                        index + 1,
+                        line.trim()
+                    ));
                     if hits.len() >= 50 {
                         return;
                     }
@@ -728,8 +1121,14 @@ fn fs_patch(args: &Value, roots: &[String]) -> LocalOutcome {
         return err_text("path_denied");
     };
     let expected = str_arg(args, "expected_before_sha256");
-    let old_text = args.get("old_text").and_then(Value::as_str).unwrap_or_default();
-    let new_text = args.get("new_text").and_then(Value::as_str).unwrap_or_default();
+    let old_text = args
+        .get("old_text")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let new_text = args
+        .get("new_text")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let Ok(bytes) = fs::read(&file) else {
         return err_text("read_failed");
     };
@@ -803,7 +1202,10 @@ fn run_exec(
         return windows_only_tool();
     }
     argv.extend(extra);
-    let elevate = args.get("elevate").and_then(Value::as_bool).unwrap_or(false);
+    let elevate = args
+        .get("elevate")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let wait = args.get("wait").and_then(Value::as_bool).unwrap_or(true);
     let mut out = crate::process::run_job(
         tool_run_id,
@@ -830,7 +1232,9 @@ fn python_executable() -> String {
     #[cfg(windows)]
     {
         if let Ok(local) = std::env::var("LOCALAPPDATA") {
-            let root = std::path::PathBuf::from(local).join("Programs").join("Python");
+            let root = std::path::PathBuf::from(local)
+                .join("Programs")
+                .join("Python");
             if let Ok(entries) = fs::read_dir(&root) {
                 let mut dirs: Vec<_> = entries.flatten().map(|e| e.path()).collect();
                 dirs.sort();
@@ -997,13 +1401,24 @@ fn registry_op_windows(action: &str, args: &Value, tool_run_id: &str) -> LocalOu
     }
     let path = format!("{hive}\\{key}");
     let name = str_arg(args, "name");
-    let elevate = hive == "HKLM" || args.get("elevate").and_then(Value::as_bool).unwrap_or(false);
+    let elevate = hive == "HKLM"
+        || args
+            .get("elevate")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
     match action {
         "add" => {
             let value = str_arg(args, "value");
             let mut argv = vec!["add".into(), path, "/f".into()];
             if !name.is_empty() {
-                argv.extend(["/v".into(), name, "/d".into(), value, "/t".into(), "REG_SZ".into()]);
+                argv.extend([
+                    "/v".into(),
+                    name,
+                    "/d".into(),
+                    value,
+                    "/t".into(),
+                    "REG_SZ".into(),
+                ]);
             }
             run_host_command(tool_run_id, &system32_exe("reg.exe"), &argv, elevate)
         }
@@ -1054,10 +1469,20 @@ fn service_op_windows(args: &Value, tool_run_id: &str, control: bool) -> LocalOu
     }
     let action = str_arg(args, "action");
     if !control {
-        return run_host_command(tool_run_id, &system32_exe("sc.exe"), &["query".into(), name], false);
+        return run_host_command(
+            tool_run_id,
+            &system32_exe("sc.exe"),
+            &["query".into(), name],
+            false,
+        );
     }
     let verb = if action == "stop" { "stop" } else { "start" };
-    run_host_command(tool_run_id, &system32_exe("sc.exe"), &[verb.into(), name], true)
+    run_host_command(
+        tool_run_id,
+        &system32_exe("sc.exe"),
+        &[verb.into(), name],
+        true,
+    )
 }
 
 fn service_named(tool: &str, args: &Value, tool_run_id: &str) -> LocalOutcome {
@@ -1079,11 +1504,31 @@ fn service_named_windows(tool: &str, args: &Value, tool_run_id: &str) -> LocalOu
         return err_text("invalid_arguments");
     }
     match tool {
-        "start_service" => run_host_command(tool_run_id, &system32_exe("sc.exe"), &["start".into(), name], true),
-        "stop_service" => run_host_command(tool_run_id, &system32_exe("sc.exe"), &["stop".into(), name], true),
+        "start_service" => run_host_command(
+            tool_run_id,
+            &system32_exe("sc.exe"),
+            &["start".into(), name],
+            true,
+        ),
+        "stop_service" => run_host_command(
+            tool_run_id,
+            &system32_exe("sc.exe"),
+            &["stop".into(), name],
+            true,
+        ),
         "restart_service" => {
-            let _ = run_host_command(tool_run_id, &system32_exe("sc.exe"), &["stop".into(), name.clone()], true);
-            run_host_command(tool_run_id, &system32_exe("sc.exe"), &["start".into(), name], true)
+            let _ = run_host_command(
+                tool_run_id,
+                &system32_exe("sc.exe"),
+                &["stop".into(), name.clone()],
+                true,
+            );
+            run_host_command(
+                tool_run_id,
+                &system32_exe("sc.exe"),
+                &["start".into(), name],
+                true,
+            )
         }
         _ => service_op(args, tool_run_id, true),
     }
@@ -1137,7 +1582,12 @@ fn inspect_process(args: &Value, tool_run_id: &str) -> LocalOutcome {
     let mut out = run_host_command(
         tool_run_id,
         &system32_exe("tasklist.exe"),
-        &["/FI".into(), format!("PID eq {pid}"), "/FO".into(), "LIST".into()],
+        &[
+            "/FI".into(),
+            format!("PID eq {pid}"),
+            "/FO".into(),
+            "LIST".into(),
+        ],
         false,
     );
     let kept: Vec<String> = out
@@ -1145,7 +1595,9 @@ fn inspect_process(args: &Value, tool_run_id: &str) -> LocalOutcome {
         .lines()
         .filter(|line| {
             let lower = line.to_ascii_lowercase();
-            lower.starts_with("image name:") || lower.starts_with("pid:") || lower.starts_with("session")
+            lower.starts_with("image name:")
+                || lower.starts_with("pid:")
+                || lower.starts_with("session")
         })
         .map(str::to_string)
         .collect();
@@ -1197,7 +1649,13 @@ fn scheduled_task(args: &Value, tool_run_id: &str) -> LocalOutcome {
         ],
         "delete" => vec!["/Delete".into(), "/TN".into(), name, "/F".into()],
         "run" => vec!["/Run".into(), "/TN".into(), name],
-        _ => vec!["/Query".into(), "/TN".into(), name, "/FO".into(), "LIST".into()],
+        _ => vec![
+            "/Query".into(),
+            "/TN".into(),
+            name,
+            "/FO".into(),
+            "LIST".into(),
+        ],
     };
     if argv.iter().any(|item| item.is_empty()) {
         return err_text("invalid_arguments");
@@ -1226,9 +1684,20 @@ fn firewall_rule(args: &Value, tool_run_id: &str) -> LocalOutcome {
             "rule".into(),
             format!("name={name}"),
         ],
-        _ => vec!["advfirewall".into(), "firewall".into(), "show".into(), "rule".into(), format!("name={name}")],
+        _ => vec![
+            "advfirewall".into(),
+            "firewall".into(),
+            "show".into(),
+            "rule".into(),
+            format!("name={name}"),
+        ],
     };
-    run_host_command(tool_run_id, &system32_exe("netsh.exe"), &argv, action != "list")
+    run_host_command(
+        tool_run_id,
+        &system32_exe("netsh.exe"),
+        &argv,
+        action != "list",
+    )
 }
 
 fn winget_executable() -> String {
@@ -1249,7 +1718,10 @@ fn winget_op(action: &str, args: &Value, tool_run_id: &str) -> LocalOutcome {
     if package.is_empty() {
         return err_text("invalid_arguments");
     }
-    let elevate = args.get("elevate").and_then(Value::as_bool).unwrap_or(false);
+    let elevate = args
+        .get("elevate")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let mut argv = vec![
         action.into(),
         "--id".into(),
@@ -1308,12 +1780,21 @@ fn critical_tool(name: &str, args: &Value) -> LocalOutcome {
     match name {
         "system_shutdown" => {
             let action = str_arg(args, "action");
-            let delay = args.get("delay_seconds").and_then(Value::as_u64).unwrap_or(120);
+            let delay = args
+                .get("delay_seconds")
+                .and_then(Value::as_u64)
+                .unwrap_or(120);
             let flag = if action == "reboot" { "/r" } else { "/s" };
             run_host_command(
                 "critical",
                 &system32_exe("shutdown.exe"),
-                &[flag.into(), "/t".into(), delay.to_string(), "/c".into(), "Alex LLM confirmed".into()],
+                &[
+                    flag.into(),
+                    "/t".into(),
+                    delay.to_string(),
+                    "/c".into(),
+                    "Alex LLM confirmed".into(),
+                ],
                 true,
             )
         }
@@ -1327,7 +1808,11 @@ trait IfEmpty {
 
 impl IfEmpty for String {
     fn if_empty_then(self, other: String) -> String {
-        if self.is_empty() { other } else { self }
+        if self.is_empty() {
+            other
+        } else {
+            self
+        }
     }
 }
 
@@ -1355,7 +1840,9 @@ mod tests {
         assert_eq!(out.exit_code, Some(0));
         let desktop = out.metadata["desktop"].as_str().unwrap_or_default();
         assert!(!desktop.is_empty());
-        assert!(!desktop.to_ascii_lowercase().contains(r"users\<name>\desktop"));
+        assert!(!desktop
+            .to_ascii_lowercase()
+            .contains(r"users\<name>\desktop"));
         assert!(out.text.contains("desktop="));
         let info = run_local_tool("get_system_info", &json!({}), &[], "sys", || false);
         assert!(info.text.contains("platform=windows"));
@@ -1395,7 +1882,10 @@ mod tests {
         // arm. Windows refuses with `critical_not_armed`; a platform that has no such tool at all
         // says so instead - never a success either way.
         assert!(
-            matches!(shutdown.text.as_str(), "critical_not_armed" | "unsupported_platform"),
+            matches!(
+                shutdown.text.as_str(),
+                "critical_not_armed" | "unsupported_platform"
+            ),
             "{}",
             shutdown.text
         );
@@ -1421,7 +1911,11 @@ mod tests {
         let _ = run_host_command(
             "reg-cleanup",
             &system32_exe("reg.exe"),
-            &["delete".into(), r"HKCU\Software\AlexLLM\Test".into(), "/f".into()],
+            &[
+                "delete".into(),
+                r"HKCU\Software\AlexLLM\Test".into(),
+                "/f".into(),
+            ],
             false,
         );
     }
@@ -1498,7 +1992,38 @@ mod tests {
             "status-run-2",
             || false,
         );
-        assert!(!after.text.contains("running") || after.text.contains("unknown") || after.text.contains("exited"));
+        assert!(
+            !after.text.contains("running")
+                || after.text.contains("unknown")
+                || after.text.contains("exited")
+        );
+    }
+
+    /// A15: a child that writes far more than the OS pipe buffer must not deadlock the runner.
+    /// The old runner read stdout/stderr only after the child exited.
+    #[test]
+    fn run_python_large_output_does_not_deadlock() {
+        let script = "import sys\nfor _ in range(3000):\n    sys.stdout.write('x'*1000)\n";
+        let out = run_local_tool(
+            "run_python",
+            &json!({"argv": ["-c", script], "timeout_seconds": 60, "purpose": "large output"}),
+            &[],
+            "large-output-run",
+            || false,
+        );
+        assert_eq!(
+            out.exit_code,
+            Some(0),
+            "stderr={} text={}",
+            out.stderr,
+            out.text
+        );
+        assert!(
+            out.stdout.len() <= 20000,
+            "stdout was not bounded: {}",
+            out.stdout.len()
+        );
+        assert!(out.stdout.starts_with("xxx"));
     }
 
     #[test]
@@ -1573,6 +2098,86 @@ mod tests {
         );
         assert_eq!(out.exit_code, Some(0), "{}", out.stderr);
         assert!(out.stdout.contains("readme.txt") || out.text.contains("readme.txt"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn journal_dir(tag: &str) -> (PathBuf, Option<String>) {
+        let previous = std::env::var("ALEX_DEVICE_DIR").ok();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("alex-host-journal-{tag}-{nanos}"));
+        let _ = fs::create_dir_all(&dir);
+        std::env::set_var("ALEX_DEVICE_DIR", &dir);
+        reset_journal();
+        (dir, previous)
+    }
+
+    fn restore_journal_dir(previous: Option<String>) {
+        match previous {
+            Some(value) => std::env::set_var("ALEX_DEVICE_DIR", value),
+            None => std::env::remove_var("ALEX_DEVICE_DIR"),
+        }
+    }
+
+    /// A crash after the effect is a `started` marker on disk: the next process must see it and
+    /// decline, not run the command a second time.
+    #[test]
+    fn journal_survives_a_process_restart() {
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let (dir, previous) = journal_dir("restart");
+        journal_write(
+            "run-1",
+            JournalEntry {
+                claim_id: "c1".into(),
+                digest: "d1".into(),
+                phase: "started".into(),
+                result: None,
+            },
+        );
+        let loaded: HashMap<String, JournalEntry> =
+            serde_json::from_str(&fs::read_to_string(journal_path()).unwrap()).unwrap();
+        let entry = loaded.get("run-1").unwrap();
+        assert_eq!(entry.claim_id, "c1");
+        assert_eq!(entry.phase, "started");
+        assert!(entry.result.is_none());
+        reset_journal();
+        assert!(!journal_path().exists());
+        restore_journal_dir(previous);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Once the result exists it is held on disk, so a lost POST is a re-read, never a re-run.
+    #[test]
+    fn journal_keeps_the_result_for_redelivery() {
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let (dir, previous) = journal_dir("done");
+        let result = json!({
+            "digest": "d1",
+            "claim_id": "c1",
+            "status": "completed",
+            "exit_code": 0,
+            "text": "x",
+        });
+        journal_write(
+            "run-2",
+            JournalEntry {
+                claim_id: "c1".into(),
+                digest: "d1".into(),
+                phase: "done".into(),
+                result: Some(result),
+            },
+        );
+        let loaded: HashMap<String, JournalEntry> =
+            serde_json::from_str(&fs::read_to_string(journal_path()).unwrap()).unwrap();
+        let entry = loaded.get("run-2").unwrap();
+        assert_eq!(entry.phase, "done");
+        assert_eq!(entry.result.as_ref().unwrap()["text"], "x");
+        assert_eq!(journal_read("run-2").unwrap().phase, "done");
+        journal_remove("run-2");
+        assert!(journal_read("run-2").is_none());
+        restore_journal_dir(previous);
         let _ = fs::remove_dir_all(&dir);
     }
 }

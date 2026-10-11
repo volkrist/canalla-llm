@@ -19,6 +19,9 @@ class FakeHost:
         self.stop = threading.Event()
         self.handled = []
         self.handled_paths = []
+        # A05: the durable claim means a job stays visible to this device until it is
+        # acknowledged. Track what we already ran so a re-poll only re-confirms, never re-runs.
+        self.done = set()
         self.thread = None
         self.jobs = {}
 
@@ -39,9 +42,24 @@ class FakeHost:
         while not self.stop.wait(0.05):
             jobs = self.client.get("/tools/devices/jobs", headers=self.headers).json()
             for job in jobs:
+                if job["id"] in self.done:
+                    # Already executed: only make sure the backend has acknowledged the result.
+                    self._ack(job)
+                    continue
                 self._handle(job)
 
+    def _ack(self, job):
+        claim_id = job.get("claim_id") or ""
+        if not claim_id:
+            return
+        self.client.post(
+            f"/tools/runs/{job['id']}/host-ack",
+            headers=self.headers,
+            json={"claim_id": claim_id},
+        )
+
     def _handle(self, job):
+        self.done.add(job["id"])
         name = job["tool_name"]
         args = job.get("host_args") or {}
         digest = job["input_digest"]
@@ -64,6 +82,7 @@ class FakeHost:
             headers=self.headers,
             json={
                 "digest": digest,
+                "claim_id": job.get("claim_id") or "",
                 "status": payload.get("status", "completed"),
                 "exit_code": payload.get("exit_code"),
                 "text": payload.get("text", "")[:20000],
@@ -72,6 +91,7 @@ class FakeHost:
                 "metadata": payload.get("metadata") or {},
             },
         )
+        self._ack(job)
 
     def _execute(self, name, args, run_id=""):
         if name == "list_directory":

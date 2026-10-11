@@ -17,12 +17,14 @@ export async function pairLocalDevice(
   backendUrl: string,
   token: string,
   displayName: string,
+  userId: string,
 ) {
   if (!isTauri()) return { paired: false, online: false };
   return invoke<DeviceStatus>("pair_device", {
     backendUrl,
     token,
     displayName,
+    userId,
   });
 }
 
