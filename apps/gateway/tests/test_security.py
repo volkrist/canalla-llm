@@ -85,8 +85,10 @@ def test_installation_secret_digest_is_irreversible(gateway, client):
 def test_client_facing_payloads_expose_no_provider_or_credential_fields(gateway, client):
     installation = enroll(gateway, client)
     headers = auth_header(client, installation)
+    # The operation id is the client's own and is echoed back in the connection contract; it must
+    # not itself look like credential material, or this scan would flag the client's own id.
     ensure = client.post(
-        "/compute/ensure", json=ensure_body(operation_id="op-secret-000002"), headers=headers
+        "/compute/ensure", json=ensure_body(operation_id="op-probe-00000002"), headers=headers
     )
     payloads = [
         client.get("/health").json(),

@@ -98,6 +98,39 @@ ACTIVE_STATES = {
 
 POD_STATES = {"PROVISIONING": "starting_pod", "STARTING": "starting_pod", "RUNNING": "loading_model"}
 
+# The interface-facing *stage* of one connection attempt. Derived server-side so the client never
+# re-implements the state machine (A30-A32 integration contract; see docs/gateway-status-contract.md).
+CONNECTION_STAGES = {
+    "offline": "idle",
+    "searching": "searching",
+    "gpu_found": "allocating",
+    "creating": "creating",
+    "starting_pod": "starting",
+    "loading_model": "loading",
+    "ready": "ready",
+    "generating": "generating",
+    "stopping": "stopping",
+    "stopped": "stopped",
+    "create_unknown": "unknown",
+    "multiple_compute": "error",
+    "external_compute": "external",
+    "error": "error",
+    "not_configured": "unconfigured",
+}
+
+# A stage from which no automatic transition is pending: the attempt has concluded, successfully
+# (ready/generating) or with a typed reason. Everything else is a live transition.
+CONNECTION_TERMINAL_STATES = {
+    "offline",
+    "stopped",
+    "ready",
+    "generating",
+    "error",
+    "multiple_compute",
+    "external_compute",
+    "not_configured",
+}
+
 # D-9: the startup phase is the window between the create intent and the proof of readiness.
 # A managed Pod still inside it when the server-side deadline closes is stopped by the Gateway.
 # This is deliberately separate from the three other timers, each with its own semantics:
@@ -501,8 +534,17 @@ class ComputeAuthority:
             )
         community = caps.get("allow_community")
         community = bool(community) if isinstance(community, bool) else False
+        # A12: the *authorization* ceiling a running Pod is held to is the user's own maximum,
+        # optionally tightened by the operator. It is never a candidate's quoted price: a cheaper
+        # first candidate that is refused must not lower the ceiling for the next, pricier — but
+        # still allowed — candidate.
+        ceiling = hourly
+        operator = decimal_or_none(self.settings.operator_max_hourly_price)
+        if operator is not None and operator > 0:
+            ceiling = min(ceiling, operator)
         return {
             "max_hourly_price": hourly,
+            "authorized_max_hourly_price": ceiling,
             "session_budget": budget,
             "auto_stop_minutes": idle,
             "min_vram_gb": max(vram, self.settings.runpod_min_vram_gb),
@@ -658,6 +700,7 @@ class ComputeAuthority:
         placements = self.placements()
         allow = bool(self.settings.runpod_allow_community_cloud)
         blocked = policy.community_blocked_by(allow_community=allow, placements=placements)
+        operator = decimal_or_none(self.settings.operator_max_hourly_price)
         return {
             "cloud_tiers": list(policy.cloud_tiers(allow_community=allow)),
             "community_allowed": blocked is None,
@@ -666,6 +709,12 @@ class ComputeAuthority:
             "candidate_limit": self.candidate_limit(),
             "candidate_call_timeout_seconds": int(policy.CANDIDATE_CALL_TIMEOUT_SECONDS),
             "allocation_timeout_seconds": int(self.settings.compute_search_timeout_seconds),
+            # A12: the operator's optional ceiling, reported read-only and only when set. The
+            # user's own maximum travels in the session payload; the effective bound is their
+            # minimum. ``None`` means the deployment imposes no extra cap.
+            "operator_max_hourly_price_usd": (
+                str(operator) if operator is not None and operator > 0 else None
+            ),
         }
 
     async def allocation_plan(self, caps: dict, *, volume=None):
@@ -681,7 +730,7 @@ class ComputeAuthority:
         return policy.build_plan(
             offers,
             min_vram_gb=int(caps["min_vram_gb"]),
-            max_hourly_price=caps["max_hourly_price"],
+            max_hourly_price=caps.get("authorized_max_hourly_price", caps["max_hourly_price"]),
             placements=placements,
             tiers=policy.cloud_tiers(allow_community=bool(caps.get("allow_community"))),
             selection=str(caps.get("selection") or "automatic"),
@@ -795,6 +844,40 @@ class ComputeAuthority:
 
     # ------------------------------------------------------------------------- status
 
+    def connection_payload(self, control: GatewayCompute, session: GatewaySession | None) -> dict:
+        """The connection contract for the interface: one operation, one stage, one deadline.
+
+        Additive and read-only (A30-A32 integration; see ``docs/gateway-status-contract.md``). It
+        names the current attempt (``operation_id``/``started_at``/``startup_deadline``), when the
+        server observed this snapshot (``observed_at``), the derived ``current_stage``, whether the
+        attempt has concluded (``terminal_state``), the ``typed_error`` if any, and — while the
+        model is proven — the instant its readiness claim expires (``readiness_valid_until``).
+        Nothing here starts, adopts or stops compute; it only renders persisted state, so it is
+        safe for a client to poll.
+        """
+        state = self.effective_state(control)
+        started = self.search_started(control)
+        if started is None and session is not None:
+            started = utc(session.intent_at) or utc(session.created_at) or utc(session.started_at)
+        last_success = None
+        readiness_valid_until = None
+        if session is not None and state in {"ready", "generating"}:
+            proven = utc(session.ready_probe_at) or utc(session.ready_at)
+            if proven is not None:
+                last_success = proven
+                readiness_valid_until = proven + timedelta(seconds=self.settings.compute_ready_ttl_seconds)
+        return {
+            "operation_id": self.search_operation(control),
+            "started_at": iso(started),
+            "startup_deadline": self.startup_deadline(session),
+            "last_success_at": iso(last_success),
+            "observed_at": iso(control.updated_at),
+            "current_stage": CONNECTION_STAGES.get(state, "error"),
+            "terminal_state": state in CONNECTION_TERMINAL_STATES,
+            "typed_error": control.error_code,
+            "readiness_valid_until": iso(readiness_valid_until),
+        }
+
     def status_payload(
         self, control: GatewayCompute | None = None, session: GatewaySession | None = None
     ) -> dict:
@@ -842,6 +925,9 @@ class ComputeAuthority:
             "startup_deadline": self.startup_deadline(session),
             # A search is only reported as one while it has an identity and a live deadline.
             "search": self.search_payload(control),
+            # The interface-facing connection contract (A30-A32): one operation, one stage, one
+            # deadline, plus the readiness expiry. Read-only and additive.
+            "connection": self.connection_payload(control, session),
             # What the allocator may use, and what the last operation actually tried. Both are
             # read-only, non-secret, and answer "why did Canalla fail to find a GPU?".
             "policy": self.policy_payload(),
@@ -867,6 +953,11 @@ class ComputeAuthority:
             "auto_stop_minutes": session.auto_stop_minutes,
             "managed": bool(session.managed),
             "adopted": bool(session.adopted),
+            # A09: the placement identity of the Pod this session owns. Non-secret (the policy
+            # payload already reports placement volume ids) and read-only; it is what lets a
+            # restart, and the interface, name the exact slot the compute runs in.
+            "datacenter": session.datacenter,
+            "volume_id": session.volume_id,
             "started_at": iso(session.started_at),
             "ready_at": iso(session.ready_at),
             "stopped_at": iso(session.stopped_at) if final else None,
@@ -1003,16 +1094,38 @@ class ComputeAuthority:
 
     # ------------------------------------------------------------------------ provider
 
-    def matches_volume(self, pod) -> bool:
-        return any(
-            mount.get("volumeId") == self.settings.runpod_network_volume_id
-            for mount in pod.mounts.get("network", [])
+    def allowed_volume_ids(self) -> set[str]:
+        """Every Volume a managed Pod may legitimately mount.
+
+        A09: with more than one placement the primary Volume is not the only one in play, so a
+        provider read must not be filtered by it alone. The set is the placements the allocator may
+        use (the model's own datacenter first, plus the operator's ``DC:VOLUME`` pairs) unioned with
+        the raw ``RUNPOD_NETWORK_VOLUME_ID`` list, so a comma-separated configuration is honoured.
+        """
+        ids = {placement.volume_id for placement in self.placements() if placement.volume_id}
+        ids.update(
+            item.strip() for item in str(self.settings.runpod_network_volume_id).split(",") if item.strip()
         )
+        return ids
+
+    def matches_volume(self, pod) -> bool:
+        """Does this Pod run in one of *any* allowed placement, not just the primary Volume?"""
+        allowed = self.allowed_volume_ids()
+        return any(mount.get("volumeId") in allowed for mount in pod.mounts.get("network", []))
 
     def active_pods(self, pods) -> list:
         return [
             pod for pod in pods if self.matches_volume(pod) and pod.status not in {"EXITED", "TERMINATED"}
         ]
+
+    def pod_volume_id(self, pod) -> str | None:
+        """The allowed Volume this Pod mounts, for the recorded placement identity."""
+        allowed = self.allowed_volume_ids()
+        mounts = pod.mounts.get("network", [])
+        for mount in mounts:
+            if mount.get("volumeId") in allowed:
+                return str(mount.get("volumeId"))
+        return str(mounts[0].get("volumeId")) if mounts else None
 
     async def _http_probe(self, base_url: str, key: str) -> bool:
         """Readiness is the model gateway answering with the configured alias."""
@@ -1155,6 +1268,13 @@ class ComputeAuthority:
             if session.started_at is None:
                 session.started_at = utc(datetime.fromisoformat(pod.started_at.replace("Z", "+00:00")))
             session.hourly_rate = pod.cost
+        # A09: record the placement identity from the provider object itself, so an adopted Pod is
+        # fully described (Volume, datacenter) even when the session row predates this record.
+        volume_id = self.pod_volume_id(pod)
+        if volume_id:
+            session.volume_id = session.volume_id or volume_id
+        if pod.data_center:
+            session.datacenter = session.datacenter or pod.data_center
         if pod.status == "RUNNING" and session.state not in {"ready", "generating"} and session.managed:
             session.state = POD_STATES.get(pod.status, session.state)
         seconds, cost = estimate(session, now_value)
@@ -1401,7 +1521,15 @@ class ComputeAuthority:
                 )
                 break
             if not opened:
-                self._open_candidate(session_id, installation_id, candidate, caps, started, task_id=task_id)
+                self._open_candidate(
+                    session_id,
+                    installation_id,
+                    candidate,
+                    caps,
+                    started,
+                    task_id=task_id,
+                    operation_id=operation_id,
+                )
                 opened = True
             else:
                 self._repoint_candidate(session_id, candidate)
@@ -1510,7 +1638,7 @@ class ComputeAuthority:
                 ),
                 operation_id=operation_id,
             )
-            if pod.cost > caps["max_hourly_price"]:
+            if pod.cost > caps.get("authorized_max_hourly_price", caps["max_hourly_price"]):
                 await self._terminate(session_id, "price_violation")
             return self.status_payload()
         # Every compatible candidate was refused (or the window closed before one could be tried).
@@ -1543,7 +1671,15 @@ class ComputeAuthority:
         return self.status_payload()
 
     def _open_candidate(
-        self, session_id: str, installation_id: str, candidate, caps: dict, started, *, task_id=None
+        self,
+        session_id: str,
+        installation_id: str,
+        candidate,
+        caps: dict,
+        started,
+        *,
+        task_id=None,
+        operation_id: str | None = None,
     ):
         """Commit the create intent for the first candidate before any provider call."""
         with self.sessions() as db:
@@ -1554,7 +1690,10 @@ class ComputeAuthority:
                 gpu_type=candidate.gpu_id,
                 gpu_vram_mb=candidate.vram_gb * 1024,
                 hourly_rate=candidate.hourly_rate,
-                max_hourly_price=min(caps["max_hourly_price"], candidate.hourly_rate),
+                # A12: the authorized ceiling (the user's own maximum, optionally tightened by the
+                # operator), not this candidate's quote. A cheaper refused candidate must never
+                # borrow its price as the cap for the next, still-allowed one.
+                max_hourly_price=caps.get("authorized_max_hourly_price", caps["max_hourly_price"]),
                 session_budget=caps["session_budget"],
                 auto_stop_minutes=caps["auto_stop_minutes"],
                 created_by_installation_id=installation_id,
@@ -1564,6 +1703,11 @@ class ComputeAuthority:
                 intent_at=started,
                 created_at=started,
                 last_activity_at=started,
+                # A09: the placement identity and the ensure operation that opened the attempt, so
+                # the record is complete and survives a restart without a live provider read.
+                volume_id=candidate.volume_id,
+                datacenter=candidate.datacenter,
+                operation_id=operation_id,
             )
             db.add(session)
             control = self.control(db)
@@ -1578,7 +1722,10 @@ class ComputeAuthority:
             row.gpu_type = candidate.gpu_id
             row.gpu_vram_mb = candidate.vram_gb * 1024
             row.hourly_rate = candidate.hourly_rate
-            row.max_hourly_price = min(row.max_hourly_price, candidate.hourly_rate)
+            # A12: the authorized ceiling is *not* lowered to the previous candidate's quote; it
+            # stays the user's (optionally operator-bounded) maximum for the whole walk.
+            row.volume_id = candidate.volume_id
+            row.datacenter = candidate.datacenter
             row.intent_at = self.clock()
             db.commit()
 

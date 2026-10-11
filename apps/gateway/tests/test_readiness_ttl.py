@@ -138,3 +138,57 @@ def test_readiness_is_not_probed_more_often_than_the_ttl(gateway, client):
     gateway.runpod.time += timedelta(seconds=TTL + 1)
     run(gateway.authority.tick())
     assert gateway.llama.models == probes + 1  # the TTL elapsed: exactly one re-check
+
+
+def test_a_long_generation_is_not_mistaken_for_a_dead_model(gateway, client):
+    """A06: the single generation slot is busy — the model is working, not dead.
+
+    A readiness probe must never compete with the generation (``--parallel 1``), so a generation
+    that runs far past the grace window must not be stopped as if the model had died.
+    """
+    installation, headers = ready_compute(gateway, client)
+    gateway.proxy.queue._running = 1  # one admitted generation, still going
+    gateway.runpod.time += timedelta(seconds=GRACE * 3)
+    run(gateway.authority.tick())
+    assert gateway.runpod.actions == []  # never stopped just for being busy
+    assert status(client, headers)["state"] == "ready"
+    gateway.proxy.queue._running = 0
+
+
+def test_the_model_is_re_verified_after_a_long_generation(gateway, client):
+    """A06: once the long generation ends, the model passes the readiness probe again."""
+    installation, headers = ready_compute(gateway, client)
+    gateway.proxy.queue._running = 1
+    gateway.runpod.time += timedelta(seconds=GRACE * 2)
+    run(gateway.authority.tick())
+    assert status(client, headers)["state"] == "ready"
+
+    gateway.proxy.queue._running = 0  # the generation finished
+    probes = gateway.llama.models
+    run(gateway.authority.tick())
+    assert gateway.llama.models == probes + 1  # the overdue re-check ran
+    body = status(client, headers)
+    assert body["state"] == "ready"
+    assert body["error_code"] is None
+    assert gateway.runpod.actions == []
+
+
+def test_recovery_after_a_dead_model_never_duplicates_compute(gateway, client):
+    """A06: after the real failure stops the Pod, a deliberate restart creates exactly one Pod."""
+    installation, headers = ready_compute(gateway, client)
+    gateway.settings.llm_model = "some-other-model"
+    gateway.runpod.time += timedelta(seconds=TTL + 1)
+    run(gateway.authority.tick())
+    gateway.runpod.time += timedelta(seconds=GRACE + 1)
+    run(gateway.authority.tick())
+    assert gateway.runpod.pods[0]["status"] == "TERMINATED"
+    assert len(gateway.runpod.creates) == 1
+
+    # The user starts again deliberately: one new Pod, never a duplicate alongside the old one.
+    gateway.settings.llm_model = ALIAS
+    body = ensure(client, headers, operation_id="op-ttl-recover-01")
+    assert body["state"] == "starting_pod"
+    assert len(gateway.runpod.creates) == 2
+    running = [pod for pod in gateway.runpod.pods if pod["status"] != "TERMINATED"]
+    assert len(running) == 1
+    assert len(gateway.runpod.actions) == 1  # only the dead model was stopped

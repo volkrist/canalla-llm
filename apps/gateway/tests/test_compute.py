@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
+from decimal import Decimal
 
 from conftest import auth_header, enroll, ensure_body, make_existing_installation, run
 
@@ -237,7 +238,9 @@ def test_cheapest_compatible_gpu_wins_even_when_the_max_allows_more(gateway, cli
         gpu_id="NVIDIA L40S",
     )
     assert gateway.runpod.creates[0]["gpu"]["id"] == "gpu-48"
-    assert float(body["session"]["max_hourly_price_usd"]) <= 0.48
+    # A12: the session records the user's authorized ceiling, not the cheapest candidate's quote.
+    assert float(body["session"]["max_hourly_price_usd"]) == 1.20
+    assert float(body["session"]["hourly_rate_usd"]) <= 0.48
 
 
 def test_manual_selection_pins_the_named_gpu(gateway, client):
@@ -275,7 +278,8 @@ def test_the_ordering_strategy_reaches_the_allocator(gateway, client):
         strategy="cheapest",
     )
     assert gateway.runpod.creates[0]["gpu"]["id"] == "gpu-48"
-    assert float(body["session"]["max_hourly_price_usd"]) <= 0.48
+    # A12: the ceiling is the user's own maximum, never the winning candidate's price.
+    assert float(body["session"]["max_hourly_price_usd"]) == 2.00
 
 
 def test_fastest_prefers_the_best_stocked_compatible_card(gateway, client):
@@ -291,8 +295,10 @@ def test_fastest_prefers_the_best_stocked_compatible_card(gateway, client):
         strategy="fastest",
     )
     assert gateway.runpod.creates[0]["gpu"]["id"] == "NVIDIA L40S"
-    # The strategy orders candidates, it never widens the ceiling the user set.
-    assert float(body["session"]["max_hourly_price_usd"]) <= 1.09
+    # The strategy orders candidates, it never widens the ceiling the user set (A12): the session
+    # records the user's own maximum, and the actual GPU rate is below it.
+    assert float(body["session"]["max_hourly_price_usd"]) == 2.00
+    assert float(body["session"]["hourly_rate_usd"]) <= 2.00
 
 
 def test_an_unknown_strategy_is_refused_as_malformed_never_silently_replaced(gateway, client):
@@ -685,6 +691,46 @@ def test_the_tick_resolves_an_ambiguous_create_by_provider_evidence(gateway, cli
     assert gateway.runpod.pods == []
 
 
+def test_a_late_appearing_pod_is_adopted_not_duplicated(gateway, client):
+    """A01: a lost create response whose Pod becomes visible only after a lag is adopted.
+
+    The dangerous sequence is create → timeout → a momentarily empty list → the Pod appears. The
+    empty read is a consistency lag, never proof of absence, so the Gateway observes, adopts the
+    Pod by its durable identity and never fires a second create. Invariant: create count == 1.
+    """
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    gateway.runpod.create_after_timeout = True
+    gateway.runpod.create_failure = "timeout"
+    # Two empty reads: the ensure's own reconcile, then the first observation tick. The Pod only
+    # becomes visible on the third read.
+    gateway.runpod.list_empty_reads = 2
+
+    body = ensure(client, headers, operation_id="op-a01-late-000001")
+    assert body["state"] == "create_unknown"
+    assert len(gateway.runpod.creates) == 1
+    assert len(gateway.runpod.pods) == 1  # the Pod exists; only the response was lost
+
+    # First observation: the list is empty (lag). That is not evidence, so the intent is kept and
+    # nothing is created.
+    run(gateway.authority.tick())
+    assert len(gateway.runpod.creates) == 1
+    assert status(client, headers)["state"] == "create_unknown"
+
+    # The Pod becomes visible: it is adopted by its durable identity, still a single create.
+    run(gateway.authority.tick())
+    assert len(gateway.runpod.creates) == 1
+    row = gateway.sessions_rows[0]
+    assert row.managed is True
+    assert row.pod_id == "pod-1"
+    assert status(client, headers)["state"] in {"starting_pod", "loading_model"}
+
+    # And it can be stopped normally — nothing is left billing.
+    stop = client.post("/compute/stop", json={"operation_id": "op-a01-late-stop1"}, headers=headers)
+    assert stop.json()["state"] == "stopped"
+    assert gateway.runpod.actions == [{"action": "terminate"}]
+
+
 # ------------------------------------------------------------------------ A02: stop retry
 
 
@@ -722,3 +768,196 @@ def test_a_refused_stop_is_retried_until_the_provider_confirms(gateway, client):
     assert gateway.runpod.pods[0]["status"] == "TERMINATED"
     assert len(gateway.runpod.actions) == 2
     assert status(client, headers)["state"] == "stopped"
+
+
+def test_a_refused_idle_stop_is_retried_until_the_provider_confirms(gateway, client):
+    """A02: the durable stop intent is not only for a manual stop.
+
+    An idle stop the provider refuses keeps owning the state («stopping») while the Pod is still
+    billing, and the background loop retries it from persisted state until termination is proven.
+    """
+    from gateway.compute import STOP_RETRY_SECONDS
+
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    ensure(client, headers, operation_id="op-a02-idle-00001", auto_stop_minutes=5)
+    run(gateway.authority.tick())
+    assert status(client, headers)["state"] == "ready"
+
+    gateway.runpod.action_failure = 503
+    gateway.runpod.action_failures = 1
+    gateway.runpod.time += timedelta(minutes=30)
+    run(gateway.authority.tick())
+
+    assert len(gateway.runpod.actions) == 1  # the idle stop was attempted
+    assert gateway.runpod.pods[0]["status"] == "RUNNING"  # and refused: still billing
+    body = status(client, headers)
+    assert body["state"] == "stopping"
+    assert body["error_code"] == "runpod_unavailable"
+
+    gateway.runpod.time += timedelta(seconds=STOP_RETRY_SECONDS + 1)
+    run(gateway.authority.tick())
+    assert len(gateway.runpod.actions) == 2
+    assert gateway.runpod.pods[0]["status"] == "TERMINATED"
+    assert status(client, headers)["state"] == "stopped"
+
+
+def test_a_stop_lost_to_a_network_timeout_is_retried(gateway, client):
+    """A02: a transport failure on the terminate call is not a completed stop."""
+    from gateway.compute import STOP_RETRY_SECONDS
+
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    ensure(client, headers, operation_id="op-a02-net-000001")
+
+    gateway.runpod.action_failure = "timeout"
+    gateway.runpod.action_failures = 1
+    stopped = client.post("/compute/stop", json={"operation_id": "op-a02-net-stop01"}, headers=headers)
+    assert stopped.json()["state"] == "stopping"
+    assert gateway.runpod.pods[0]["status"] == "RUNNING"
+
+    gateway.runpod.time += timedelta(seconds=STOP_RETRY_SECONDS + 1)
+    run(gateway.authority.tick())
+    assert gateway.runpod.pods[0]["status"] == "TERMINATED"
+    assert status(client, headers)["state"] == "stopped"
+
+
+def test_a_refused_stop_survives_a_gateway_restart(gateway, client):
+    """A02: the retry is driven by persisted state, so a restart never abandons a billing Pod."""
+    import httpx
+
+    from gateway.compute import STOP_RETRY_SECONDS, ComputeAuthority
+    from gateway.provider import provider_api
+
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    ensure(client, headers, operation_id="op-a02-restart-01")
+
+    gateway.runpod.action_failure = 500
+    gateway.runpod.action_failures = 1
+    stopped = client.post("/compute/stop", json={"operation_id": "op-a02-restart-02"}, headers=headers)
+    assert stopped.json()["state"] == "stopping"
+
+    api = provider_api(gateway.settings, httpx.MockTransport(gateway.runpod.handle))
+    restarted = ComputeAuthority(gateway.settings, api=api, sessions=gateway.sessions)
+    restarted.transport = httpx.MockTransport(gateway.llama.handle)
+    restarted.clock = lambda: gateway.runpod.time
+
+    gateway.runpod.time += timedelta(seconds=STOP_RETRY_SECONDS + 1)
+    run(restarted.tick())
+
+    assert gateway.runpod.pods[0]["status"] == "TERMINATED"
+    assert status(client, headers)["state"] == "stopped"
+
+
+# ------------------------------------------------------------------- A12: price ceiling
+
+
+def test_a_more_expensive_second_candidate_keeps_running(gateway, client):
+    """A12: a cheaper refused candidate must not cap the next, still-allowed one.
+
+    The user allows $1.20/h; the $0.48 candidate is refused and the $1.09 one is booked. The
+    running Pod must be compared with the *user's* ceiling, not the first candidate's price, so it
+    keeps running instead of being stopped for a «price violation» it never committed.
+    """
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    gateway.runpod.price = 0.48
+    gateway.runpod.refuse_gpus = {"gpu-48"}
+    gateway.runpod.create_costs = {"NVIDIA L40S": 1.09}
+    body = ensure(
+        client,
+        headers,
+        operation_id="op-a12-fallthrough",
+        max_hourly_price=1.20,
+        session_budget=5.00,
+    )
+    assert [item["gpu"]["id"] for item in gateway.runpod.creates] == ["gpu-48", "NVIDIA L40S"]
+    assert body["session"]["gpu"] == "NVIDIA L40S"
+    assert float(body["session"]["max_hourly_price_usd"]) == 1.20
+    assert float(body["session"]["hourly_rate_usd"]) == 1.09
+
+    run(gateway.authority.tick())
+    run(gateway.authority.tick())
+    assert gateway.runpod.actions == []  # nothing stopped it — it is inside the user's ceiling
+    assert status(client, headers)["state"] in {"ready", "loading_model"}
+    assert status(client, headers)["error_code"] is None
+
+
+def test_a_running_price_above_the_authorized_ceiling_is_still_stopped(gateway, client):
+    """A12: the real running price is compared with the authorized ceiling, and a breach is still
+    rejected — the fix separates the ceilings, it does not widen them."""
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    gateway.runpod.price = 0.48
+    gateway.runpod.refuse_gpus = {"gpu-48"}
+    gateway.runpod.create_costs = {"NVIDIA L40S": 1.09}
+    ensure(client, headers, operation_id="op-a12-breach-0001", max_hourly_price=1.20, session_budget=5.00)
+    run(gateway.authority.tick())
+    assert status(client, headers)["state"] == "ready"
+
+    gateway.runpod.pods[0]["cost"] = 1.50  # above the $1.20 the user authorized
+    run(gateway.authority.tick())
+    assert gateway.runpod.actions == [{"action": "terminate"}]
+    assert status(client, headers)["error_code"] == "price_violation"
+
+
+def test_an_operator_ceiling_tightens_the_authorized_maximum(gateway, client):
+    """A12: the operator's own optional ceiling is honoured alongside the user's maximum."""
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    gateway.settings.operator_max_hourly_price = Decimal("0.60")
+    gateway.runpod.price = 0.48
+    body = ensure(
+        client,
+        headers,
+        operation_id="op-a12-operator-01",
+        max_hourly_price=2.00,
+        session_budget=5.00,
+    )
+    # The user allows $2.00 but the operator caps $0.60, so only the $0.48 card can be booked.
+    assert [item["gpu"]["id"] for item in gateway.runpod.creates] == ["gpu-48"]
+    assert float(body["session"]["max_hourly_price_usd"]) == 0.60
+    assert body["policy"]["operator_max_hourly_price_usd"] == "0.60"
+
+
+# ------------------------------------------------- the interface connection contract (§8)
+
+
+def test_the_connection_contract_reports_one_operation_and_stage(gateway, client):
+    """The additive, read-only connection block the interface integrates against.
+
+    One operation id, one derived stage, one startup deadline, the observation time, whether the
+    attempt has concluded, the typed error and the readiness expiry — nothing else, and nothing
+    that starts or stops compute.
+    """
+    installation = enroll(gateway, client)
+    headers = auth_header(client, installation)
+    body = ensure(client, headers, operation_id="op-conn-00000001", max_hourly_price=1.20)
+
+    connection = body["connection"]
+    assert set(connection) == {
+        "operation_id",
+        "started_at",
+        "startup_deadline",
+        "last_success_at",
+        "observed_at",
+        "current_stage",
+        "terminal_state",
+        "typed_error",
+        "readiness_valid_until",
+    }
+    assert connection["operation_id"] == "op-conn-00000001"
+    assert connection["current_stage"] in {"creating", "starting"}
+    assert connection["terminal_state"] is False
+    assert connection["started_at"] is not None
+    assert connection["startup_deadline"] is not None
+    assert connection["readiness_valid_until"] is None
+
+    run(gateway.authority.tick())
+    connection = status(client, headers)["connection"]
+    assert connection["current_stage"] == "ready"
+    assert connection["terminal_state"] is True
+    assert connection["last_success_at"] is not None
+    assert connection["readiness_valid_until"] is not None
+    assert connection["typed_error"] is None
