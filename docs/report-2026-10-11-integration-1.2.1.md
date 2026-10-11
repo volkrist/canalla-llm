@@ -175,6 +175,18 @@ allocation/multiregion-тестами. **Оговорка:** доступнос�
 Числа четырёх агентов не складывались: это один прогон на объединённом коммите.
 6 skip в backend — opt-in live/root-only сценарии. Ни один тест не удалён ради зелени.
 
+**Security audits и sidecar.**
+- `pip-audit -r apps/gateway/requirements.txt` — 0 известных уязвимостей.
+- `npm audit --omit=dev` (desktop) — 0 уязвимостей в отгружаемых зависимостях.
+- `pip-audit -r apps/backend/requirements.lock` — **8 известных уязвимостей в 3 пакетах**, все
+  **унаследованы** (lock не менялся четырьмя ветками: `urllib3 2.7.0` → фикс 2.8.0 ×3,
+  `pyjwt 2.14.0` → 2.15.0 ×2, `pypdf 6.18.1` → 6.19.0 ×3). Это отдельный акт обновления lock
+  (+ пересборка sidecar), в этом проходе не выполнялся; регрессией интеграции не является.
+- Sidecar packaging: `apps/backend/tests/test_sidecar_packaging.py` полностью зелёный (включая
+  `test_fresh_and_upgrade_migrate_via_resolver` → head `0016` и сохранение данных). Сам
+  `backend-sidecar-stamp.py write/check` — часть шага сборки (`build-backend-sidecar.ps1`);
+  собранного sidecar/stamp на этом недоверенном ПК нет и сборка не выполнялась.
+
 ## 11. Rust — статус: NATIVE BLOCKED
 
 Компьютер-агент добавил Rust-изменения (`host.rs`, `credential.rs`, `process.rs`, `fs_guard.rs`,
