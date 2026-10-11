@@ -458,6 +458,11 @@ def self_test() -> int:
         )
         check("a wrong recorded sha256 fails", any(r.status == FAIL for r in mismatch))
 
+        wrong_commit = verify_artifact(
+            artifact, version=version, pubkey_b64=pub_b64, expect_commit="0" * 40
+        )
+        check("a wrong expected commit fails", any(r.status == FAIL for r in wrong_commit))
+
     if failures:
         print(f"RELEASE-GATE: self-test FAILED ({failures})")
         return 1

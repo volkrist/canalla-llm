@@ -41,16 +41,26 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Install backend and gateway dependencies
+      - name: Install backend and gateway dependencies (gate interpreter)
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r apps/backend/requirements.lock
           python -m pip install -r apps/gateway/requirements.txt "pytest>=8,<10" "ruff>=0.9,<1"
           python -m pip install cryptography
 
+      - name: Create the backend venv the Playwright webServer expects
+        run: |
+          python -m venv apps/backend/.venv
+          apps/backend/.venv/Scripts/python.exe -m pip install --upgrade pip
+          apps/backend/.venv/Scripts/python.exe -m pip install -r apps/backend/requirements.lock
+
       - name: Install frontend dependencies
         working-directory: apps/desktop
         run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: apps/desktop
+        run: npx playwright install --with-deps chromium
 
       - name: Download the signed installer
         uses: actions/download-artifact@v4
