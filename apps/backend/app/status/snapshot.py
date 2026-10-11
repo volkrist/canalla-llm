@@ -53,6 +53,7 @@ AI_ERRORS = {
     "gateway_auth_failed": (ERROR, "configure", False),
     "installation_revoked": (ERROR, "configure", False),
     "gateway_budget_denied": (ERROR, "configure", False),
+    "gateway_stop_forbidden": (ERROR, None, False),
     "gateway_managed_compute": (ERROR, "configure", False),
     "create_unknown": (DEGRADED, "retry", True),
     "external_compute": (DEGRADED, "retry", True),

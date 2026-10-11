@@ -226,6 +226,7 @@ async def cloud_error(request, error):
         "gateway_auth_failed": 409,
         "gateway_protocol_mismatch": 409,
         "gateway_budget_denied": 409,
+        "gateway_stop_forbidden": 409,
     }.get(error.code, 502)
     return JSONResponse(
         status_code=status_code,

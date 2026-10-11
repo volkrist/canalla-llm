@@ -55,6 +55,7 @@ ERROR_MESSAGES = {
     "gateway_busy": "AI занят другим запросом. Повторите позже.",
     "gateway_queue_full": "Очередь запросов AI заполнена. Повторите позже.",
     "gateway_budget_denied": "Запрос превышает установленные лимиты расходов.",
+    "gateway_stop_forbidden": "Остановить общий compute может только его владелец или оператор.",
     "gateway_request_in_flight": "Этот запрос уже выполняется.",
     "gateway_request_completed": "Этот запрос уже завершён.",
     "gateway_request_conflict": "Идентификатор запроса уже использован для другого запроса.",

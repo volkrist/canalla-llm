@@ -33,6 +33,7 @@ LOCAL_CODES = {
     "gateway_request_in_flight": "gateway_request_in_flight",
     "gateway_request_completed": "gateway_request_completed",
     "gateway_request_conflict": "gateway_request_conflict",
+    "gateway_stop_forbidden": "gateway_stop_forbidden",
     "installation_revoked": "installation_revoked",
     "installation_unknown": "installation_revoked",
     "not_configured": "gateway_not_connected",
