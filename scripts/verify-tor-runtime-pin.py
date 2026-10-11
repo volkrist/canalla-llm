@@ -27,6 +27,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -95,22 +96,28 @@ def compare_pins(manifest: dict, official: dict[str, str]) -> list[str]:
 # ------------------------------------------------------------------------------- network
 
 
-def _fetch(url: str, target: Path) -> None:
-    request = urllib.request.Request(url, headers={"User-Agent": "canalla-llm-build"})
-    try:
-        with urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:  # noqa: S310
-            with target.open("wb") as handle:
-                shutil.copyfileobj(response, handle, CHUNK)
-        return
-    except (urllib.error.URLError, TimeoutError, OSError):
-        pass
-    curl = shutil.which("curl")
-    if (
-        curl
-        and subprocess.run([curl, "-sS", "-L", "--max-time", "120", "-o", str(target), url]).returncode == 0
-    ):
-        return
-    raise SystemExit(f"could not download {url}")
+def _fetch(url: str, target: Path, *, attempts: int = 3) -> None:
+    last = "unknown"
+    for attempt in range(1, attempts + 1):
+        request = urllib.request.Request(url, headers={"User-Agent": "canalla-llm-build"})
+        try:
+            with urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:  # noqa: S310
+                with target.open("wb") as handle:
+                    shutil.copyfileobj(response, handle, CHUNK)
+            return
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            last = type(error).__name__
+        curl = shutil.which("curl")
+        if (
+            curl
+            and subprocess.run([curl, "-sS", "-L", "--max-time", "120", "-o", str(target), url]).returncode
+            == 0
+            and target.is_file()
+        ):
+            return
+        if attempt < attempts:
+            time.sleep(2 * attempt)
+    raise SystemExit(f"could not download {url} ({last})")
 
 
 def find_gpg() -> str | None:

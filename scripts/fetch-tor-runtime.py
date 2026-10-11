@@ -29,10 +29,10 @@ import hashlib
 import json
 import os
 import shutil
-import stat
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -84,32 +84,40 @@ def download(url: str, target: Path) -> None:
     _fetch(url, target)
 
 
-def _fetch(url: str, target: Path) -> None:
+def _fetch(url: str, target: Path, *, attempts: int = 3) -> None:
     """Download one pinned artefact, with a fallback for environments where urllib cannot reach out.
 
     Some build machines route network access through a proxy that only the system tools know about,
     so a failing urllib attempt is retried with ``curl`` (or ``wget``) before the build gives up. The
     download is verified by the caller either way: a fallback can never change what gets staged.
+
+    A public distribution host can also blink; the whole sequence is retried a few times with a
+    short backoff so a transient 5xx or a proxy hiccup does not fail an otherwise-fine build. A
+    missing or mismatched artefact still fails, because the caller re-verifies size and hash.
     """
-    request = urllib.request.Request(url, headers={"User-Agent": "canalla-llm-build"})
-    try:
-        with urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:  # noqa: S310
-            with target.open("wb") as handle:
-                shutil.copyfileobj(response, handle, CHUNK)
-        return
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
-        logger_reason = type(error).__name__
-    curl = shutil.which("curl")
-    if curl:
-        result = _run([curl, "-sS", "-L", "--max-time", "600", "-o", str(target), url])
-        if result == 0 and target.is_file():
+    last = "unknown"
+    for attempt in range(1, attempts + 1):
+        request = urllib.request.Request(url, headers={"User-Agent": "canalla-llm-build"})
+        try:
+            with urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:  # noqa: S310
+                with target.open("wb") as handle:
+                    shutil.copyfileobj(response, handle, CHUNK)
             return
-    wget = shutil.which("wget")
-    if wget:
-        result = _run([wget, "-q", "-O", str(target), url])
-        if result == 0 and target.is_file():
-            return
-    raise SystemExit(f"could not download {url} ({logger_reason})")
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            last = type(error).__name__
+        curl = shutil.which("curl")
+        if curl:
+            result = _run([curl, "-sS", "-L", "--max-time", "600", "-o", str(target), url])
+            if result == 0 and target.is_file():
+                return
+        wget = shutil.which("wget")
+        if wget:
+            result = _run([wget, "-q", "-O", str(target), url])
+            if result == 0 and target.is_file():
+                return
+        if attempt < attempts:
+            time.sleep(2 * attempt)
+    raise SystemExit(f"could not download {url} ({last})")
 
 
 def _run(args: list[str]) -> int:
@@ -128,9 +136,7 @@ def verify(archive: Path, entry: dict, platform: str) -> None:
         raise SystemExit(f"{platform}: {archive.name} is {size} bytes, expected {expected_bytes}")
     digest = sha256_of(archive)
     if digest != entry.get("sha256"):
-        raise SystemExit(
-            f"{platform}: {archive.name} has sha256 {digest}, expected {entry.get('sha256')}"
-        )
+        raise SystemExit(f"{platform}: {archive.name} has sha256 {digest}, expected {entry.get('sha256')}")
 
 
 def stage_license_texts(texts: list[dict], dest: Path) -> dict[str, str]:
@@ -203,9 +209,7 @@ def stage(archive: Path, entry: dict, dest: Path) -> dict:
         "binary": binary_name,
         "files": staged,
     }
-    (dest / METADATA_NAME).write_text(
-        json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    (dest / METADATA_NAME).write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return metadata
 
 
@@ -218,9 +222,7 @@ def clean(dest: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Fetch, verify and stage the Tor runtime Canalla ships."
-    )
+    parser = argparse.ArgumentParser(description="Fetch, verify and stage the Tor runtime Canalla ships.")
     parser.add_argument("--platform", default=None, help="windows-x86_64 or linux-x86_64")
     parser.add_argument("--dest", default=None, help="staging directory")
     parser.add_argument("--archive", default=None, help="an already downloaded archive")
