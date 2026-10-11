@@ -77,15 +77,26 @@ const READY_WAIT_MS = Number(process.env.LIVE_AI_READY_WAIT_MS || 240000);
 // Bounded like the rest: the whole run has to finish inside the Pod's own 20-minute deadline, so a
 // slow stage fails with evidence instead of being killed by the outer deadline.
 const ANSWER_WAIT_MS = Number(process.env.LIVE_AI_ANSWER_WAIT_MS || 180000);
-const TOR_READY_WAIT_MS = Number(process.env.LIVE_AI_TOR_READY_WAIT_MS || 180000);
-const TOR_ANSWER_WAIT_MS = Number(process.env.LIVE_AI_TOR_ANSWER_WAIT_MS || 300000);
+const TOR_READY_WAIT_MS = Number(
+  process.env.LIVE_AI_TOR_READY_WAIT_MS || 180000,
+);
+const TOR_ANSWER_WAIT_MS = Number(
+  process.env.LIVE_AI_TOR_ANSWER_WAIT_MS || 300000,
+);
 
 const failures = [];
 let child = null;
 let lastPage = null;
 
 // Evidence, not a stack trace: every path that gives up writes what the window actually showed.
-const ARTIFACTS = path.resolve(__dirname, "..", "..", "..", "artifacts", "final-acceptance");
+const ARTIFACTS = path.resolve(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "artifacts",
+  "final-acceptance",
+);
 
 async function dumpPage(page, label) {
   try {
@@ -102,7 +113,9 @@ async function dumpPage(page, label) {
       `${page.url()}\n\n${text.slice(0, 6000)}\n`,
       "utf8",
     );
-    console.log(`  window dumped to artifacts/final-acceptance/dom-${label}.{png,txt}`);
+    console.log(
+      `  window dumped to artifacts/final-acceptance/dom-${label}.{png,txt}`,
+    );
   } catch (error) {
     console.log(`  could not dump the window: ${error?.message}`);
   }
@@ -173,7 +186,9 @@ async function openApp() {
       await sleep(5000);
       continue;
     }
-    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
+    const browser = await chromium.connectOverCDP(
+      `http://127.0.0.1:${CDP_PORT}`,
+    );
     const page = browser.contexts()[0].pages()[0];
     const workspace = await page
       .locator(".status-chip")
@@ -292,8 +307,7 @@ function readTorProof() {
       method: typeof parsed.method === "string" ? parsed.method : "",
       source: typeof parsed.source === "string" ? parsed.source : "",
       port: parsed.port ?? null,
-      version:
-        typeof parsed.tor_version === "string" ? parsed.tor_version : "",
+      version: typeof parsed.tor_version === "string" ? parsed.tor_version : "",
       verified_at:
         typeof parsed.verified_at === "string" ? parsed.verified_at : "",
       age_seconds:
@@ -349,7 +363,9 @@ async function lastAnswerSources(page) {
       if (!section) return { tor: 0, summary: "", labels: [] };
       const entries = Array.from(section.querySelectorAll("details"));
       const labels = entries
-        .map((entry) => (entry.querySelector("summary")?.textContent || "").trim())
+        .map((entry) =>
+          (entry.querySelector("summary")?.textContent || "").trim(),
+        )
         .filter(Boolean);
       return {
         tor: entries.length,
@@ -501,16 +517,20 @@ async function stopCompute(page) {
   // product's own prewarm — idempotent, the Gateway never creates a second Pod — and it is what
   // makes the panel's Stop usable. Bounded, never throws: an unusable control is reported.
   const cloudPanel = async () => {
-    const tab = page.getByRole("button", { name: "Canalla Cloud", exact: true }).first();
+    const tab = page
+      .getByRole("button", { name: "Canalla Cloud", exact: true })
+      .first();
     const visible = await tab.isVisible().catch(() => false);
     if (!visible) {
       await page.keyboard.press("Control+,");
       await tab.waitFor({ timeout: 20000 }).catch(() => {});
     }
-    if (await tab.isVisible().catch(() => false)) await tab.click().catch(() => {});
+    if (await tab.isVisible().catch(() => false))
+      await tab.click().catch(() => {});
   };
 
-  const stopControls = () => page.getByRole("button", { name: "Остановить AI" });
+  const stopControls = () =>
+    page.getByRole("button", { name: "Остановить AI" });
   // The Settings dialog renders after the workspace, so an unscoped search for «Запустить AI» finds
   // the compact bar's button — which only opens the compute section and never performs the ensure
   // that would teach the Cloud panel about the running session. Everything below is scoped to the
@@ -539,7 +559,9 @@ async function stopCompute(page) {
     const found = await enabledStop();
     if (found === false) {
       present = true;
-      const prewarm = await panelButton("Запустить AI").isVisible().catch(() => false)
+      const prewarm = (await panelButton("Запустить AI")
+        .isVisible()
+        .catch(() => false))
         ? panelButton("Запустить AI")
         : page.getByRole("button", { name: "Запустить AI" }).first();
       if (await prewarm.isVisible().catch(() => false)) {
@@ -574,7 +596,10 @@ async function stopCompute(page) {
     const settled = await waitForAi(page, ["disconnected"], 90000);
     if (settled.reached === "disconnected") {
       check("the product offers a Stop AI control", present);
-      check("the product's Stop AI control became usable and was pressed", pressed);
+      check(
+        "the product's Stop AI control became usable and was pressed",
+        pressed,
+      );
       check(
         "AI returns to Disconnected after Stop AI (not Connecting, not a stale Connected)",
         true,
@@ -586,7 +611,9 @@ async function stopCompute(page) {
   check("the product offers a Stop AI control", present);
   check("the product's Stop AI control became usable and was pressed", pressed);
   if (offered) {
-    console.log("  the Cloud panel offered its prewarm instead of a Stop; it was pressed");
+    console.log(
+      "  the Cloud panel offered its prewarm instead of a Stop; it was pressed",
+    );
   }
   const settled = await waitForAi(page, ["disconnected"], 180000);
   check(

@@ -19,6 +19,13 @@ apps/desktop/src-tauri/icons/*
 !apps/desktop/src-tauri/icons/source.svg
 !apps/desktop/src-tauri/icons/icon.ico
 !apps/desktop/src-tauri/icons/icon.png
+# A14/A25: the Linux bundle (tauri.linux.conf.json) references these generated PNGs, so they must
+# be tracked: a clean checkout has no icon-generation step, and `linux-packaging.test.ts` proves
+# the bundle names real files. Regenerate from source.svg with `npx tauri icon icons/source.svg`.
+!apps/desktop/src-tauri/icons/32x32.png
+!apps/desktop/src-tauri/icons/64x64.png
+!apps/desktop/src-tauri/icons/128x128.png
+!apps/desktop/src-tauri/icons/128x128@2x.png
 *.log
 *.cred.dpapi
 playwright-report/
