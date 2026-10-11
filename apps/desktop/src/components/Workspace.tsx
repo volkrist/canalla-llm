@@ -99,7 +99,12 @@ export default function Workspace({
         }>("/tools/preferences");
         const alias = prefs.device_display_name?.trim() || "Windows device";
         // `userId` binds the device record to this account, so another user cannot reuse it.
-        const heartbeat = await pairLocalDevice(api.base, token, alias, user.id);
+        const heartbeat = await pairLocalDevice(
+          api.base,
+          token,
+          alias,
+          user.id,
+        );
         const local = await readDeviceStatus();
         // `online` is the verified heartbeat answer, never the mere presence of a credential.
         const status = {
