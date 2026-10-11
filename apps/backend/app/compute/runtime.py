@@ -27,6 +27,9 @@ COMPUTE_TO_AI = {
     "starting_llm": "starting",
     "connecting": "starting",
     "loading_model": "starting",
+    # A persistent capacity wait: no fixed window closes it, so it stays a real, non-terminal
+    # transition until the user cancels it or a GPU appears.
+    "waiting_capacity": "starting",
     "generating": "ready",
     "ready": "ready",
     "stopping": "waiting",
@@ -46,6 +49,7 @@ STARTING = {
     "starting_llm",
     "connecting",
     "loading_model",
+    "waiting_capacity",
 }
 
 # What a search that found nothing means. Two of these are conclusions (the catalogue has no

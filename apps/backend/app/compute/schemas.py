@@ -35,6 +35,13 @@ class ComputePreferences(BaseModel):
     # default is off, and the allocator only admits the tier when the deployment's own policy
     # permits it as well (see docs/compute-preferences.md §11).
     allow_community: bool = False
+    # A7/Task-1: keep waiting for a free, affordable GPU instead of the search collapsing after
+    # its bounded window. Each attempt stays bounded; the wait does not, until the user cancels or
+    # a GPU appears. Off by default: it is the user's own choice.
+    wait_for_capacity: bool = False
+    # A *separate*, explicit permission to create a paid Pod while the app is closed. Waiting alone
+    # never implies it, and it is off by default.
+    background_start: bool = False
 
     def enforce(self, settings: Settings):
         if self.min_vram_gb < settings.runpod_min_vram_gb:

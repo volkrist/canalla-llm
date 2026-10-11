@@ -182,6 +182,13 @@ def ai_status(controller, user: User):
         "readiness_valid_until": diagnostic.get("readiness_valid_until"),
         "terminal_state": diagnostic.get("terminal_state"),
         "typed_error": diagnostic.get("typed_error") or (error_code if isinstance(error_code, str) else None),
+        # A7/Task-1: the persistent capacity wait, so the chip can say «Ожидаем свободную GPU» and
+        # show the elapsed time without inventing anything.
+        "wait_active": bool(diagnostic.get("wait_active")),
+        "wait_elapsed_seconds": diagnostic.get("wait_elapsed_seconds"),
+        "wait_attempts": diagnostic.get("wait_attempts"),
+        "wait_next_attempt_at": diagnostic.get("wait_next_attempt_at"),
+        "wait_background": bool(diagnostic.get("wait_background")),
     }
     return entry(
         state,

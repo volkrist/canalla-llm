@@ -31,6 +31,10 @@ MAX_SEARCH_ATTEMPTS = 3
 # How often the cached Gateway state is re-read while waiting. The read itself is TTL-bounded
 # by ``CloudState``, so polling here can never become a poll of the Gateway.
 POLL_SECONDS = 1.5
+# A7/Task-1: the persistent wait. The Gateway enforces its own backoff between attempts, so a
+# not-due ensure simply returns the current wait — this can never hot-loop RunPod.
+WAIT_STATE = "waiting_capacity"
+WAIT_POLL_SECONDS = 5.0
 # Readiness after the capacity step is the Gateway's D-9 startup deadline (300 s by default);
 # this margin only covers the client's own polling and the Gateway's final write.
 STARTUP_MARGIN_SECONDS = 60.0
@@ -38,8 +42,16 @@ HARD_STARTUP_SECONDS = 300.0 + STARTUP_MARGIN_SECONDS
 
 READY_STATES = {"ready", "generating"}
 # States in which a Pod is really on its way up. `searching` is deliberately absent: it is only
-# a transition while a bounded search operation exists (see ``search_active``).
-STARTING_STATES = {"gpu_found", "creating", "starting_pod", "mounting_storage", "loading_model"}
+# a transition while a bounded search operation exists (see ``search_active``). A persistent
+# capacity wait is handled explicitly in ``outcome_of``: it is a transition, but with no Pod yet
+# it must never be treated as model-bearing.
+STARTING_STATES = {
+    "gpu_found",
+    "creating",
+    "starting_pod",
+    "mounting_storage",
+    "loading_model",
+}
 SETTLED_STATES = {"offline", "stopped"}
 BLOCKED_STATES = {"create_unknown", "multiple_compute", "external_compute", "not_configured"}
 
@@ -57,6 +69,17 @@ STAGE_TEXT = {
 TRANSIENT_CAPACITY = "gpu_unavailable"
 CAPACITY_CODES = {TRANSIENT_CAPACITY, "no_compatible_gpu", "price_limit"}
 CAPACITY_UNAVAILABLE = "gpu_capacity_unavailable"
+
+
+def _mmss(seconds: int) -> str:
+    """A short human duration for the waiting chip: seconds, minutes, or hours+minutes."""
+    minutes, secs = divmod(max(0, int(seconds)), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours} ч {minutes} мин"
+    if minutes:
+        return f"{minutes} мин {secs} с"
+    return f"{secs} с"
 
 
 def utc(value: datetime) -> datetime:
@@ -105,10 +128,13 @@ def policy_caps(controller, user_id: str) -> dict:
         "strategy": prefs.strategy,
         "gpu_id": prefs.gpu_id,
         "allow_community": bool(prefs.allow_community),
-        # A14: the saved idle-stop setting travels with every automatic and manual ensure, so the
-        # session is held to the value the user chose instead of the Gateway's own default. It is
-        # the user's own policy; the server may still refuse an unknown value and fall back.
+        # A7/Task-1: the saved idle-stop setting travels with every automatic and manual ensure,
+        # and so do the two wait choices.
         "auto_stop_minutes": int(prefs.auto_stop_minutes),
+        # A7/Task-1: the two wait choices travel with every ensure. Read with a default so a
+        # controller written before the wait existed simply opts out (never a fabricated wait).
+        "wait_for_capacity": bool(getattr(prefs, "wait_for_capacity", False)),
+        "background_start": bool(getattr(prefs, "background_start", False)),
     }
 
 
@@ -123,6 +149,10 @@ def outcome_of(compute: dict, *, now: datetime, search_open: bool = False) -> di
     code = compute.get("error_code")
     if state in READY_STATES:
         return {"kind": "ready", "code": None, "state": state}
+    if state == WAIT_STATE:
+        # A persistent capacity wait is a real, non-terminal transition, but it is *not* a
+        # model-bearing state: no Pod exists yet, so a caller must never probe the model for it.
+        return {"kind": "starting", "code": None, "state": state}
     if state in STARTING_STATES:
         return {"kind": "starting", "code": None, "state": state}
     if state == "searching":
@@ -173,6 +203,10 @@ class SharedDemand:
         state = compute.get("state")
         if state in READY_STATES or state in STARTING_STATES:
             return True
+        # A persistent capacity wait is deliberately *not* reusable work in flight: without a
+        # background grant the client's own ensure is what drives the next bounded attempt, so it
+        # must actually reach the Gateway (whose backoff decides whether it runs now), and a
+        # waiting state is never a model-bearing state to probe.
         # A live bounded search belongs to this request's attempt family too: a second search
         # would be a second set of catalogue reads, never a second Pod.
         return state == "searching" and search_active(compute, at=self._clock())
@@ -315,9 +349,37 @@ class SharedDemand:
             return
         announced = None
         hard = self._clock() + timedelta(seconds=HARD_STARTUP_SECONDS)
+        waiting = False
         while True:
             compute = self.compute()
             state = compute.get("state")
+            wait = compute.get("wait") if isinstance(compute.get("wait"), dict) else {}
+            if state == WAIT_STATE or wait.get("active"):
+                # A7/Task-1: the user chose to keep waiting. There is no arbitrary deadline; the
+                # wait ends only when a GPU appears or the user cancels (which cancels this task).
+                waiting = True
+                elapsed = int(wait.get("elapsed_seconds") or 0)
+                yield (
+                    "progress",
+                    {"state": "waiting_gpu", "text": f"Ожидаем свободную GPU… {_mmss(elapsed)}"},
+                )
+                if not wait.get("background_start"):
+                    # No background permission: this request drives the next bounded attempt. The
+                    # Gateway's own backoff decides whether it actually runs now.
+                    outcome = await self.ensure(task_id=task_id, caps=caps, origin=origin)
+                    self._fail_if_terminal(outcome)
+                    if outcome["kind"] == "ready":
+                        yield ("_done", "ready")
+                        return
+                await self._sleep(WAIT_POLL_SECONDS)
+                await self.cloud.refresh()
+                continue
+            if waiting:
+                # The wait ended (a GPU appeared, or it was cancelled): reset the startup horizon
+                # and fall through to the ordinary readiness loop.
+                waiting = False
+                announced = None
+                hard = self._clock() + timedelta(seconds=HARD_STARTUP_SECONDS)
             if state != announced:
                 announced = state
                 text = STAGE_TEXT.get(state or "")

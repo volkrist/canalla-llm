@@ -239,6 +239,7 @@ class CloudAi:
         compute = self.cloud.compute or {}
         last_error = self.cloud.error_code or compute.get("error_code")
         search = compute.get("search") if isinstance(compute.get("search"), dict) else {}
+        wait = compute.get("wait") if isinstance(compute.get("wait"), dict) else {}
         state = compute.get("state")
         live_search = self.search_active()
         gateway_ai = compute.get("ai")
@@ -288,6 +289,12 @@ class CloudAi:
                 "readiness_valid_until": connection.get("readiness_valid_until"),
                 "terminal_state": connection.get("terminal_state"),
                 "typed_error": connection.get("typed_error") or last_error,
+                # A7/Task-1: the persistent capacity wait, read-only.
+                "wait_active": bool(wait.get("active")),
+                "wait_elapsed_seconds": wait.get("elapsed_seconds"),
+                "wait_attempts": wait.get("attempts"),
+                "wait_next_attempt_at": wait.get("next_attempt_at"),
+                "wait_background": bool(wait.get("background_start")),
             },
         }
 

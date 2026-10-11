@@ -874,6 +874,7 @@ def test_outcome_classification_covers_the_gateway_vocabulary():
     assert outcome_of({"state": "creating"}, now=NOW)["kind"] == "starting"
     assert outcome_of({"state": "starting_pod"}, now=NOW)["kind"] == "starting"
     assert outcome_of({"state": "loading_model"}, now=NOW)["kind"] == "starting"
+    assert outcome_of({"state": "waiting_capacity"}, now=NOW)["kind"] == "starting"
     assert outcome_of({"state": "offline"}, now=NOW)["kind"] == "unavailable"
     assert outcome_of({"state": "stopped"}, now=NOW)["kind"] == "unavailable"
     assert outcome_of({"state": "stopping"}, now=NOW)["kind"] == "stopped"
@@ -888,3 +889,143 @@ def test_outcome_classification_covers_the_gateway_vocabulary():
     dead = outcome_of(searching, now=NOW, search_open=False)
     assert dead["kind"] == "unavailable"
     assert dead["code"] == "gpu_capacity_unavailable"
+
+
+# -------------------------------------------------- Task-1: the persistent capacity wait
+
+
+def wait_block(*, active=True, background=False, elapsed=0, attempts=1):
+    return {
+        "active": active,
+        "operation_id": "op-wait-1",
+        "installation_id": "11111111-2222-3333-4444-555555555555",
+        "started_at": NOW.isoformat(),
+        "elapsed_seconds": elapsed,
+        "attempts": attempts,
+        "next_attempt_at": None,
+        "reason": "gpu_unavailable",
+        "background_start": background,
+    }
+
+
+def test_a_foreground_wait_keeps_driving_an_ensure_until_the_gpu_appears(shared_app):
+    """A wait without background permission is driven by the client's own ensure.
+
+    The Gateway only self-drives a wait the user explicitly parked for the background; otherwise
+    the polling request is what performs the next bounded attempt. `reusable()` must therefore not
+    treat the wait as "work already in flight", or the wait would never reach the Gateway again.
+    """
+    shared_app.gateway.compute = compute_payload(
+        "waiting_capacity", ai="starting", error_code="gpu_unavailable", wait=wait_block()
+    )
+    shared_app.gateway.ensure_results = [
+        compute_payload("waiting_capacity", ai="starting", error_code="gpu_unavailable", wait=wait_block()),
+        compute_payload("starting_pod", ai="starting"),
+    ]
+    shared_app.gateway.compute_steps = [compute_payload("ready", ai="ready")]
+
+    async def scenario():
+        return [item async for item in shared_app.demand.wait_until_ready()]
+
+    events = run(scenario())
+
+    progress = [payload for name, payload in events if name == "progress"]
+    assert any(item.get("state") == "waiting_gpu" for item in progress)
+    assert any("Ожидаем свободную GPU" in item.get("text", "") for item in progress)
+    assert [name for name, _ in events].count("_done") == 1
+    assert shared_app.demand.ready() is True
+    # The initial request plus at least one wait-driven re-attempt reached the Gateway.
+    assert shared_app.gateway.ensure_calls >= 2
+
+
+def test_a_background_wait_is_driven_by_the_gateway_not_by_client_ensures(shared_app):
+    """With a background grant the Gateway owns the retries: the client only watches the status."""
+    shared_app.gateway.compute = compute_payload(
+        "waiting_capacity", ai="starting", error_code="gpu_unavailable", wait=wait_block(background=True)
+    )
+    shared_app.gateway.compute_steps = [compute_payload("ready", ai="ready")]
+
+    async def scenario():
+        return [item async for item in shared_app.demand.wait_until_ready()]
+
+    events = run(scenario())
+
+    assert [name for name, _ in events].count("_done") == 1
+    assert any(payload.get("state") == "waiting_gpu" for name, payload in events if name == "progress")
+    # Only the request's own initial ensure; the wait itself is never re-ensured by the client.
+    assert shared_app.gateway.ensure_calls == 1
+
+
+def test_policy_caps_carries_the_wait_choices():
+    """The two wait preferences travel with every ensure, like the rest of the policy."""
+    from app.cloud.demand import policy_caps
+
+    class Preferences:
+        max_hourly_price = 0.75
+        session_budget = 4.5
+        min_vram_gb = 48
+        selection = "automatic"
+        strategy = "balanced"
+        gpu_id = None
+        allow_community = False
+        auto_stop_minutes = 5
+        wait_for_capacity = True
+        background_start = True
+
+    class Controller:
+        def preferences(self, user_id):
+            return Preferences()
+
+    caps = policy_caps(Controller(), "user")
+    assert caps["wait_for_capacity"] is True
+    assert caps["background_start"] is True
+
+
+def test_policy_caps_never_invents_a_wait_without_preferences():
+    """Missing preferences must not fabricate a wait the user never asked for."""
+    from app.cloud.demand import policy_caps
+
+    class Preferences:
+        max_hourly_price = 0.75
+        session_budget = 4.5
+        min_vram_gb = 48
+        selection = "automatic"
+        strategy = "balanced"
+        gpu_id = None
+        allow_community = False
+        auto_stop_minutes = 5
+
+    class Controller:
+        def preferences(self, user_id):
+            return Preferences()
+
+    caps = policy_caps(Controller(), "user")
+    assert caps["wait_for_capacity"] is False
+    assert caps["background_start"] is False
+
+
+def test_the_chip_reports_a_persistent_wait_as_starting_and_carries_its_clock(gateway):
+    gateway.compute = compute_payload(
+        "waiting_capacity",
+        ai="starting",
+        error_code="gpu_unavailable",
+        wait=wait_block(elapsed=4242, attempts=9, background=True),
+    )
+    chip = chip_for(refreshed(gateway))
+
+    assert chip["state"] == "starting"
+    details = chip["details"]
+    assert details["wait_active"] is True
+    assert details["wait_elapsed_seconds"] == 4242
+    assert details["wait_attempts"] == 9
+    assert details["wait_background"] is True
+
+
+def test_a_gateway_without_the_wait_block_stays_additive(gateway):
+    """An older Gateway that predates the wait block invents nothing."""
+    gateway.compute = compute_payload("starting_pod", ai="starting")
+    details = chip_for(refreshed(gateway))["details"]
+
+    assert details["wait_active"] is False
+    assert details["wait_elapsed_seconds"] is None
+    assert details["wait_background"] is False
