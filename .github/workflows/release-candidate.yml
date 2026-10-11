@@ -1,0 +1,73 @@
+name: Release candidate gate
+
+# The candidate gate runs the full developer suite PLUS the release-only gates (Rust, Playwright,
+# sidecar stamp, packaged Gateway URL, backup/upgrade smoke) and the artifact verification: a real
+# installer must exist and its name, version, key identity, signature, baked Gateway URL and
+# recorded SHA-256/commit must all hold.
+#
+# It needs only the PUBLIC key already committed in tauri.conf.json. The production private signing
+# key is never installed here, never passed as a secret, and never archived as an artifact. The
+# signed installer is produced later, from a trusted host, by a separate authorized action
+# (scripts/production-signing.ps1) and uploaded as the `release-installer` artifact for this job.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Product version to verify (e.g. 1.2.1)"
+        required: true
+      expect_sha256:
+        description: "Recorded SHA-256 of the installer (optional)"
+        required: false
+        default: ""
+      expect_commit:
+        description: "Git commit the release was built from (optional)"
+        required: false
+        default: ""
+
+jobs:
+  candidate:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install backend and gateway dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r apps/backend/requirements.lock
+          python -m pip install -r apps/gateway/requirements.txt "pytest>=8,<10" "ruff>=0.9,<1"
+          python -m pip install cryptography
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Download the signed installer
+        uses: actions/download-artifact@v4
+        with:
+          name: release-installer
+          path: release-artifacts
+
+      - name: Release candidate gate
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path release-artifacts -Recurse -Filter "*x64-setup.exe" |
+            Select-Object -First 1
+          if (-not $installer) {
+            throw "no installer in the release-installer artifact — the candidate gate must FAIL"
+          }
+          python scripts/release-gate.py candidate `
+            --installer "$($installer.FullName)" `
+            --version "${{ inputs.version }}" `
+            --expect-sha256 "${{ inputs.expect_sha256 }}" `
+            --expect-commit "${{ inputs.expect_commit }}"
