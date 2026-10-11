@@ -46,6 +46,7 @@
 |---|---|
 | `offline` | `idle` |
 | `searching` | `searching` |
+| `waiting_capacity` | `waiting` |
 | `gpu_found` | `allocating` |
 | `creating` | `creating` |
 | `starting_pod` | `starting` |
@@ -62,7 +63,7 @@
 
 `terminal_state = true` для `idle`, `stopped`, `ready`, `generating`, `error`, `multiple_compute`,
 `external_compute`, `unconfigured`; `false` для переходов
-(`searching`/`allocating`/`creating`/`starting`/`loading`/`stopping`/`unknown`).
+(`searching`/`allocating`/`creating`/`starting`/`loading`/`stopping`/`unknown`/`waiting`).
 
 ## 4. Примеры состояний
 
@@ -178,3 +179,58 @@ Pod останавливается: `state` → `stopped`, `terminal_state` → 
 `gateway.cli set-entitlement --installation-id … [--max-hourly-price …] [--session-budget …]
 [--period-budget …] [--period-days …] | --clear`. Ни одно поле тела запроса не влияет ни на роль,
 ни на entitlement.
+
+## 8. A7/Task-1 — постоянное ожидание свободной GPU (1.2.1)
+
+Когда подходящей свободной карты нет, пользователь может оставить поиск включённым. Отдельная
+попытка по-прежнему ограничена (`compute_search_timeout_seconds`, 60 с), но *ожидание между
+попытками* не ограничено произвольно: Gateway повторяет проверку на собственном backoff
+(`compute_wait_backoff_seconds` → `compute_wait_backoff_max_seconds`) до появления карты или
+отмены пользователем. Состояние `waiting_capacity` — реальный незавершённый переход, но **без Pod**.
+
+Блок `wait` аддитивен (как `connection`), только для чтения:
+
+```json
+"wait": {
+  "active": true,
+  "operation_id": "op-abc…",
+  "installation_id": "…",
+  "started_at": "2026-10-11T12:00:00+00:00",
+  "elapsed_seconds": 4242,
+  "attempts": 9,
+  "next_attempt_at": "2026-10-11T13:10:42+00:00",
+  "reason": "gpu_unavailable",
+  "background_start": false
+}
+```
+
+| Поле | Тип | Смысл |
+|---|---|---|
+| `active` | `bool` | Идёт ли ожидание. `false`/`null` в остальных состояниях. |
+| `operation_id` | `string \| null` | Операция, открывшая ожидание. |
+| `installation_id` | `string \| null` | Чья установка держит намерение. |
+| `started_at` | `string` | Когда ожидание открылось; не сбрасывается повторными попытками. |
+| `elapsed_seconds` | `int` | Сколько уже ждём (по часам сервера). |
+| `attempts` | `int` | Сколько раз Gateway уже попробовал (backoff — от этого числа). |
+| `next_attempt_at` | `string` | Когда разрешена следующая попытка. |
+| `reason` | `string` | Типизированная причина (`gpu_unavailable` / `price_limit` / `no_compatible_gpu` / код ошибки провайдера). |
+| `background_start` | `bool` | Явное разрешение пользователя создать **платный** Pod при закрытом приложении. Ожидание само по себе его не даёт. |
+
+**`POST /compute/ensure`** получает два необязательных поля запроса (оба по умолчанию `false`):
+`wait_for_capacity` и `background_start`. Оба — предпочтения пользователя, сервер их не выдумывает.
+
+**`POST /compute/wait/cancel`** — пользователь прекращает ожидание. Освобождает намерение и
+запрещает Pod по нему; **не** трогает чужую активную генерацию и не останавливает общий Pod.
+
+Пример:
+```json
+{"state":"waiting_capacity","ai":"starting","error_code":"gpu_unavailable",
+ "wait":{"active":true,"elapsed_seconds":4242,"background_start":true},
+ "connection":{"current_stage":"waiting","terminal_state":false,
+               "typed_error":"gpu_unavailable","startup_deadline":null}}
+```
+
+Рекомендация интерфейсу: рисуйте ожидание из `wait.active` (фаза `waiting`), показывайте
+`elapsed_seconds` и не навязывайте клиентский дедлайн — ожидание не ограничено. Если снимок
+перестал обновляться (Gateway недоступен / приложение закрыто), ожидание перестаёт быть честным
+переходом и уходит в типизированный отказ — как и любой другой устаревший снимок.

@@ -183,6 +183,59 @@ describe("A30 — a transition is never an endless Connecting", () => {
   });
 });
 
+describe("Task-1 — a persistent capacity wait is honest and unbounded", () => {
+  it("a wait is amber with its own words and no invented client deadline", () => {
+    const result = verdict(
+      running("waiting_capacity", {
+        current_stage: "waiting",
+        wait_active: true,
+      }),
+      { now: BASE + 30_000 },
+    );
+
+    expect(result.state).toBe("connecting");
+    expect(result.code).toBe("starting");
+    expect(result.stage).toBe("Ожидаем свободную GPU");
+    // The user chose to keep waiting: the client must not bound a wait the server left unbounded.
+    expect(result.deadline).toBeNull();
+    expect(result.deadlineSource).toBeNull();
+  });
+
+  it("a fresh wait does not expire at the client's old 300 s stage budget", () => {
+    const at = "2026-09-23T10:10:00+00:00"; // ten minutes later, snapshot still fresh
+    const result = verdict(
+      running("waiting_capacity", { current_stage: "waiting" }),
+      { now: Date.parse(at) + 30_000 },
+      at,
+    );
+
+    expect(result.state).toBe("connecting");
+    expect(result.code).toBe("starting");
+  });
+
+  it("a wait whose snapshot stopped updating is an honest typed failure, never endless amber", () => {
+    // Gateway outage / app closed: nobody refreshed the wait, so the amber promise ends.
+    const result = verdict(
+      running("waiting_capacity", { current_stage: "waiting" }),
+      { now: BASE + 3_600_000 },
+    );
+
+    expect(result.state).toBe("disconnected");
+    expect(result.code).toBe("expired");
+    expect(result.action).toBe("retry");
+  });
+
+  it("a stale snapshot never keeps a wait amber either", () => {
+    const result = verdict(
+      running("waiting_capacity", { current_stage: "waiting" }),
+      { stale: true },
+    );
+
+    expect(result.state).toBe("disconnected");
+    expect(result.code).toBe("snapshot_stale");
+  });
+});
+
 describe("A31 — the bound is derived, named and bounded", () => {
   it("a stage with no server deadline gets the client's own budget, labelled as such", () => {
     const transition = readTransition(

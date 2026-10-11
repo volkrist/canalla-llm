@@ -36,6 +36,12 @@ interface Preferences {
   /** The user's own opt-in for the second provider cloud tier. Never a hidden switch: the
    *  deployment's own policy decides whether the tier is on offer at all (see `Status.policy`). */
   allow_community?: boolean;
+  /** Task-1: keep looking for a free, affordable GPU instead of the search collapsing after its
+   *  bounded window. Each attempt stays bounded; the wait does not, until the user cancels it. */
+  wait_for_capacity?: boolean;
+  /** The separate, explicit permission to create a *paid* Pod while the app is closed. Waiting
+   *  alone never implies it. */
+  background_start?: boolean;
 }
 interface GPU {
   id: string;
@@ -136,6 +142,8 @@ const defaults: Preferences = {
   auto_search: true,
   search_interval: 30,
   allow_community: false,
+  wait_for_capacity: false,
+  background_start: false,
 };
 const money = (value: number) => `$${Number(value).toFixed(3)}`;
 
@@ -789,6 +797,50 @@ export default function ComputePanel({
                   />{" "}
                   Повторять поиск каждые 30 секунд
                 </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(preferences.wait_for_capacity)}
+                    onChange={(e) => {
+                      setPreferences({
+                        ...preferences,
+                        wait_for_capacity: e.target.checked,
+                        // The paid background start is a *separate* choice: turning the wait off
+                        // must not leave a paid auto-start silently armed.
+                        background_start: e.target.checked
+                          ? preferences.background_start
+                          : false,
+                      });
+                      setQuote(null);
+                    }}
+                  />{" "}
+                  Автоматически ожидать свободную GPU
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    disabled={!preferences.wait_for_capacity}
+                    checked={Boolean(preferences.background_start)}
+                    onChange={(e) => {
+                      setPreferences({
+                        ...preferences,
+                        background_start: e.target.checked,
+                      });
+                      setQuote(null);
+                    }}
+                  />{" "}
+                  Разрешить платный запуск, пока приложение закрыто
+                </label>
+                {preferences.wait_for_capacity && (
+                  <p className="muted">
+                    Пока ожидание включено, Canalla сам повторяет поиск
+                    подходящей карты в пределах ваших цены и бюджета и создаёт
+                    один Pod, как только карта появится. Ожидание в фоне
+                    бесплатно: платный Pod создаётся только если вы включили
+                    запуск при закрытом приложении или сами отправили запрос в
+                    чате. Остановить ожидание можно кнопкой «Остановить AI».
+                  </p>
+                )}
                 <label>
                   <input
                     type="checkbox"

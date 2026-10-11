@@ -54,6 +54,8 @@ to express it. Compute *activation* stays gated because it spends the installati
 | `search_interval` | 30 s | `RUNPOD_SEARCH_INTERVAL` (15–300) |
 | `auto_connect` | off | a manual exact GPU is required to turn it on |
 | `gpu_id` | none | no exact GPU is injected for a new or legacy profile |
+| `wait_for_capacity` | off | Task-1: the user must opt in to a persistent wait |
+| `background_start` | off | Task-1: a paid auto-start while the app is closed is never assumed |
 
 The policy is stored per user in the local database (`compute_preferences`, one row per
 `user_id`, JSON values) and is returned by `GET /compute/status` → `preferences` with the
@@ -220,6 +222,8 @@ X-Alex-Protocol-Version: 1
 | `min_vram_gb` | int 1–1024 | floored at 48 |
 | `selection` | `automatic` \| `manual`, optional | default `automatic` |
 | `gpu_id` | string ≤ 160, optional | used only with `selection: "manual"` |
+| `wait_for_capacity` | bool, optional | Task-1: keep waiting instead of a bounded search collapsing |
+| `background_start` | bool, optional | Task-1: explicit permission for a paid start while the app is closed |
 
 Omitting the money fields is allowed: the Gateway then applies its own defaults (`$0.52`,
 `$3.00`). Typed errors: `compute_policy_invalid` (422, invalid or out-of-range policy),
@@ -297,3 +301,34 @@ the two controls stay coherent (`lib/compute-policy.ts`): choosing the `manual` 
 GPU control to `manual` with it, and going back to `automatic` moves the strategy off `manual`.
 Pressing «Запустить AI» is a **prewarm**, not a prerequisite: the chat's own ensure carries the
 same strategy, so nothing depends on the Settings button.
+
+## 13. The persistent capacity wait (1.2.1)
+
+When the provider has no suitable free GPU, the user may keep looking. Two preferences, both off by
+default, both the user's own choice and never fabricated by a client:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `wait_for_capacity` | `false` | Keep waiting for a free, affordable GPU instead of the search collapsing after its bounded window. |
+| `background_start` | `false` | A *separate*, explicit permission to create a **paid** Pod while the app is closed. Waiting never implies it. |
+
+Both travel in every ensure (chat, manual prewarm and the Gateway's own background attempt) through
+`policy_caps`, exactly like the other preferences, and both are subject to the operator's entitlement
+(A10) and the price/VRAM limits — the wait only ever books a card *inside* the saved policy.
+
+**The wait is not a product ceiling, and it is not an infinite request.** Each attempt stays bound
+by `COMPUTE_SEARCH_TIMEOUT_SECONDS` (60 s, server-side); only the wait *between* attempts is
+unbounded, driven by the Gateway's own backoff (`COMPUTE_WAIT_BACKOFF_SECONDS`, default 30 s, capped
+at `COMPUTE_WAIT_BACKOFF_MAX_SECONDS`, default 180 s). The intent is durable (`gateway_compute.wait_*`),
+so a brief network loss, a Gateway restart, an app restart or a transient provider error never
+cancels it. It ends only when the user cancels (`POST /compute/wait/cancel`), a GPU is booked
+(exactly one managed Pod, then the waiting chat is served), or the policy can no longer progress
+(empty balance, exhausted period budget, a revoked installation).
+
+**Background search vs paid start.** A background *search* only polls RunPod's catalogue and is
+free. A *paid* Pod while the app is closed happens only with `background_start == true`; without it
+the waiting chat's own request performs each attempt. In the Settings → AI / Compute panel the two
+are separate controls, and the panel explains the difference instead of arming a paid auto-start
+silently. `GET /compute/status` reports the read-only `wait` block
+(`docs/gateway-status-contract.md` §8). Stop, idle-stop and the session budget are unchanged and
+still win.

@@ -123,6 +123,10 @@ export const STAGE_TEXT: Record<string, string> = {
   loading_model: "Загружаем модель",
   queueing: "Ожидаем очередь",
   prefill: "Обрабатываем контекст",
+  // Task-1: a persistent capacity wait. The server sends `current_stage: "waiting"`; the compute
+  // state spelling is accepted too, so both render through the same vocabulary.
+  waiting: "Ожидаем свободную GPU",
+  waiting_capacity: "Ожидаем свободную GPU",
   generating: "Генерируем ответ",
   ready: "Готово",
 };
@@ -148,6 +152,14 @@ export const STAGE_BUDGET_SECONDS: Record<string, number> = {
 };
 
 export const DEFAULT_STAGE_BUDGET_SECONDS = 300;
+
+/** Stages the client deliberately never bounds.
+ *
+ * A persistent capacity wait is the user's own choice to keep looking for a free GPU: the Gateway
+ * re-attempts on its own backoff with no arbitrary 60/300 s deadline, so the client must not invent
+ * one either. The freshness window still applies, so a wait whose snapshot stopped updating is
+ * reported honestly (a typed retry) instead of promising forever. */
+export const UNBOUNDED_STAGES = new Set(["waiting", "waiting_capacity"]);
 
 /** How old a snapshot may be and still count as «now» for the AI chip. The status poll is 15 s by
  *  default; 90 s leaves room for a slow or hidden window without ever letting a long-dead attempt
@@ -251,6 +263,9 @@ function deadlineFor(
   observedAt: string | null,
 ): string | null {
   if (!stage) return null;
+  // A persistent wait has no client-side bound: the server owns the retry schedule (and the
+  // freshness window still turns a stopped snapshot into an honest failure).
+  if (UNBOUNDED_STAGES.has(stage)) return null;
   const budget = STAGE_BUDGET_SECONDS[stage] ?? DEFAULT_STAGE_BUDGET_SECONDS;
   const start = millis(observedAt);
   if (budget <= 0 || start === null) return null;
