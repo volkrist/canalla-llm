@@ -114,7 +114,7 @@ def test_pending_migration_is_preceded_by_a_verified_backup(tmp_path, template_d
 
     code, output = run_to_completion(root)
 
-    assert sqlite_revision(root / "data" / "alex.db") == "0015", output[-500:]
+    assert sqlite_revision(root / "data" / "alex.db") == "0016", output[-500:]
     assert counts(root) == before, "no user data may be lost by the migration"
     backups = [row for row in BackupService(root).list_backups() if row["kind"] == "pre_upgrade"]
     assert len(backups) == 1
@@ -126,7 +126,7 @@ def test_pending_migration_is_preceded_by_a_verified_backup(tmp_path, template_d
 
     record = migration_record(root)
     assert record["result"] == "ok"
-    assert (record["from"], record["to"]) == ("0014", "0015")
+    assert (record["from"], record["to"]) == ("0014", "0016")
     assert record["backup"] == backups[0]["id"]
     assert record["app_version"] == VERSION
 
@@ -145,7 +145,7 @@ def test_migration_is_refused_when_the_backup_cannot_be_created(tmp_path, templa
     assert counts(root) == before
     record = migration_record(root)
     assert record["result"] == "blocked_no_backup"
-    assert (record["from"], record["to"]) == ("0014", "0015")
+    assert (record["from"], record["to"]) == ("0014", "0016")
 
 
 def test_a_failed_migration_keeps_the_database_and_the_backup(tmp_path, template_database):
@@ -182,7 +182,7 @@ def test_fresh_install_migrates_without_a_backup(tmp_path, template_database):
 
     run_to_completion(root)
 
-    assert sqlite_revision(root / "data" / "alex.db") == "0015"
+    assert sqlite_revision(root / "data" / "alex.db") == "0016"
     assert BackupService(root).list_backups() == []
     record = migration_record(root)
     assert record["result"] == "ok" and record["from"] is None
@@ -193,7 +193,7 @@ def test_a_current_install_migrates_without_creating_another_backup(tmp_path, te
 
     run_to_completion(root)
 
-    assert sqlite_revision(root / "data" / "alex.db") == "0015"
+    assert sqlite_revision(root / "data" / "alex.db") == "0016"
     assert BackupService(root).list_backups() == []
     assert not (root / "runtime" / "migration.json").exists()
 

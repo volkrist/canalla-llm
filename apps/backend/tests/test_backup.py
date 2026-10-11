@@ -169,7 +169,7 @@ def test_backup_is_verified_and_describes_itself(tmp_path, template_database):
     result = BackupService(root).create_now(kind="manual", label="unit")
 
     assert result["verified"] is True
-    assert result["schema_revision"] == "0015"
+    assert result["schema_revision"] == "0016"
     assert result["documents"] == expected["documents"]
     backup = Path(result["path"])
     manifest = json.loads((backup / MANIFEST_NAME).read_text(encoding="utf-8"))
@@ -396,7 +396,7 @@ def test_restore_returns_the_exact_previous_state(tmp_path, template_database):
     report = restore_backup(Path(backup["path"]), root)
 
     assert report["restored"] is True
-    assert report["to_revision"] == "0015"
+    assert report["to_revision"] == "0016"
     assert report["safety_backup_id"]
     assert counts(root) == before
     assert not list(root.glob("documents.pre-restore-*"))

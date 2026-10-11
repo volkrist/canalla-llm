@@ -16,7 +16,10 @@ class ToolPreferences(Base):
 
 class ToolRun(Base):
     __tablename__ = "tool_runs"
-    __table_args__ = (Index("ix_tool_runs_owner_started", "user_id", "started_at"),)
+    __table_args__ = (
+        Index("ix_tool_runs_owner_started", "user_id", "started_at"),
+        Index("ix_tool_runs_status", "status"),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     chat_id: Mapped[str] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), index=True)
