@@ -43,15 +43,7 @@ pub fn install_id() -> String {
 }
 
 fn current_session_id() -> Option<String> {
-    fs::read_to_string(session_id_path())
-        .ok()
-        .map(|text| text.trim().to_string())
-        .filter(|value| {
-            !value.is_empty()
-                && value
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-        })
+    crate::session::current_session_id()
 }
 
 fn session_secret(session_id: &str) -> Option<String> {
@@ -59,10 +51,7 @@ fn session_secret(session_id: &str) -> Option<String> {
 }
 
 fn clear_local_session() {
-    if let Some(id) = current_session_id() {
-        let _ = crate::credential::delete_scoped("session", &id);
-    }
-    let _ = fs::remove_file(session_id_path());
+    crate::session::clear_local_session();
 }
 
 fn http_client() -> Result<reqwest::Client, String> {
@@ -123,7 +112,11 @@ fn valid_password(password: &str) -> bool {
 }
 
 #[tauri::command]
-pub async fn auth_login(backend_url: String, email: String, password: String) -> Result<Value, String> {
+pub async fn auth_login(
+    backend_url: String,
+    email: String,
+    password: String,
+) -> Result<Value, String> {
     if !valid_password(&password) {
         return Err("invalid_credentials".into());
     }
@@ -198,45 +191,7 @@ pub async fn auth_bootstrap(
 
 #[tauri::command]
 pub async fn auth_restore(backend_url: String) -> Result<Value, String> {
-    let Some(session_id) = current_session_id() else {
-        return Err("no_session".into());
-    };
-    let Some(secret) = session_secret(&session_id) else {
-        clear_local_session();
-        return Err("no_session".into());
-    };
-    let client = http_client()?;
-    let response = client
-        .post(format!("{backend_url}/auth/refresh"))
-        .header("X-Alex-Device-Id", install_id())
-        .json(&json!({"session_id": session_id, "refresh_secret": secret}))
-        .send()
-        .await
-        .map_err(|_| "backend_unreachable".to_string())?;
-    if !response.status().is_success() {
-        let code = response.status();
-        if code == reqwest::StatusCode::UNAUTHORIZED || code == reqwest::StatusCode::CONFLICT {
-            // Revoked / expired / unknown session: drop the local credential
-            // so the next launch goes to the auth screen instead of retrying.
-            clear_local_session();
-            return Err("session_rejected".into());
-        }
-        return Err("backend_unreachable".into());
-    }
-    let body: Value = response.json().await.map_err(|error| error.to_string())?;
-    let fresh_secret = body
-        .get("refresh_secret")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or("invalid_refresh_response")?;
-    // Rotation: persist the new secret before returning, so a concurrent
-    // consumer never replays the consumed one.
-    crate::credential::store_scoped("session", &session_id, fresh_secret)?;
-    Ok(json!({
-        "access_token": body.get("access_token").cloned().unwrap_or(Value::Null),
-        "user": body.get("user").cloned().unwrap_or(Value::Null),
-        "session_id": session_id,
-    }))
+    crate::session::refresh_session(&backend_url).await
 }
 
 #[tauri::command]
@@ -354,10 +309,7 @@ mod tests {
         let second = install_id();
         assert_eq!(first, second);
         assert!(first.len() >= 16);
-        assert_eq!(
-            fs::read_to_string(install_id_path()).unwrap().trim(),
-            first
-        );
+        assert_eq!(fs::read_to_string(install_id_path()).unwrap().trim(), first);
         restore_root(previous);
         let _ = fs::remove_dir_all(&temp);
     }
@@ -411,9 +363,14 @@ mod tests {
 
         assert!(current_session_id().is_none());
         assert!(crate::credential::load_scoped("session", &session_id).is_none());
-        assert_eq!(crate::credential::load_scoped("provider", "runpod"), provider_before);
+        assert_eq!(
+            crate::credential::load_scoped("provider", "runpod"),
+            provider_before
+        );
         assert_eq!(provider_env(), env_before);
-        assert!(provider_env().iter().all(|(name, _)| name == "RUNPOD_API_KEY"));
+        assert!(provider_env()
+            .iter()
+            .all(|(name, _)| name == "RUNPOD_API_KEY"));
         restore_root(previous);
         let _ = fs::remove_dir_all(&temp);
     }

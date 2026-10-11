@@ -14,6 +14,8 @@ mod host;
 mod platform;
 #[path = "../process.rs"]
 mod process;
+#[path = "../session.rs"]
+mod session;
 
 use serde_json::json;
 use std::io::{self, Write};

@@ -344,7 +344,7 @@ fn journal_remove(run_id: &str) {
 
 /// Test seam: forget every local journal entry and delete the file.
 pub fn reset_journal() {
-    let _ = journal_lock().lock();
+    let _guard = journal_lock().lock();
     let _ = fs::remove_file(journal_path());
 }
 
@@ -383,20 +383,11 @@ async fn authed_post(
     backend_post(client, url, token, body).await.ok()
 }
 
-/// Rotate the persistent session into a fresh access token, single-flight so a burst of 401s
-/// does not replay a consumed refresh secret against itself.
+/// Rotate the persistent session into a fresh access token. Single-flight lives inside
+/// ``session`` so a host refresh and a webview restore cannot replay a consumed refresh secret
+/// against each other.
 async fn refresh_token(backend_url: &str) -> Option<String> {
-    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    let lock = LOCK.get_or_init(|| tokio::sync::Mutex::new(()));
-    let _guard = lock.lock().await;
-    match crate::auth::auth_restore(backend_url.to_string()).await {
-        Ok(value) => value
-            .get("access_token")
-            .and_then(Value::as_str)
-            .filter(|token| !token.is_empty())
-            .map(str::to_string),
-        Err(_) => None,
-    }
+    crate::session::refresh_access_token(backend_url).await
 }
 
 /// Fetch this device's jobs, refreshing the token once if it has expired.

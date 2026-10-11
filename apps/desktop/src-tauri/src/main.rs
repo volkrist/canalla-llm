@@ -13,6 +13,7 @@ mod git;
 mod host;
 mod platform;
 mod process;
+mod session;
 
 fn main() {
     tauri::Builder::default()
