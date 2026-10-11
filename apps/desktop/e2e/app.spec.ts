@@ -46,6 +46,10 @@ test("register, streamed markdown, copy, stop, history, isolation and delete", a
     .getByRole("textbox", { name: "Сообщение", exact: true })
     .fill("Останови этот ответ");
   await page.getByRole("button", { name: "Send", exact: true }).click();
+  // Wait for the *second* assistant message to exist before stopping it: `.last()` on its own can
+  // still resolve to the first (completed) message while the second is being appended, and the
+  // captured `partial` would then be the wrong message.
+  await expect(page.locator(".message.assistant")).toHaveCount(2);
   await expect(page.locator(".message.assistant").last()).toContainText(
     "Canalla LLM",
   );
