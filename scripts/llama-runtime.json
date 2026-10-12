@@ -1,0 +1,68 @@
+{
+  "product": "llama.cpp",
+  "component": "llama-server (official Linux x86_64 CUDA build)",
+  "license": "MIT",
+  "homepage": "https://github.com/ggml-org/llama.cpp",
+  "repository": "ggml-org/llama.cpp",
+  "channel_note": "The official binary channel is the rolling prerelease tag series (bNNNNN), published several times a day. The semver release the GitHub API reports as 'latest' (v0.6.0) carries only nightly-tag.txt, no binaries, so a rolling build is the correct and only official binary source.",
+  "tag": "b11565",
+  "commit": "f9a95aeb2096d0c0218e0cd6e6d901cd37be798a",
+  "published_at": "2026-10-12T09:15:54Z",
+  "library_version": "0.6.0",
+  "cuda": "12.8",
+  "platform": "linux-x86_64",
+  "target_dir": "/workspace/llama.cpp/build/bin",
+  "server_path": "/workspace/llama.cpp/build/bin/llama-server",
+  "why_this_build": "The reserve region's GPU image is runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404 with minCudaVersion 12.8, so the CUDA 12.8 x64 build matches the container exactly. The region's primary volume holds no llama.cpp and US-TX-3 has no capacity to read one from, so the reserve gets its own reproducible runtime instead of a byte copy of an unreachable binary.",
+  "provenance": {
+    "provider": "GitHub Releases",
+    "release_api": "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/b11565",
+    "asset_base_url": "https://github.com/ggml-org/llama.cpp/releases/download/b11565/",
+    "note": "Every release asset carries GitHub's own published sha256 digest. The pins below repeat that digest and scripts/verify-llama-runtime-pin.py re-reads the release and refuses any drift. Recomputing the digest of a downloaded file is a corruption check, not the provenance: the provenance is the digest the official release publishes.",
+    "verified_live": "2026-10-12T12:20:00Z",
+    "commit_cross_check": "The published binaries report 'build 11565, commit f9a95aeb2' from llama-server --version, which matches this pin's tag and commit."
+  },
+  "assets": {
+    "bin": {
+      "name": "llama-b11565-bin-ubuntu-cuda-12.8-x64.tar.gz",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11565/llama-b11565-bin-ubuntu-cuda-12.8-x64.tar.gz",
+      "bytes": 171559844,
+      "sha256": "61b8cf4e49739afe4008b06a92390dff999e706e9e7e9749c015544a9f241627",
+      "archive_root": "llama-b11565",
+      "stages": "the whole build directory, flat: llama-server, every lib*.so* (via its relative symlinks) and LICENSE"
+    },
+    "cudart": {
+      "name": "cudart-llama-b11565-bin-ubuntu-cuda-12.8-x64.tar.gz",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11565/cudart-llama-b11565-bin-ubuntu-cuda-12.8-x64.tar.gz",
+      "bytes": 594377834,
+      "sha256": "e6177074761d8be20b76ce165944f16b7a338c0b477d1ecbb240e38c743c1b90",
+      "archive_root": "cudart-llama-b11565-bin-ubuntu-cuda-12.8-x64",
+      "libraries": ["libcublas.so.12", "libcudart.so.12", "libcublasLt.so.12"],
+      "why": "The CUDA runtime libraries the GPU backend links against. The container image already provides them, so staging them next to the binary is defence in depth: with RUNPATH=$ORIGIN the staged pair loads on any host, which is exactly what a GPU-less CI runner proves."
+    }
+  },
+  "contract": {
+    "server": "/workspace/llama.cpp/build/bin/llama-server",
+    "model": "/workspace/models/orcarouter-qwen38/orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf",
+    "alias": "orcarouter-qwen38-27b-q5km",
+    "ctx_size": 32768,
+    "parallel": 1,
+    "flash_attn": "on",
+    "jinja": true,
+    "host": "127.0.0.1",
+    "port": 8080,
+    "health_path": "/v1/models",
+    "required_flags": [
+      "--model",
+      "--alias",
+      "--n-gpu-layers",
+      "--ctx-size",
+      "--parallel",
+      "--flash-attn",
+      "--jinja",
+      "--host",
+      "--port"
+    ],
+    "compatibility_note": "Checked against common/arg.cpp at this exact commit: --n-gpu-layers takes N, 'auto' or 'all' (all -> -2), --flash-attn takes on|off|auto, and --ctx-size/--parallel/--alias/--jinja/--host/--port are unchanged. The existing start-llm.sh needs no edit."
+  }
+}

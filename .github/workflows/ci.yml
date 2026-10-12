@@ -132,6 +132,45 @@ jobs:
         working-directory: apps/backend
         run: python -m pytest tests/test_tor_bundle.py tests/test_tor_service.py -q
 
+  llama-runtime:
+    # The reserve region's CUDA runtime, proven from the official release instead of copied from an
+    # unreachable binary: the pin is re-read from the repository's own Releases API, both archives
+    # are downloaded and verified by size and SHA256, and the staged launcher answers --version and
+    # advertises every flag the launch contract needs — on a host with no GPU. No Pod, no signing
+    # key, no production secret.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify the pin against the official release
+        run: python scripts/verify-llama-runtime-pin.py
+
+      - name: Download, verify and stage the pinned runtime
+        run: python scripts/provision-llama-runtime.py --dest "$RUNNER_TEMP/llama-bin" --print
+
+      - name: The staged launcher answers --version and --help on its own
+        shell: bash
+        run: |
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/llama-bin${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          "$RUNNER_TEMP/llama-bin/llama-server" --version
+          "$RUNNER_TEMP/llama-bin/llama-server" --help | grep -E -- '--flash-attn|--n-gpu-layers|--ctx-size|--jinja' >/dev/null
+          echo "llama-server answered --version and --help with no GPU"
+
+      - name: Upload the runtime manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-runtime-manifest
+          path: ${{ runner.temp }}/llama-bin/llama-runtime-manifest.json
+          if-no-files-found: error
+
   frontend-e2e:
     runs-on: windows-latest
     timeout-minutes: 90
