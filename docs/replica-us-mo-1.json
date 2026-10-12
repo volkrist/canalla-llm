@@ -1,0 +1,16 @@
+{
+  "replicas": [
+    {
+      "volume_id": "y92bt25ru8",
+      "datacenter": "US-MO-1",
+      "model_id": "orcarouter-qwen38-27b-q5km",
+      "model_path": "/workspace/models/orcarouter-qwen38/orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf",
+      "model_sha256": "4ad98832b3d376dd274df5bba59dd34834f0f401593e1463f38fd5fa219293b1",
+      "model_bytes": 20752787712,
+      "runtime_version": "unknown",
+      "bootstrap_version": "1.2.1",
+      "last_verified": "2026-10-12T11:53:56Z",
+      "ready": false
+    }
+  ]
+}
