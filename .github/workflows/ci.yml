@@ -164,6 +164,19 @@ jobs:
           "$RUNNER_TEMP/llama-bin/llama-server" --help | grep -E -- '--flash-attn|--n-gpu-layers|--ctx-size|--jinja' >/dev/null
           echo "llama-server answered --version and --help with no GPU"
 
+      # The same command a CPU Pod runs to put the runtime on the reserve volume, proven on Linux
+      # (the Pod is Linux; a Windows host cannot create the archive's dangling symlinks). It walks
+      # the download path, not the cache, because that is what a fresh Pod does.
+      - name: The Pod's own shell command stages and runs the runtime
+        shell: bash
+        run: |
+          python scripts/provision-llama-runtime.py --pod-command --pod-dest "$RUNNER_TEMP/pod-dest" > "$RUNNER_TEMP/podcmd.sh"
+          bash "$RUNNER_TEMP/podcmd.sh" 2>&1 | tee "$RUNNER_TEMP/podcmd.log"
+          grep -q CANALLA_L_OK "$RUNNER_TEMP/podcmd.log"
+          grep -q "CANALLA_L_SERVER_SHA256 860ae1b8" "$RUNNER_TEMP/podcmd.log"
+          grep -q "build 11565" "$RUNNER_TEMP/podcmd.log"
+          echo "the Pod command staged and ran the pinned runtime"
+
       - name: Upload the runtime manifest
         uses: actions/upload-artifact@v4
         with:

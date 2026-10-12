@@ -34,6 +34,7 @@ import argparse
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -258,6 +259,90 @@ def run_checks(binary: Path, dest: Path, contract: dict) -> dict:
     return result
 
 
+# --------------------------------------------------------------------------------- pod command
+
+
+def pod_command(pin: dict, dest: str, archive_dir: str = "") -> str:
+    """A self-contained POSIX shell command that provisions the runtime onto a mounted volume.
+
+    A CPU Pod has no checkout and no Python guarantee, so the command carries the pin inline: it
+    downloads each archive (or copies it from a local ``--pod-archive-dir``), verifies byte count and
+    SHA256 before unpacking, stages the pair into the launch path and reports what it did as
+    ``CANALLA_L_*`` markers. Nothing secret is ever embedded, and no archive is trusted before it
+    matches the pin.
+    """
+    bin_asset = pin["assets"]["bin"]
+    cudart_asset = pin["assets"].get("cudart")
+    lines = [
+        "set -eu",
+        f"DEST={shlex.quote(dest)}",
+        f"ARCHIVES={shlex.quote(archive_dir)}",
+        'WORK=$(mktemp -d)',
+        "trap 'rm -rf \"$WORK\"' EXIT",
+        "echo CANALLA_L_START",
+        "df -h \"$DEST\" 2>/dev/null || df -h /workspace 2>/dev/null || true",
+        "DL_get() {",
+        '  if command -v curl >/dev/null 2>&1; then curl -fsSL --max-time 900 -o "$2" "$1";',
+        '  else wget -q -T 900 -O "$2" "$1"; fi',
+        "}",
+        "check() {",
+        '  got_bytes=$(wc -c < "$1" | tr -d " ")',
+        '  got_sha=$(sha256sum "$1" | cut -d" " -f1)',
+        '  if [ "$got_bytes" != "$2" ] || [ "$got_sha" != "$3" ]; then',
+        '    echo "CANALLA_L_BAD $1 bytes=$got_bytes sha=$got_sha"; return 1',
+        "  fi",
+        "}",
+        "acquire() {",
+        '  name="$1"; url="$2"; bytes="$3"; sha="$4"; tries="$5"; i=0',
+        '  while [ "$i" -lt "$tries" ]; do',
+        "    i=$((i+1))",
+        '    if [ -n "$ARCHIVES" ]; then cp "$ARCHIVES/$name" "$WORK/$name";',
+        '    else DL_get "$url" "$WORK/$name"; fi',
+        '    if check "$WORK/$name" "$bytes" "$sha"; then return 0; fi',
+        '    echo "CANALLA_L_RETRY $name"; sleep 5',
+        "  done",
+        '  echo "CANALLA_L_FETCH_FAILED $name"; return 1',
+        "}",
+        "mkdir -p \"$WORK/bin\" \"$WORK/cudart\"",
+        'acquire %s %s %s %s 3'
+        % (
+            shlex.quote(bin_asset["name"]),
+            shlex.quote(bin_asset["url"]),
+            shlex.quote(str(bin_asset["bytes"])),
+            shlex.quote(str(bin_asset["sha256"])),
+        ),
+    ]
+    if cudart_asset:
+        lines.append(
+            "acquire %s %s %s %s 3"
+            % (
+                shlex.quote(cudart_asset["name"]),
+                shlex.quote(cudart_asset["url"]),
+                shlex.quote(str(cudart_asset["bytes"])),
+                shlex.quote(str(cudart_asset["sha256"])),
+            )
+        )
+    lines += [
+        'mkdir -p "$DEST"',
+        f'tar -xzf "$WORK/{bin_asset["name"]}" -C "$WORK/bin"',
+        'BIN_ROOT=$(ls "$WORK/bin")',
+        'cp -a "$WORK/bin/$BIN_ROOT/." "$DEST/"',
+    ]
+    if cudart_asset:
+        lines += [
+            f'tar -xzf "$WORK/{cudart_asset["name"]}" -C "$WORK/cudart"',
+            'CUDART_ROOT=$(ls "$WORK/cudart")',
+            'cp -a "$WORK/cudart/$CUDART_ROOT/." "$DEST/"',
+        ]
+    lines += [
+        'chmod +x "$DEST/llama-server"',
+        'echo "CANALLA_L_SERVER_SHA256 $(sha256sum \"$DEST/llama-server\" | cut -d\" \" -f1)"',
+        'LD_LIBRARY_PATH="$DEST" "$DEST/llama-server" --version 2>&1 | head -n1 || true',
+        "echo CANALLA_L_OK",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 # --------------------------------------------------------------------------------- main
 
 
@@ -377,6 +462,15 @@ def self_test() -> int:
         [flag for flag in contract["required_flags"] if flag not in sample_help.replace("--jinja", "")],
     )
 
+    command = pod_command(pin, pin["target_dir"])
+    check("the pod command is self-contained shell", command.startswith("set -eu\n"))
+    check("the pod command verifies by sha256", "sha256sum" in command and "check " in command)
+    for key, entry in pin["assets"].items():
+        check(f"the pod command carries {key}'s url", str(entry["url"]) in command)
+        check(f"the pod command carries {key}'s sha256", str(entry["sha256"]) in command)
+    check("the pod command stages into the launch path", pin["target_dir"] in command)
+    check("the pod command never traces", "set -x" not in command)
+
     if failures:
         print(f"LLAMA-RUNTIME: self-test FAILED ({failures})")
         return FAIL
@@ -391,10 +485,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verify-only", action="store_true", help="print the pins and stop")
     parser.add_argument("--skip-cudart", action="store_true", help="stage only the build, not the CUDA runtime")
     parser.add_argument("--print", dest="show", action="store_true", help="print every staged file")
+    parser.add_argument(
+        "--pod-command", action="store_true", help="print a self-contained pod command instead"
+    )
+    parser.add_argument("--pod-dest", default="", help="volume path the pod command stages into")
+    parser.add_argument("--pod-archive-dir", default="", help="local archives the pod command copies from")
     parser.add_argument("--self-test", action="store_true", help="offline checks of the logic")
     args = parser.parse_args(argv)
     if args.self_test:
         return self_test()
+    if args.pod_command:
+        pin = load_pin()
+        sys.stdout.write(pod_command(pin, args.pod_dest or pin["target_dir"], args.pod_archive_dir))
+        return PASS
     return provision(args)
 
 
