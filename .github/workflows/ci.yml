@@ -110,8 +110,17 @@ jobs:
       - name: Verify the pin against the Tor Project's signed checksums
         run: python scripts/verify-tor-runtime-pin.py
 
+      # Keyed by the pinned version, so once a run has restored the archives this job no longer needs
+      # dist.torproject.org or gnu.org at all. A cache hit is re-verified against the pin by the
+      # script — the cache can only save bandwidth, never change what is staged.
+      - name: Restore the verified Tor archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.tor-runtime-cache
+          key: tor-runtime-15.0.25
+
       - name: Fetch, verify and stage the pinned runtime
-        run: python scripts/fetch-tor-runtime.py --print
+        run: python scripts/fetch-tor-runtime.py --print --cache "${{ github.workspace }}/.tor-runtime-cache"
 
       - name: The staged daemon runs on its own and reports the pinned version
         shell: pwsh
@@ -121,7 +130,7 @@ jobs:
           $output = (& $exe --version 2>&1 | Out-String)
           Write-Host $output
           if ($LASTEXITCODE -ne 0) { throw "tor --version exited $LASTEXITCODE" }
-          if ($output -notmatch "0\.4\.9\.13") { throw "the staged daemon is not the pinned version" }
+          if ($output -notmatch "0\.4\.9\.14") { throw "the staged daemon is not the pinned version" }
 
       - name: Install backend dependencies
         run: |
@@ -293,6 +302,9 @@ jobs:
     env:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: "utf-8"
+      # The archives the tor-runtime job verified, restored from the same cache, so the installer
+      # build does not depend on an external host at all once the cache is warm.
+      TOR_RUNTIME_CACHE: ${{ github.workspace }}/.tor-runtime-cache
     steps:
       - uses: actions/checkout@v4
 
@@ -305,6 +317,12 @@ jobs:
           node-version: "24"
 
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore the verified Tor archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.tor-runtime-cache
+          key: tor-runtime-15.0.25
 
       - name: Create the backend venv the sidecar build uses
         run: |
@@ -325,7 +343,7 @@ jobs:
         run: |
           $installer = Get-ChildItem apps/desktop/src-tauri/target/release/bundle/nsis -Filter *setup.exe |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          python scripts/release-gate.py verify-artifact --installer $installer.FullName --version 1.2.0
+          python scripts/release-gate.py verify-artifact --installer $installer.FullName --version 1.2.1
           if ($LASTEXITCODE -eq 0) {
             throw "the production release gate accepted an unsigned test build — it must not"
           }

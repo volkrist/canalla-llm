@@ -15,7 +15,12 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 # the build here instead of shipping an unexpected runtime.
 $python = Join-Path $repo 'apps\backend\.venv\Scripts\python.exe'
 if (-not (Test-Path $python)) { throw "PYTHON_MISSING: $python" }
-& $python (Join-Path $PSScriptRoot 'fetch-tor-runtime.py')
+# A cache directory the pipeline restores from makes a later build independent of the Tor Project's
+# host; the script still verifies every byte against scripts/tor-runtime.json before staging, so a
+# cache hit is never trusted blindly.
+$torArgs = @((Join-Path $PSScriptRoot 'fetch-tor-runtime.py'))
+if ($env:TOR_RUNTIME_CACHE) { $torArgs += @('--cache', $env:TOR_RUNTIME_CACHE) }
+& $python @torArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 # Updater signing: the private key never lives in the repository. Point
 # TAURI_SIGNING_PRIVATE_KEY(_PATH) at it, or keep it at the operator's own path below.

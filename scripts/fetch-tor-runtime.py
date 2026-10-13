@@ -139,11 +139,13 @@ def verify(archive: Path, entry: dict, platform: str) -> None:
         raise SystemExit(f"{platform}: {archive.name} has sha256 {digest}, expected {entry.get('sha256')}")
 
 
-def stage_license_texts(texts: list[dict], dest: Path) -> dict[str, str]:
+def stage_license_texts(texts: list[dict], dest: Path, cache: Path | None = None) -> dict[str, str]:
     """The pinned license texts, verified exactly like the archive itself.
 
     A text that is already staged with the right hash is kept as it is, so an offline build that
-    was staged before does not need the network again.
+    was staged before does not need the network again. With ``cache`` the text is fetched into that
+    directory once and reused from there afterwards, which keeps an external host (gnu.org) out of
+    every later build: the pinned SHA256 is checked on the cached copy exactly as on a fresh one.
     """
     staged: dict[str, str] = {}
     for text in texts:
@@ -156,7 +158,17 @@ def stage_license_texts(texts: list[dict], dest: Path) -> dict[str, str]:
         if target.is_file() and sha256_of(target) == digest:
             staged[name] = digest
             continue
-        _fetch(url, target)
+        if cache is not None:
+            cached = cache / name
+            if not (cached.is_file() and sha256_of(cached) == digest):
+                cache.mkdir(parents=True, exist_ok=True)
+                _fetch(url, cached)
+                found_cached = sha256_of(cached)
+                if found_cached != digest:
+                    raise SystemExit(f"{name}: cached sha256 {found_cached} does not match the pin {digest}")
+            shutil.copyfile(cached, target)
+        else:
+            _fetch(url, target)
         found = sha256_of(target)
         if found != digest:
             raise SystemExit(f"{name}: sha256 {found} does not match the pin {digest}")
@@ -165,7 +177,7 @@ def stage_license_texts(texts: list[dict], dest: Path) -> dict[str, str]:
     return staged
 
 
-def stage(archive: Path, entry: dict, dest: Path) -> dict:
+def stage(archive: Path, entry: dict, dest: Path, cache: Path | None = None) -> dict:
     """Extract only the pinned files, flattened, and record what was staged."""
     names = wanted_members(entry)
     dest.mkdir(parents=True, exist_ok=True)
@@ -186,7 +198,7 @@ def stage(archive: Path, entry: dict, dest: Path) -> dict:
             target.chmod(0o755 if executable else 0o644)
             staged[target.name] = sha256_of(target)
 
-    staged.update(stage_license_texts(entry.get("_license_texts") or [], dest))
+    staged.update(stage_license_texts(entry.get("_license_texts") or [], dest, cache))
 
     # Anything the previous staging left behind would be bundled as well: keep exactly the pin.
     for leftover in dest.iterdir():
@@ -226,6 +238,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--platform", default=None, help="windows-x86_64 or linux-x86_64")
     parser.add_argument("--dest", default=None, help="staging directory")
     parser.add_argument("--archive", default=None, help="an already downloaded archive")
+    parser.add_argument(
+        "--cache",
+        default=None,
+        help="directory to keep the verified archive and license text in, so a later build reuses them",
+    )
     parser.add_argument("--verify-only", action="store_true", help="check the pins and stop")
     parser.add_argument("--clean", action="store_true", help="remove the staged runtime")
     parser.add_argument("--print", dest="show", action="store_true", help="print the staged files")
@@ -261,6 +278,23 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     archive = Path(args.archive) if args.archive else None
+    cache = Path(args.cache) if args.cache else None
+    if archive is None and cache is not None:
+        cached = cache / Path(str(entry["url"])).name
+        if cached.is_file():
+            try:
+                verify(cached, entry, platform)
+                print(f"using the verified archive cached at {cached}")
+                archive = cached
+            except SystemExit:
+                print(f"cached {cached.name} no longer matches the pin — re-downloading")
+                cached.unlink()
+        if archive is None:
+            cache.mkdir(parents=True, exist_ok=True)
+            print(f"downloading {entry['url']}")
+            download(str(entry["url"]), cached)
+            verify(cached, entry, platform)
+            archive = cached
     temporary: Path | None = None
     try:
         if archive is None:
@@ -273,7 +307,7 @@ def main(argv: list[str] | None = None) -> int:
         if not archive.is_file():
             raise SystemExit(f"{archive} does not exist")
         verify(archive, entry, platform)
-        metadata = stage(archive, entry, dest)
+        metadata = stage(archive, entry, dest, cache)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
