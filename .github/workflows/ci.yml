@@ -185,6 +185,48 @@ jobs:
           path: ${{ runner.temp }}/llama-bin/llama-runtime-manifest.json
           if-no-files-found: error
 
+  llama-runtime-image:
+    # Does the image the GPU Pod actually runs satisfy the pinned build? A bare Ubuntu lacked
+    # libgomp.so.1, so this is answered inside the *production* image instead of inferred: the
+    # pinned runtime is staged, the multi-gigabyte image is pulled and scripts/probe-runtime-in-image.sh
+    # runs in it and fails loudly on any missing dependency except the driver library a real GPU
+    # supplies. No Pod, no GPU, no signing key, no secret.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+      PROD_IMAGE: runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Free disk space for a multi-gigabyte image
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          docker image prune -af || true
+          df -h /
+
+      - name: Verify the pin against the official release
+        run: python scripts/verify-llama-runtime-pin.py
+
+      - name: Download, verify and stage the pinned runtime
+        run: python scripts/provision-llama-runtime.py --dest "$RUNNER_TEMP/llama-bin"
+
+      - name: Pull the production Pod image
+        run: docker pull "$PROD_IMAGE"
+
+      - name: Probe the runtime inside the production image
+        shell: bash
+        run: |
+          docker run --rm --entrypoint sh -e RUNTIME=/runtime \
+            -v "$RUNNER_TEMP/llama-bin:/runtime:ro" \
+            -v "$PWD/scripts/probe-runtime-in-image.sh:/probe.sh:ro" \
+            "$PROD_IMAGE" /probe.sh
+
   frontend-e2e:
     runs-on: windows-latest
     timeout-minutes: 90
