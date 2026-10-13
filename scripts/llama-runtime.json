@@ -14,6 +14,14 @@
   "target_dir": "/workspace/llama.cpp/build/bin",
   "server_path": "/workspace/llama.cpp/build/bin/llama-server",
   "why_this_build": "The reserve region's GPU image is runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404 with minCudaVersion 12.8, so the CUDA 12.8 x64 build matches the container exactly. The region's primary volume holds no llama.cpp and US-TX-3 has no capacity to read one from, so the reserve gets its own reproducible runtime instead of a byte copy of an unreachable binary.",
+  "verified_in_image": {
+    "image": "runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404",
+    "checked_at": "2026-10-13",
+    "method": "the trusted CI job llama-runtime-image pulls the image, mounts the staged runtime at /runtime and runs scripts/probe-runtime-in-image.sh inside it",
+    "result": "pass",
+    "evidence": "Ubuntu 24.04.3 LTS, glibc 2.39, /usr/local/cuda-12.8/; libgomp.so.1 present (352304 bytes); ldd llama-server reports nothing missing; ldd libggml-cuda.so misses only libcuda.so.1, the driver the NVIDIA runtime supplies at real GPU start; llama-server --version reports 'version: 0.6.0-dev (build 11565, commit f9a95aeb2)'; --help lists every contract flag.",
+    "why_it_matters": "A bare ubuntu:24.04 image has no libgomp.so.1, which this build needs — that was the one gap a CPU Pod found. The production image provides it, so the reserve runtime needs no extra library and stays exactly the pinned official release."
+  },
   "provenance": {
     "provider": "GitHub Releases",
     "release_api": "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/b11565",
