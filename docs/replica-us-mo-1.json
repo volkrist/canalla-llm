@@ -11,7 +11,7 @@
       "runtime_path": "/workspace/llama.cpp/build/bin/llama-server",
       "runtime_sha256": "860ae1b8cbe434bffb958939c3a8cbb89859386f6f6ee8bed76f34a702ec81d0",
       "bootstrap_version": "1.2.1",
-      "last_verified": "2026-10-12T11:53:56Z",
+      "last_verified": "2026-10-13T11:02:28Z",
       "ready": false
     }
   ]

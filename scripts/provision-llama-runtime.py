@@ -262,7 +262,7 @@ def run_checks(binary: Path, dest: Path, contract: dict) -> dict:
 # --------------------------------------------------------------------------------- pod command
 
 
-def pod_command(pin: dict, dest: str, archive_dir: str = "") -> str:
+def pod_command(pin: dict, dest: str, archive_dir: str = "", verify: bool = False) -> str:
     """A self-contained POSIX shell command that provisions the runtime onto a mounted volume.
 
     A CPU Pod has no checkout and no Python guarantee, so the command carries the pin inline: it
@@ -270,6 +270,11 @@ def pod_command(pin: dict, dest: str, archive_dir: str = "") -> str:
     SHA256 before unpacking, stages the pair into the launch path and reports what it did as
     ``CANALLA_L_*`` markers. Nothing secret is ever embedded, and no archive is trusted before it
     matches the pin.
+
+    ``verify`` appends the post-staging checks: the launcher's hash and executability, the presence
+    and size of every library the runtime needs, the version it reports, and — with ``ldd`` — which
+    shared objects are *not* found, so a missing driver library is a value a human reads rather than
+    an assumption.
     """
     bin_asset = pin["assets"]["bin"]
     cudart_asset = pin["assets"].get("cudart")
@@ -281,6 +286,17 @@ def pod_command(pin: dict, dest: str, archive_dir: str = "") -> str:
         "trap 'rm -rf \"$WORK\"' EXIT",
         "echo CANALLA_L_START",
         "df -h \"$DEST\" 2>/dev/null || df -h /workspace 2>/dev/null || true",
+        "# A downloader is the one tool the image may lack; install it, or refuse loudly.",
+        "if ! command -v curl >/dev/null 2>&1; then",
+        "  if command -v apt-get >/dev/null 2>&1; then",
+        "    apt-get update -qq >/dev/null 2>&1 || true",
+        "    apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null 2>&1 || true",
+        "  elif command -v apk >/dev/null 2>&1; then",
+        "    apk add --no-cache curl >/dev/null 2>&1 || true",
+        "  fi",
+        "fi",
+        "if ! command -v curl >/dev/null 2>&1; then echo CANALLA_L_NO_CURL; exit 1; fi",
+        "echo CANALLA_L_TOOLS_OK",
         "DL_get() {",
         '  if command -v curl >/dev/null 2>&1; then curl -fsSL --max-time 900 -o "$2" "$1";',
         '  else wget -q -T 900 -O "$2" "$1"; fi',
@@ -337,6 +353,42 @@ def pod_command(pin: dict, dest: str, archive_dir: str = "") -> str:
     lines += [
         'chmod +x "$DEST/llama-server"',
         'echo "CANALLA_L_SERVER_SHA256 $(sha256sum \"$DEST/llama-server\" | cut -d\" \" -f1)"',
+        "echo CANALLA_L_STAGED",
+    ]
+    if verify:
+        lines += [
+            'echo "CANALLA_L_FILES $(ls -1 \"$DEST\" | wc -l | tr -d \" \")"',
+            'echo "CANALLA_L_SERVER_BYTES $(wc -c < \"$DEST/llama-server\" | tr -d \" \")"',
+            'if [ -x "$DEST/llama-server" ]; then echo CANALLA_L_EXEC_OK; else echo CANALLA_L_EXEC_FAIL; fi',
+            "for lib in libcudart.so.12 libcublas.so.12 libcublasLt.so.12 libggml-cuda.so "
+            "libllama.so.0 libggml.so.0; do",
+            '  if [ -e "$DEST/$lib" ]; then echo "CANALLA_L_LIB_OK $lib $(wc -c < "$DEST/$lib" | tr -d " ")";',
+            '  else echo "CANALLA_L_LIB_MISSING $lib"; fi',
+            "done",
+            'echo "CANALLA_L_VERSION $(LD_LIBRARY_PATH=\"$DEST\" "$DEST/llama-server" --version 2>&1 | head -n1)"',
+            'echo "CANALLA_L_HELP_FLASH $(LD_LIBRARY_PATH=\"$DEST\" "$DEST/llama-server" --help 2>&1 '
+            "| grep -c -- --flash-attn || true)\"",
+            "if command -v ldd >/dev/null 2>&1; then",
+            '  echo "CANALLA_L_LDD_SERVER $(LD_LIBRARY_PATH=\"$DEST\" ldd "$DEST/llama-server" 2>&1 '
+            "| awk '/not found/{print $1}' | tr '\\n' ',' || true)\"",
+            '  echo "CANALLA_L_LDD_CUDA $(LD_LIBRARY_PATH=\"$DEST\" ldd "$DEST/libggml-cuda.so" 2>&1 '
+            "| awk '/not found/{print $1}' | tr '\\n' ',' || true)\"",
+            "fi",
+            'if [ -f /workspace/models/orcarouter-qwen38/orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf ]; then',
+            '  echo "CANALLA_L_GGUF_BYTES $(wc -c < /workspace/models/orcarouter-qwen38/'
+            'orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf | tr -d \" \")"',
+            "else echo CANALLA_L_GGUF_MISSING; fi",
+            "for f in /workspace/start-llm.sh /workspace/check-llm.sh; do",
+            '  if [ -f "$f" ]; then echo "CANALLA_L_SCRIPT_PRESENT $f"; else echo "CANALLA_L_SCRIPT_MISSING $f"; fi',
+            '  if bash -n "$f" >/dev/null 2>&1; then echo "CANALLA_L_SCRIPT_SYNTAX_OK $(basename \"$f\")";',
+            '  else echo "CANALLA_L_SCRIPT_SYNTAX_FAIL $(basename \"$f\")"; fi',
+            "done",
+            "if grep -q -- '--ctx-size 32768' /workspace/start-llm.sh; then echo CANALLA_L_CONTRACT_CTX_OK; "
+            "else echo CANALLA_L_CONTRACT_CTX_FAIL; fi",
+            "if grep -q -- '--n-gpu-layers all' /workspace/start-llm.sh; then echo CANALLA_L_CONTRACT_NGL_OK; "
+            "else echo CANALLA_L_CONTRACT_NGL_FAIL; fi",
+        ]
+    lines += [
         'LD_LIBRARY_PATH="$DEST" "$DEST/llama-server" --version 2>&1 | head -n1 || true',
         "echo CANALLA_L_OK",
     ]
@@ -471,6 +523,18 @@ def self_test() -> int:
     check("the pod command stages into the launch path", pin["target_dir"] in command)
     check("the pod command never traces", "set -x" not in command)
 
+    verified = pod_command(pin, pin["target_dir"], verify=True)
+    for marker in (
+        "CANALLA_L_STAGED",
+        "CANALLA_L_EXEC_OK",
+        "CANALLA_L_LIB_MISSING",
+        "CANALLA_L_VERSION",
+        "CANALLA_L_LDD_CUDA",
+        "CANALLA_L_SCRIPT_SYNTAX_OK",
+        "CANALLA_L_CONTRACT_CTX_OK",
+    ):
+        check(f"the verified pod command reports {marker}", marker in verified)
+
     if failures:
         print(f"LLAMA-RUNTIME: self-test FAILED ({failures})")
         return FAIL
@@ -490,13 +554,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--pod-dest", default="", help="volume path the pod command stages into")
     parser.add_argument("--pod-archive-dir", default="", help="local archives the pod command copies from")
+    parser.add_argument("--pod-verify", action="store_true", help="append the post-staging checks")
     parser.add_argument("--self-test", action="store_true", help="offline checks of the logic")
     args = parser.parse_args(argv)
     if args.self_test:
         return self_test()
     if args.pod_command:
         pin = load_pin()
-        sys.stdout.write(pod_command(pin, args.pod_dest or pin["target_dir"], args.pod_archive_dir))
+        sys.stdout.write(
+            pod_command(pin, args.pod_dest or pin["target_dir"], args.pod_archive_dir, args.pod_verify)
+        )
         return PASS
     return provision(args)
 

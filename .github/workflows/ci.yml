@@ -170,9 +170,10 @@ jobs:
       - name: The Pod's own shell command stages and runs the runtime
         shell: bash
         run: |
-          python scripts/provision-llama-runtime.py --pod-command --pod-dest "$RUNNER_TEMP/pod-dest" > "$RUNNER_TEMP/podcmd.sh"
+          python scripts/provision-llama-runtime.py --pod-command --pod-verify --pod-dest "$RUNNER_TEMP/pod-dest" > "$RUNNER_TEMP/podcmd.sh"
           bash "$RUNNER_TEMP/podcmd.sh" 2>&1 | tee "$RUNNER_TEMP/podcmd.log"
           grep -q CANALLA_L_OK "$RUNNER_TEMP/podcmd.log"
+          grep -q CANALLA_L_EXEC_OK "$RUNNER_TEMP/podcmd.log"
           grep -q "CANALLA_L_SERVER_SHA256 860ae1b8" "$RUNNER_TEMP/podcmd.log"
           grep -q "build 11565" "$RUNNER_TEMP/podcmd.log"
           echo "the Pod command staged and ran the pinned runtime"
