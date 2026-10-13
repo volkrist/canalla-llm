@@ -9,7 +9,9 @@ dropped.
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +30,9 @@ from app.compute.replicas import (
     placement_refusals,
     replica_verdict,
 )
+from app.product import VERSION as PRODUCT_VERSION
+
+REPO = Path(__file__).resolve().parents[3]
 
 EXPECTED = ReplicaExpectation(
     model_id="orcarouter/Qwen3.8-27B-Uncensored",
@@ -57,6 +62,33 @@ def replica(**overrides) -> ModelReplica:
 
 def test_a_verified_replica_of_this_exact_model_is_ready():
     assert replica_verdict(replica(), EXPECTED) == REPLICA_READY
+
+
+def test_the_shipped_reserve_record_matches_this_build():
+    """The two-region deployment's own record must satisfy the expectation this build holds.
+
+    The Gateway gates an *added* placement on a record naming this exact model, hash and runtime
+    versions — ``bootstrap_version`` among them, which is the product version. A record that drifts
+    from the build is refused as ``wrong_runtime``, so the reserve would silently never be used;
+    this test makes that drift fail here instead of in production.
+    """
+    record = json.loads((REPO / "docs" / "replica-us-mo-1.json").read_text(encoding="utf-8"))
+    replicas = parse_replicas(record)
+    assert len(replicas) == 1
+
+    expected = ReplicaExpectation(
+        model_id="orcarouter-qwen38-27b-q5km",  # the deployed LLM_MODEL
+        model_sha256="",  # not configured in the deployment, so never contradicted
+        runtime_version="",  # not configured, so the record's own value is not contested
+        bootstrap_version=PRODUCT_VERSION,
+    )
+    placements = (
+        policy.Placement(datacenter="US-TX-3", volume_id="uwgeaie5b0"),
+        policy.Placement(datacenter="US-MO-1", volume_id="y92bt25ru8"),
+    )
+    refusals = placement_refusals(placements, replicas, expected, require_records=("y92bt25ru8",))
+    assert refusals == {}, refusals
+    assert replica_verdict(replicas[0], expected) == REPLICA_READY
 
 
 def test_no_record_at_all_is_missing_not_ready():
