@@ -378,9 +378,20 @@ jobs:
           $client = Join-Path $root 'alex-llm.exe'
           $sidecar = Join-Path $root 'sidecar\alex-backend\alex-backend.exe'
           $tor = Join-Path $root 'runtime\tor\tor.exe'
+          # The hashes of the binaries a Defender investigation has to compare against a local
+          # detection, so an artifact can be named by hash instead of by size alone.
           foreach ($path in @($client, $sidecar, $tor)) {
             if (-not (Test-Path $path)) { throw "missing from the installed tree: $path" }
-            Write-Host ("{0}  {1} bytes" -f $path, (Get-Item $path).Length)
+            Write-Host ("{0}  {1} bytes  sha256={2}" -f $path, (Get-Item $path).Length, (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant())
+          }
+          # The host loop is one of the files a Defender investigation flagged; record its hash where
+          # it actually is, without making the build depend on that exact location.
+          $hostLoop = @((Join-Path $root 'sidecar\alex-host-loop.exe'), (Join-Path $root 'alex-host-loop.exe')) |
+            Where-Object { Test-Path $_ } | Select-Object -First 1
+          if ($hostLoop) {
+            Write-Host ("{0}  {1} bytes  sha256={2}" -f $hostLoop, (Get-Item $hostLoop).Length, (Get-FileHash $hostLoop -Algorithm SHA256).Hash.ToLowerInvariant())
+          } else {
+            Write-Host 'host loop not found at the expected paths'
           }
           python scripts/verify-packaged-gateway-url.py $client
           if ($LASTEXITCODE -ne 0) { throw "the installed client does not carry the production Gateway URL" }
