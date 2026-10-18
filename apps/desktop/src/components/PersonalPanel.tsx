@@ -310,6 +310,10 @@ export default function PersonalPanel({
           </label>
           {technical && (
             <button
+              // A read-only preview still goes through `run`, which drops the click while
+              // another action is in flight: without this the request was silently skipped
+              // and the dialog stayed empty.
+              disabled={busy}
               onClick={() => {
                 setTab("Контекст");
                 void run(async () =>
