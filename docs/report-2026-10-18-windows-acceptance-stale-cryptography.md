@@ -69,6 +69,35 @@ ImportError: cannot import name 'x509' from 'cryptography' (unknown location)
    установленное дерево, ставит установщик повторно, проверяет, что файл удалён, и что sidecar
    после этого отвечает `/health`.
 
+## Результаты на исправленной сборке (HEAD `9e329de`)
+
+Установщик, собранный зелёным CI `39125496888`: `Canalla LLM_1.2.1_x64-setup.exe`,
+91 933 761 байт, SHA256 `4b25343d235c014095b864124e82af7554ab3c698a36564af467888064a884e7`,
+`NotSigned`. Перед установкой в дерево был намеренно положен тот самый устаревший
+`_internal\cryptography\hazmat\bindings\_rust.pyd`.
+
+| Проверка | Результат |
+|---|---|
+| Установка `/S` поверх предыдущей | **PASS** — exit 0, 0 новых детекций Defender |
+| Удаление устаревшего `cryptography` | **PASS** — каталога больше нет |
+| Версия клиента | **PASS** — `ProductVersion` 1.2.1 |
+| Backend `/health` | **PASS** — `product=alex-llm`, `version=1.2.1`, ответ за 3 с |
+| Данные | **PASS** — 20 чатов / 72 сообщения / 2 пользователя / 1 проект / 2 памяти, revision 0016, совпадает с pre-upgrade бэкапом |
+| Computer | **PASS** — `state=ready`, `paired=true`, `host_running=true`, heartbeat ~2 с |
+| Tor | **PASS** — `state=ready`, `verified_chain=true`, `socks5h`, порт 9050, Tor 0.4.9.14 |
+| Gateway | **PASS** — `gateway.12testers.store/health` 200, баланс получен |
+| Честный AI Offline | **PASS** — `ai.state=off`, `llm_ready=false`, `active_session=null` |
+| Перезапуск приложения | **PASS** — тот же `device_id` и `install.id`, Computer/Tor снова ready |
+| Пользовательские лимиты | **PASS** — `max_hourly_price=2`, `session_budget=3.00`, `auto_stop_minutes=10` |
+| Два региона | **BLOCKED** — production Gateway отдаёт только `US-TX-3` в `policy.datacenters`; нужен deploy Gateway |
+| Stop / Cancel | **BLOCKED** — требует платной сессии, отдельного разрешения нет |
+| Интерактивные клики GUI (About, чипы, «Подключить») | **BLOCKED** — нужен владелец за экраном |
+
+Побочная находка того же прогона: кнопка «Предпросмотр контекста» вызывала `run()`, который
+молча отбрасывает действие, пока занят другой запрос, но сама кнопка оставалась активной.
+Клик во время смены проекта ничего не делал. Исправлено в `PersonalPanel.tsx`
+(`disabled={busy}`), e2e-таймаут увеличен до 15 с.
+
 ## Ограничения этого прогона
 
 * Установка 1.2.0 на этом ПК была уже повреждена Defender (удалён `alex-llm.exe` и
