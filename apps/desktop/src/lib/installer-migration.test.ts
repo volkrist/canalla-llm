@@ -59,9 +59,18 @@ describe("installer migration", () => {
       .filter((line) => !line.trimStart().startsWith(";"))
       .join("\n");
     // A bare `%LOCALAPPDATA%\Alex LLM` (the data root) must not appear anywhere.
-    expect(/LOCALAPPDATA\}\\Alex LLM/.test(code)).toBe(false);
+    expect(/LOCALAPPDATA\\}\\Alex LLM/.test(code)).toBe(false);
     expect(code).not.toMatch(/cmdkey|CredDelete|CredRead/i);
-    expect(code).not.toMatch(/alex\.db|documents|runtime|credentials/i);
+    expect(code).not.toMatch(/alex\.db|documents|credentials/i);
+    // `runtime` is allowed only as the programme's own payload under $INSTDIR (Tauri copies
+    // runtime/tor there and an upgrade must replace it). The data root's runtime directory lives
+    // under %LOCALAPPDATA%\Alex LLM and is already rejected by the bare-data-root check above.
+    const runtimeLines = code
+      .split(/\r?\n/)
+      .filter((line) => /runtime/i.test(line));
+    for (const line of runtimeLines) {
+      expect(line.trim()).toBe('RMDir /r "$INSTDIR\\runtime"');
+    }
   });
 
   it("keeps the uninstall hooks free of data or credential handling", () => {
