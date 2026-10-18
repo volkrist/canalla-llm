@@ -117,7 +117,9 @@ test("personal memory, projects, source approval, context and real WebSocket", a
     .getByRole("button", { name: "Предпросмотр контекста", exact: true })
     .click();
   const preview = page.locator(".settings-dialog").first();
-  await expect(preview).toContainText("FastAPI и JWT");
+  // The dialog opens immediately and fills in after the preview request returns; under a loaded
+  // CI runner that round trip has missed the default 5 s twice.
+  await expect(preview).toContainText("FastAPI и JWT", { timeout: 15_000 });
   await page.screenshot({ path: `${shots}/context-preview.png` });
   await preview.getByRole("button", { name: "Закрыть", exact: true }).click();
   await page
