@@ -105,22 +105,58 @@ Start-MpScan -ScanType CustomScan -ScanPath "…\installer121\Canalla LLM_1.2.1_
 
 ## 6. Заявка в Microsoft Security Intelligence (подготовлена, НЕ отправлена)
 
-Отправляет **владелец** (я не отправляю сторонние файлы без согласия). Форма:
-`https://www.microsoft.com/en-us/wdsi/filesubmission` → *Software developer* → **«I believe this
-is a false positive»** → upload the file.
+**Отправляет владелец.** Передача нашего бинарника третьей стороне требует Вашего отдельного
+подтверждения — я её не делал и не сделаю без него.
 
-Что приложить: **CI-сборку** `alex-host-loop.exe` (её хэш теперь печатает CI — см. §7), а не файл с
-заблокированной машины. Сопроводительный текст:
+### Точные шаги
+
+1. Открыть `https://www.microsoft.com/en-us/wdsi/filesubmission`.
+2. Войти (Microsoft account).
+3. Выбрать **«Software developer»** → **«I believe this is a false positive»**.
+4. Загрузить **один** файл: `alex-host-loop.exe` **из CI-сборки** (2 193 920 Б,
+   `7bb29e9a86638d53c9561f0313639c10dc34c2a4519210d4ffebc6a7719a4653`), не файл с рабочей машины.
+   При желании — второй заявкой `alex-llm.exe` (5 956 608 Б, `a4d66d5c…`).
+5. Вставить сопроводительный текст ниже.
+6. Сохранить номер заявки и присланный ответ; результат внести в этот документ.
+
+### Сопроводительный текст
 
 ```
+False positive report — Canalla LLM (developer)
+
 Detection: Trojan:Win32/LummaStealer.DO!MTB (ThreatID 2147979701), severity 5
-Engine 1.1.26090.9 / Signatures 1.461.20.0, MTB (cloud ML)
-Product: Canalla LLM (Tauri/Rust desktop app, PyInstaller sidecar), unsigned test build
-Reproducible: yes, on unsigned builds of alex-llm.exe and alex-host-loop.exe
-Detection is limited to our own binaries; no third-party file on the host is flagged.
-We build the shipped artifact on GitHub-hosted runners (clean), not on the affected host.
-Please confirm false positive or identify the actual malicious behaviour.
+Engine 1.1.26090.9 / Signatures 1.461.20.0+ (MTB = cloud ML heuristic)
+
+Affected files on our test host:
+  alex-llm.exe              (Tauri/Rust desktop client, unsigned test build)
+  alex-host-loop.exe        (Rust helper, unsigned test build)
+Detection timeline on that host: 2026-10-03 .. 2026-10-14; the protection removed
+  alex-llm.exe and one copy of alex-host-loop.exe and blocks reads of the remaining copy.
+No third-party file on that host is named by any detection.
+
+Reproducible clean build (the file attached comes from here):
+  repo: volkrist/canalla-llm, branch integration/canalla-1.2.1
+  workflow run: 38548432476 (commit 3763444), GitHub-hosted windows-latest runner
+  artifact: canalla-test-installer
+  NSIS installer sha256: 24bc0a28e4b7f7252407be5aafcde239dfd02d7e7940d411bb35963f03fe8c29
+  installed binaries (sha256):
+    alex-llm.exe                      a4d66d5c70c9e82b864a0f0e1a74ec2a71f5583e2829d070f05193fe55cd88b6
+    sidecar\alex-host-loop.exe        7bb29e9a86638d53c9561f0313639c10dc34c2a4519210d4ffebc6a7719a4653
+    sidecar\alex-backend\alex-backend.exe  9e6a11455a64c249f0692b2b51af96977e331eab1c98ba0cc2cdbc6c4031a700
+    runtime\tor\tor.exe              8c38513b3c4584154158e7c584f4144849dc679a64cd679553d72dad28230c54 (official Tor 15.0.25)
+Please confirm a false positive, or identify the specific malicious behaviour.
 ```
+
+### Что ещё содержит заявка (проверено)
+
+* имя угрозы и ThreatID — есть;
+* корректные SHA256 — есть (из CI-лога `installer-build`, прогон `38548432476`);
+* описание воспроизводимой CI-сборки — есть (репозиторий/ветка/прогон/раннер/артефакт);
+* сведения о заблокированных компонентах — есть (см. §2 и фразу в тексте заявки).
+
+Дополнительно CI теперь сохраняет артефакт **`windows-binary-security-record`**: хэши четырёх
+бинарников, версия движка/сигнатур Defender на момент сборки и результат штатного скана каждого
+файла (наблюдение, не доказательство безопасности).
 
 Если Microsoft подтвердит FP — можно просить добавление в allow-list по имени/издателю, а по-хорошему
 публиковать **подписанные** сборки.

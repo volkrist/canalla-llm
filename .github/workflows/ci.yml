@@ -427,3 +427,67 @@ jobs:
             if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
           exit 0
+
+      # The four binaries a Defender investigation has to reason about, taken from the *installed*
+      # tree rather than from the outer NSIS file: hash, provenance and the protection's own verdict.
+      # A scan that finds nothing is recorded as an observation with engine and signature versions —
+      # never as proof that a file is safe.
+      - name: Security record of the installed binaries
+        shell: pwsh
+        run: |
+          $root = (Get-Content $env:RUNNER_TEMP/installed-root.txt).Trim() -replace '^root=', ''
+          $files = @(
+            (Join-Path $root 'alex-llm.exe'),
+            (Join-Path $root 'sidecar\alex-host-loop.exe'),
+            (Join-Path $root 'sidecar\alex-backend\alex-backend.exe'),
+            (Join-Path $root 'runtime\tor\tor.exe')
+          )
+          $record = [ordered]@{ recorded_at = (Get-Date).ToUniversalTime().ToString('o'); files = @() }
+          try {
+            $mp = Get-MpComputerStatus
+            $record['defender'] = [ordered]@{
+              realtime = $mp.RealTimeProtectionEnabled
+              engine = $mp.AMEngineVersion
+              signatures = $mp.AntivirusSignatureVersion
+              signature_age_days = $mp.AntivirusSignatureAge
+            }
+          } catch {
+            $record['defender'] = [ordered]@{ error = $_.Exception.Message }
+          }
+          foreach ($path in $files) {
+            if (-not (Test-Path $path)) {
+              $record.files += [ordered]@{ path = $path; present = $false }
+              continue
+            }
+            $entry = [ordered]@{
+              path = $path
+              present = $true
+              bytes = (Get-Item $path).Length
+              sha256 = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            try {
+              $before = (Get-MpThreatDetection | Measure-Object).Count
+              Start-MpScan -ScanType CustomScan -ScanPath $path -ErrorAction Stop | Out-Null
+              $entry['scan'] = 'completed'
+              $entry['new_detections'] = ((Get-MpThreatDetection | Measure-Object).Count - $before)
+            } catch {
+              $entry['scan'] = 'unavailable'
+              $entry['scan_error'] = $_.Exception.Message
+            }
+            $record.files += $entry
+          }
+          $stamp = Join-Path $root 'sidecar\alex-backend\build-stamp.json'
+          if (Test-Path $stamp) { $record['sidecar_stamp'] = Get-Content $stamp -Raw | ConvertFrom-Json }
+          $tor = Join-Path $root 'runtime\tor\runtime.json'
+          if (Test-Path $tor) { $record['tor_runtime'] = Get-Content $tor -Raw | ConvertFrom-Json }
+          $out = Join-Path $env:RUNNER_TEMP 'windows-binary-security-record.json'
+          $record | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 $out
+          Get-Content $out
+          exit 0
+
+      - name: Upload the security record
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binary-security-record
+          path: ${{ runner.temp }}/windows-binary-security-record.json
+          if-no-files-found: error
