@@ -18,6 +18,13 @@ try {
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   $exe = Join-Path $dist 'alex-backend.exe'
   if (-not (Test-Path $exe)) { throw "PyInstaller did not produce $exe" }
+  # A half-collected native package is worse than an absent one: PyJWT tolerates a missing
+  # `cryptography` (ModuleNotFoundError) but crashes on a namespace package that has the binary
+  # and none of the Python modules. Never stamp such a bundle.
+  $crypto = Join-Path $dist '_internal\cryptography'
+  if ((Test-Path $crypto) -and -not (Test-Path (Join-Path $crypto '__init__.py'))) {
+    throw "the sidecar bundle has $crypto without __init__.py - half-collected cryptography"
+  }
   New-Item -ItemType Directory -Force -Path (Split-Path $sidecarDest) | Out-Null
   if (Test-Path $sidecarDest) { Remove-Item -Recurse -Force $sidecarDest }
   Copy-Item -Recurse $dist $sidecarDest

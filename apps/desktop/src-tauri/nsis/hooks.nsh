@@ -7,8 +7,17 @@
 ; Credential Manager entry are never touched — they hold the database, documents, session,
 ; provider credential and Alex Cloud enrollment, and the product keeps using them as-is.
 
+; An upgrade is a replacement, not a merge. Tauri installs the new tree over the old one, so a
+; file the previous build left behind survives the upgrade and can break the new build. A 1.2.0
+; tree carried a half-collected _internal\cryptography (only the _rust.pyd, no __init__.py);
+; installed over it, 1.2.1 made `cryptography` a namespace package and the sidecar died on
+; `from cryptography import x509` before it could answer /health. The two trees below are wholly
+; product-owned runtime payloads, and every mutable file lives in %LOCALAPPDATA%\Alex LLM, so
+; removing them here loses no user data, no database, no document and no credential.
 !macro NSIS_HOOK_PREINSTALL
   StrCpy $INSTDIR "$LOCALAPPDATA\Programs\${PRODUCTNAME}"
+  RMDir /r "$INSTDIR\sidecar"
+  RMDir /r "$INSTDIR\runtime"
   SetOutPath $INSTDIR
 !macroend
 

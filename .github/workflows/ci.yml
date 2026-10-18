@@ -428,6 +428,51 @@ jobs:
           }
           exit 0
 
+      # An upgrade is a replacement, not a merge. Tauri installs the new tree over the old one, so a
+      # stale file from the previous build survives unless the installer removes it. This is not
+      # hypothetical: 1.2.0 on a real machine carried a half-collected _internal\cryptography, and
+      # 1.2.1 installed over it made `cryptography` a namespace package, which killed the sidecar
+      # before /health. Plant exactly that file and prove the second install removes it.
+      - name: An upgrade replaces the previous sidecar tree instead of merging with it
+        shell: pwsh
+        run: |
+          $root = (Get-Content $env:RUNNER_TEMP/installed-root.txt).Trim() -replace '^root=', ''
+          $installer = Get-ChildItem apps/desktop/src-tauri/target/release/bundle/nsis -Filter *setup.exe |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          $stale = Join-Path $root 'sidecar\alex-backend\_internal\cryptography\hazmat\bindings\_rust.pyd'
+          New-Item -ItemType Directory -Force -Path (Split-Path $stale) | Out-Null
+          Set-Content -Path $stale -Value 'stale placeholder'
+          Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait
+          Start-Sleep -Seconds 5
+          if (Test-Path $stale) { throw "the upgrade kept a stale file from the previous sidecar tree: $stale" }
+          Write-Host 'the upgrade removed the stale sidecar file'
+
+          $sidecar = Join-Path $root 'sidecar\alex-backend\alex-backend.exe'
+          $data = Join-Path $env:RUNNER_TEMP 'canalla-upgrade-smoke'
+          New-Item -ItemType Directory -Force -Path $data | Out-Null
+          $env:ALEX_LLM_DATA_DIR = $data
+          $env:ALEX_BACKEND_HOST = '127.0.0.1'
+          $env:ALEX_BACKEND_PORT = '8138'
+          $env:APP_ENV = 'test'
+          $env:LLM_PROVIDER = 'mock'
+          $env:JWT_SECRET = 'upgrade-smoke-not-a-real-secret-' + ('b' * 24)
+          $process = Start-Process -FilePath $sidecar -PassThru -WindowStyle Hidden
+          try {
+            $ok = $false
+            for ($i = 0; $i -lt 90; $i++) {
+              Start-Sleep -Seconds 1
+              try {
+                $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8138/health' -TimeoutSec 3
+                if ($health.product -eq 'alex-llm') { $ok = $true; Write-Host ($health | ConvertTo-Json -Compress); break }
+              } catch {}
+              if ($process.HasExited) { break }
+            }
+            if (-not $ok) { throw "the upgraded sidecar did not answer /health (exited=$($process.HasExited))" }
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+          exit 0
+
       # The four binaries a Defender investigation has to reason about, taken from the *installed*
       # tree rather than from the outer NSIS file: hash, provenance and the protection's own verdict.
       # A scan that finds nothing is recorded as an observation with engine and signature versions —
