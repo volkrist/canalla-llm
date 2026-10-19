@@ -22,7 +22,7 @@ export function useStatus(api: Api, enabled: boolean) {
   const [stale, setStale] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const failures = useRef(0);
-  const STALE_AFTER = 3;
+  const STALE_AFTER = 2;
 
   const request = useCallback(async () => {
     const next = await fetchStatus(api);
@@ -41,9 +41,14 @@ export function useStatus(api: Api, enabled: boolean) {
     let timer: number | undefined;
     let inFlight = false;
     const delay = () => {
+      // One miss gets a fast retry (a real outage answers that retry too), so a single transient
+      // failure neither blanks the bar nor waits a whole polling interval to recover.
+      if (failures.current === 1) return 1000;
       const base = statusDelaySeconds(latest.current, document.hidden);
-      const backoff = failures.current ? Math.min(2 ** failures.current, 4) : 1;
-      return base * backoff * 1000;
+      // While the endpoint is down, keep retrying on a short bounded cadence: a recovered backend
+      // must clear `stale` quickly, not after an exponential minute.
+      if (failures.current >= STALE_AFTER) return Math.min(base, 10) * 1000;
+      return base * 1000;
     };
     const tick = async () => {
       if (inFlight || !alive) return;

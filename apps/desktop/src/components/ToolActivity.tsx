@@ -92,11 +92,13 @@ function RunDetails({
   run,
   busy,
   error,
+  hideError = false,
   onConfirm,
 }: {
   run: ToolRun;
   busy: string | null;
   error?: string;
+  hideError?: boolean;
   onConfirm: (id: string, allow: boolean) => void;
 }) {
   const risk = run.risk_level || run.input_summary.risk_level || "";
@@ -116,7 +118,7 @@ function RunDetails({
         run.input_summary.action_detail && (
           <p>{run.input_summary.action_detail}</p>
         )}
-      {run.error_code && run.error_code !== error && (
+      {!hideError && run.error_code && run.error_code !== error && (
         <p>{toolErrors[run.error_code] || "Операция не выполнена"}</p>
       )}
       {run.result_metadata.supplier_stop_confirmed === false && (
@@ -189,12 +191,14 @@ function CollapsedFamily({
   runs,
   busy,
   error,
+  hidden,
   onConfirm,
 }: {
   family: "web" | "tor" | "computer";
   runs: ToolRun[];
   busy: string | null;
   error?: string;
+  hidden?: Set<string>;
   onConfirm: (id: string, allow: boolean) => void;
 }) {
   if (!runs.length) return null;
@@ -207,6 +211,7 @@ function CollapsedFamily({
           run={run}
           busy={busy}
           error={error}
+          hideError={hidden?.has(run.id)}
           onConfirm={onConfirm}
         />
       ))}
@@ -243,6 +248,21 @@ export default function ToolActivity({
   }
   const pending = runs.filter(isPendingConfirmation);
   const rest = runs.filter((run) => !isPendingConfirmation(run));
+  // One message per error code: a run's own detail and the global banner must never render the
+  // same sentence twice (Playwright strict mode caught the duplicate, and so would a reader).
+  // The banner is outside the collapsed groups, so it is the one guaranteed-visible copy.
+  const firstError = rest.find((run) => run.error_code)?.error_code;
+  const bannerError = error || firstError;
+  const seenCodes = new Set<string>();
+  const hidden = new Set<string>();
+  for (const run of rest) {
+    if (!run.error_code) continue;
+    if (run.error_code === bannerError || seenCodes.has(run.error_code)) {
+      hidden.add(run.id);
+    } else {
+      seenCodes.add(run.error_code);
+    }
+  }
   const web = rest.filter((run) => familyOf(run) === "web");
   const tor = rest.filter((run) => familyOf(run) === "tor");
   const computer = rest.filter((run) => familyOf(run) === "computer");
@@ -251,10 +271,10 @@ export default function ToolActivity({
   return (
     <section className="tool-activity" aria-label="Работа инструментов">
       {state && <p role="status">{toolStates[state] || state}</p>}
-      {error && (
+      {bannerError && (
         <p role="status">
-          {toolErrors[error] ||
-            `Инструмент не выполнен: ${error}. Ответ может быть без web-источников.`}
+          {toolErrors[bannerError] ||
+            `Инструмент не выполнен: ${bannerError}. Ответ может быть без web-источников.`}
         </p>
       )}
       {pending.map((run) => (
@@ -271,6 +291,7 @@ export default function ToolActivity({
         runs={web}
         busy={busy}
         error={error}
+        hidden={hidden}
         onConfirm={confirm}
       />
       <CollapsedFamily
@@ -278,6 +299,7 @@ export default function ToolActivity({
         runs={tor}
         busy={busy}
         error={error}
+        hidden={hidden}
         onConfirm={confirm}
       />
       <CollapsedFamily
@@ -285,6 +307,7 @@ export default function ToolActivity({
         runs={computer}
         busy={busy}
         error={error}
+        hidden={hidden}
         onConfirm={confirm}
       />
       {other.map((run) => (
@@ -293,6 +316,7 @@ export default function ToolActivity({
           run={run}
           busy={busy}
           error={error}
+          hideError={hidden.has(run.id)}
           onConfirm={confirm}
         />
       ))}

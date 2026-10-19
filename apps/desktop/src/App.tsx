@@ -136,7 +136,6 @@ export default function App() {
     const publicApi = new Api(settings.backendUrl, null);
     setHealth(null);
     let recovering = false;
-    let healthFailures = 0;
     const recover = async () => {
       if (!isTauriRuntime() || recovering) return;
       const attempt = recoveryAttempts.current;
@@ -168,21 +167,26 @@ export default function App() {
     // A local backend that died must come back by itself: the Desktop owns one restart per
     // session and this asks for it. The attempts are bounded, so a permanent failure ends as an
     // honest error on screen instead of a loop, and a recoverable crash needs no button.
-    const check = async () => {
+    const readHealth = async () => {
       try {
         const data = await publicApi.health();
-        if (cancelled) return;
-        healthFailures = 0;
+        if (cancelled) return false;
         setHealth(data);
         recoveryAttempts.current = 0;
+        return true;
       } catch {
-        if (cancelled) return;
-        healthFailures += 1;
-        // One missed health read is a blink: the composer stays connected and the status bar
-        // keeps its last snapshot. Only a repeated failure turns the app offline and asks the
-        // Desktop to recover the owned backend.
-        if (healthFailures >= 3) setHealth(null);
-        if (healthFailures >= 2) void recover();
+        return false;
+      }
+    };
+    const check = async () => {
+      if (await readHealth()) return;
+      // One fast retry absorbs a blink: the composer and the status bar keep their state. A real
+      // outage fails both attempts and is reported as offline, then the owned backend recovers.
+      await new Promise((resolve) => window.setTimeout(resolve, 600));
+      if (await readHealth()) return;
+      if (!cancelled) {
+        setHealth(null);
+        void recover();
       }
     };
     void check();
