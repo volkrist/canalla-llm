@@ -588,9 +588,7 @@ class TinyFishBrowserProvider(ToolProvider[BrowserStartArgs | WebBrowserArgs]):
             # Re-open the last page once instead of making the model understand `not_found`.
             last = self.last_url.get(context.user_id)
             if last and args.operation not in {"close"}:
-                await self.web_execute(
-                    WebBrowserArgs(operation="open", url=last), context
-                )
+                await self.web_execute(WebBrowserArgs(operation="open", url=last), context)
                 session = self._owned_session(context.user_id)
             if not session:
                 raise ToolError("browser_session_lost")

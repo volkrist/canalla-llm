@@ -64,10 +64,7 @@ def test_planner_offers_process_tools_for_a_generic_computer_prompt():
         settings=None,
         workspace=None,
     )
-    names = {
-        item.name
-        for item in ToolOrchestrator(make_registry(), None).planner_definitions(context)
-    }
+    names = {item.name for item in ToolOrchestrator(make_registry(), None).planner_definitions(context)}
     # The installed app is the host; a missing heartbeat must not hide the capability from the
     # model (the executor reports host_offline instead of the model claiming there is no shell).
     assert {"list_directory", "read_file", "run_python", "run_process"} <= names
@@ -101,6 +98,4 @@ def test_a_search_with_only_provider_errors_is_failed_not_completed():
         )
 
     with pytest.raises(ToolError, match="search_failed"):
-        asyncio.run(
-            TinyFishSearchProvider(client(handler)).execute(SearchArgs(query="example"), Context())
-        )
+        asyncio.run(TinyFishSearchProvider(client(handler)).execute(SearchArgs(query="example"), Context()))

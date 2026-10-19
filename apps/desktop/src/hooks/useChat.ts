@@ -125,11 +125,11 @@ export function useChat(api: Api, onExpired: () => void) {
             ? { ...message, content: stream.content }
             : message,
         );
-        if (!data.some((message) => message.id === stream.assistantId) && stream.assistant) {
-          data = [
-            ...data,
-            { ...stream.assistant, content: stream.content },
-          ];
+        if (
+          !data.some((message) => message.id === stream.assistantId) &&
+          stream.assistant
+        ) {
+          data = [...data, { ...stream.assistant, content: stream.content }];
         }
       }
       selectedRef.current = id;
