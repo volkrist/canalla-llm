@@ -9,6 +9,8 @@
 //! Local users are not cloud identities, so nothing here depends on the signed-in user.
 
 use serde_json::{json, Value};
+use std::fs;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::credential;
@@ -48,7 +50,13 @@ pub fn validate_url(raw: &str) -> Result<String, String> {
         }
         _ => return Err("invalid_url".into()),
     };
-    let authority = rest.split('/').next().unwrap_or("").split('@').last().unwrap_or("");
+    let authority = rest
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split('@')
+        .last()
+        .unwrap_or("");
     if authority.is_empty() {
         return Err("invalid_url".into());
     }
@@ -105,8 +113,14 @@ fn load_enrollment() -> Option<Value> {
     let raw = credential::load_scoped("gateway", &credential_name())?;
     let value: Value = serde_json::from_str(&raw).ok()?;
     if value.get("url").and_then(Value::as_str).is_some()
-        && value.get("installation_id").and_then(Value::as_str).is_some()
-        && value.get("installation_secret").and_then(Value::as_str).is_some()
+        && value
+            .get("installation_id")
+            .and_then(Value::as_str)
+            .is_some()
+        && value
+            .get("installation_secret")
+            .and_then(Value::as_str)
+            .is_some()
     {
         Some(value)
     } else {
@@ -164,6 +178,26 @@ fn forget_enrollment() -> Result<(), String> {
     credential::delete_scoped("gateway", &credential_name())
 }
 
+/// The backend's own manual-off latch (`SharedDemand`). Written on an explicit disconnect and
+/// removed on an explicit enroll, so a stale backend process cannot quietly re-connect and a
+/// chat request cannot resurrect compute the user stopped on purpose.
+fn manual_off_path() -> PathBuf {
+    crate::backend::data_root()
+        .join("runtime")
+        .join("compute.manual_off")
+}
+
+fn mark_manual_off() {
+    let path = manual_off_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(path, b"manual_disconnect");
+}
+
+fn clear_manual_off() {
+    let _ = fs::remove_file(manual_off_path());
+}
 
 /// Public status for the UI. It never contains the installation secret.
 #[tauri::command]
@@ -180,14 +214,19 @@ pub fn gateway_status() -> Result<Value, String> {
         })),
         Some(enrollment) => {
             let url = enrollment["url"].as_str().unwrap_or_default().to_string();
-            let installation_id = enrollment["installation_id"].as_str().unwrap_or_default().to_string();
+            let installation_id = enrollment["installation_id"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
             let (state, message) = match health(&url) {
-                Ok(()) => ("connected".to_string(), "Canalla Cloud подключён.".to_string()),
+                Ok(()) => (
+                    "connected".to_string(),
+                    "Canalla Cloud подключён.".to_string(),
+                ),
                 Err(code) => (
                     code.clone(),
                     if code == "gateway_protocol_mismatch" {
-                        "Версия Canalla Cloud несовместима с установкой Canalla LLM."
-                            .to_string()
+                        "Версия Canalla Cloud несовместима с установкой Canalla LLM.".to_string()
                     } else {
                         "Canalla Cloud сейчас недоступен.".to_string()
                     },
@@ -247,7 +286,9 @@ pub fn gateway_enroll(url: String, activation_code: String) -> Result<Value, Str
         .get("installation_secret")
         .and_then(Value::as_str)
         .ok_or_else(|| "gateway_unreachable".to_string())?;
-    if body.get("gateway_protocol_version").and_then(Value::as_u64) != Some(GATEWAY_PROTOCOL_VERSION) {
+    if body.get("gateway_protocol_version").and_then(Value::as_u64)
+        != Some(GATEWAY_PROTOCOL_VERSION)
+    {
         return Err("gateway_protocol_mismatch".into());
     }
     let enrollment = json!({
@@ -257,6 +298,8 @@ pub fn gateway_enroll(url: String, activation_code: String) -> Result<Value, Str
         "enrolled_at": crate::backend::uuid_lite::UuidLite::instance(),
     });
     store_enrollment(&enrollment)?;
+    // An explicit Connect is the one thing that lifts a previous manual disconnect.
+    clear_manual_off();
     Ok(json!({
         "configured": true,
         "url": target,
@@ -280,7 +323,11 @@ pub fn gateway_disconnect() -> Result<Value, String> {
                 .send()
                 .ok()
                 .and_then(|response| response.json::<Value>().ok())
-                .and_then(|body| body.get("access_token").and_then(Value::as_str).map(str::to_string));
+                .and_then(|body| {
+                    body.get("access_token")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                });
             if let Some(token) = token {
                 let _ = http
                     .post(format!("{url}/auth/revoke"))
@@ -291,6 +338,7 @@ pub fn gateway_disconnect() -> Result<Value, String> {
         }
     }
     forget_enrollment()?;
+    mark_manual_off();
     Ok(json!({"configured": false}))
 }
 
@@ -319,11 +367,17 @@ pub fn gateway_env() -> Vec<(String, String)> {
             ));
             env.push((
                 "ALEX_GATEWAY_INSTALLATION_ID".into(),
-                enrollment["installation_id"].as_str().unwrap_or_default().into(),
+                enrollment["installation_id"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .into(),
             ));
             env.push((
                 "ALEX_GATEWAY_INSTALLATION_SECRET".into(),
-                enrollment["installation_secret"].as_str().unwrap_or_default().into(),
+                enrollment["installation_secret"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .into(),
             ));
             env
         }
@@ -352,19 +406,35 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    fn isolated() -> (PathBuf, Option<String>, Option<String>, Option<String>) {
+    fn isolated() -> (
+        PathBuf,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) {
         let previous = std::env::var("ALEX_DEVICE_DIR").ok();
         let previous_name = std::env::var("ALEX_GATEWAY_CREDENTIAL_NAME").ok();
         let previous_runtime = std::env::var("ALEX_RUNTIME_MODE").ok();
+        let previous_data = std::env::var("ALEX_LLM_DATA_DIR").ok();
         let temp = std::env::temp_dir().join(format!("alex-gateway-test-{}", unique()));
         let _ = fs::create_dir_all(&temp);
         std::env::set_var("ALEX_DEVICE_DIR", &temp);
+        // The manual-off latch lives in the product's data root, so the suite must never
+        // write it into the operator's real installation (the same rule credentials follow).
+        std::env::set_var("ALEX_LLM_DATA_DIR", &temp);
         // A distinct credential name keeps the suite away from the real installation
         // entry, which lives in the machine-wide Windows Credential Manager.
         // `ALEX_RUNTIME_MODE = dev_owned` keeps the suite in developer semantics.
         std::env::set_var("ALEX_GATEWAY_CREDENTIAL_NAME", format!("test-{}", unique()));
         std::env::set_var("ALEX_RUNTIME_MODE", "dev_owned");
-        (temp, previous, previous_name, previous_runtime)
+        (
+            temp,
+            previous,
+            previous_name,
+            previous_runtime,
+            previous_data,
+        )
     }
 
     /// Tests must not leave credentials behind: the Windows Credential Manager is
@@ -380,10 +450,21 @@ mod tests {
 
     fn unique() -> String {
         use std::time::{SystemTime, UNIX_EPOCH};
-        format!("{:x}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos())
+        format!(
+            "{:x}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        )
     }
 
-    fn restore(previous: Option<String>, previous_name: Option<String>, previous_runtime: Option<String>) {
+    fn restore(
+        previous: Option<String>,
+        previous_name: Option<String>,
+        previous_runtime: Option<String>,
+        previous_data: Option<String>,
+    ) {
         cleanup(previous_name);
         match previous {
             Some(value) => std::env::set_var("ALEX_DEVICE_DIR", value),
@@ -393,41 +474,60 @@ mod tests {
             Some(value) => std::env::set_var("ALEX_RUNTIME_MODE", value),
             None => std::env::remove_var("ALEX_RUNTIME_MODE"),
         }
+        match previous_data {
+            Some(value) => std::env::set_var("ALEX_LLM_DATA_DIR", value),
+            None => std::env::remove_var("ALEX_LLM_DATA_DIR"),
+        }
     }
 
     #[test]
     fn remote_plaintext_gateway_is_refused() {
-        assert_eq!(validate_url("http://gateway.example").unwrap_err(), "insecure_gateway_url");
+        assert_eq!(
+            validate_url("http://gateway.example").unwrap_err(),
+            "insecure_gateway_url"
+        );
         assert!(validate_url("http://127.0.0.1:9000").is_ok());
         assert!(validate_url("http://localhost:9000").is_ok());
         assert!(validate_url("https://gateway.example").is_ok());
-        assert_eq!(validate_url("ftp://gateway.example").unwrap_err(), "invalid_url");
+        assert_eq!(
+            validate_url("ftp://gateway.example").unwrap_err(),
+            "invalid_url"
+        );
         assert_eq!(validate_url("").unwrap_err(), "invalid_url");
-        assert_eq!(validate_url("https://user:pass@gateway.example").unwrap_err(), "invalid_url");
-        assert_eq!(validate_url("https://gateway.example/?key=x").unwrap_err(), "invalid_url");
+        assert_eq!(
+            validate_url("https://user:pass@gateway.example").unwrap_err(),
+            "invalid_url"
+        );
+        assert_eq!(
+            validate_url("https://gateway.example/?key=x").unwrap_err(),
+            "invalid_url"
+        );
     }
 
     #[test]
     fn trailing_slash_is_normalized() {
-        assert_eq!(validate_url("https://gateway.example/").unwrap(), "https://gateway.example");
+        assert_eq!(
+            validate_url("https://gateway.example/").unwrap(),
+            "https://gateway.example"
+        );
     }
 
     #[test]
     fn status_without_enrollment_is_not_connected_and_has_no_secret() {
         let _guard = TEST_ENV_LOCK.lock().unwrap();
-        let (temp, previous, previous_name, previous_runtime) = isolated();
+        let (temp, previous, previous_name, previous_runtime, previous_data) = isolated();
         let status = gateway_status().unwrap();
         assert_eq!(status["configured"], false);
         assert_eq!(status["state"], "not_connected");
         assert!(status.get("installation_secret").is_none());
-        restore(previous, previous_name, previous_runtime);
+        restore(previous, previous_name, previous_runtime, previous_data);
         let _ = fs::remove_dir_all(&temp);
     }
 
     #[test]
     fn enrollment_is_stored_securely_and_never_returned() {
         let _guard = TEST_ENV_LOCK.lock().unwrap();
-        let (temp, previous, previous_name, previous_runtime) = isolated();
+        let (temp, previous, previous_name, previous_runtime, previous_data) = isolated();
         store_enrollment(&json!({
                 "url": "https://gateway.example",
                 "installation_id": "11111111-2222-3333-4444-555555555555",
@@ -437,17 +537,20 @@ mod tests {
         let status = gateway_status().unwrap();
         assert_eq!(status["configured"], true);
         assert_eq!(status["url"], "https://gateway.example");
-        assert_eq!(status["installation_id"], "11111111-2222-3333-4444-555555555555");
+        assert_eq!(
+            status["installation_id"],
+            "11111111-2222-3333-4444-555555555555"
+        );
         let rendered = status.to_string();
         assert!(!rendered.contains("secret-value-not-for-the-ui"));
-        restore(previous, previous_name, previous_runtime);
+        restore(previous, previous_name, previous_runtime, previous_data);
         let _ = fs::remove_dir_all(&temp);
     }
 
     #[test]
     fn enrollment_environment_makes_the_backend_shared() {
         let _guard = TEST_ENV_LOCK.lock().unwrap();
-        let (temp, previous, previous_name, previous_runtime) = isolated();
+        let (temp, previous, previous_name, previous_runtime, previous_data) = isolated();
         store_enrollment(&json!({
                 "url": "https://gateway.example",
                 "installation_id": "abc",
@@ -462,7 +565,8 @@ mod tests {
             Some("https://gateway.example")
         );
         assert_eq!(
-            map.get("ALEX_GATEWAY_INSTALLATION_SECRET").map(String::as_str),
+            map.get("ALEX_GATEWAY_INSTALLATION_SECRET")
+                .map(String::as_str),
             Some("installation-secret-value")
         );
         // The local provider key is never part of the shared-mode environment.
@@ -470,16 +574,19 @@ mod tests {
         // An explicit mode still wins over the enrollment default (developer/private).
         std::env::set_var("ALEX_AI_MODE", "direct");
         let explicit: std::collections::HashMap<_, _> = gateway_env().into_iter().collect();
-        assert_eq!(explicit.get("ALEX_AI_MODE").map(String::as_str), Some("direct"));
+        assert_eq!(
+            explicit.get("ALEX_AI_MODE").map(String::as_str),
+            Some("direct")
+        );
         std::env::remove_var("ALEX_AI_MODE");
-        restore(previous, previous_name, previous_runtime);
+        restore(previous, previous_name, previous_runtime, previous_data);
         let _ = fs::remove_dir_all(&temp);
     }
 
     #[test]
     fn a_developer_checkout_without_enrollment_stays_direct() {
         let _guard = TEST_ENV_LOCK.lock().unwrap();
-        let (temp, previous, previous_name, previous_runtime) = isolated();
+        let (temp, previous, previous_name, previous_runtime, previous_data) = isolated();
         let mode = std::env::var("ALEX_AI_MODE").ok();
         std::env::remove_var("ALEX_AI_MODE");
         // ALEXRUNTIME_MODE=dev_owned is set by isolated(): no enrollment and no explicit
@@ -493,14 +600,14 @@ mod tests {
             Some(value) => std::env::set_var("ALEX_AI_MODE", value),
             None => std::env::remove_var("ALEX_AI_MODE"),
         }
-        restore(previous, previous_name, previous_runtime);
+        restore(previous, previous_name, previous_runtime, previous_data);
         let _ = fs::remove_dir_all(&temp);
     }
 
     #[test]
     fn packaged_production_is_shared_even_without_enrollment() {
         let _guard = TEST_ENV_LOCK.lock().unwrap();
-        let (temp, previous, previous_name, previous_runtime) = isolated();
+        let (temp, previous, previous_name, previous_runtime, previous_data) = isolated();
         let mode = std::env::var("ALEX_AI_MODE").ok();
         let url = std::env::var("ALEX_GATEWAY_URL").ok();
         std::env::remove_var("ALEX_AI_MODE");
@@ -529,14 +636,14 @@ mod tests {
             Some(value) => std::env::set_var("ALEX_GATEWAY_URL", value),
             None => std::env::remove_var("ALEX_GATEWAY_URL"),
         }
-        restore(previous, previous_name, previous_runtime);
+        restore(previous, previous_name, previous_runtime, previous_data);
         let _ = fs::remove_dir_all(&temp);
     }
 
     #[test]
     fn disconnect_removes_the_credential_even_when_the_gateway_is_unreachable() {
         let _guard = TEST_ENV_LOCK.lock().unwrap();
-        let (temp, previous, previous_name, previous_runtime) = isolated();
+        let (temp, previous, previous_name, previous_runtime, previous_data) = isolated();
         store_enrollment(&json!({
                 "url": "https://127.0.0.1:9",
                 "installation_id": "abc",
@@ -546,7 +653,23 @@ mod tests {
         let result = gateway_disconnect().unwrap();
         assert_eq!(result["configured"], false);
         assert!(credential::load_scoped("gateway", &credential_name()).is_none());
-        restore(previous, previous_name, previous_runtime);
+        // The backend's latch is written too: a backend that was not restarted must not
+        // quietly reconnect or create a Pod after an explicit disconnect.
+        assert!(manual_off_path().is_file());
+        restore(previous, previous_name, previous_runtime, previous_data);
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn the_manual_latch_is_cleared_by_an_explicit_connect() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+        let (temp, previous, previous_name, previous_runtime, previous_data) = isolated();
+        mark_manual_off();
+        assert!(manual_off_path().is_file());
+        // `gateway_enroll` calls exactly this after storing a new enrollment.
+        clear_manual_off();
+        assert!(!manual_off_path().is_file());
+        restore(previous, previous_name, previous_runtime, previous_data);
         let _ = fs::remove_dir_all(&temp);
     }
 

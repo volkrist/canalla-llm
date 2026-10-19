@@ -526,6 +526,16 @@ class LLMError(RuntimeError):
             "gateway_request_conflict": (
                 "Идентификатор запроса уже использован для другого запроса. Начните новый запрос."
             ),
+            # A manual Stop/Disconnect is a deliberate state, not a transient outage: the chat
+            # says so instead of silently re-creating compute.
+            "manual_disconnect": (
+                "AI остановлен вручную. Нажмите «Запустить AI», чтобы включить его снова."
+            ),
+            # The model endpoint refused the tool schema itself. Never dressed as a network fault.
+            "tools_unsupported": (
+                "Сервер модели отклонил вызовы инструментов (tools_unsupported). "
+                "Ни один инструмент не выполнялся."
+            ),
         }
         super().__init__(messages.get(code, messages["llm_unavailable"]))
 

@@ -801,11 +801,11 @@ def test_explicit_clearnet_tool_under_a_tor_route_is_typed_unsupported(client, a
 
 
 class SharedNoToolsModel:
-    """Production shared mode: the model answers, model-driven tool calling is unavailable.
+    """A provider that cannot call tools at all (the capability flag is the whole difference).
 
-    `GatewayProvider.supports_tools = False` is the whole difference: the generated text is
-    irrelevant here, the point is that the server's own Tor policy still runs and that arbitrary
-    model-driven tools stay blocked.
+    It stands in for any deployment whose model endpoint has no tool-calling contract: the
+    server's own deterministic policy must still run, arbitrary model-driven tools must stay
+    blocked, and the refusal must be typed instead of being written into the model's context.
     """
 
     supports_tools = False
@@ -938,21 +938,25 @@ def test_shared_mode_route_that_cannot_serve_the_url_fails_typed(client, auth, m
     assert attempts == []
 
 
-def test_shared_mode_still_refuses_model_driven_tools(client, auth, monkeypatch):
+def test_a_tool_blocked_provider_is_refused_with_a_typed_error(client, auth, monkeypatch):
     """The security boundary is unchanged: with no deterministic policy to run, a prompt that
-    would need model-driven tool calling is still refused in shared mode."""
+    would need model-driven tool calling is refused, and the UI gets the real code."""
     web_fakes = []
     monkeypatch.setattr(client.app.state, "tools", tor_route_registry(web_fakes))
     provider = SharedNoToolsModel()
     monkeypatch.setattr(client.app.state, "provider", provider)
     headers = auth()
-    _, _response = shared_chat(client, headers, "Найди через Tor свежий onion-сервис Tor Project")
+    _, response = shared_chat(client, headers, "Найди через Tor свежий onion-сервис Tor Project")
     runs = client.get("/tools/runs", headers=headers).json()
-    notes = "\n".join(str(message.get("content") or "") for message in provider.seen)
 
     assert runs == [], runs
     assert all(fake.calls == [] for fake in web_fakes)
-    assert "tool calling unsupported" in notes
+    # The model is never asked to narrate a capability it was not given.
+    assert provider.seen == []
+    assert "event: web_status" in response.text
+    assert "model_tools_unsupported" in response.text
+    assert "tools_unsupported" in response.text
+    assert "tool calling unsupported" not in response.text
 
 
 def test_shared_mode_ordinary_chat_is_untouched(client, auth, monkeypatch):

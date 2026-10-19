@@ -76,7 +76,10 @@ class GatewayBalanceSource:
 class GatewayProvider(LLMProvider):
     """Production shared-mode inference: this installation never sees llama.cpp."""
 
-    supports_tools = False
+    # The Gateway forwards the request body unchanged, so the same planner contract llama.cpp
+    # serves works through it. This used to be `False`, which made every model-driven tool call
+    # impossible in production and injected "tool calling unsupported" into the model context.
+    supports_tools = True
 
     # `/health` is the desktop's liveness contract (the runtime probe allows 400 ms) and the
     # UI polls it, so readiness is cached: at most one upstream probe per TTL and never a
@@ -159,6 +162,52 @@ class GatewayProvider(LLMProvider):
                 yield part
         finally:
             await iterator.aclose()
+
+    async def plan_tools(self, messages, tools, usage):
+        """One tool-planning turn, through the Gateway.
+
+        A server that was not started with `--jinja` rejects the `tools` field. That rejection
+        is a *server* fact and is raised as `tools_unsupported`, never turned into a sentence
+        the model would repeat to the user.
+        """
+        body = {
+            "model": self.settings.llm_model,
+            "messages": messages,
+            "stream": False,
+            "chat_template_kwargs": {"enable_thinking": False},
+            "tools": tools,
+            "tool_choice": "auto",
+            "max_tokens": 1200,
+        }
+        try:
+            value = await self.client.chat_completion(body, timeout=90)
+        except CloudError as error:
+            detail = (error.message or "").lower()
+            rejected_tools = error.status in (400, 422) or error.code == "gateway_upstream_rejected"
+            if rejected_tools and any(
+                token in detail for token in ("tool", "jinja", "template", "unsupported")
+            ):
+                raise LLMError("tools_unsupported") from None
+            if error.code in {"gateway_protocol_mismatch", "installation_revoked"}:
+                raise LLMError(error.code) from None
+            raise LLMError("llm_unavailable") from None
+        except Exception:
+            raise LLMError("llm_unavailable") from None
+        try:
+            message = value["choices"][0]["message"]
+        except (KeyError, IndexError, TypeError):
+            raise LLMError("malformed_response") from None
+        if not isinstance(message, dict) or not isinstance(message.get("tool_calls", []), list):
+            raise LLMError("malformed_response")
+        usage["_planner_calls"] = usage.get("_planner_calls", 0) + 1
+        reported = value.get("usage") or {}
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            count = reported.get(key)
+            if isinstance(count, int) and count >= 0:
+                usage[key] = usage.get(key, 0) + count
+            else:
+                usage["_planner_usage_incomplete"] = True
+        return message
 
     async def stream_with_usage(self, messages, usage):
         iterator = self._stream(messages, usage)

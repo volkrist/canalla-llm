@@ -66,6 +66,17 @@ def database():
     app.state.generating.clear()
 
 
+@pytest.fixture(autouse=True)
+def manual_off_latch():
+    """The manual Stop/Disconnect latch is on disk by design, so isolate it per test."""
+    from pathlib import Path
+
+    path = Path(os.environ["ALEX_LLM_DATA_DIR"]) / "runtime" / "compute.manual_off"
+    path.unlink(missing_ok=True)
+    yield
+    path.unlink(missing_ok=True)
+
+
 @pytest.fixture
 def client():
     with TestClient(app) as client:

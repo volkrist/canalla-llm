@@ -199,15 +199,18 @@ def fallback_answer(facts: dict, prompt: str) -> str:
             f"browser navigation failed: {error.get('error_code') or 'browser_error'} "
             f"status={error.get('session_status') or 'FAILED'}"
         )
-    elif "navigate_documentation" in remaining or (
-        re.search(r"(?i)документ|documentation|docs", asked) and pages and not docs_pages
+    elif pages and (
+        "navigate_documentation" in remaining
+        or (re.search(r"(?i)документ|documentation|docs", asked) and not docs_pages)
     ):
+        # Only a browser that actually opened something can say navigation failed to reach
+        # the docs; with no page at all this is the caller's typed failure, not a result.
         lines.append("browser navigation failed: documentation page not loaded")
     if not lines:
-        if re.search(r"(?i)браузер|browser|python\.org", asked):
-            return "browser navigation failed: no page result"
+        # A browser task with no page and no typed error has no verified answer. Returning a
+        # made-up "no page result" sentence here hid the missing result as if it were a page.
         block = public_block(facts)
-        return block or "Инструменты выполнены, но проверяемых фактов нет."
+        return block or ""
     return "\n".join(line for line in lines if line).strip()
 
 

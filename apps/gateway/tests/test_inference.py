@@ -268,6 +268,22 @@ def test_upstream_failure_is_reported_without_leaking_the_response(gateway, clie
     gateway.llama.failure = None
 
 
+def test_a_rejected_request_keeps_the_upstream_reason(gateway, client):
+    """A 400 from llama-server is a request fact (missing --jinja, bad tool schema), not an outage."""
+    installation, headers = ready_compute(gateway, client)
+    gateway.llama.failure = 400
+    response = client.post(
+        "/v1/chat/completions",
+        json={**CHAT, "tools": [{"type": "function", "function": {"name": "web_fetch"}}]},
+        headers=headers,
+    )
+    assert response.status_code == 502
+    assert response.json()["code"] == "gateway_upstream_rejected"
+    assert "400" in response.json()["detail"]
+    assert "internal upstream detail" in response.json()["detail"]
+    gateway.llama.failure = None
+
+
 def test_rejected_pod_credential_is_reported_not_leaked(gateway, client):
     installation, headers = ready_compute(gateway, client)
     gateway.llama.expected_key = "another-key-" + "z" * 32

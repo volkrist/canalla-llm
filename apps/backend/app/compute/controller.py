@@ -417,6 +417,8 @@ class RunPodController:
             }
 
     async def search_gpu(self, user, prefs):
+        # An explicit search (the Compute button) is a start request: it lifts manual-off.
+        self._allow_manual()
         async with self.operation():
             with self.sessions() as db:
                 control = control_row(db)
@@ -527,6 +529,8 @@ class RunPodController:
     async def start_compute(self, user, request: StartRequest):
         if self.settings.alex_ai_mode == "shared":
             raise RunPodError("gateway_managed_compute", 409)
+        # An explicit Start is a user invitation, so it lifts a previous manual stop.
+        self._allow_manual()
         async with self.operation():
             return await self._start_compute_locked(user, request)
 
@@ -808,8 +812,17 @@ class RunPodController:
             self.rate_limit(user.id, "stop")
             with self.sessions() as db:
                 control = control_row(db)
+                # A manual Stop/Disconnect also ends a parked retry. Leaving `next_search_at`
+                # alive let the background tick start the next attempt (and create a Pod)
+                # seconds after the user had stopped AI.
+                control.next_search_at = None
+                control.search_user_id = None
+                control.search_quote_id = None
                 row = db.get(ComputeSession, control.active_session_id) if control.active_session_id else None
                 if not row:
+                    control.search_state = "offline"
+                    db.commit()
+                    self._mark_manual_off()
                     return self.get_compute_status(user)
                 if not row.managed and (user.role != "admin" or not request.confirm_external):
                     raise HTTPException(
@@ -819,7 +832,35 @@ class RunPodController:
                     raise HTTPException(409, "AI генерирует ответ. Выберите остановку после ответа.")
                 sid = row.id
             await self._terminate(sid, "manual" if row.managed else "manual_confirmed_external")
+            self._mark_manual_off()
         return self.get_compute_status(user)
+
+    # The shared and direct lifecycles share one latch file: a manual stop means "do not start
+    # again until the user asks", in both provider modes.
+    def _manual_off_path(self):
+        from ..data_paths import application_data
+
+        return application_data(self.settings) / "runtime" / "compute.manual_off"
+
+    def _manual_off(self) -> bool:
+        try:
+            return self._manual_off_path().is_file()
+        except Exception:
+            return False
+
+    def _mark_manual_off(self) -> None:
+        try:
+            path = self._manual_off_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("manual_disconnect", encoding="utf-8")
+        except OSError:
+            pass
+
+    def _allow_manual(self) -> None:
+        try:
+            self._manual_off_path().unlink(missing_ok=True)
+        except OSError:
+            pass
 
     async def begin_generation(self, user_id, chat_id, provider):
         async with self.operation():
@@ -910,6 +951,9 @@ class RunPodController:
                 control = control_row(db)
                 row = db.get(ComputeSession, control.active_session_id) if control.active_session_id else None
                 if not row:
+                    if self._manual_off():
+                        # A parked retry must not resurrect what the user stopped by hand.
+                        return
                     if (
                         control.next_search_at
                         and utc(control.next_search_at) <= self.clock()
@@ -1234,6 +1278,9 @@ class RunPodController:
             raise HTTPException(403, "Запуск GPU доступен владельцу этого компьютера")
         if not self.api.configured:
             return self._demand_result(user, "unavailable", "not_configured")
+        if self._manual_off():
+            # An automatic chat request does not override a manual Stop/Disconnect.
+            return self._demand_result(user, "unavailable", "manual_disconnect")
         async with self.operation():
             return await self._ensure_on_demand_locked(
                 user, chat_id=chat_id, task_id=task_id, confirm=confirm

@@ -101,6 +101,8 @@ async def stop_compute(request: Request, user: User = Depends(current_user)) -> 
         raise _http(error) from None
     # A pending automatic attempt must not resurrect compute the user just stopped.
     demand.cancel_pending()
+    # And the stop is remembered: a chat request is not an explicit invitation to start again.
+    demand.mark_manual_off()
     cloud.compute = payload
     cloud.fetched_at = cloud.clock()
     result = cloud.snapshot()

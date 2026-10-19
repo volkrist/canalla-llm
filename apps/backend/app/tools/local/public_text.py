@@ -19,6 +19,14 @@ HALT_MESSAGES = {
     "waiting_confirmation": "Waiting for confirmation.",
     "host_offline": "Device offline. Task will continue after the computer reconnects.",
     "llm_unavailable": "LLM unavailable. Task will continue after recovery.",
+    "tools_unsupported": (
+        "Модель отклонила вызовы инструментов (tools_unsupported). "
+        "Ни один инструмент не выполнялся."
+    ),
+    "browser_no_page_result": (
+        "Страница не получена: браузерный инструмент не вернул результат "
+        "(browser_no_page_result)."
+    ),
     "task_stopped": "Task stopped.",
 }
 

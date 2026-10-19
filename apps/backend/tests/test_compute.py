@@ -451,6 +451,30 @@ def test_auto_search_repeats_without_restart_and_never_creates(compute):
     asyncio.run(scenario())
 
 
+def test_manual_stop_cancels_a_parked_search(compute):
+    """A Stop must not be followed by the background loop creating the next Pod."""
+    controller, supplier, user = compute
+
+    async def scenario():
+        supplier.price = 4  # nothing inside the limit: the search parks
+        await controller.search_gpu(user, ComputePreferences(auto_connect=True, gpu_id="gpu-48"))
+        assert controller.get_compute_status(user)["next_search_at"] is not None
+
+        await controller.stop_compute(user, StopRequest())
+        assert controller.get_compute_status(user)["next_search_at"] is None
+
+        supplier.price = 0.48
+        supplier.time += timedelta(seconds=60)
+        await controller.tick()
+        assert not supplier.creates
+
+        # Only an explicit new search lifts the manual stop.
+        await controller.search_gpu(user, ComputePreferences(auto_connect=True, gpu_id="gpu-48"))
+        assert supplier.creates
+
+    asyncio.run(scenario())
+
+
 def test_disappeared_gpu_resumes_search_without_create(compute):
     controller, supplier, user = compute
 

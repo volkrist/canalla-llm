@@ -35,6 +35,11 @@ POLL_SECONDS = 1.5
 # not-due ensure simply returns the current wait — this can never hot-loop RunPod.
 WAIT_STATE = "waiting_capacity"
 WAIT_POLL_SECONDS = 5.0
+# A manual Stop/Disconnect is a persisted latch, not a mood: an automatic chat request must not
+# resurrect compute (or create a Pod) until the user explicitly starts it again. The desktop
+# writes the same marker on «Отключить Canalla Cloud», so a backend that was not restarted for
+# some reason still refuses automatic attempts.
+MANUAL_OFF_FILE = "compute.manual_off"
 # Readiness after the capacity step is the Gateway's D-9 startup deadline (300 s by default);
 # this margin only covers the client's own polling and the Gateway's final write.
 STARTUP_MARGIN_SECONDS = 60.0
@@ -185,6 +190,41 @@ class SharedDemand:
         self._inflight: asyncio.Task | None = None
         self._origin: str = "chat"
         self._first: asyncio.Future | None = None
+        self._manual_off = self._read_manual_off()
+
+    # ------------------------------------------------------------------------ manual latch
+
+    def _manual_off_path(self):
+        from ..data_paths import application_data
+
+        return application_data(self.cloud.settings) / "runtime" / MANUAL_OFF_FILE
+
+    def _read_manual_off(self) -> bool:
+        try:
+            return self._manual_off_path().is_file()
+        except Exception:
+            return False
+
+    def manual_off(self) -> bool:
+        return self._manual_off
+
+    def mark_manual_off(self) -> None:
+        """Remember that the user stopped AI on purpose. Survives an app/backend restart."""
+        self._manual_off = True
+        try:
+            path = self._manual_off_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("manual_disconnect", encoding="utf-8")
+        except OSError:
+            pass
+
+    def allow(self) -> None:
+        """An explicit Start/Connect lifts the latch. Never called by an automatic path."""
+        self._manual_off = False
+        try:
+            self._manual_off_path().unlink(missing_ok=True)
+        except OSError:
+            pass
 
     # ----------------------------------------------------------------------------- readouts
 
@@ -238,6 +278,12 @@ class SharedDemand:
         question "did the chat start compute?" becomes unanswerable again.
         """
         async with self._lock:
+            if self._manual_off and origin != "manual_prewarm":
+                # The user pressed Stop/Disconnect. Only an explicit Start may lift this, and
+                # no Gateway call (and therefore no money) happens while it holds.
+                return self._resolved(
+                    {"kind": "blocked", "code": "manual_disconnect", "state": "offline"}
+                )
             if self._inflight is not None and not self._inflight.done():
                 return self._inflight
             if self.reusable():
@@ -262,6 +308,8 @@ class SharedDemand:
         run two searches. The answer is the Gateway's *first* answer — never the end of the
         whole bounded window, because the desktop aborts a request after 15 seconds.
         """
+        # An explicit Start is the one thing that lifts the manual-off latch.
+        self.allow()
         task = await self.start(task_id=task_id, caps=caps, origin=origin)
         first = self._first
         if not task.done() and first is not None:

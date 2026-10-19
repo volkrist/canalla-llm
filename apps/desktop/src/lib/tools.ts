@@ -188,6 +188,8 @@ export const toolErrors: Record<string, string> = {
   credentials_not_supported:
     "Ввод паролей и платёжных данных не поддерживается.",
   model_tools_unsupported: "Эта модель не поддерживает вызовы инструментов.",
+  browser_no_page_result:
+    "Браузер не вернул страницу: ни один результат не получен.",
   timeout: "Достигнут лимит времени инструмента.",
   tor_not_configured: "Tor не настроен.",
   tor_unavailable: "Tor недоступен.",

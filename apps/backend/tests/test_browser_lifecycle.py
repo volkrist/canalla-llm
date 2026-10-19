@@ -138,6 +138,11 @@ def test_page2_becomes_w_source_and_empty_llm_uses_fallback():
     assert "Welcome to Python.org" in text
 
 
+def test_a_missing_page_is_not_dressed_as_a_result():
+    """With no page and no typed error there is no verified answer to report."""
+    assert fallback_answer({}, PROMPT) == ""
+
+
 def test_navigation_failure_is_visible_error():
     facts = record(
         {},

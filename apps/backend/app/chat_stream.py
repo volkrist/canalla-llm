@@ -355,8 +355,10 @@ async def stream_response(
                     )
                 if looks_like_browser_task(prompt):
                     text = fallback_answer(grounded, prompt)
-                    if not (text or "").strip():
-                        text = "browser navigation failed: no page result"
+                    verified = bool((text or "").strip())
+                else:
+                    text, verified = "", False
+                if verified:
                     parts.append(text)
                     yield sse("delta", {"content": text})
                     status = "complete"
@@ -366,6 +368,13 @@ async def stream_response(
                     yield sse("delta", {"content": text})
                     status = "complete"
                 else:
+                    if looks_like_browser_task(prompt) and not store(grounded):
+                        # Nothing was retrieved and there is no typed browser error to report.
+                        # Do not fabricate a page answer: the interface shows the real failure,
+                        # and the model may still explain what it did or did not receive.
+                        yield sse(
+                            "web_status", {"state": "failed", "code": "browser_no_page_result"}
+                        )
                     iterator = request.app.state.provider.stream_with_usage(enriched_history, tokens)
                     async for token in iterator:
                         if await request.is_disconnected():
@@ -408,7 +417,11 @@ async def stream_response(
                             else fallback_answer(grounded, prompt)
                         )
                         if looks_like_browser_task(prompt) and not (final or "").strip():
-                            final = "browser navigation failed: no page result"
+                            # A server-owned typed failure, never a fabricated page result.
+                            final = public_assistant_text("", "browser_no_page_result")
+                            yield sse(
+                                "web_status", {"state": "failed", "code": "browser_no_page_result"}
+                            )
                         parts = [final]
                         if final != joined:
                             yield sse("delta", {"content": "\n" + final})

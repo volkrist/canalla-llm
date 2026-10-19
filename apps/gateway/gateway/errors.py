@@ -26,6 +26,9 @@ CODES = {
     "gateway_queue_full": 429,
     "gateway_busy": 503,
     "gateway_unavailable": 503,
+    # The model endpoint answered 4xx. The body is kept (bounded) so the client can tell a
+    # rejected tool schema from a malformed request instead of blaming the network.
+    "gateway_upstream_rejected": 502,
     "gateway_budget_denied": 409,
     # A11: a non-owner, non-operator installation may not stop the shared managed Pod.
     "gateway_stop_forbidden": 403,
@@ -57,6 +60,7 @@ DETAILS = {
     "gateway_queue_full": "Очередь запросов AI заполнена. Повторите позже.",
     "gateway_busy": "AI занят другим запросом. Повторите позже.",
     "gateway_unavailable": "Canalla Cloud сейчас недоступен.",
+    "gateway_upstream_rejected": "AI отклонил запрос. Проверьте параметры запроса.",
     "gateway_budget_denied": "Запрос превышает установленные лимиты расходов.",
     "gateway_stop_forbidden": "Остановить общий compute может только его владелец или оператор.",
     "compute_policy_invalid": "Недопустимая политика расходов: проверьте максимум $/час и бюджет сессии.",

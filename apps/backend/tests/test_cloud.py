@@ -69,9 +69,19 @@ class FakeGateway:
         self.balance_calls = 0
         self.models_calls = 0
         self.chat_calls = 0
+        # Tool-enabled chats make one non-streaming planner call before the streaming answer;
+        # the tests that mean "exactly one generation" count the stream, never both.
+        self.stream_calls = 0
         self.ensure_calls = 0
         self.stop_calls = 0
         self.ensure_bodies: list[dict] = []
+        # Tool planning through the Gateway: the body is captured so a test can prove `tools`
+        # really reached the model endpoint, and the answer is scripted independently of the
+        # plain-chat default.
+        self.planner_bodies: list[dict] = []
+        self.planner_message: dict = {"role": "assistant", "content": "Привет из облака"}
+        self.planner_status: int | None = None
+        self.planner_detail = "AI отклонил запрос (400). tools are not supported by this build"
         # Scripted answers: one payload per call, and the last one keeps answering. A test can
         # therefore pin the exact Gateway sequence a request produces without any timing.
         self.ensure_results: list[dict] = []
@@ -166,13 +176,20 @@ class FakeGateway:
             self.chat_calls += 1
             body = json.loads(request.content)
             if not body.get("stream"):
+                self.planner_bodies.append(body)
+                if self.planner_status is not None:
+                    return httpx.Response(
+                        self.planner_status,
+                        json={"detail": self.planner_detail, "code": "gateway_upstream_rejected"},
+                    )
                 return httpx.Response(
                     200,
                     json={
-                        "choices": [{"message": {"role": "assistant", "content": "Привет из облака"}}],
+                        "choices": [{"message": self.planner_message}],
                         "usage": {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7},
                     },
                 )
+            self.stream_calls += 1
             owner = self
 
             async def events():
@@ -428,6 +445,59 @@ def test_usage_is_reported_from_the_gateway_stream(gateway):
 
     run(scenario())
     assert usage == {"input_tokens": 3, "output_tokens": 4, "total_tokens": 7}
+
+
+def test_planning_sends_the_tools_through_the_gateway(gateway):
+    """Production shared mode is the one mode that used to forbid tools entirely."""
+    provider = GatewayProvider(shared_settings(), client_for(gateway))
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "web_fetch",
+                "description": "Read a public URL",
+                "parameters": {"type": "object", "properties": {"urls": {"type": "array"}}},
+            },
+        }
+    ]
+    gateway.planner_message = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "call-1",
+                "type": "function",
+                "function": {"name": "web_fetch", "arguments": '{"urls":["https://example.com"]}'},
+            }
+        ],
+    }
+    usage: dict = {}
+
+    message = run(
+        provider.plan_tools([{"role": "user", "content": "открой example.com"}], tools, usage)
+    )
+
+    assert provider.supports_tools is True
+    assert message["tool_calls"][0]["function"]["name"] == "web_fetch"
+    body = gateway.planner_bodies[0]
+    assert body["tools"] == tools
+    assert body["tool_choice"] == "auto"
+    assert body["stream"] is False
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert usage["_planner_calls"] == 1 and usage["prompt_tokens"] == 3
+
+
+def test_a_rejected_tool_schema_is_a_typed_failure(gateway):
+    """No --jinja on the server must read as tools_unsupported, not as a network outage."""
+    from app.providers import LLMError
+
+    provider = GatewayProvider(shared_settings(), client_for(gateway))
+    gateway.planner_status = 400
+
+    with pytest.raises(LLMError) as error:
+        run(provider.plan_tools([{"role": "user", "content": "x"}], [], {}))
+
+    assert error.value.code == "tools_unsupported"
 
 
 def test_provider_maps_gateway_failures_to_user_codes(gateway):

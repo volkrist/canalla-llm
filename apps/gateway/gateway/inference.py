@@ -294,8 +294,8 @@ class InferenceProxy:
             raise
 
         if response.status_code >= 400:
-            await response.aread()
             status = response.status_code
+            raw = await response.aread()
             await response.aclose()
             await client.aclose()
             finish("failed")
@@ -303,6 +303,15 @@ class InferenceProxy:
                 raise GatewayError("gateway_unavailable", detail="Pod отклонил ключ Alex Cloud.")
             if status == 429:
                 raise GatewayError("gateway_busy")
+            if status in (400, 422):
+                # llama-server says *why* it refused (a missing `--jinja`, an unknown tool
+                # schema, an over-window prompt). Collapsing that into "unavailable" made the
+                # client report a network failure for a request the model had just rejected.
+                excerpt = raw.decode("utf-8", "replace").strip().replace("\n", " ")[:300]
+                detail = f"AI отклонил запрос ({status})."
+                if excerpt:
+                    detail = f"{detail} {excerpt}"
+                raise GatewayError("gateway_upstream_rejected", detail=detail)
             raise GatewayError("gateway_unavailable", detail=f"AI ответил ошибкой {status}.")
 
         if not stream:

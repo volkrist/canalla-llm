@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # status chips and the balance panel keep working unchanged.
 LOCAL_CODES = {
     "gateway_unavailable": "gateway_unavailable",
+    "gateway_upstream_rejected": "gateway_upstream_rejected",
     "gateway_busy": "gateway_busy",
     "gateway_queue_full": "gateway_queue_full",
     "gateway_auth_failed": "gateway_auth_failed",
@@ -225,6 +226,11 @@ class GatewayClient:
 
     async def models(self) -> dict:
         return await self.request("GET", "/v1/models", timeout=15)
+
+    async def chat_completion(self, payload: dict, *, timeout: float = 90) -> dict:
+        """One non-streaming completion. The Gateway forwards the body (including `tools`)
+        unchanged to llama-server; this is the same transport the chat stream uses."""
+        return await self.request("POST", "/v1/chat/completions", json=payload, timeout=timeout)
 
     async def revoke(self) -> dict:
         return await self.request("POST", "/auth/revoke", json={"reason": "client_disconnect"})

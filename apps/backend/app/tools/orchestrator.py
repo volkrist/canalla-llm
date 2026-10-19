@@ -179,9 +179,8 @@ class ToolOrchestrator:
             # Deterministic server policies run before the model-tool capability check. A Tor
             # request naming a URL is the server's own instruction — it never depends on the model
             # deciding to call tor_fetch — so it has to work even where the model cannot call tools
-            # at all (production shared mode, `GatewayProvider.supports_tools = False`). Arbitrary
-            # model-driven tools stay blocked right below: this is a server policy, not a widening
-            # of the tool boundary.
+            # at all (a provider without a tool-calling contract). Arbitrary model-driven tools
+            # stay blocked right below: this is a server policy, not a widening of the boundary.
             policy_notes: list[str] = []
             if await self._server_policy_tor_url(context, prompt, tor_intent, policy_notes):
                 if tor_intent.required and not context.sources:
@@ -204,10 +203,12 @@ class ToolOrchestrator:
         if not getattr(provider, "supports_tools", False) and not paid_needed and not local_needed:
             close_task()
             if context.mode != "off":
-                await context.emit("web_status", {"state": "unavailable", "code": "model_tools_unsupported"})
-                return ContextBuilder.with_web(
-                    history, insert_at, [], ["No web results available: tool calling unsupported."]
-                )
+                # A provider that cannot call tools is a server fact. Say it once, as a typed
+                # failure, instead of writing "tool calling unsupported" into the model's
+                # context and letting the model repeat it back as if it had tried.
+                await context.emit("web_status", {"state": "failed", "code": "model_tools_unsupported"})
+                context.skip_final_stream = True
+                context.task_halt = "tools_unsupported"
             return history
         tools = [d.llm_schema() for d in definitions]
         intent = classify_web(prompt, context.mode)
@@ -349,6 +350,17 @@ class ToolOrchestrator:
                             LocalTaskController().checkpoint(db, context, "INTERRUPTED")
                     raise
                 except LLMError as error:
+                    if error.code == "tools_unsupported":
+                        # The endpoint refused the tool schema itself (for example llama-server
+                        # without --jinja). Retrying through WAITING_LLM would hide that: no tool
+                        # ran, and the user must see the real cause.
+                        await context.emit(
+                            "web_status", {"state": "failed", "code": "model_tools_unsupported"}
+                        )
+                        notes.append("The model endpoint rejected tool calling (tools_unsupported).")
+                        context.skip_final_stream = True
+                        context.task_halt = "tools_unsupported"
+                        break
                     notes.append("LLM temporarily unavailable. Task is recoverable.")
                     with SessionLocal() as db:
                         LocalTaskController().waiting_llm(db, context, error.code)

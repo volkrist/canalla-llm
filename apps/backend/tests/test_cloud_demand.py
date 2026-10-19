@@ -324,6 +324,34 @@ def shared_demand(gateway):
     return Wiring(gateway, cloud, SharedDemand(cloud, sleep=clock.sleep, clock=clock), clock)
 
 
+def test_a_manual_stop_blocks_automatic_demand(shared_demand):
+    """A chat request is not an explicit invitation to undo a manual Stop."""
+    shared_demand.demand.mark_manual_off()
+
+    outcome = run(shared_demand.demand.ensure(caps={}, origin="chat"))
+
+    assert outcome == {"kind": "blocked", "code": "manual_disconnect", "state": "offline"}
+    assert shared_demand.gateway.ensure_calls == 0
+
+
+def test_the_manual_stop_survives_a_backend_restart(shared_demand):
+    shared_demand.demand.mark_manual_off()
+
+    restarted = SharedDemand(shared_demand.cloud)
+
+    assert restarted.manual_off() is True
+
+
+def test_an_explicit_start_lifts_the_manual_stop(shared_demand):
+    shared_demand.demand.mark_manual_off()
+    shared_demand.gateway.ensure_results = [compute_payload("ready", ai="ready")]
+
+    run(shared_demand.demand.prewarm(caps={}, origin="manual_prewarm"))
+
+    assert shared_demand.demand.manual_off() is False
+    assert shared_demand.gateway.ensure_calls == 1
+
+
 @pytest.fixture
 def shared_app(monkeypatch, shared_demand):
     """A real app in shared mode, wired to the fake Gateway. The chat path is real.
@@ -505,7 +533,7 @@ def test_a_chat_with_no_model_ensures_once_and_then_generates(shared_app, client
     chat_id, response = start_chat(client, headers)
 
     assert shared_app.gateway.ensure_calls == 1
-    assert shared_app.gateway.chat_calls == 1
+    assert shared_app.gateway.stream_calls == 1
     assert shared_app.demand.ready() is True
     events = sse_events(response.text)
     assert [name for name, _ in events].count("done") == 1
@@ -528,7 +556,7 @@ def test_a_chat_with_a_ready_model_generates_without_an_ensure(shared_app, clien
     chat_id, _ = start_chat(client, headers)
 
     assert shared_app.gateway.ensure_calls == 0
-    assert shared_app.gateway.chat_calls == 1
+    assert shared_app.gateway.stream_calls == 1
     saved = messages(client, headers, chat_id)
     assert [row["role"] for row in saved] == ["user", "assistant"]
 
@@ -545,7 +573,7 @@ def test_a_model_that_is_not_ready_yet_never_polls_the_model_endpoint(shared_app
 
     start_chat(client, headers)
 
-    assert shared_app.gateway.chat_calls == 1
+    assert shared_app.gateway.stream_calls == 1
     assert shared_app.gateway.models_calls == 0
 
 
@@ -736,7 +764,7 @@ def test_manual_prewarm_and_a_chat_share_one_lifecycle(shared_app, client, auth)
     # One attempt for both callers: the chat attached to the prewarm's lifecycle.
     assert attempts.count == 1
     assert shared_app.gateway.ensure_calls == 2
-    assert shared_app.gateway.chat_calls == 1, sse_events(response.text)
+    assert shared_app.gateway.stream_calls == 1, sse_events(response.text)
     assert [name for name, _ in sse_events(response.text)].count("done") == 1
 
 
@@ -752,7 +780,7 @@ def test_capacity_unavailable_fails_typed_and_never_generates(shared_app, client
     # Bounded: one immediate check plus at most two retries inside the 60-second window.
     assert shared_app.gateway.ensure_calls == MAX_SEARCH_ATTEMPTS
     assert shared_app.clock.now <= NOW + timedelta(seconds=CAPACITY_WINDOW_SECONDS)
-    assert shared_app.gateway.chat_calls == 0
+    assert shared_app.gateway.stream_calls == 0
     assert shared_app.gateway.models_calls == 0
     events = sse_events(response.text)
     errors = [payload for name, payload in events if name == "error"]
@@ -786,7 +814,7 @@ def test_compute_that_becomes_ready_after_the_ensure_executes_the_message_once(s
 
     events = sse_events(response.text)
     assert [name for name, _ in events].count("done") == 1
-    assert shared_app.gateway.chat_calls == 1
+    assert shared_app.gateway.stream_calls == 1
     saved = messages(client, headers, chat_id)
     assert len(saved) == 2
     assert saved[1]["status"] == "complete"
@@ -800,7 +828,7 @@ def test_a_loading_failure_ends_typed_without_generating(shared_app, client, aut
 
     chat_id, response = start_chat(client, headers)
 
-    assert shared_app.gateway.chat_calls == 0
+    assert shared_app.gateway.stream_calls == 0
     errors = [payload for name, payload in sse_events(response.text) if name == "error"]
     assert [item["code"] for item in errors] == ["startup_failed"]
     saved = messages(client, headers, chat_id)
@@ -812,7 +840,8 @@ def test_a_loading_failure_ends_typed_without_generating(shared_app, client, aut
     assert chip["state"] == "error"
 
 
-def test_stop_ai_then_a_new_chat_starts_one_new_bounded_ensure(shared_app, client, auth):
+def test_a_manual_stop_is_not_undone_by_a_new_chat(shared_app, client, auth):
+    """The owner's rule: a Stop lasts until an explicit Start, not until the next message."""
     headers = auth()
     shared_app.gateway.compute = compute_payload("ready", ai="ready")
 
@@ -822,12 +851,23 @@ def test_stop_ai_then_a_new_chat_starts_one_new_bounded_ensure(shared_app, clien
 
     shared_app.gateway.ensure_results = [compute_payload("starting_pod", ai="starting")]
     shared_app.gateway.compute_steps = [compute_payload("ready", ai="ready")]
-    chat_id, _ = start_chat(client, headers)
+    chat_id, response = start_chat(client, headers)
 
+    # No new Pod, no second session and no generation: the chat does not override the Stop.
     assert shared_app.gateway.stop_calls == 1
-    assert shared_app.gateway.ensure_calls == 1
+    assert shared_app.gateway.ensure_calls == 0
+    assert shared_app.gateway.stream_calls == 0
+    errors = [payload for name, payload in sse_events(response.text) if name == "error"]
+    assert [item["code"] for item in errors] == ["manual_disconnect"]
     saved = messages(client, headers, chat_id)
-    assert saved[1]["status"] == "complete"
+    assert saved[1]["status"] == "error"
+
+    # The explicit Start button lifts the latch; a later chat may ensure and generate again.
+    prewarm = client.post("/cloud/compute/ensure", json={}, headers=headers)
+    assert prewarm.status_code == 200, prewarm.text
+    _, second = start_chat(client, headers)
+    assert shared_app.gateway.stream_calls == 1
+    assert [name for name, _ in sse_events(second.text)].count("done") == 1
 
 
 def test_a_search_window_that_never_settles_fails_bounded(shared_app):
