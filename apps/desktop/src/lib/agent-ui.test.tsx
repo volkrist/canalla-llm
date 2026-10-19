@@ -99,6 +99,25 @@ describe("navigation and status survive a running generation", () => {
     expect(connection.code).toBe("off");
   });
 
+  it("stays connected while generating even after the idle readiness TTL", () => {
+    const connection = aiConnection({
+      snapshot: snapshot(
+        subsystem("ready", {
+          details: {
+            compute_state: "generating",
+            readiness_valid_until: "2026-10-19T07:00:00+00:00",
+          },
+        }),
+      ),
+      stale: false,
+      backendReady: true,
+      now: Date.parse("2026-10-19T08:00:00+00:00"),
+    });
+
+    expect(connection.state).toBe("connected");
+    expect(connection.code).toBe("ready");
+  });
+
   it("offers a stop action for a connected paid AI", () => {
     const html = renderToStaticMarkup(
       <AiConnectionBadge

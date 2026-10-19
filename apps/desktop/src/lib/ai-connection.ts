@@ -438,11 +438,15 @@ export function aiConnection({
           trace,
         );
       }
-      // Green only while the proof is still valid. A server that reports
-      // `readiness_valid_until` past its moment gets an honest, non-green answer: a Pod RUNNING
-      // is not a model that answered.
+      // A readiness proof expires only while the AI is idle. During `generating` the model is
+      // proving its readiness right now; applying the 30 s idle TTL to an active answer made the
+      // badge flip to Disconnected in the middle of a long generation.
       const validUntil = millis(transition.readinessValidUntil);
-      if (validUntil !== null && validUntil <= nowMs) {
+      if (
+        compute !== "generating" &&
+        validUntil !== null &&
+        validUntil <= nowMs
+      ) {
         return verdict(
           "disconnected",
           "expired",
