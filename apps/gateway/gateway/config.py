@@ -32,7 +32,7 @@ class GatewaySettings(BaseSettings):
     app_env: Literal["development", "production", "test"] = "development"
     gateway_protocol_version: int = 1
     product: str = "alex-llm-gateway"
-    version: str = "1.2.2"
+    version: str = "1.2.3"
 
     database_url: str = "sqlite:///./gateway.db"
 

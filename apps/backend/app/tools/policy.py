@@ -112,8 +112,15 @@ COMPUTER_CORE_TOOLS = frozenset(
         "move_file",
         "search_files",
         "search_code",
+        # The agent must be able to run the code it writes and to watch a long build. These are
+        # not prompt-gated: a heuristic that only offers run_process when the phrase happens to
+        # match is why the model used to answer «у меня нет shell» while Computer was Ready.
+        "run_process",
+        "run_python",
         "process_status",
         "stop_process",
+        "list_installed_software",
+        "install_software",
     }
 )
 
@@ -123,14 +130,16 @@ def computer_planner_tools(prompt: str) -> set[str]:
 
     allowed = set(COMPUTER_CORE_TOOLS)
     text = prompt or ""
-    if re.search(r"(?i)установи|install|winget|jq", text):
-        allowed.add("install_software")
-    if re.search(r"(?i)powershell", text):
+    if re.search(r"(?i)powershell|ps1|командн(ая|ую) строк", text):
+        # The PowerShell escape hatch stays explicit: run_process/run_python cover the general
+        # case, and a shell expression is a wider permission than the task usually needs.
         allowed.add("run_powershell")
-    if re.search(r"(?i)\bpytest\b|запусти тест|запусти.*(процесс|python|sleep)|start-sleep", text):
-        allowed.update({"run_python", "run_process"})
     if re.search(r"(?i)удал|delete", text):
         allowed.update({"delete_file", "delete_directory"})
+    if re.search(r"(?i)реестр|registry", text):
+        allowed.update({"registry_read", "registry_write"})
+    if re.search(r"(?i)служб|service", text):
+        allowed.update({"windows_service_status", "windows_service_control"})
     if re.search(r"(?i)\bgit\b|закоммить|commit|push", text):
         allowed.update({"git_status", "git_diff", "git_log", "git_add", "git_commit"})
     return allowed
@@ -197,7 +206,11 @@ class ToolLimits:
 
     def consume(self, definition, args):
         ceiling = min(self.max_calls, self.hard_max_calls)
-        if self.remaining <= 0 or self.calls >= ceiling:
+        # A spent task budget is a task outcome, not a tool outcome. Reporting it as `tool_limit`
+        # or `timeout` told the model the individual tool was broken and made it retry.
+        if self.remaining <= 0:
+            raise ToolError("task_runtime_limit")
+        if self.calls >= ceiling:
             raise ToolError("tool_limit")
         pages = len(getattr(args, "urls", []))
         searching = definition.capability == "search"

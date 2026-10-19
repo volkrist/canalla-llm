@@ -207,6 +207,7 @@ class TinyFishBrowserProvider(ToolProvider[BrowserStartArgs | WebBrowserArgs]):
         self.controller = BrowserController()
         self.locks = {}
         self.start_lock = asyncio.Lock()
+        self.last_url = {}
 
     def owned(self, session_id, user_id):
         session = self.sessions.get(session_id)
@@ -527,6 +528,7 @@ class TinyFishBrowserProvider(ToolProvider[BrowserStartArgs | WebBrowserArgs]):
         if args.operation == "open":
             if not args.url:
                 raise ToolError("invalid_arguments")
+            self.last_url[context.user_id] = args.url
             existing = self._owned_session(context.user_id)
             if existing:
                 async with self.locks[existing.session_id]:
@@ -582,7 +584,16 @@ class TinyFishBrowserProvider(ToolProvider[BrowserStartArgs | WebBrowserArgs]):
             )
         session = self._owned_session(context.user_id)
         if not session:
-            raise ToolError("not_found")
+            # The watchdog may have closed an idle session while the model was still working.
+            # Re-open the last page once instead of making the model understand `not_found`.
+            last = self.last_url.get(context.user_id)
+            if last and args.operation not in {"close"}:
+                await self.web_execute(
+                    WebBrowserArgs(operation="open", url=last), context
+                )
+                session = self._owned_session(context.user_id)
+            if not session:
+                raise ToolError("browser_session_lost")
         async with self.locks[session.session_id]:
             method, target = "click", ""
             if args.operation == "wait":
@@ -618,6 +629,8 @@ class TinyFishBrowserProvider(ToolProvider[BrowserStartArgs | WebBrowserArgs]):
                     session.allow_write = False
                     session.write_budget = 0
             title, snapshot, links, url = await self._snapshot(session, context.resolver)
+            if url:
+                self.last_url[context.user_id] = url
             text = snapshot if args.operation != "links" else json.dumps(links, ensure_ascii=False)
             extra = {
                 "links": self._public_links(links)[:32],

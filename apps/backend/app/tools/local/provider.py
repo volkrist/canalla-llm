@@ -325,7 +325,9 @@ def register_local_tools(registry):
             ProcessArgs,
             "local_process",
             RiskLevel.NORMAL_CHANGE,
-            "Run executable + argv. Never shell=True. elevate=true shows Windows UAC.",
+            "Run an executable with argv on this PC. Never shell=True; use run_powershell for a "
+            "shell expression. wait=false starts a Job Object and returns a tool_run_id; poll it "
+            "with process_status and stop it with stop_process. elevate=true shows Windows UAC.",
             process,
         ),
         (
@@ -333,7 +335,9 @@ def register_local_tools(registry):
             InterpreterArgs,
             "local_process",
             RiskLevel.NORMAL_CHANGE,
-            "PowerShell escape hatch. WHEN TO USE: no typed tool exists. WHEN NOT: list/search/read/hash/system info.",
+            "Run a PowerShell script on this PC. WHEN TO USE: no typed tool exists. WHEN NOT: "
+            "list/search/read/hash/system info. wait=false starts a Job Object for a long task; "
+            "use process_status and stop_process.",
             process,
         ),
         (
@@ -341,7 +345,9 @@ def register_local_tools(registry):
             InterpreterArgs,
             "local_process",
             RiskLevel.NORMAL_CHANGE,
-            "Python escape hatch or pytest. WHEN TO USE: project tests or no typed tool. WHEN NOT: file search/hash/system info. wait=false starts a Job Object process.",
+            "Run Python or pytest on this PC. WHEN TO USE: run the script you wrote or project "
+            "tests. WHEN NOT: file search/hash/system info. wait=false starts a Job Object and "
+            "returns a tool_run_id for process_status/stop_process.",
             process,
         ),
         (
@@ -506,7 +512,10 @@ def register_local_tools(registry):
         ),
     ):
         registry.register(
-            ToolDefinition(name, description, schema, capability, risk, "free", 120, "local_device"),
+            # A local call may include a winget install or a test run; 120 s was shorter than a
+            # normal cold build. The task budget still caps the whole turn, and long processes
+            # should use wait=false + process_status instead of holding one call open.
+            ToolDefinition(name, description, schema, capability, risk, "free", 300, "local_device"),
             adapter,
         )
     from .coding import register_coding_tools

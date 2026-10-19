@@ -84,6 +84,11 @@ export function AiConnectionDetail({
         </div>
       </dl>
       {hint ? <p className="connection-hint">{hint}</p> : null}
+      <p className="connection-hint">
+        «Отключить AI» останавливает оплачиваемую сессию и не отзывает
+        установку. Отзыв enrollment — отдельное действие «Отключить Canalla
+        Cloud» в Settings.
+      </p>
       {connection.action ? (
         <button
           type="button"
@@ -113,12 +118,20 @@ export default function AiConnectionBadge({
   backendReady,
   cloud,
   onAction,
+  onStopAi,
+  stopping = false,
+  reconnecting = false,
 }: {
   snapshot: StatusSnapshot | null;
   stale: boolean;
   backendReady: boolean;
   cloud: { state: string | null; enrolled: boolean };
   onAction: (action: RecoveryAction) => void;
+  /** Stops the paid AI session now. Never revokes the Canalla Cloud enrollment. */
+  onStopAi?: () => void;
+  stopping?: boolean;
+  /** A status retry is in flight after a transient miss. */
+  reconnecting?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const connection = aiConnection({
@@ -134,6 +147,13 @@ export default function AiConnectionBadge({
     cloudState: cloud.state,
     cloudEnrolled: cloud.enrolled,
   });
+  const paidSession = Boolean(snapshot?.balance?.active_session);
+  const canStop =
+    Boolean(onStopAi) && (connection.state !== "disconnected" || paidSession);
+  const reason =
+    reconnecting && !stale
+      ? `${connection.reason} · переподключение`
+      : connection.reason;
 
   return (
     <div className="connection-slot" role="status" aria-live="polite">
@@ -143,8 +163,9 @@ export default function AiConnectionBadge({
         data-testid="ai-connection"
         data-state={connection.state}
         data-code={connection.code}
+        data-reconnecting={reconnecting ? "true" : undefined}
         aria-expanded={open}
-        aria-label={`AI: ${connection.label}. ${connection.reason}`}
+        aria-label={`AI: ${connection.label}. ${reason}`}
         title={
           connection.stage
             ? `AI · ${connection.label} — ${connection.stage}${
@@ -152,13 +173,25 @@ export default function AiConnectionBadge({
                   ? ""
                   : ` (${connection.elapsedSeconds} с)`
               }`
-            : `AI · ${connection.label} — ${connection.reason}`
+            : `AI · ${connection.label} — ${reason}`
         }
         onClick={() => setOpen(!open)}
       >
         <span className="tiny-dot" />
         {connection.label}
       </button>
+      {canStop ? (
+        <button
+          type="button"
+          className="connection-stop"
+          data-testid="ai-stop"
+          disabled={stopping}
+          title="Остановить оплачиваемую GPU-сессию. Подключение к Canalla Cloud не отзывается."
+          onClick={() => onStopAi?.()}
+        >
+          {stopping ? "Останавливаем…" : "Отключить AI"}
+        </button>
+      ) : null}
       {open ? (
         <AiConnectionDetail
           connection={connection}

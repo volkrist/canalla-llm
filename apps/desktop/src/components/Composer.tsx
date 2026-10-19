@@ -7,6 +7,7 @@ import ContextUsageMeter from "./ContextUsageMeter";
 export default function Composer({
   busy,
   streaming,
+  queued = false,
   phase = "idle",
   connected,
   onSend,
@@ -27,6 +28,7 @@ export default function Composer({
 }: {
   busy: boolean;
   streaming: boolean;
+  queued?: boolean;
   phase?: string;
   connected: boolean;
   onSend: (text: string, mode?: WebMode) => Promise<boolean>;
@@ -67,15 +69,18 @@ export default function Composer({
   const [sending, setSending] = useState(false);
   async function submit(mode?: WebMode) {
     const text = draft.trim();
-    if (!text || busy || sending || !connected) return;
+    if (!text || sending || !connected) return;
     setSending(true);
     setDraft("");
+    // Sending while a generation is active queues the message; it never opens a second
+    // concurrent request to the same model session.
     const accepted = await onSend(text, mode ?? webMode);
     if (!accepted) setDraft(text);
     setSending(false);
   }
   const showStatus =
     streaming ||
+    queued ||
     phase === "stopped" ||
     phase === "error" ||
     phase === "completed";
@@ -89,13 +94,15 @@ export default function Composer({
               ? "Ожидаем первый ответ модели…"
               : "Модель обрабатывает запрос…"
       } ${elapsed} с`
-    : phase === "stopped"
-      ? "Генерация остановлена"
-      : phase === "error"
-        ? "Ошибка генерации"
-        : phase === "completed"
-          ? "Ответ завершён"
-          : "";
+    : queued
+      ? "Следующее сообщение в очереди"
+      : phase === "stopped"
+        ? "Генерация остановлена"
+        : phase === "error"
+          ? "Ошибка генерации"
+          : phase === "completed"
+            ? "Ответ завершён"
+            : "";
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (
       event.key === "Enter" &&
@@ -119,7 +126,7 @@ export default function Composer({
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={keyDown}
           maxLength={32000}
-          disabled={busy}
+          disabled={busy && !streaming}
           rows={2}
         />
         <div className="composer-toolbar">
@@ -127,7 +134,7 @@ export default function Composer({
             <span className="composer-select-label">Web</span>
             <select
               aria-label="Web mode"
-              disabled={busy}
+              disabled={busy && !streaming}
               value={webMode}
               onChange={(e) => setWebMode?.(e.target.value as WebMode)}
             >
@@ -140,7 +147,7 @@ export default function Composer({
             <span className="composer-select-label">Tor</span>
             <select
               aria-label="Tor mode"
-              disabled={busy}
+              disabled={busy && !streaming}
               value={torMode}
               onChange={(e) => setTorMode?.(e.target.value as TorMode)}
             >
@@ -153,7 +160,7 @@ export default function Composer({
             <span className="composer-select-label">Computer</span>
             <select
               aria-label="Computer mode"
-              disabled={busy}
+              disabled={busy && !streaming}
               value={computerMode}
               onChange={(e) =>
                 setComputerMode?.(e.target.value as ComputerMode)
@@ -170,7 +177,9 @@ export default function Composer({
               className="icon-action"
               aria-label="Найти в интернете"
               title="Найти в интернете"
-              disabled={busy || !draft.trim() || !connected}
+              disabled={
+                (busy && !streaming) || sending || !draft.trim() || !connected
+              }
               onClick={() => void submit("on")}
             >
               <Globe size={15} />
@@ -181,7 +190,7 @@ export default function Composer({
             className="icon-action"
             aria-label="Прикрепить файл"
             title="Прикрепить файл"
-            disabled={busy}
+            disabled={busy && !streaming}
             onClick={() => window.dispatchEvent(new Event("alex-attach"))}
           >
             <Paperclip size={15} />
@@ -217,8 +226,10 @@ export default function Composer({
         </div>
       </div>
       <p className="composer-hint">
-        {enterSends ? "Enter" : "Ctrl + Enter"} — отправить <span>·</span> Shift
-        + Enter — новая строка
+        {streaming
+          ? "Enter — поставить следующее сообщение в очередь · Stop — остановить"
+          : `${enterSends ? "Enter" : "Ctrl + Enter"} — отправить`}{" "}
+        <span>·</span> Shift + Enter — новая строка
       </p>
     </div>
   );

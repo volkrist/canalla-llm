@@ -163,7 +163,10 @@ def test_computer_planner_exposes_desktop_tools():
     assert "move_file" in names
     assert "search_code" in names
     assert "hash_file" in names
-    assert "install_software" not in names
+    # Installing an allowed dependency is part of the agent's job; the policy still requires an
+    # explicit confirmation for the exact install payload.
+    assert "install_software" in names
+    assert "run_process" in names
     assert "git_push" not in names
     jq = SimpleNamespace(**{**context.__dict__, "user_prompt": "Установи jq через winget"})
     jq_names = {item.name for item in ToolOrchestrator(make_registry(), None).planner_definitions(jq)}

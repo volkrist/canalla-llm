@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   AudioLines,
@@ -22,7 +22,7 @@ import ComputeBar from "./ComputeBar";
 import ComputerBar from "./ComputerBar";
 import StatusChips, { StatusBilling } from "./StatusChips";
 import AiConnectionBadge from "./AiConnectionBadge";
-import { useCloud } from "../lib/cloud";
+import { useCloud, stopCloudCompute, refreshCloud } from "../lib/cloud";
 import { useStatus } from "../hooks/useStatus";
 import type { RecoveryAction } from "../lib/status";
 import { recoveryPlan } from "../lib/errors";
@@ -62,10 +62,10 @@ export default function Workspace({
   const chat = useChat(api, onLogout);
   // While the user is waiting for an answer, an update install must not restart the app.
   useEffect(() => {
-    if (chat.busy) markBusy("generation");
+    if (chat.streaming) markBusy("generation");
     else clearBusy("generation");
     return () => clearBusy("generation");
-  }, [chat.busy]);
+  }, [chat.streaming]);
   const status = useStatus(api, true);
   // The same store the cloud panels read: the badge only reports it, it never polls it. The
   // installation may be enrolled but still be unable to reach the Gateway, so both facts travel.
@@ -76,6 +76,31 @@ export default function Workspace({
   };
   const [sidebar, setSidebar] = useState(false);
   const [browser, setBrowser] = useState(false);
+  const [stoppingAi, setStoppingAi] = useState(false);
+  const [stopError, setStopError] = useState("");
+  const rootsRef = useRef<string[]>([]);
+  const stopAi = useCallback(async () => {
+    setStoppingAi(true);
+    setStopError("");
+    try {
+      // The same Gateway operation the chat uses; it also writes the manual-off latch, so no
+      // automatic request recreates the Pod after this click.
+      try {
+        await stopCloudCompute();
+      } catch {
+        // Direct (dev/private) mode has no shared Gateway: use the local compute stop.
+        await api.json("/compute/stop", { method: "POST", body: "{}" });
+      }
+      await status.refresh();
+      await refreshCloud();
+    } catch (error) {
+      setStopError(
+        error instanceof Error ? error.message : "Не удалось остановить AI",
+      );
+    } finally {
+      setStoppingAi(false);
+    }
+  }, [status]);
   const [device, setDevice] = useState<DeviceStatus>({
     paired: false,
     online: false,
@@ -87,9 +112,9 @@ export default function Workspace({
   }, []);
   useEffect(() => {
     let live = true;
-    const refresh = async () => {
-      // Read the token on every pass: the Api rotates it on refresh (A07), and a copy captured
-      // once would make the host poll and post with an expired JWT until the app is restarted.
+    // Heartbeat and job execution are deliberately separate loops. A missed heartbeat must not
+    // stop the host from claiming jobs, and a busy generation must not pause either one.
+    const heartbeat = async () => {
       const token = api.authToken();
       if (!token) return;
       try {
@@ -97,8 +122,8 @@ export default function Workspace({
           device_display_name?: string;
           workspace_roots?: string[];
         }>("/tools/preferences");
+        rootsRef.current = prefs.workspace_roots || [];
         const alias = prefs.device_display_name?.trim() || "Windows device";
-        // `userId` binds the device record to this account, so another user cannot reuse it.
         const heartbeat = await pairLocalDevice(
           api.base,
           token,
@@ -106,7 +131,6 @@ export default function Workspace({
           user.id,
         );
         const local = await readDeviceStatus();
-        // `online` is the verified heartbeat answer, never the mere presence of a credential.
         const status = {
           ...local,
           paired: true,
@@ -115,31 +139,43 @@ export default function Workspace({
         };
         if (live) {
           setDevice(status);
-          // Single source of truth: chips, the compact bar and Settings subscribe to this.
           publishDevice(status);
         }
-        await runHostJobs(api.base, token, prefs.workspace_roots || []);
       } catch {
         const local = await readDeviceStatus().catch(() => ({
           paired: false,
           online: false,
         }));
-        // A failed heartbeat is Offline: the loop retries, so a temporary outage recovers itself.
-        const status = { ...local, online: false };
         if (live) {
+          const status = { ...local, online: false };
           setDevice(status);
           publishDevice(status);
         }
       }
     };
-    void refresh();
-    const timer = setInterval(() => void refresh(), 8000);
-    const onJobs = () => void refresh();
+    const runJobs = async () => {
+      const token = api.authToken();
+      if (!token) return;
+      try {
+        await runHostJobs(api.base, token, rootsRef.current);
+      } catch {
+        // The next tick retries; a failed claim is not a reason to drop the heartbeat.
+      }
+    };
+    void heartbeat();
+    void runJobs();
+    const heartbeatTimer = setInterval(() => void heartbeat(), 8000);
+    const jobsTimer = setInterval(() => void runJobs(), 2000);
+    const onJobs = () => {
+      void heartbeat();
+      void runJobs();
+    };
     window.addEventListener("alex-host-jobs", onJobs);
     window.addEventListener(DEVICE_REFRESH_EVENT, onJobs);
     return () => {
       live = false;
-      clearInterval(timer);
+      clearInterval(heartbeatTimer);
+      clearInterval(jobsTimer);
       window.removeEventListener("alex-host-jobs", onJobs);
       window.removeEventListener(DEVICE_REFRESH_EVENT, onJobs);
     };
@@ -226,7 +262,7 @@ export default function Workspace({
         chats={chat.chats}
         selected={chat.selected}
         user={user}
-        busy={chat.busy}
+        busy={chat.loading}
         open={sidebar}
         onClose={() => setSidebar(false)}
         onSelect={(id) => {
@@ -263,6 +299,7 @@ export default function Workspace({
             onAction={statusAction}
             api={api}
             stale={status.stale}
+            reconnecting={status.reconnecting}
           />
           <AiConnectionBadge
             snapshot={status.snapshot}
@@ -270,10 +307,18 @@ export default function Workspace({
             backendReady={Boolean(health)}
             cloud={cloud}
             onAction={statusAction}
+            onStopAi={() => void stopAi()}
+            stopping={stoppingAi}
+            reconnecting={status.reconnecting}
           />
         </header>
         <div className="status-line">
           <StatusBilling snapshot={status.snapshot} />
+          {stopError && (
+            <span className="error" role="alert">
+              {stopError}
+            </span>
+          )}
         </div>
         <ComputerBar
           snapshot={status.stale ? null : status.snapshot}
@@ -331,7 +376,7 @@ export default function Workspace({
             streaming={chat.streaming}
             fontSize={settings.fontSize}
             settings={settings}
-            busy={chat.busy}
+            busy={chat.loading}
             onEdit={chat.edit}
             onResend={(id, content) =>
               chat.send(content, { kind: "resend", messageId: id })
@@ -352,7 +397,7 @@ export default function Workspace({
               {ideas.map((idea) => (
                 <button
                   key={idea.title}
-                  disabled={chat.busy}
+                  disabled={chat.loading}
                   onClick={() => setDraft(idea.text)}
                 >
                   <idea.icon size={21} strokeWidth={1.5} />
@@ -397,8 +442,9 @@ export default function Workspace({
           deviceLabel={device.display_name || "Windows device"}
           deviceOnline={!!device.online}
           phase={chat.phase}
-          busy={chat.busy}
+          busy={chat.loading}
           streaming={chat.streaming}
+          queued={chat.queued}
           connected={!!health}
           onSend={(text, mode) => chat.send(text, undefined, mode)}
           onStop={chat.stop}
@@ -410,7 +456,7 @@ export default function Workspace({
         />
         <TaskPanel
           task={chat.task}
-          busy={chat.busy}
+          busy={chat.streaming}
           onPause={() => void chat.pauseTask()}
           onResume={() => void chat.resumeTask()}
           onStop={() => void chat.stopTask()}

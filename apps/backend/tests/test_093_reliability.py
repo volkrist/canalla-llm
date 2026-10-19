@@ -160,14 +160,21 @@ def test_task_scope_blocks_desktop_helpers():
     assert_scope("write_file", {"path": r"C:\Users\Volkr\Desktop\Alex-LLM-E2E\hello.txt"}, scope)
 
 
-def test_computer_core_is_narrow():
+def test_computer_core_is_agent_capable_but_shell_is_explicit():
     allowed = computer_planner_tools("Создай файл hello.txt")
     assert "hash_file" in allowed
+    # The agent must be able to execute the code it writes without a magic phrase.
+    assert "run_python" in allowed
+    assert "run_process" in allowed
+    assert "install_software" in allowed
+    # A shell escape hatch stays an explicit request, and destructive tools stay out.
     assert "run_powershell" not in allowed
-    assert "run_python" not in allowed
-    assert "run_process" not in allowed
+    assert "delete_file" not in allowed
+    assert "format_volume" not in allowed
     search = computer_planner_tools("Найди в этой папке файл с ALEX_SEARCH_MARKER_49127")
-    assert "search_code" in search and "run_python" not in search and "run_process" not in search
+    assert "search_code" in search and "run_python" in search
+    shell = computer_planner_tools("Запусти PowerShell и покажи процессы")
+    assert "run_powershell" in shell
     assert allowed <= (
         COMPUTER_CORE_TOOLS
         | {

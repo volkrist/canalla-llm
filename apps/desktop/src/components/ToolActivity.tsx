@@ -254,7 +254,7 @@ export default function ToolActivity({
       {error && (
         <p role="status">
           {toolErrors[error] ||
-            "Поиск в интернете не удался. Ответ может быть без web-источников."}
+            `Инструмент не выполнен: ${error}. Ответ может быть без web-источников.`}
         </p>
       )}
       {pending.map((run) => (

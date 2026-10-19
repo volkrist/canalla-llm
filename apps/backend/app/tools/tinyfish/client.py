@@ -78,13 +78,18 @@ class TinyFishClient:
             or url.startswith(BROWSER + "/")
         ):
             raise ToolError("invalid_provider_endpoint")
-        try:
-            async with self.session(timeout) as client:
-                for attempt in range(3 if retry else 1):
+        # Search and fetch are idempotent reads: a timeout or a 5xx is worth one or two short
+        # retries. A paid create (agent/browser session) is never retried here.
+        retryable = retry and url in {SEARCH, FETCH}
+        attempts = 3 if retry else 1
+        last_timeout = False
+        for attempt in range(attempts):
+            try:
+                async with self.session(timeout) as client:
                     if url == SEARCH:
                         await self.throttle_search()
                     async with client.stream(method, url, json=body, params=params) as response:
-                        if response.status_code in {429, 503} and retry and attempt < 2:
+                        if response.status_code in {429, 502, 503, 504} and retry and attempt < attempts - 1:
                             delay = retry_delay(response.headers.get("retry-after"), attempt)
                         else:
                             if not response.is_success:
@@ -101,12 +106,19 @@ class TinyFishClient:
                                 raise ToolError("malformed_provider_result")
                             return value
                     await asyncio.sleep(delay)
-        except httpx.TimeoutException:
-            raise ToolError("provider_timeout") from None
-        except httpx.HTTPError:
-            raise ToolError("provider_unavailable") from None
-        except (ValueError, TypeError):
-            raise ToolError("malformed_provider_result") from None
+            except httpx.TimeoutException:
+                last_timeout = True
+                if not retryable or attempt >= attempts - 1:
+                    raise ToolError("provider_timeout") from None
+                await asyncio.sleep(min(4.0, 1.0 + attempt))
+            except httpx.HTTPError:
+                if not retryable or attempt >= attempts - 1:
+                    raise ToolError("provider_unavailable") from None
+                await asyncio.sleep(min(4.0, 1.0 + attempt))
+            except (ValueError, TypeError):
+                raise ToolError("malformed_provider_result") from None
+        if last_timeout:
+            raise ToolError("provider_timeout")
         # Unreachable: every response path inside the attempt loop returns or raises, so the
         # caller always receives a mapping. Stated explicitly so the return type stays honest.
         raise ToolError("provider_unavailable")

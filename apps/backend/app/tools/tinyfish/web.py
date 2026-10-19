@@ -90,7 +90,7 @@ class TinyFishSearchProvider(ToolProvider[SearchArgs]):
         rows = value.get("results", [])
         if not isinstance(rows, list):
             raise ToolError("malformed_provider_result")
-        sources, errors = [], []
+        sources, errors = [], ["search_failed"] * min(10, len(value.get("errors") or []))
         for row in rows[: args.top_results]:
             if not isinstance(row, dict):
                 errors.append("malformed_search_result")
@@ -112,6 +112,9 @@ class TinyFishSearchProvider(ToolProvider[SearchArgs]):
                     "retrieval": "search",
                 }
             )
+        if not sources and errors:
+            # An empty answer with provider errors is a failed search, not a successful empty one.
+            raise ToolError("search_failed")
         return ToolResult(
             sources=sources,
             errors=errors,
@@ -166,6 +169,10 @@ class TinyFishFetchProvider(ToolProvider[FetchArgs]):
                     "needs_browser": markdown_needs_browser(excerpt),
                 }
             )
+        if not sources and errors:
+            # Every requested URL failed: report the tool as failed so a retry is possible and
+            # the UI does not show a green «Завершено» over an empty result.
+            raise ToolError("fetch_failed")
         return ToolResult(
             sources=sources,
             errors=errors,

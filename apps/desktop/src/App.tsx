@@ -136,6 +136,7 @@ export default function App() {
     const publicApi = new Api(settings.backendUrl, null);
     setHealth(null);
     let recovering = false;
+    let healthFailures = 0;
     const recover = async () => {
       if (!isTauriRuntime() || recovering) return;
       const attempt = recoveryAttempts.current;
@@ -171,12 +172,17 @@ export default function App() {
       try {
         const data = await publicApi.health();
         if (cancelled) return;
+        healthFailures = 0;
         setHealth(data);
         recoveryAttempts.current = 0;
       } catch {
         if (cancelled) return;
-        setHealth(null);
-        void recover();
+        healthFailures += 1;
+        // One missed health read is a blink: the composer stays connected and the status bar
+        // keeps its last snapshot. Only a repeated failure turns the app offline and asks the
+        // Desktop to recover the owned backend.
+        if (healthFailures >= 3) setHealth(null);
+        if (healthFailures >= 2) void recover();
       }
     };
     void check();

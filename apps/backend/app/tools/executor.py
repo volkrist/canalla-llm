@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import timedelta, timezone
@@ -514,19 +515,10 @@ class ToolExecutor:
                         },
                     )
         if definition.provider == "local_device":
-            from .local.devices import active_device
+            from .local.devices import active_device, public_device
             from .local.provider import _guard_paths
+            from .models import PairedDevice
 
-            with SessionLocal() as db:
-                prefs = preferences(db, context.user_id)
-                device = active_device(db, context.user_id)
-            if not device:
-                if getattr(context, "task_id", None):
-                    from .local.task import LocalTaskController
-
-                    with SessionLocal() as db:
-                        LocalTaskController().waiting_device(db, context)
-                raise ToolError("host_offline")
             bound = getattr(context, "assigned_device_id", None)
             if getattr(context, "task_id", None):
                 from .models import LocalTask
@@ -534,13 +526,42 @@ class ToolExecutor:
                 with SessionLocal() as db:
                     task = db.get(LocalTask, context.task_id)
                     bound = (task.device_id if task else None) or bound
-            if bound and device.id != bound:
+            # A heartbeat can lapse for a few seconds while the app is busy. A local read must not
+            # turn that blink into «host offline» — and an old task's device binding must not
+            # shadow the device that is online now. Prefer the bound device while it is alive,
+            # otherwise wait a short grace period for the active one.
+            device = None
+            deadline = time.monotonic() + 8.0
+            while True:
+                with SessionLocal() as db:
+                    prefs = preferences(db, context.user_id)
+                    if bound:
+                        row = db.get(PairedDevice, bound)
+                        if row and public_device(row)["online"]:
+                            device = row
+                    if device is None:
+                        device = active_device(db, context.user_id)
+                if device is not None or time.monotonic() >= deadline:
+                    break
+                await asyncio.sleep(0.25)
+            if not device:
                 if getattr(context, "task_id", None):
                     from .local.task import LocalTaskController
 
                     with SessionLocal() as db:
                         LocalTaskController().waiting_device(db, context)
                 raise ToolError("host_offline")
+            if bound and device.id != bound:
+                # The previous device is gone; rebind the task to the live one instead of
+                # failing every subsequent call against a stale identifier.
+                if getattr(context, "task_id", None):
+                    from .models import LocalTask
+
+                    with SessionLocal() as db:
+                        task = db.get(LocalTask, context.task_id)
+                        if task:
+                            task.device_id = device.id
+                            db.commit()
             context.assigned_device_id = device.id
             if definition.name in {
                 "read_file",
@@ -583,7 +604,13 @@ class ToolExecutor:
         context.run_id, context.settings = run_id, prefs
         started_provider = False
         try:
-            async with asyncio.timeout(min(definition.timeout, context.limits.remaining)):
+            budget = context.limits.remaining
+            if budget <= 0:
+                raise ToolError("task_runtime_limit")
+            # One call is bounded by the tool's own timeout. The task budget only caps it when
+            # the task is almost over; a zero budget is a typed task outcome above, never an
+            # instant per-call timeout.
+            async with asyncio.timeout(min(definition.timeout, max(1.0, budget))):
                 with SessionLocal() as db:
                     row = _run_row(db, run_id)
                     await context.emit("tool", public_run(row))
@@ -771,6 +798,8 @@ class ToolExecutor:
             code = (
                 error.code
                 if isinstance(error, ToolError)
+                else "task_runtime_limit"
+                if isinstance(error, TimeoutError) and context.limits.remaining <= 0
                 else "timeout"
                 if isinstance(error, TimeoutError)
                 else "provider_unavailable"
@@ -811,6 +840,7 @@ class ToolExecutor:
     async def wait_host(self, run_id, context):
         from .host_protocol import DELIVERED, UNKNOWN
 
+        offline_since = None
         while True:
             with SessionLocal() as db:
                 row = db.get(ToolRun, run_id)
@@ -824,21 +854,49 @@ class ToolExecutor:
                     raise ToolError("host_result_unknown")
                 if row.status in TERMINAL:
                     raise ToolError("host_offline")
-                from .local.devices import public_device
+                from .local.devices import active_device, public_device
                 from .models import PairedDevice
 
                 device = db.get(PairedDevice, row.assigned_device_id) if row.assigned_device_id else None
                 online = bool(device and public_device(device)["online"])
-                if not online:
-                    from .local.task import LocalTaskController
+                if not online and row.assigned_device_id:
+                    # The task was bound to a device that has gone away, but the installed app
+                    # may have paired a new one. Recover instead of failing an otherwise healthy
+                    # local tool against a stale identifier.
+                    live = active_device(db, row.user_id)
+                    if live is not None and live.id != row.assigned_device_id:
+                        row.assigned_device_id = live.id
+                        if getattr(context, "task_id", None):
+                            from .models import LocalTask as TaskRow
 
-                    LocalTaskController().waiting_device(db, context)
-                    await context.emit(
-                        "task_status",
-                        {"state": "WAITING_DEVICE", "code": "host_offline", "task_id": context.task_id},
-                    )
-                    raise ToolError("host_offline")
-                elif getattr(context, "task_id", None) and row.status in {
+                            task = db.get(TaskRow, context.task_id)
+                            if task:
+                                task.device_id = live.id
+                        db.commit()
+                        offline_since = None
+                        continue
+                if not online:
+                    # A heartbeat can miss a beat or two while the app is busy. Absorb that blink
+                    # before declaring the host offline; a real outage still ends typed.
+                    if offline_since is None:
+                        offline_since = time.monotonic()
+                        from .local.task import LocalTaskController
+
+                        LocalTaskController().waiting_device(db, context)
+                        await context.emit(
+                            "task_status",
+                            {
+                                "state": "WAITING_DEVICE",
+                                "code": "host_offline",
+                                "task_id": context.task_id,
+                            },
+                        )
+                    elif time.monotonic() - offline_since >= 15.0:
+                        raise ToolError("host_offline")
+                    await asyncio.sleep(0.25)
+                    continue
+                offline_since = None
+                if getattr(context, "task_id", None) and row.status in {
                     "waiting_host",
                     "claimed",
                     "started",
@@ -853,7 +911,7 @@ class ToolExecutor:
                 timeout_at = now() - timedelta(minutes=5)
                 if getattr(context, "autonomous", False):
                     if context.limits.remaining <= 0:
-                        raise ToolError("timeout")
+                        raise ToolError("task_runtime_limit")
                 elif row.started_at.replace(tzinfo=timezone.utc) < timeout_at:
                     raise ToolError("timeout")
                 if row.status in DELIVERED:

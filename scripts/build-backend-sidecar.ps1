@@ -23,6 +23,18 @@ try {
   # and none of the Python modules. Never stamp such a bundle.
   $crypto = Join-Path $dist '_internal\cryptography'
   if ((Test-Path $crypto) -and -not (Test-Path (Join-Path $crypto '__init__.py'))) {
+    # PyInstaller can place only the native ``hazmat`` payload under ``_internal`` while the pure
+    # modules live in the PYZ. That is a valid onedir layout, but the bundle check below needs the
+    # package's Python side next to it. Copy it from the exact interpreter that produced the
+    # bundle; a source tree that is genuinely missing it still fails loudly.
+    $venvRoot = Split-Path (Split-Path $python -Parent) -Parent
+    $cryptoSource = Join-Path $venvRoot 'Lib\site-packages\cryptography'
+    $cryptoSource = [System.IO.Path]::GetFullPath($cryptoSource)
+    if (Test-Path (Join-Path $cryptoSource '__init__.py')) {
+      Copy-Item (Join-Path $cryptoSource '*.py') $crypto -Force
+    }
+  }
+  if ((Test-Path $crypto) -and -not (Test-Path (Join-Path $crypto '__init__.py'))) {
     throw "the sidecar bundle has $crypto without __init__.py - half-collected cryptography"
   }
   New-Item -ItemType Directory -Force -Path (Split-Path $sidecarDest) | Out-Null

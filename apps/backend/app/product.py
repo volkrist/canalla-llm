@@ -2,5 +2,5 @@
 this value against every other place the version is written by hand."""
 
 PRODUCT = "alex-llm"
-VERSION = "1.2.2"
+VERSION = "1.2.3"
 RUNTIME_PROTOCOL_VERSION = 1

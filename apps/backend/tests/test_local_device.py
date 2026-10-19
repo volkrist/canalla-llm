@@ -336,11 +336,16 @@ def test_planner_hides_paid_tools_and_keeps_channels_independent():
     assert "tor_search" not in names
     assert "read_file" in names
     assert "run_python" in names
-    assert "delete_file" in names
-    assert "registry_write" in names
+    # Destructive/registry tools need an explicit request in the prompt; they are not part of
+    # the always-available core.
+    assert "delete_file" not in names
+    assert "registry_write" not in names
     assert "patch_file" in names
     assert "git_status" in names
     assert "git_push" not in names
+    local_on.user_prompt = "Удали временный файл и измени значение в реестре."
+    explicit = {item.name for item in orch.planner_definitions(local_on)}
+    assert "delete_file" in explicit and "registry_write" in explicit
     local_on.user_prompt = "Через Tor найди официальный onion-ресурс Tor Project."
     names = {item.name for item in orch.planner_definitions(local_on)}
     assert "tor_search" in names

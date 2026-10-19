@@ -110,6 +110,7 @@ export default function StatusChips({
   api,
   compact = false,
   stale = false,
+  reconnecting = false,
 }: {
   snapshot: StatusSnapshot | null;
   error: string;
@@ -120,6 +121,8 @@ export default function StatusChips({
   compact?: boolean;
   /** The last read failed: the snapshot on screen is history, not a health claim. */
   stale?: boolean;
+  /** A retry is in flight after a transient miss; the last snapshot is still believed. */
+  reconnecting?: boolean;
 }) {
   const [open, setOpen] = useState<ChipKey | null>(null);
   const [ensuring, setEnsuring] = useState(false);
@@ -197,6 +200,11 @@ export default function StatusChips({
         })}
       </div>
       {compact ? null : <StatusBilling snapshot={snapshot} />}
+      {reconnecting && !stale ? (
+        <span className="status-reconnecting" role="status">
+          Переподключение…
+        </span>
+      ) : null}
       {error ? (
         <div className="status-alert" role="alert" data-testid="status-error">
           <strong>Состояние недоступно</strong>

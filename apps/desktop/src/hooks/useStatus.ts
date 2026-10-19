@@ -15,17 +15,23 @@ export function useStatus(api: Api, enabled: boolean) {
   const [error, setError] = useState("");
   const latest = useRef<StatusSnapshot | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  // A failed read leaves the last snapshot in place for the balance (which has its own timestamp),
-  // but that snapshot is no longer a statement about health: `stale` keeps the chips from showing
-  // an old «Готово» as if it were current.
+  // A single failed poll is a blink, not a verdict. The last snapshot stays authoritative while
+  // the client retries; only a few consecutive failures turn it into `stale` (history) and show
+  // the recovery alert. Blanking every chip on the first miss is what made the whole status bar
+  // flap between «Готово» and «Проверяем…».
   const [stale, setStale] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
+  const failures = useRef(0);
+  const STALE_AFTER = 3;
 
   const request = useCallback(async () => {
     const next = await fetchStatus(api);
     latest.current = next;
+    failures.current = 0;
     setSnapshot(next);
     setError("");
     setStale(false);
+    setReconnecting(false);
     return next;
   }, [api]);
 
@@ -34,8 +40,11 @@ export function useStatus(api: Api, enabled: boolean) {
     let alive = true;
     let timer: number | undefined;
     let inFlight = false;
-    const delay = () =>
-      statusDelaySeconds(latest.current, document.hidden) * 1000;
+    const delay = () => {
+      const base = statusDelaySeconds(latest.current, document.hidden);
+      const backoff = failures.current ? Math.min(2 ** failures.current, 4) : 1;
+      return base * backoff * 1000;
+    };
     const tick = async () => {
       if (inFlight || !alive) return;
       inFlight = true;
@@ -43,9 +52,13 @@ export function useStatus(api: Api, enabled: boolean) {
         await request();
       } catch {
         if (alive) {
+          failures.current += 1;
           setSnapshot(latest.current);
-          setStale(true);
-          setError("Не удалось получить состояние");
+          setReconnecting(true);
+          if (failures.current >= STALE_AFTER) {
+            setStale(true);
+            setError("Не удалось получить состояние");
+          }
         }
       } finally {
         inFlight = false;
@@ -72,12 +85,16 @@ export function useStatus(api: Api, enabled: boolean) {
     try {
       await request();
     } catch {
-      setStale(true);
-      setError("Не удалось получить состояние");
+      failures.current += 1;
+      setReconnecting(true);
+      if (failures.current >= STALE_AFTER) {
+        setStale(true);
+        setError("Не удалось получить состояние");
+      }
     } finally {
       setRefreshing(false);
     }
   }, [request]);
 
-  return { snapshot, error, refresh, refreshing, stale };
+  return { snapshot, error, refresh, refreshing, stale, reconnecting };
 }

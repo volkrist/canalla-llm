@@ -134,7 +134,9 @@ def test_coding_planner_hides_non_coding_local_tools():
     assert "tor_search" not in names
     assert "copy_file" not in names
     assert "delete_file" not in names
-    assert "run_process" not in names
+    # The agent may run the code it writes; a shell escape hatch still needs an explicit request.
+    assert "run_process" in names
+    assert "run_powershell" not in names
     assert "git_push" not in names
 
 

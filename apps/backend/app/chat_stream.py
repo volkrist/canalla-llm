@@ -207,23 +207,40 @@ async def stream_response(
                 looks_like_autonomous(prompt) or looks_like_coding(prompt) or looks_like_computer(prompt)
             )
             torish = effective_tor_mode != "off"
+            # A turn that exposes tools is a task-scale turn even when the prompt does not match
+            # one of the intent regexes. The old narrow classification gave a genuine 8-step
+            # computer/web task the 180 s chat budget; once it was spent, the next read_file
+            # failed instantly with `timeout` although the tool itself was healthy.
+            tool_task = bool(
+                autonomous
+                or coding
+                or torish
+                or effective_web_mode != "off"
+                or effective_computer_mode != "off"
+            )
             max_calls = settings.tools_max_calls
-            if coding:
-                max_calls = max(max_calls, settings.tools_max_coding_calls)
+            if tool_task:
+                max_calls = max(
+                    max_calls,
+                    settings.tools_max_coding_calls,
+                    settings.tools_task_max_calls,
+                )
             if torish:
                 max_calls = max(max_calls, settings.tools_max_tor_calls)
-            if autonomous:
-                max_calls = max(max_calls, settings.tools_task_max_calls)
             max_calls = min(
-                max_calls, settings.tools_task_hard_calls if autonomous else settings.tools_hard_max_calls
+                max_calls,
+                settings.tools_task_hard_calls if tool_task else settings.tools_hard_max_calls,
             )
+            # Separate concerns: this is the whole task ceiling, not the per-call timeout.
+            # `ToolDefinition.timeout` still bounds each call; long processes use wait=false and
+            # process_status instead of holding one call open for the whole build.
             max_seconds = (
                 min(settings.tools_task_max_runtime, settings.tools_task_hard_runtime)
-                if autonomous
+                if tool_task
                 else settings.tools_max_seconds
             )
-            max_search = settings.tools_task_max_search if autonomous else settings.tools_max_search
-            max_fetch = settings.tools_task_max_fetch if autonomous else settings.tools_max_fetch
+            max_search = settings.tools_task_max_search if tool_task else settings.tools_max_search
+            max_fetch = settings.tools_task_max_fetch if tool_task else settings.tools_max_fetch
 
             tool_context = ExecutionContext(
                 user.id,
@@ -239,13 +256,13 @@ async def stream_response(
                     max_local_calls=max(settings.tools_max_local_calls, max_calls),
                     max_files_changed=(
                         min(settings.tools_task_max_files, settings.tools_task_hard_files)
-                        if autonomous
+                        if tool_task
                         else settings.tools_max_files_changed
                     ),
                     max_file_bytes=settings.tools_max_file_bytes,
                     max_process_seconds=settings.tools_max_process_seconds,
                     hard_max_calls=settings.tools_task_hard_calls
-                    if autonomous
+                    if tool_task
                     else settings.tools_hard_max_calls,
                     max_tor_search=settings.tools_max_tor_search,
                     max_tor_fetch=settings.tools_max_tor_fetch,

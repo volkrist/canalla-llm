@@ -426,6 +426,18 @@ export function aiConnection({
 
   switch (ai.state) {
     case "ready": {
+      // A readiness marker cannot outlive the compute it describes. A snapshot that says
+      // `compute_state=off/stopped` while the AI chip is still `ready` is contradictory; the
+      // honest answer is the compute fact, not a green badge over a stopped GPU.
+      if (compute && ["off", "stopped", "stopping"].includes(compute)) {
+        return verdict(
+          "disconnected",
+          "off",
+          "AI выключен: GPU не запущен",
+          null,
+          trace,
+        );
+      }
       // Green only while the proof is still valid. A server that reports
       // `readiness_valid_until` past its moment gets an honest, non-green answer: a Pod RUNNING
       // is not a model that answered.

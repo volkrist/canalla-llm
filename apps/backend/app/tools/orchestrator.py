@@ -34,9 +34,6 @@ class ToolOrchestrator:
 
     def planner_definitions(self, context):
         selected = []
-        host_online = bool(
-            getattr(context, "assigned_device_id", None) or getattr(context, "host_online", False)
-        )
         prompt = getattr(context, "user_prompt", "") or ""
         coding = bool(getattr(context, "coding_task", False) or looks_like_coding(prompt))
         tor_mode = effective_tor_mode(context)
@@ -63,21 +60,48 @@ class ToolOrchestrator:
                 selected.append(definition)
             elif capability in EXTERNAL_CAPABILITIES and self._external_visible(prompt):
                 selected.append(definition)
-            elif capability in LOCAL_CAPABILITIES and context.computer_mode != "off" and host_online:
-                allowed = set(CODING_PLANNER_TOOLS)
+            elif capability in LOCAL_CAPABILITIES and context.computer_mode != "off":
+                # Computer mode is the permission boundary; the prompt is not. A tool the model
+                # may legitimately need (run_process, run_python, read_file) must not disappear
+                # because the user phrased the task in a way no heuristic anticipated.
+                allowed = set(CODING_PLANNER_TOOLS) | {
+                    "run_process",
+                    "install_software",
+                    "list_installed_software",
+                }
                 workspace = getattr(context, "workspace", None)
                 if workspace and getattr(workspace, "test_via", "") == "run_process":
                     allowed.add("run_process")
+                sensitive = {
+                    "delete_file",
+                    "delete_directory",
+                    "mass_delete",
+                    "registry_write",
+                    "windows_service_control",
+                    "scheduled_task",
+                    "firewall_rule",
+                    "uninstall_software",
+                    "set_environment",
+                    "credential_use",
+                    "format_volume",
+                    "manage_partition",
+                    "boot_config",
+                    "bitlocker_change",
+                    "system_shutdown",
+                }
+                if definition.name in sensitive:
+                    if definition.name not in computer_planner_tools(prompt):
+                        continue
+                elif definition.name == "run_powershell":
+                    if definition.name not in computer_planner_tools(prompt):
+                        continue
+                elif coding and definition.name not in allowed:
+                    continue
                 settings = getattr(context, "settings", None)
                 if looks_like_commit_request(prompt) or getattr(settings, "auto_commit", False):
                     allowed.update({"git_add", "git_commit"})
                 if looks_like_push_request(prompt) or getattr(settings, "allow_push", False):
                     allowed.update({"git_add", "git_commit", "git_push"})
-                if coding and definition.name not in allowed:
-                    continue
-                if looks_like_computer(prompt) and not coding:
-                    if definition.name not in computer_planner_tools(prompt):
-                        continue
                 if definition.name == "git_push" and "git_push" not in allowed:
                     continue
                 if definition.name in {"git_add", "git_commit"} and definition.name not in allowed:
@@ -220,17 +244,38 @@ class ToolOrchestrator:
             else ""
         )
         computer_help = ""
-        if getattr(context, "computer_mode", "off") != "off" and not coding_task:
+        if getattr(context, "computer_mode", "off") != "off":
             computer_help = (
-                " This is a local computer task, not a coding-workspace repair. "
+                " LOCAL COMPUTER TOOLS ARE AVAILABLE and run on the user's Windows PC through "
+                "the installed Canalla host. You can list directories, read/write files, run "
+                "executables and interpreters, install packages after confirmation, and inspect "
+                "processes. Use run_process (executable + argv) or run_python "
+                "when a typed tool does not exist. For a long build or test use wait=false, then "
+                "process_status with the returned tool_run_id and stop_process when needed. "
+                "Never say you have no shell, SSH, filesystem or network tools while these tools "
+                "are listed. Never ask the user to start a separate companion app: the installed "
+                "Canalla application is the host. If a tool returns host_offline, say exactly "
+                "that the host heartbeat was lost and the task will continue after reconnection; "
+                "do not claim the capability does not exist. "
                 "Call get_known_folders to resolve Desktop/Documents/Downloads; do not hardcode "
                 "C:\\Users\\<name>\\Desktop. Do not use PowerShell or Python only to resolve those folders. "
-                "Work only in the requested test folder. Do not search the whole user profile. "
-                "After tools return, answer from those results. Never say you lack filesystem access. "
+                "Work only in the requested folder. Do not search the whole user profile. "
+                "After tools return, answer from those results. "
                 "Use search_code to find text inside files. Use hash_file for SHA256. "
                 "Use copy_file and move_file for copy/move. "
-                "Do not run project tests unless the user asked to fix a code project."
+                + (
+                    "Run the project's tests and build commands with run_python or run_process "
+                    "(cwd at the workspace root). "
+                    if coding_task
+                    else "Do not run project tests unless the user asked to fix a code project. "
+                )
             )
+            if not context.host_online:
+                computer_help += (
+                    " The host heartbeat is missing right now. Local calls may wait briefly and "
+                    "then return host_offline; the task resumes when the app reconnects. This is "
+                    "a temporary transport state, not missing capability."
+                )
         unseen = []
         for item in context.tor_candidates:
             url = item.get("url") or ""
@@ -1293,6 +1338,17 @@ class ToolOrchestrator:
             context.limits.calls = max(context.limits.calls, len(notes) + 1)
             web = name.startswith("web_") or name.startswith("tor_")
             notes.append(("No web results available: " if web else "Local step failed: ") + error.code)
+            if error.code == "host_offline":
+                notes.append(
+                    "The local host heartbeat was lost; the tool capability still exists and the "
+                    "task resumes when the installed app reconnects. Do not tell the user to start "
+                    "a separate companion or that no shell/filesystem exists."
+                )
+            elif error.code in {"task_runtime_limit", "tool_limit", "search_limit", "page_limit"}:
+                notes.append(
+                    "The task budget or a step limit was reached; summarize the verified results "
+                    "and do not retry the same call."
+                )
             if web:
                 await context.emit("web_status", {"state": "failed", "code": error.code})
             packed = {

@@ -742,6 +742,27 @@ p {
 .connection-slot {
   position: relative;
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.connection-stop {
+  font-size: 10px;
+  padding: 6px 9px;
+  border-radius: 20px;
+  border: 1px solid #5a3532;
+  background: #3a2422;
+  color: #f2b4ac;
+  cursor: pointer;
+}
+.connection-stop:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.status-reconnecting {
+  font-size: 10px;
+  color: #d6c48a;
+  white-space: nowrap;
 }
 .connection {
   display: flex;

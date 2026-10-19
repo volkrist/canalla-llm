@@ -173,8 +173,19 @@ export const toolErrors: Record<string, string> = {
   provider_auth: "Не удалось авторизовать TinyFish.",
   billing_required: "TinyFish отклонил запрос по условиям оплаты.",
   rate_limited: "Достигнут лимит запросов TinyFish.",
-  provider_timeout: "Истекло время ожидания TinyFish.",
+  provider_timeout:
+    "Истекло время ожидания TinyFish (повтор будет выполнен автоматически).",
   provider_unavailable: "TinyFish временно недоступен.",
+  search_failed: "Поиск не вернул результаты и сообщил об ошибке.",
+  fetch_failed: "Не удалось загрузить запрошенные страницы.",
+  malformed_search_result: "Поиск вернул некорректный результат.",
+  malformed_fetch_result: "Загрузка вернула некорректный результат.",
+  browser_navigation_failed: "Браузер не смог открыть страницу.",
+  browser_session_lost:
+    "Браузерная сессия была закрыта; страница будет открыта заново.",
+  tool_limit: "Достигнут лимит числа вызовов инструментов в задаче.",
+  search_limit: "Достигнут лимит поисковых запросов в задаче.",
+  page_limit: "Достигнут лимит загруженных страниц в задаче.",
   unsafe_url: "Разрешены только публичные HTTP/HTTPS-адреса.",
   unsafe_redirect: "Источник перенаправляет на недопустимый адрес.",
   tool_disabled: "Инструмент выключен в настройках.",
@@ -190,7 +201,9 @@ export const toolErrors: Record<string, string> = {
   model_tools_unsupported: "Эта модель не поддерживает вызовы инструментов.",
   browser_no_page_result:
     "Браузер не вернул страницу: ни один результат не получен.",
-  timeout: "Достигнут лимит времени инструмента.",
+  timeout: "Инструмент не ответил за отведённое ему время.",
+  task_runtime_limit:
+    "Исчерпан лимит времени всей задачи (не отдельного инструмента).",
   tor_not_configured: "Tor не настроен.",
   tor_unavailable: "Tor недоступен.",
   tor_route_unsupported:
@@ -202,7 +215,8 @@ export const toolErrors: Record<string, string> = {
   tor_browser_not_ready: "Tor Browser automation недоступна.",
   download_blocked: "Загрузка файлов через Tor Browser заблокирована.",
   computer_disabled: "Режим компьютера выключен.",
-  host_offline: "Локальный компьютер недоступен.",
+  host_offline:
+    "Связь с локальным хостом потеряна; задача продолжится после восстановления.",
   host_result_unknown:
     "Команда могла выполниться, но результат не подтверждён. Проверьте результат вручную; повтор не выполняется.",
   path_denied: "Путь недоступен или запрещён.",
@@ -216,7 +230,6 @@ export const toolErrors: Record<string, string> = {
   git_not_installed: "Git не установлен на этом компьютере.",
   task_file_limit: "Достигнут лимит изменённых файлов в задаче.",
   task_budget: "Исчерпан бюджет вызовов инструментов.",
-  task_runtime_limit: "Исчерпан лимит времени задачи.",
   task_paused: "Задача приостановлена.",
   task_stopped: "Задача остановлена.",
   workspace_busy: "Workspace занят другой задачей.",
