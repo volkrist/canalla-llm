@@ -206,6 +206,9 @@ jobs:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: "utf-8"
       PROD_IMAGE: runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404
+      # Read-only workflow token: authenticated GitHub API reads do not share the 60/hour
+      # unauthenticated IP quota that can block the llama pin verification.
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
 

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -29,7 +30,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 PIN_FILE = REPO / "scripts" / "llama-runtime.json"
-USER_AGENT = "canalla-llm-build/1.2.1"
+USER_AGENT = "canalla-llm-build/1.2.3"
 API_TIMEOUT_SECONDS = 60.0
 PASS, FAIL, BLOCKED = 0, 1, 3
 
@@ -51,11 +52,15 @@ def release_url(pin: dict) -> str:
 def fetch_release(url: str, *, attempts: int = 3) -> dict:
     """The release document, or a hard failure. The pin is never trusted from the network alone."""
     last = "unknown"
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"}
+    # An unauthenticated CI runner shares GitHub's 60/hour IP quota and is routinely answered
+    # with HTTP 403 before the release is even read. The token is the workflow's own read-only
+    # token; it is never written to a log or a file.
+    if token:
+        headers["Authorization"] = "Bearer " + token
     for attempt in range(1, attempts + 1):
-        request = urllib.request.Request(
-            url,
-            headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"},
-        )
+        request = urllib.request.Request(url, headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=API_TIMEOUT_SECONDS) as response:  # noqa: S310
                 return json.loads(response.read())
