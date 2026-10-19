@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { Api } from "../lib/api";
-import { isSharedMode, useCloud } from "../lib/cloud";
+import {
+  ensureCloudCompute,
+  isSharedMode,
+  stopCloudCompute,
+  useCloud,
+} from "../lib/cloud";
+import { startCompute } from "../lib/compute-start";
 import {
   overLimitRateLine,
   policyMoney,
@@ -109,7 +115,9 @@ interface Status {
 export const computeLabels: Record<string, string> = {
   not_configured: "AI не настроен",
   offline: "AI выключен",
+  off: "AI выключен",
   stopped: "AI остановлен",
+  starting: "Запуск AI",
   searching: "Поиск GPU",
   no_gpu: "Нет подходящих GPU",
   gpu_found: "GPU найден",
@@ -120,6 +128,7 @@ export const computeLabels: Record<string, string> = {
   mounting_storage: "Подключение хранилища",
   starting_llm: "Запуск LLM",
   loading_model: "Загрузка модели",
+  waiting_capacity: "Ожидание свободной GPU",
   ready: "AI готов",
   health_unknown: "Проверка состояния AI",
   connecting: "Подключение к AI…",
@@ -180,6 +189,33 @@ export default function ComputePanel({
   // where a Pod is started, and the local lifecycle routes refuse there anyway.
   const cloud = useCloud(api);
   const sharedGateway = isSharedMode(cloud.status);
+  // Shared mode reports its live stage through the AI status; the local controller's own
+  // state is not the Pod's state there.
+  const sharedStage = llm?.diagnostic?.compute_state || "";
+  const sharedStarting =
+    sharedGateway &&
+    [
+      "searching",
+      "gpu_found",
+      "creating",
+      "starting_pod",
+      "starting_environment",
+      "mounting_storage",
+      "starting_llm",
+      "loading_model",
+      "waiting_capacity",
+    ].includes(sharedStage);
+  const sharedLabel = llm?.available
+    ? "Connected"
+    : computeLabels[sharedStage] ||
+      (llm?.state ? computeLabels[llm.state] : undefined) ||
+      "AI Offline";
+  // In shared mode the local RunPod key is deliberately ignored, so the local
+  // `configured`/`can_control` flags say nothing about whether the button can work.
+  // The Gateway is the authority: an unknown status stays clickable (the ensure call
+  // answers typed), a known non-connected one does not.
+  const cloudReady =
+    !sharedGateway || !cloud.status || cloud.status.state === "connected";
   useEffect(() => {
     const show = () => setOpen(true);
     window.addEventListener("alex-open-compute", show);
@@ -304,25 +340,41 @@ export default function ComputePanel({
       setError(policyRefusal(wanted));
       return;
     }
-    searchPreferences = { ...wanted, auto_connect: true };
+    // A manual search asks for a connection: keep looking while the app is open. The separate
+    // paid-when-closed permission (background_start) is never changed here.
+    const saved = { ...wanted, auto_connect: true, wait_for_capacity: true };
     await run(async () => {
-      await api.json("/compute/preferences", {
-        method: "PUT",
-        body: JSON.stringify(searchPreferences),
+      await startCompute({
+        shared: sharedGateway,
+        savePreferences: async () => {
+          await api.json("/compute/preferences", {
+            method: "PUT",
+            body: JSON.stringify(saved),
+          });
+        },
+        ensureGateway: async () => {
+          // The same bounded Gateway lifecycle a chat request uses; the Gateway owns the Pod,
+          // the limits and the one-Pod rule. A local /compute/search would answer 409 here.
+          await ensureCloudCompute();
+          setQuote(null);
+          setOpen(false);
+        },
+        searchLocal: async () => {
+          const found = await api.json<Quote & { existing?: boolean }>(
+            "/compute/search",
+            { method: "POST", body: JSON.stringify(saved) },
+          );
+          if (found.existing) {
+            setQuote(null);
+            setOpen(false);
+            return;
+          }
+          setQuote(found);
+          setSelected(found.selected_gpu_id || "");
+          key.current = crypto.randomUUID();
+        },
       });
-      const found = await api.json<Quote & { existing?: boolean }>(
-        "/compute/search",
-        { method: "POST", body: JSON.stringify(searchPreferences) },
-      );
-      setPreferences(searchPreferences);
-      if (found.existing) {
-        setQuote(null);
-        setOpen(false);
-        return;
-      }
-      setQuote(found);
-      setSelected(found.selected_gpu_id || "");
-      key.current = crypto.randomUUID();
+      setPreferences(saved);
     });
   }
   const effective =
@@ -360,6 +412,13 @@ export default function ComputePanel({
         : llm.state
       : status?.state;
   async function stopAI() {
+    if (sharedGateway) {
+      // The Gateway owns the Pod; its Stop is also what cancels a pending search/wait.
+      await run(async () => {
+        await stopCloudCompute();
+      });
+      return;
+    }
     if (status?.active_generations || !status?.session?.managed) {
       setConfirmStop(true);
       setOpen(true);
@@ -387,12 +446,22 @@ export default function ComputePanel({
         <>
           <div className="compute-summary">
             <span
-              className={`tiny-dot ${status?.state === "ready" ? "ready" : ""}`}
+              className={`tiny-dot ${
+                sharedGateway
+                  ? llm?.available
+                    ? "ready"
+                    : ""
+                  : status?.state === "ready"
+                    ? "ready"
+                    : ""
+              }`}
             />
             <strong>
-              {status
-                ? computeLabels[displayedState || "offline"] || displayedState
-                : "Compute недоступен"}
+              {sharedGateway
+                ? sharedLabel
+                : status
+                  ? computeLabels[displayedState || "offline"] || displayedState
+                  : "Compute недоступен"}
             </strong>
             {status?.session && (
               <span>
@@ -416,13 +485,21 @@ export default function ComputePanel({
             </button>
             {!status?.session && status?.state !== "searching" && (
               <button
-                disabled={busy || !status?.configured || !status?.can_control}
+                disabled={
+                  busy ||
+                  !status?.can_control ||
+                  (sharedGateway ? !cloudReady : !status?.configured)
+                }
                 title={
                   !status?.can_control
                     ? "Нужны права управления compute"
-                    : !status.configured
-                      ? "RunPod не настроен на backend"
-                      : undefined
+                    : sharedGateway
+                      ? cloudReady
+                        ? undefined
+                        : "Canalla Cloud недоступен"
+                      : !status?.configured
+                        ? "RunPod не настроен на backend"
+                        : undefined
                 }
                 onClick={() => {
                   setOpen(true);
@@ -432,7 +509,19 @@ export default function ComputePanel({
                 {status?.state === "error" ? "Повторить" : "Запустить AI"}
               </button>
             )}
-            {status?.state === "searching" && (
+            {sharedStarting && (
+              <button
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    await stopCloudCompute();
+                  })
+                }
+              >
+                Отменить ожидание
+              </button>
+            )}
+            {!sharedGateway && status?.state === "searching" && (
               <button
                 disabled={busy || !status.can_cancel_search}
                 onClick={() =>
@@ -454,12 +543,20 @@ export default function ComputePanel({
                   : "Остановить AI"}
               </button>
             )}
+            {sharedGateway &&
+              !sharedStarting &&
+              (llm?.available ||
+                ["ready", "generating"].includes(sharedStage)) && (
+                <button disabled={busy} onClick={() => void stopAI()}>
+                  Остановить AI
+                </button>
+              )}
           </div>
           {sharedGateway && (
             <p role="status" className="muted">
-              Compute управляется Canalla Cloud: сам AI запускается и
-              останавливается в разделе настроек «Canalla Cloud», а лимиты ниже
-              — ваши собственные, их можно повышать и понижать.
+              Compute управляется Canalla Cloud: кнопка ниже запускает
+              защищённый поиск и подключение через Gateway. Лимиты ниже — ваши
+              собственные, их можно повышать и понижать.
             </p>
           )}
           {overLimit && (
@@ -470,9 +567,11 @@ export default function ComputePanel({
           {llm?.provider === "llamacpp" && (
             <p>
               {llm.model || "OrcaRouter"} ·{" "}
-              {llm.available
-                ? "AI Ready"
-                : computeLabels[llm.state] || "AI Offline"}
+              {sharedGateway
+                ? sharedLabel
+                : llm.available
+                  ? "AI Ready"
+                  : computeLabels[llm.state] || "AI Offline"}
             </p>
           )}
           {error && !open && (
@@ -892,9 +991,16 @@ export default function ComputePanel({
               <button
                 disabled={
                   busy ||
-                  !status?.configured ||
-                  !status.can_control ||
+                  !status?.can_control ||
+                  (sharedGateway
+                    ? !cloudReady || !!llm?.available || sharedStarting
+                    : !status?.configured) ||
                   !!status.session
+                }
+                title={
+                  sharedGateway && !cloudReady
+                    ? "Canalla Cloud недоступен"
+                    : undefined
                 }
                 onClick={() => void search()}
               >
