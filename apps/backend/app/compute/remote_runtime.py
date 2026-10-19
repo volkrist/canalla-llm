@@ -102,6 +102,25 @@ def gateway_server(key, llm_port, port):
     return ThreadingHTTPServer(("0.0.0.0", port), Gateway)
 
 
+def _tail(path, limit=60):
+    """Last lines of a diagnostic file. Never a secret: these are bootstrap and llama.cpp logs."""
+    try:
+        with open(path, "rb") as handle:
+            lines = handle.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return ""
+    return "\n".join(lines[-limit:])
+
+
+def _dump_logs():
+    """Mirror the container-side logs to stdout, so the VPS collector can keep them."""
+    for path in ("/tmp/alex-llm-start.log", "/tmp/alex-llm-check.log", "/workspace/llama-server.log"):
+        text = _tail(path)
+        if text:
+            print("ALEX_LLM_LOG=" + path, flush=True)
+            print(text, flush=True)
+
+
 def model_state(port, model):
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
     try:
@@ -144,6 +163,7 @@ def main():
             "/workspace/models/orcarouter-qwen38/orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf",
         ):
             if not Path(path).is_file():
+                print("ALEX_LLM_MISSING=" + path, flush=True)
                 phase("error")
                 return
         server = gateway_server(key, port, gateway_port)
@@ -154,11 +174,16 @@ def main():
             with open("/tmp/alex-llm-start.log", "ab") as log:
                 subprocess.Popen(["bash", "/workspace/start-llm.sh"], stdout=log, stderr=log, env=environment)
         phase("loading_model")
+        _dump_logs()
         deadline = time.monotonic() + timeout
+        next_dump = time.monotonic() + 30
         ready = False
         try:
             while True:
                 state = model_state(port, model)
+                if time.monotonic() >= next_dump and not ready:
+                    _dump_logs()
+                    next_dump = time.monotonic() + 30
                 if state == "ready":
                     if not ready:
                         try:
@@ -175,14 +200,20 @@ def main():
                                     },
                                 )
                             if checked.returncode != 0:
+                                print("ALEX_LLM_CHECK_FAILED=" + str(checked.returncode), flush=True)
+                                _dump_logs()
                                 phase("error")
                                 return
                         except subprocess.TimeoutExpired:
+                            print("ALEX_LLM_CHECK_TIMEOUT", flush=True)
+                            _dump_logs()
                             phase("error")
                             return
                     ready = True
                     phase("ready")
                 elif ready or state == "wrong_model" or time.monotonic() >= deadline:
+                    print("ALEX_LLM_STATE=" + state, flush=True)
+                    _dump_logs()
                     phase("error")
                     return
                 time.sleep(3)
