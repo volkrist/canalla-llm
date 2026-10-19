@@ -281,9 +281,7 @@ class SharedDemand:
             if self._manual_off and origin != "manual_prewarm":
                 # The user pressed Stop/Disconnect. Only an explicit Start may lift this, and
                 # no Gateway call (and therefore no money) happens while it holds.
-                return self._resolved(
-                    {"kind": "blocked", "code": "manual_disconnect", "state": "offline"}
-                )
+                return self._resolved({"kind": "blocked", "code": "manual_disconnect", "state": "offline"})
             if self._inflight is not None and not self._inflight.done():
                 return self._inflight
             if self.reusable():

@@ -528,9 +528,7 @@ class LLMError(RuntimeError):
             ),
             # A manual Stop/Disconnect is a deliberate state, not a transient outage: the chat
             # says so instead of silently re-creating compute.
-            "manual_disconnect": (
-                "AI остановлен вручную. Нажмите «Запустить AI», чтобы включить его снова."
-            ),
+            "manual_disconnect": ("AI остановлен вручную. Нажмите «Запустить AI», чтобы включить его снова."),
             # The model endpoint refused the tool schema itself. Never dressed as a network fault.
             "tools_unsupported": (
                 "Сервер модели отклонил вызовы инструментов (tools_unsupported). "

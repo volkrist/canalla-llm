@@ -473,9 +473,7 @@ def test_planning_sends_the_tools_through_the_gateway(gateway):
     }
     usage: dict = {}
 
-    message = run(
-        provider.plan_tools([{"role": "user", "content": "открой example.com"}], tools, usage)
-    )
+    message = run(provider.plan_tools([{"role": "user", "content": "открой example.com"}], tools, usage))
 
     assert provider.supports_tools is True
     assert message["tool_calls"][0]["function"]["name"] == "web_fetch"
