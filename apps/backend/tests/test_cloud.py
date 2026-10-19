@@ -40,6 +40,63 @@ def sse(payload: dict) -> bytes:
     return ("data: " + json.dumps(payload, ensure_ascii=False) + "\n\n").encode("utf-8")
 
 
+def planner_events(message: dict) -> bytes:
+    """SSE frames for a planner message, with tool arguments split across deltas.
+
+    Splitting arguments proves the client accumulates fragments instead of trusting one frame.
+    """
+    chunks: list[bytes] = []
+    content = message.get("content")
+    if isinstance(content, str) and content:
+        chunks.append(sse({"choices": [{"delta": {"content": content}}]}))
+    for index, call in enumerate(message.get("tool_calls") or []):
+        function = call.get("function") or {}
+        name = str(function.get("name") or "")
+        arguments = str(function.get("arguments") or "")
+        chunks.append(
+            sse(
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": index,
+                                        "id": call.get("id") or f"call-{index}",
+                                        "type": "function",
+                                        "function": {"name": name, "arguments": arguments[:1]},
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            )
+        )
+        for start in range(1, max(1, len(arguments)), 8):
+            chunks.append(
+                sse(
+                    {
+                        "choices": [
+                            {
+                                "delta": {
+                                    "tool_calls": [
+                                        {
+                                            "index": index,
+                                            "function": {"arguments": arguments[start : start + 8]},
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                )
+            )
+    chunks.append(sse({"usage": {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7}}))
+    chunks.append(b"data: [DONE]\n\n")
+    return b"".join(chunks)
+
+
 def next_step(script: list[dict], current: dict) -> dict:
     """One scripted Gateway answer per call; the last one keeps answering."""
     if not script:
@@ -69,9 +126,11 @@ class FakeGateway:
         self.balance_calls = 0
         self.models_calls = 0
         self.chat_calls = 0
-        # Tool-enabled chats make one non-streaming planner call before the streaming answer;
-        # the tests that mean "exactly one generation" count the stream, never both.
+        # Tool-enabled chats make one planner turn before the streaming answer. The planner is a
+        # stream of its own now, so it is counted separately: the tests that mean "exactly one
+        # generation" count only the final answer stream.
         self.stream_calls = 0
+        self.planner_calls = 0
         self.ensure_calls = 0
         self.stop_calls = 0
         self.ensure_bodies: list[dict] = []
@@ -81,6 +140,10 @@ class FakeGateway:
         self.planner_bodies: list[dict] = []
         self.planner_message: dict = {"role": "assistant", "content": "Привет из облака"}
         self.planner_status: int | None = None
+        # Transient planner failures before the scripted answer; proves bounded retry/backoff.
+        self.planner_failures = 0
+        # An SSE that ends with no [DONE] and no content (a dropped connection).
+        self.planner_empty_stream = False
         self.planner_detail = "AI отклонил запрос (400). tools are not supported by this build"
         # Scripted answers: one payload per call, and the last one keeps answering. A test can
         # therefore pin the exact Gateway sequence a request produces without any timing.
@@ -175,8 +238,16 @@ class FakeGateway:
         if path == "/v1/chat/completions":
             self.chat_calls += 1
             body = json.loads(request.content)
-            if not body.get("stream"):
+            if "tool_choice" in body:
+                self.planner_calls += 1
                 self.planner_bodies.append(body)
+                if self.planner_failures:
+                    self.planner_failures -= 1
+                    return httpx.Response(
+                        503, json={"detail": "temporarily busy", "code": "gateway_unavailable"}
+                    )
+                if self.planner_empty_stream:
+                    return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=b"")
                 if self.planner_status is not None:
                     return httpx.Response(
                         self.planner_status,
@@ -184,10 +255,8 @@ class FakeGateway:
                     )
                 return httpx.Response(
                     200,
-                    json={
-                        "choices": [{"message": self.planner_message}],
-                        "usage": {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7},
-                    },
+                    headers={"content-type": "text/event-stream"},
+                    content=planner_events(self.planner_message),
                 )
             self.stream_calls += 1
             owner = self
@@ -480,9 +549,64 @@ def test_planning_sends_the_tools_through_the_gateway(gateway):
     body = gateway.planner_bodies[0]
     assert body["tools"] == tools
     assert body["tool_choice"] == "auto"
-    assert body["stream"] is False
+    # A streaming planner is not bounded by the Gateway's non-streaming upstream timeout.
+    assert body["stream"] is True
     assert body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert gateway.planner_calls == 1 and gateway.stream_calls == 0
     assert usage["_planner_calls"] == 1 and usage["prompt_tokens"] == 3
+
+
+def test_a_transient_planner_outage_is_retried_within_the_turn(gateway):
+    """A 90 s transport failure used to end the whole multi-step task; one blip must not."""
+    provider = GatewayProvider(shared_settings(), client_for(gateway))
+    gateway.planner_failures = 1
+    gateway.planner_message = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "call-1",
+                "type": "function",
+                "function": {"name": "read_file", "arguments": '{"path":"C:/x.txt"}'},
+            }
+        ],
+    }
+
+    message = run(provider.plan_tools([{"role": "user", "content": "read it"}], [], {}))
+
+    assert gateway.planner_calls == 2
+    assert message["tool_calls"][0]["function"]["name"] == "read_file"
+    assert message["tool_calls"][0]["function"]["arguments"] == '{"path":"C:/x.txt"}'
+
+
+def test_the_planner_uses_its_own_bounded_timeout(gateway, monkeypatch):
+    """The planner budget is a setting, not the short non-streaming read timeout of 90 s."""
+    captured: dict = {}
+    original = GatewayClient.stream_client
+
+    def capture(self, timeout=None):
+        captured["timeout"] = timeout
+        return original(self, timeout)
+
+    monkeypatch.setattr(GatewayClient, "stream_client", capture)
+    settings = shared_settings(alex_gateway_plan_timeout_seconds=300)
+    provider = GatewayProvider(
+        settings, GatewayClient(settings, transport=httpx.MockTransport(gateway.handle))
+    )
+    run(provider.plan_tools([{"role": "user", "content": "x"}], [], {}))
+
+    assert captured["timeout"] == 300
+
+
+def test_a_stream_break_is_reported_as_interrupted(gateway):
+    """An SSE that ends before [DONE] and produced nothing is not a completed empty answer."""
+    from app.providers import LLMError
+
+    gateway.planner_empty_stream = True
+    provider = GatewayProvider(shared_settings(), client_for(gateway))
+    with pytest.raises(LLMError) as error:
+        run(provider.plan_tools([{"role": "user", "content": "x"}], [], {}))
+    assert error.value.code == "stream_interrupted"
 
 
 def test_a_rejected_tool_schema_is_a_typed_failure(gateway):
@@ -496,6 +620,18 @@ def test_a_rejected_tool_schema_is_a_typed_failure(gateway):
         run(provider.plan_tools([{"role": "user", "content": "x"}], [], {}))
 
     assert error.value.code == "tools_unsupported"
+
+
+def test_planner_does_not_retry_an_auth_failure(gateway):
+    """Only a moment in time is retried; a revoked credential is a conclusion."""
+    from app.providers import LLMError
+
+    provider = GatewayProvider(shared_settings(), client_for(gateway))
+    gateway.rejects_token = True
+    with pytest.raises(LLMError) as error:
+        run(provider.plan_tools([{"role": "user", "content": "x"}], [], {}))
+    assert error.value.code in {"gateway_auth_failed", "llm_unavailable"}
+    assert gateway.planner_calls == 0
 
 
 def test_provider_maps_gateway_failures_to_user_codes(gateway):

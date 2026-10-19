@@ -50,6 +50,12 @@ BALANCE_CODES = {
     "malformed_response",
 }
 
+# Transport failures that describe a moment in time, not a conclusion. A planning turn has no
+# side effects, so it may be retried; auth, protocol, policy and malformed answers may not.
+PLANNER_RETRY_CODES = frozenset(
+    {"gateway_unavailable", "gateway_busy", "gateway_queue_full", "gateway_rate_limited"}
+)
+
 
 class GatewayBalanceSource:
     def __init__(self, client: GatewayClient):
@@ -169,44 +175,209 @@ class GatewayProvider(LLMProvider):
         A server that was not started with `--jinja` rejects the `tools` field. That rejection
         is a *server* fact and is raised as `tools_unsupported`, never turned into a sentence
         the model would repeat to the user.
+
+        The turn streams. A non-streaming completion is bounded by the Gateway's per-request
+        upstream timeout *and* by the client's own read budget, so a queued or slow planner turn
+        died at 90 s while the generation was still healthy. SSE makes the Gateway's read timeout
+        a per-chunk bound and the client budget (`alex_gateway_plan_timeout_seconds`) the only
+        total one. A transport failure before a tool call is complete is retried a bounded number
+        of times: planning has no side effects, so this cannot repeat a file change or a command.
         """
         body = {
             "model": self.settings.llm_model,
             "messages": messages,
-            "stream": False,
+            "stream": True,
+            "stream_options": {"include_usage": True},
             "chat_template_kwargs": {"enable_thinking": False},
             "tools": tools,
             "tool_choice": "auto",
             "max_tokens": 1200,
         }
-        try:
-            value = await self.client.chat_completion(body, timeout=90)
-        except CloudError as error:
-            detail = (error.message or "").lower()
-            rejected_tools = error.status in (400, 422) or error.code == "gateway_upstream_rejected"
-            if rejected_tools and any(
-                token in detail for token in ("tool", "jinja", "template", "unsupported")
-            ):
-                raise LLMError("tools_unsupported") from None
-            if error.code in {"gateway_protocol_mismatch", "installation_revoked"}:
-                raise LLMError(error.code) from None
+        attempts = 3
+        message: dict | None = None
+        error: LLMError | CloudError | None = None
+        for attempt in range(attempts):
+            error = None
+            attempt_usage: dict = {}
+            started = time.monotonic()
+            try:
+                message = await self._plan_stream(body, attempt_usage)
+                for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                    if key in attempt_usage:
+                        usage[key] = usage.get(key, 0) + attempt_usage[key]
+                if attempt_usage.get("_planner_usage_incomplete"):
+                    usage["_planner_usage_incomplete"] = True
+                break
+            except (LLMError, CloudError) as failure:
+                error = failure
+                retryable = (isinstance(failure, CloudError) and failure.code in PLANNER_RETRY_CODES) or (
+                    isinstance(failure, LLMError)
+                    and failure.code in {"llm_unavailable", "stream_interrupted", "gateway_busy"}
+                )
+                # A full-budget timeout is a conclusion, not a blip: retrying it would only
+                # spend another 300 s of the task's window. Fast transport failures are
+                # retried; slow ones park the task for the queue monitor's backoff.
+                if not retryable or attempt == attempts - 1 or time.monotonic() - started > 30:
+                    break
+                await asyncio.sleep(0.5 * (2**attempt))
+            except Exception:
+                raise LLMError("llm_unavailable") from None
+        if message is None:
+            logger.warning(
+                "planner_turn_failed code=%s status=%s attempts=%s",
+                getattr(error, "code", type(error).__name__),
+                getattr(error, "status", 0),
+                attempt + 1,
+            )
+            if isinstance(error, CloudError):
+                detail = (error.message or "").lower()
+                rejected_tools = error.status in (400, 422) or error.code == "gateway_upstream_rejected"
+                if rejected_tools and any(
+                    token in detail for token in ("tool", "jinja", "template", "unsupported")
+                ):
+                    raise LLMError("tools_unsupported") from None
+                if error.code in {"gateway_protocol_mismatch", "installation_revoked"}:
+                    raise LLMError(error.code) from None
+            if isinstance(error, LLMError) and error.code in {
+                "tools_unsupported",
+                "malformed_response",
+                "gateway_protocol_mismatch",
+                "installation_revoked",
+                "gateway_auth_failed",
+                "gateway_request_conflict",
+                "offline",
+                "stream_interrupted",
+            }:
+                raise error
             raise LLMError("llm_unavailable") from None
-        except Exception:
-            raise LLMError("llm_unavailable") from None
-        try:
-            message = value["choices"][0]["message"]
-        except (KeyError, IndexError, TypeError):
-            raise LLMError("malformed_response") from None
-        if not isinstance(message, dict) or not isinstance(message.get("tool_calls", []), list):
-            raise LLMError("malformed_response")
         usage["_planner_calls"] = usage.get("_planner_calls", 0) + 1
-        reported = value.get("usage") or {}
-        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-            count = reported.get(key)
-            if isinstance(count, int) and count >= 0:
-                usage[key] = usage.get(key, 0) + count
-            else:
-                usage["_planner_usage_incomplete"] = True
+        return message
+
+    async def _plan_stream(self, body: dict, usage: dict) -> dict:
+        """One streaming planner turn, accumulating tool-call deltas into one message."""
+        headers = self.client.stream_headers()
+        headers["Authorization"] = "Bearer " + await self.client.token()
+        client = self.client.stream_client(self.settings.alex_gateway_plan_timeout_seconds)
+        try:
+            request = client.build_request(
+                "POST", self.client.url + "/v1/chat/completions", json=body, headers=headers
+            )
+            response = await client.send(request, stream=True)
+        except CloudError:
+            await client.aclose()
+            raise
+        except httpx.TimeoutException:
+            await client.aclose()
+            raise CloudError("gateway_unavailable", "Canalla Cloud не ответил вовремя.") from None
+        except httpx.HTTPError:
+            await client.aclose()
+            raise CloudError("gateway_unavailable", "Canalla Cloud сейчас недоступен.") from None
+        try:
+            if response.status_code in (401, 403):
+                raise LLMError("gateway_auth_failed")
+            if response.status_code == 409:
+                code = "offline"
+                try:
+                    payload = json.loads(await response.aread())
+                    if isinstance(payload, dict) and payload.get("code") == "gateway_request_conflict":
+                        code = "gateway_request_conflict"
+                except (ValueError, httpx.HTTPError):
+                    pass
+                raise LLMError(code)
+            if response.status_code == 429:
+                raise CloudError("gateway_busy", "Canalla Cloud занят.", 429)
+            if response.status_code == 503:
+                raise CloudError("gateway_unavailable", "Canalla Cloud сейчас недоступен.", 503)
+            if not response.is_success:
+                detail = ""
+                try:
+                    detail = (await response.aread()).decode("utf-8", "replace")[:400]
+                except httpx.HTTPError:
+                    detail = ""
+                if response.status_code in (400, 422) and any(
+                    token in detail.lower() for token in ("tool", "jinja", "template", "unsupported")
+                ):
+                    raise LLMError("tools_unsupported")
+                raise CloudError(
+                    "gateway_unavailable",
+                    f"AI ответил ошибкой {response.status_code}. {detail}".strip(),
+                    response.status_code,
+                )
+            text_parts: list[str] = []
+            calls: dict[int, dict] = {}
+            completed = False
+            async for line in response.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    completed = True
+                    break
+                try:
+                    event = json.loads(data)
+                except ValueError:
+                    raise LLMError("malformed_response") from None
+                if not isinstance(event, dict):
+                    raise LLMError("malformed_response")
+                if "error" in event:
+                    code = (
+                        (event.get("error") or {}).get("code") if isinstance(event["error"], dict) else None
+                    )
+                    raise LLMError(code or "llm_unavailable")
+                reported = event.get("usage")
+                if isinstance(reported, dict):
+                    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                        count = reported.get(key)
+                        if isinstance(count, int) and count >= 0:
+                            usage[key] = usage.get(key, 0) + count
+                        else:
+                            usage["_planner_usage_incomplete"] = True
+                choices = event.get("choices", [])
+                if not isinstance(choices, list):
+                    raise LLMError("malformed_response")
+                if not choices:
+                    continue
+                delta = choices[0].get("delta") or {}
+                if not isinstance(delta, dict):
+                    raise LLMError("malformed_response")
+                content = delta.get("content")
+                if isinstance(content, str) and content:
+                    text_parts.append(content)
+                for raw in delta.get("tool_calls") or []:
+                    if not isinstance(raw, dict):
+                        continue
+                    index = raw.get("index")
+                    if not isinstance(index, int):
+                        index = 0
+                    slot = calls.setdefault(
+                        index,
+                        {"id": "", "type": "function", "function": {"name": "", "arguments": ""}},
+                    )
+                    if raw.get("id"):
+                        slot["id"] = str(raw["id"])
+                    if raw.get("type"):
+                        slot["type"] = str(raw["type"])
+                    function = raw.get("function") or {}
+                    if isinstance(function, dict):
+                        if function.get("name"):
+                            slot["function"]["name"] = str(function["name"])
+                        if function.get("arguments"):
+                            slot["function"]["arguments"] += str(function["arguments"])
+            if not completed and not calls and not text_parts:
+                raise LLMError("stream_interrupted")
+        finally:
+            try:
+                await response.aclose()
+                await client.aclose()
+            except Exception:
+                logger.debug("gateway_plan_close_failure")
+        message = {"role": "assistant", "content": "".join(text_parts) or None}
+        message["tool_calls"] = [calls[index] for index in sorted(calls)]
+        for position, call in enumerate(message["tool_calls"]):
+            if not call.get("id"):
+                call["id"] = f"call_plan_{position}"
+            if not call["function"].get("name"):
+                raise LLMError("malformed_response")
         return message
 
     async def stream_with_usage(self, messages, usage):

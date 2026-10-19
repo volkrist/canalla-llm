@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.database import SessionLocal
-from app.models import now
+from app.models import Message, now
 from app.tools.contracts import ToolError
 from app.tools.executor import ExecutionContext, ToolExecutor, reconcile_tools
 from app.tools.local import machine
@@ -565,6 +565,170 @@ def test_stale_patch_is_conflict(setup):
         row = require_row(db, LocalTask, context.task_id)
         assert row.status == machine.CONFLICT
         assert row.last_error == "conflict"
+
+
+class RecoveringProvider:
+    """A model that comes back after the outage and answers from the restored tool result."""
+
+    supports_tools = True
+
+    def __init__(self, answer, *, expect=None):
+        self.answer = answer
+        self.expect = expect
+        self.saw_tool_result = False
+
+    async def health(self):
+        return True
+
+    async def plan_tools(self, messages, tools, usage):
+        if self.expect:
+            self.saw_tool_result = any(
+                message.get("role") == "tool" and self.expect in str(message.get("content"))
+                for message in messages
+            )
+        return {"tool_calls": []}
+
+    async def stream_chat(self, messages):
+        yield self.answer
+
+
+def test_a_gateway_outage_after_a_tool_keeps_the_result_and_finishes(setup):
+    """The 1.2.3 live failure: read_file succeeded, the next planner turn timed out.
+
+    The task must resume from the real tool result, never replay the completed call, and write
+    its final answer into the chat instead of leaving "LLM unavailable" behind.
+    """
+    from app.providers import LLMError
+    from app.tools.local.continue_task import continue_pending
+
+    _headers, context, _events, root, host, _device = setup
+    # `desktop` makes this a computer task (a real LocalTask exists to resume); it deliberately
+    # avoids the deterministic "read this file" route so the planner is the one that acts.
+    prompt = "Посмотри на файл app.py на desktop."
+    context.user_prompt = prompt
+
+    class FailingAfterTool:
+        supports_tools = True
+
+        def __init__(self):
+            self.calls = 0
+
+        async def plan_tools(self, messages, tools, usage):
+            self.calls += 1
+            if self.calls == 1:
+                return {
+                    "tool_calls": _call("read_file", {"path": str(root / "app.py"), "purpose": "read"}, "c1")
+                }
+            raise LLMError("llm_unavailable")
+
+    orchestrator = ToolOrchestrator(make_registry(), ToolExecutor(make_registry()))
+    asyncio.run(
+        orchestrator.prepare(FailingAfterTool(), [{"role": "user", "content": prompt}], 0, context, {})
+    )
+
+    assert context.task_halt == "llm_unavailable"
+    assert host.handled.count("read_file") == 1
+    with SessionLocal() as db:
+        row = require_row(db, LocalTask, context.task_id)
+        assert row.status == machine.WAITING_LLM
+        transcript = (row.checkpoint or {}).get("tool_transcript")
+        assert transcript
+        assert any(
+            item.get("role") == "tool" and "return a - b" in str(item.get("content")) for item in transcript
+        )
+        # The stream finalized the parked message before the queue monitor may resume it.
+        message = require_row(db, Message, context.generation_id)
+        message.status, message.completed_at = "complete", now()
+        facts = dict(row.facts or {})
+        # Skip the first backoff interval; the schedule itself is covered separately.
+        facts["llm_retry_at"] = (now() - timedelta(seconds=1)).isoformat()
+        row.facts = facts
+        db.commit()
+
+    provider = RecoveringProvider("app.py: return a - b", expect="return a - b")
+    asyncio.run(continue_pending(orchestrator, provider, user_id=context.user_id, host_online=True))
+
+    assert provider.saw_tool_result is True
+    assert host.handled.count("read_file") == 1  # the completed read was not replayed
+    with SessionLocal() as db:
+        row = require_row(db, LocalTask, context.task_id)
+        assert row.status == machine.COMPLETED
+        message = require_row(db, Message, context.generation_id)
+        assert message.status == "complete"
+        assert message.content == "app.py: return a - b"
+        assert not (row.checkpoint or {}).get("tool_transcript")
+
+
+def test_write_run_fix_rerun_returns_real_stdout(setup):
+    """A deterministic planner still uses the real host executor for every step."""
+    _headers, context, _events, root, host, _device = setup
+    prompt = "Подготовь hello.py на desktop и покажи результат."
+    context.user_prompt = prompt
+    script = [
+        _call(
+            "write_file",
+            {"path": str(root / "hello.py"), "content": "print(2 + 2)\n", "purpose": "create"},
+            "w1",
+        ),
+        _call("run_python", {"argv": ["hello.py"], "cwd": str(root), "purpose": "run"}, "r1"),
+        _call(
+            "write_file",
+            {"path": str(root / "hello.py"), "content": "print(2 * 3)\n", "purpose": "fix"},
+            "w2",
+        ),
+        _call("run_python", {"argv": ["hello.py"], "cwd": str(root), "purpose": "rerun"}, "r2"),
+    ]
+    orchestrator = ToolOrchestrator(make_registry(), ToolExecutor(make_registry()))
+    asyncio.run(
+        orchestrator.prepare(ScriptedPlanner(script), [{"role": "user", "content": prompt}], 0, context, {})
+    )
+
+    assert host.handled.count("write_file") == 2
+    assert host.handled.count("run_python") == 2
+    assert (root / "hello.py").read_text(encoding="utf-8") == "print(2 * 3)\n"
+    with SessionLocal() as db:
+        runs = db.scalars(select_completed(context.task_id)).all()
+        stdout = []
+        for run in runs:
+            hosted = (run.result_metadata or {}).get("host_result") or {}
+            if run.tool_name == "run_python":
+                stdout.append(str(hosted.get("stdout") or ""))
+        assert stdout == ["4\n", "6\n"]
+
+
+def test_a_duplicate_write_is_not_applied_twice(setup):
+    """After a recovery the model may re-propose the same bytes; the file write is not repeated."""
+    from app.tools.local.facts import record
+    from app.tools.local.progress import applied_result, should_block
+
+    _headers, context, _events, root, _host, _device = setup
+    path = str(root / "hello.py")
+    content = "print(2 + 2)\n"
+    digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    facts = record(
+        {},
+        "FILE_CREATED",
+        {"path": path, "after_sha": digest, "expected_sha256": digest, "verified": True},
+    )
+
+    assert should_block(facts, "write_file", {"path": path, "content": content}) == "already_applied"
+    assert should_block(facts, "write_file", {"path": path, "content": "print(2 * 3)\n"}) is None
+    reused = applied_result(facts, "write_file", {"path": path, "content": content})
+    assert reused["metadata"]["already_applied"] is True
+    assert reused["metadata"]["sha256"] == digest
+
+
+def test_the_recovery_retry_schedule_is_bounded():
+    from app.tools.local.task import llm_retry_delay, llm_retry_due
+
+    assert [llm_retry_delay(value) for value in (0, 1, 2, 3, 4, 9)] == [5, 10, 20, 40, 60, 60]
+    future = (now() + timedelta(seconds=30)).isoformat()
+    assert llm_retry_due({"llm_retry_at": future}) is False
+    past = (now() - timedelta(seconds=1)).isoformat()
+    assert llm_retry_due({"llm_retry_at": past}) is True
+    # A dead session is not retried forever inside the automatic loop.
+    old = (now() - timedelta(minutes=31)).isoformat()
+    assert llm_retry_due({"llm_retry_at": past, "llm_retry_since": old}) is False
 
 
 def test_retry_then_succeeds(setup):

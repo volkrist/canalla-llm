@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import re
 
 from ..context_builder import ContextBuilder
@@ -26,6 +27,8 @@ from .tor.router import (
     pick_tor_fetch_urls,
 )
 from .web_router import classify_web, pick_fetch_urls
+
+logger = logging.getLogger(__name__)
 
 
 class ToolOrchestrator:
@@ -167,6 +170,10 @@ class ToolOrchestrator:
                     raise
 
         def close_task(status=None):
+            # A background resume generates the final answer itself and concludes the task
+            # afterwards; concluding here would lock the task terminal before the answer exists.
+            if status is None and getattr(context, "defer_conclusion", False):
+                return
             with SessionLocal() as db:
                 if status:
                     LocalTaskController().finish(db, context, status)
@@ -346,6 +353,21 @@ class ToolOrchestrator:
                 if row:
                     await context.emit("task", LocalTaskController().public(db, row))
         planning = [{"role": "system", "content": policy}, history[-1]]
+        transcript = list(getattr(context, "resume_transcript", None) or [])
+        if transcript and getattr(context, "resuming", False):
+            # Restore the tool transcript of the interrupted attempt. The model continues from
+            # real results instead of replaying calls (and the engine never has to guess).
+            if transcript[0].get("role") != "user":
+                transcript.insert(0, history[-1])
+            planning = [
+                {
+                    "role": "system",
+                    "content": policy
+                    + " A previous attempt already produced the tool results below. Continue from "
+                    "them and do not repeat a tool call that already completed.",
+                },
+                *transcript,
+            ]
         notes = []
         await context.emit("web_status", {"state": "planning"})
         empty_rounds = 0
@@ -395,6 +417,8 @@ class ToolOrchestrator:
                             LocalTaskController().checkpoint(db, context, "INTERRUPTED")
                     raise
                 except LLMError as error:
+                    with SessionLocal() as transcript_db:
+                        LocalTaskController().save_transcript(transcript_db, context, planning)
                     if error.code == "tools_unsupported":
                         # The endpoint refused the tool schema itself (for example llama-server
                         # without --jinja). Retrying through WAITING_LLM would hide that: no tool
@@ -407,6 +431,13 @@ class ToolOrchestrator:
                         context.task_halt = "tools_unsupported"
                         break
                     notes.append("LLM temporarily unavailable. Task is recoverable.")
+                    # The task id is the correlation id for the resume; never a credential.
+                    logger.warning(
+                        "task_waiting_llm code=%s task_id=%s chat_id=%s",
+                        error.code,
+                        getattr(context, "task_id", None),
+                        getattr(context, "chat_id", None),
+                    )
                     with SessionLocal() as db:
                         LocalTaskController().waiting_llm(db, context, error.code)
                     await context.emit("task_status", {"state": "WAITING_LLM", "code": error.code})
@@ -488,6 +519,8 @@ class ToolOrchestrator:
                             ),
                         }
                     )
+                    with SessionLocal() as transcript_db:
+                        LocalTaskController().save_transcript(transcript_db, context, planning)
                 if sum(len(str(m.get("content", ""))) for m in planning[2:]) > context.limits.max_chars * 2:
                     notes.append("Tool context limit reached.")
                     break
@@ -657,6 +690,14 @@ class ToolOrchestrator:
                     "WAITING_DEVICE": "host_offline",
                     "WAITING_LLM": "llm_unavailable",
                 }.get(row.status, context.task_halt)
+        if not context.skip_final_stream and not context.task_halt:
+            # The turn reached the model again: nothing is left to recover. This also resets the
+            # retry window so a later, unrelated outage starts from a fresh schedule.
+            with SessionLocal() as db:
+                LocalTaskController().clear_transcript(db, context)
+        context.tool_transcript = [
+            message for message in planning[1:] if message.get("role") in {"assistant", "tool"}
+        ]
         if getattr(context, "task_id", None):
             with SessionLocal() as db:
                 row = LocalTaskController()._row(db, context)
@@ -1151,6 +1192,16 @@ class ToolOrchestrator:
                                 f"tool={name} status=reused recommended_next_action=use_verified_fact"
                             )
                             return reused
+                    if block == "already_applied":
+                        from .local.progress import applied_result
+
+                        applied = applied_result(row.facts, name, parsed)
+                        if applied:
+                            notes.append(
+                                f"tool={name} status=already_applied "
+                                "recommended_next_action=use_verified_fact"
+                            )
+                            return applied
                     if block:
                         row.facts = apply_block(row.facts, block)
                         db.commit()

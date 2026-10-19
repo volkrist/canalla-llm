@@ -211,6 +211,12 @@ class Settings(BaseSettings):
     # that a 180 s read timeout would cut short and misreport as a dead model. The stream gets its
     # own, still-bounded read budget with the same short connect timeout.
     alex_gateway_stream_timeout_seconds: float = Field(default=450, ge=30, le=1800)
+    # A tool-planning turn is an inference request, not a tool call. It used to share the short
+    # non-streaming read budget (90 s), which expired while the Gateway was still holding the
+    # request in its admission queue. The planner now streams (so the Gateway's per-read timeout
+    # is not a total deadline) and this bounds the client side, below the task runtime and above
+    # the per-call tool ceiling.
+    alex_gateway_plan_timeout_seconds: float = Field(default=300, ge=30, le=300)
     gateway_status_active_seconds: float = Field(default=5, ge=1, le=300)
     gateway_status_idle_seconds: float = Field(default=15, ge=1, le=600)
     balance_background_enabled: bool = True

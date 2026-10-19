@@ -249,9 +249,11 @@ class GatewayClient:
     def client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(timeout=self.timeout(), follow_redirects=False, transport=self.transport)
 
-    def stream_client(self) -> httpx.AsyncClient:
+    def stream_client(self, timeout: float | None = None) -> httpx.AsyncClient:
         return httpx.AsyncClient(
-            timeout=self.stream_timeout(), follow_redirects=False, transport=self.transport
+            timeout=httpx.Timeout(timeout, connect=10) if timeout else self.stream_timeout(),
+            follow_redirects=False,
+            transport=self.transport,
         )
 
 

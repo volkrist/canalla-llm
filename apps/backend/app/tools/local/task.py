@@ -1,5 +1,5 @@
 import re
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -33,6 +33,60 @@ RETRYABLE = {
     "llm_timeout",
     "llm_unavailable",
 }
+
+# A parked WAITING_LLM task is retried automatically with a bounded exponential backoff, and only
+# inside a window. The retry resumes a model turn (never a completed tool call), so it cannot
+# repeat a file change; the window keeps a genuinely dead session from asking forever.
+LLM_RETRY_WINDOW_SECONDS = 30 * 60
+LLM_RETRY_MAX_DELAY_SECONDS = 60
+# These are compute-readiness states, not model outages: the task waits for the session the user
+# is allowed to start, and resumes as soon as it exists (no time-based retry can expire first).
+COMPUTE_WAIT_CODES = {
+    "offline",
+    "gateway_not_connected",
+    "loading_model",
+    "creating",
+    "starting_pod",
+    "gpu_found",
+    "mounting_storage",
+    "starting",
+}
+
+
+def llm_retry_delay(attempts: int) -> int:
+    return min(LLM_RETRY_MAX_DELAY_SECONDS, 5 * (2 ** min(max(attempts, 0), 4)))
+
+
+def llm_retry_due(facts: dict, reference: datetime | None = None) -> bool:
+    current = reference or now()
+    since = (facts or {}).get("llm_retry_since")
+    if since:
+        try:
+            started = datetime.fromisoformat(str(since))
+        except ValueError:
+            started = None
+        if started is not None:
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            if (current - started).total_seconds() >= LLM_RETRY_WINDOW_SECONDS:
+                return False
+    at = (facts or {}).get("llm_retry_at")
+    if not at:
+        return True
+    try:
+        due = datetime.fromisoformat(str(at))
+    except ValueError:
+        return True
+    if due.tzinfo is None:
+        due = due.replace(tzinfo=timezone.utc)
+    return current >= due
+
+
+def reset_llm_retry(facts: dict) -> dict:
+    payload = dict(facts or {})
+    for key in ("llm_retry_at", "llm_retry_since", "llm_retry_attempts"):
+        payload.pop(key, None)
+    return payload
 
 
 class LocalTaskController:
@@ -286,6 +340,10 @@ class LocalTaskController:
         from .targets import last_file_target
 
         context.verified_facts = facts
+        transcript = (row.checkpoint or {}).get("tool_transcript")
+        context.resume_transcript = list(transcript) if isinstance(transcript, list) else []
+        context.llm_retry_at = facts.get("llm_retry_at")
+        context.llm_retry_since = facts.get("llm_retry_since")
         context.last_file_target = last_file_target(facts) or self.previous_file_target(
             row.user_id, row.chat_id
         )
@@ -294,6 +352,60 @@ class LocalTaskController:
             context.owned_process = owned[-1]
         else:
             context.owned_process = self.last_owned_process(row.user_id)
+
+    def save_transcript(self, db, context, transcript):
+        """Keep the tool transcript of an unfinished task across a model outage.
+
+        The in-memory planning list is lost when a turn parks on `llm_unavailable`; without this
+        the resumed model only sees verified facts and may repeat a completed call. Messages are
+        already sanitized by the orchestrator; the per-message cap keeps the checkpoint bounded.
+        """
+        from ..security import sanitized
+
+        row = self._row(db, context)
+        if not row:
+            return
+        secrets = getattr(context, "secrets", ())
+        items = []
+        for message in transcript or []:
+            if not isinstance(message, dict) or message.get("role") == "system":
+                continue
+            entry = {"role": message.get("role")}
+            content = message.get("content")
+            if isinstance(content, str):
+                entry["content"] = sanitized(content, secrets, 6000)
+            calls = message.get("tool_calls")
+            if isinstance(calls, list) and calls:
+                kept = []
+                for call in calls[:4]:
+                    if not isinstance(call, dict):
+                        continue
+                    function = call.get("function")
+                    if isinstance(function, dict):
+                        function = {
+                            **function,
+                            "arguments": sanitized(function.get("arguments") or "", secrets, 6000),
+                        }
+                    kept.append({**call, "function": function})
+                entry["tool_calls"] = kept
+            if message.get("tool_call_id"):
+                entry["tool_call_id"] = str(message["tool_call_id"])[:80]
+            items.append(entry)
+        checkpoint = dict(row.checkpoint or {})
+        checkpoint["tool_transcript"] = items[-24:]
+        row.checkpoint = checkpoint
+        db.commit()
+
+    def clear_transcript(self, db, context):
+        """A finished turn needs no recovery transcript; a successful model call resets retries."""
+        row = self._row(db, context)
+        if not row:
+            return
+        checkpoint = dict(row.checkpoint or {})
+        checkpoint.pop("tool_transcript", None)
+        row.checkpoint = checkpoint
+        row.facts = reset_llm_retry(row.facts or {})
+        db.commit()
 
     def last_owned_process(self, user_id: str):
         from ...database import SessionLocal
@@ -1049,7 +1161,23 @@ class LocalTaskController:
             return
         machine.transition(row, machine.WAITING_LLM)
         row.last_error = code
-        append_event(db, row.id, "WAITING_LLM", {"code": code})
+        facts = dict(row.facts or {})
+        # Compute being off is not a transient model failure: the task waits for the user's next
+        # explicit start, with no retry window that could expire while the GPU is stopped.
+        if code in COMPUTE_WAIT_CODES:
+            for key in ("llm_retry_at", "llm_retry_since", "llm_retry_attempts"):
+                facts.pop(key, None)
+            facts["waiting_for_compute"] = True
+            attempts = 0
+        else:
+            attempts = int(facts.get("llm_retry_attempts") or 0)
+            if not facts.get("llm_retry_since"):
+                facts["llm_retry_since"] = now().isoformat()
+            facts["llm_retry_attempts"] = attempts + 1
+            facts["llm_retry_at"] = (now() + timedelta(seconds=llm_retry_delay(attempts))).isoformat()
+            facts["waiting_for_compute"] = False
+        row.facts = facts
+        append_event(db, row.id, "WAITING_LLM", {"code": code, "attempt": attempts + 1})
         row.updated_at = now()
         db.commit()
 

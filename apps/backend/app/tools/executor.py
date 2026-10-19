@@ -189,6 +189,16 @@ class ExecutionContext:
     resume_task_id: str | None = None
     task_title: str = ""
     completed_digests: list = field(default_factory=list)
+    # The tool transcript of a task that was interrupted by a model outage. Restored on resume
+    # so a completed tool call is never executed twice for lack of its result.
+    resume_transcript: list = field(default_factory=list)
+    # The tool messages produced by this turn (including a restored transcript), so a background
+    # resume can answer from them instead of from a prompt that never saw the tool output.
+    tool_transcript: list = field(default_factory=list)
+    llm_retry_at: str | None = None
+    llm_retry_since: str | None = None
+    # A background resume generates its answer before the task is concluded.
+    defer_conclusion: bool = False
     resuming: bool = False
     skip_final_stream: bool = False
     task_halt: str | None = None

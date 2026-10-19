@@ -43,6 +43,9 @@ export function useChat(api: Api, onExpired: () => void) {
   const [toolRuns, setToolRuns] = useState<ToolRun[]>([]);
   const [task, setTask] = useState<AutonomousTask | null>(null);
   const [tasks, setTasks] = useState<AutonomousTask[]>([]);
+  // The task id whose answer is produced by the backend queue monitor (after WAITING_LLM).
+  // A stream is not open at that point, so this poll is what brings the late answer in.
+  const [recovering, setRecovering] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
     const refresh = () =>
@@ -264,8 +267,10 @@ export function useChat(api: Api, onExpired: () => void) {
           if (event.event === "task" || event.event === "task_status") {
             if (!visible()) return;
             const payload = event.data as unknown as AutonomousTask;
-            if (payload.id) setTask(payload);
-            else
+            if (payload.id) {
+              setTask(payload);
+              if (payload.status === "WAITING_LLM") setRecovering(payload.id);
+            } else
               setTask((current) =>
                 current
                   ? {
@@ -393,6 +398,39 @@ export function useChat(api: Api, onExpired: () => void) {
     }
     return accepted;
   }
+
+  useEffect(() => {
+    // A task parked on a model outage is resumed by the backend queue monitor. The chat is not
+    // streaming at that moment, so the only way the answer reaches an open window is this poll.
+    // It starts at WAITING_LLM and keeps going through the recovery states until the task is
+    // terminal, then re-reads the settled messages once.
+    if (!recovering || !selected || task?.id !== recovering) return;
+    const id = selected;
+    const taskId = recovering;
+    const timer = window.setInterval(() => {
+      void api
+        .json<AutonomousTask[]>("/tasks?chat_id=" + encodeURIComponent(id))
+        .then(async (listed) => {
+          const current =
+            listed.find((item) => item.id === taskId) || listed[0];
+          if (!current || !active.current) return;
+          setTask(current);
+          const settled = ["COMPLETED", "FAILED", "STOPPED"].includes(
+            current.status,
+          );
+          if (settled) {
+            if (!streamRef.current && selectedRef.current === id) {
+              const saved = await api.settledMessages(id);
+              if (active.current && selectedRef.current === id)
+                setMessages(saved);
+            }
+            setRecovering(null);
+          }
+        })
+        .catch(() => {});
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [api, selected, recovering, task?.id]);
 
   useEffect(() => {
     if (!task || task.status !== "WAITING_WORKSPACE" || !selected) return;

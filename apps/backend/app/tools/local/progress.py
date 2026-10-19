@@ -38,6 +38,21 @@ def should_block(facts: dict, name: str, arguments, prompt: str = "") -> str | N
     args = arguments if isinstance(arguments, dict) else {}
     if name == "read_file" and re.search(r"(?i)перечитай|re-?read|recheck|заново прочит", asked):
         return None
+    if name == "write_file":
+        # A resumed task must not write the same bytes again just because the model lost the
+        # earlier tool result. A *different* content (the corrective edit) still executes.
+        content = args.get("content")
+        path = str(args.get("path") or "")
+        if isinstance(content, str) and path:
+            digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            from .facts import latest
+
+            written = latest(facts, "FILE_WRITTEN", path) or latest(facts, "FILE_CREATED", path)
+            if written and digest in {
+                str(written.get("after_sha") or ""),
+                str(written.get("expected_sha256") or ""),
+            }:
+                return "already_applied"
     if re.search(r"(?i)заново посчитай|пересчитай|recompute", asked) and name == "hash_file":
         return None
     if name in {"hash_file", "read_file"}:
@@ -94,18 +109,46 @@ def _same_tool_path(stored, needle) -> bool:
 
 def apply_block(facts: dict, code: str) -> dict:
     payload = bump_metric(
-        facts, "duplicate_actions_blocked" if code == "duplicate_readonly" else "no_progress_events"
+        facts,
+        "no_progress_events" if code == "no_progress" else "duplicate_actions_blocked",
     )
     payload["last_progress_error"] = code
     return payload
 
 
 def recommended(code: str) -> str:
-    if code == "duplicate_readonly":
+    if code in {"duplicate_readonly", "already_applied"}:
         return "reuse_verified_fact"
     if code == "no_progress":
         return "use_typed_search_or_replan"
     return "stop"
+
+
+def applied_result(facts: dict, name: str, arguments) -> dict | None:
+    """The verified result of an identical write that already happened in this task."""
+    from .facts import latest
+
+    args = arguments if isinstance(arguments, dict) else {}
+    path = str(args.get("path") or "")
+    if name != "write_file" or not path:
+        return None
+    written = latest(facts, "FILE_WRITTEN", path) or latest(facts, "FILE_CREATED", path)
+    if not written:
+        return None
+    digest = str(written.get("after_sha") or written.get("expected_sha256") or "")
+    return {
+        "text": f"path={path}\nsha256={digest}\nalready_applied=true",
+        "metadata": {
+            "path": path,
+            "sha256": digest,
+            "expected_sha256": digest,
+            "verified": True,
+            "already_applied": True,
+            "reused": True,
+        },
+        "origin": "server_policy",
+        "tool": name,
+    }
 
 
 def reused_result(facts: dict, name: str, arguments) -> dict | None:
