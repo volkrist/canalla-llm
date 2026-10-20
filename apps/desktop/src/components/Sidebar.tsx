@@ -70,7 +70,6 @@ export default function Sidebar({
         </div>
         <button
           className="new-chat"
-          disabled={busy}
           onClick={() => {
             onSelect(null);
             onClose();
@@ -110,7 +109,6 @@ export default function Sidebar({
               >
                 <button
                   className="chat-select"
-                  disabled={busy}
                   onClick={() => {
                     onSelect(chat.id);
                     onClose();
@@ -200,11 +198,7 @@ export default function Sidebar({
               Администрирование
             </button>
           )}
-          <button
-            className="settings-link"
-            disabled={busy}
-            onClick={onSettings}
-          >
+          <button className="settings-link" onClick={onSettings}>
             <Settings2 size={17} /> Settings
           </button>
           <div className="account">

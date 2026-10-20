@@ -35,9 +35,22 @@ class TaskScope:
 
 
 def _norm(path: str) -> str:
+    """The real, case-normalized path: junctions, symlinks and ``..`` are resolved.
+
+    The workspace boundary must compare what the filesystem will actually touch, not the
+    spelling of the argument. A link inside the allowed directory that points elsewhere resolves
+    outside the real root and is refused.
+    """
     value = native_path(path).strip()
     if not value:
         return ""
+    try:
+        value = os.path.realpath(value)
+    except OSError:
+        pass
+    extended = os.sep * 2 + "?" + os.sep
+    if value.startswith(extended):
+        value = value[len(extended) :]
     return os.path.normcase(os.path.normpath(value))
 
 
@@ -69,13 +82,55 @@ def cleanup_scratch(task_id: str):
                 pass
 
 
+def _longest_existing_path(text: str, start: int) -> str:
+    """The longest on-disk path beginning at ``start``, spaces included.
+
+    The old regex stopped at the first whitespace, so a task in
+    ``C:\\Users\\...\\Desktop\\Canalla E2E 1.2.3\\agent-live`` got the scope
+    ``C:\\Users\\...\\Desktop\\Canalla`` and every write into the real directory was refused as
+    ``workspace_scope``. The prompt itself is the only source of the path, and it is not quoted
+    in ordinary speech, so the filesystem is the authority for where the path ends.
+    """
+    tail = text[start:]
+    for end in range(len(tail), 2, -1):
+        candidate = tail[:end].rstrip(" .,;:	" + os.sep + "/")
+        if len(candidate) == 2 and candidate[1] == ":":
+            candidate += os.sep
+        if not candidate:
+            continue
+        try:
+            if Path(candidate).exists():
+                return candidate
+        except OSError:
+            continue
+    return ""
+
+
 def infer_primary(prompt: str, roots: list[str], known_desktop: str = "") -> str:
     text = prompt or ""
+    # A quoted path is unambiguous even when it contains spaces.
+    quoted = re.search(r"[\"«']([A-Za-z]:\\[^\"»']{2,240})[\"»']", text)
+    if quoted:
+        value = quoted.group(1).rstrip(".,;")
+        path = Path(value)
+        if path.exists():
+            return str(path.parent) if path.is_file() else str(path)
+        return str(path.parent) if path.suffix else value
+    # Prefer the longest prefix that exists. This keeps directory names with spaces intact
+    # without guessing where the path ends in free-form text.
+    for match in re.finditer(r"[A-Za-z]:\\", text):
+        value = _longest_existing_path(text, match.start())
+        if value:
+            path = Path(value)
+            return str(path.parent) if path.is_file() else value
     match = re.search(r"([A-Za-z]:\\[^\s\"«»]{3,200})", text)
     if match:
         value = match.group(1).rstrip(".,;")
-        if Path(value).suffix:
-            return str(Path(value).parent)
+        path = Path(value)
+        if path.exists():
+            return str(path.parent) if path.is_file() else str(path)
+        if path.suffix:
+            return str(path.parent)
         return value
     for root in roots or []:
         name = Path(native_path(root)).name
@@ -117,3 +172,15 @@ def assert_scope(name: str, arguments: dict, scope: TaskScope | None):
         if scope.write_outside_scope:
             continue
         raise ToolError("workspace_scope")
+    if name in {"run_python", "run_process", "run_powershell"}:
+        # A script passed by absolute path is a workspace action even when cwd is inside the
+        # task directory; it must resolve inside an allowed root too.
+        for item in (arguments or {}).get("argv") or []:
+            text = str(item)
+            if not os.path.isabs(text):
+                continue
+            if any(_inside(text, root) for root in scope.allowed_roots):
+                continue
+            if scope.write_outside_scope:
+                continue
+            raise ToolError("workspace_scope")

@@ -138,6 +138,79 @@ def setup(client, auth, tmp_path):
     host.close()
 
 
+def test_scope_keeps_a_directory_with_spaces(tmp_path):
+    """A task path like `Canalla E2E 1.2.3gent-live` is not truncated at the space."""
+    from app.tools.local.scope import assert_scope, build_scope, infer_primary
+
+    root = tmp_path / "Canalla E2E 1.2.3" / "agent-live"
+    root.mkdir(parents=True)
+    prompt = f"In {root} create agent_hello.py whose content is exactly print(2 + 2)."
+    assert infer_primary(prompt, [], "") == str(root)
+    scope = build_scope(prompt, [], "scope-test")
+    assert str(root) == scope.primary_root
+    assert_scope("write_file", {"path": str(root / "agent_hello.py")}, scope)
+    assert_scope("run_python", {"cwd": str(root), "argv": ["agent_hello.py"]}, scope)
+
+    readme = root / "readme.txt"
+    readme.write_text("marker", encoding="utf-8")
+    assert infer_primary(f"Use read_file on {readme} and reply.", [], "") == str(root)
+    assert infer_primary(f'Use read_file on "{readme}" and reply.', [], "") == str(root)
+
+
+def test_scope_handles_normal_nested_and_unicode_paths(tmp_path):
+    from app.tools.local.scope import assert_scope, build_scope, infer_primary
+
+    normal = tmp_path / "demo" / "src" / "pkg"
+    normal.mkdir(parents=True)
+    assert infer_primary(f"Work in {normal} and write x.py", [], "") == str(normal)
+
+    cyrillic = tmp_path / "Проект Каналья" / "вложенная папка"
+    cyrillic.mkdir(parents=True)
+    assert infer_primary(f"Создай {cyrillic}\файл.py", [], "") == str(cyrillic)
+    scope = build_scope(f"desktop {cyrillic}", [], "scope-test")
+    assert scope.primary_root == str(cyrillic)
+    assert_scope("write_file", {"path": str(cyrillic / "файл.py")}, scope)
+
+
+def test_scope_rejects_parent_escape_and_outside_argv(tmp_path):
+    from app.tools.local.scope import assert_scope, build_scope
+
+    root = tmp_path / "Canalla E2E 1.2.3" / "agent-live"
+    root.mkdir(parents=True)
+    outside = tmp_path / "outside.py"
+    outside.write_text("print('outside')", encoding="utf-8")
+    scope = build_scope(f"desktop {root}", [], "scope-test")
+
+    assert_scope("write_file", {"path": str(root / "sub" / ".." / "ok.txt")}, scope)
+    with pytest.raises(ToolError, match="workspace_scope"):
+        assert_scope("write_file", {"path": str(root / ".." / "outside.txt")}, scope)
+    with pytest.raises(ToolError, match="workspace_scope"):
+        assert_scope("run_python", {"cwd": str(root), "argv": [str(outside)]}, scope)
+
+
+def test_scope_blocks_a_link_that_escapes_the_root(tmp_path):
+    from app.tools.local.scope import assert_scope, build_scope
+
+    root = tmp_path / "Canalla E2E 1.2.3" / "agent-live"
+    root.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    link = root / "escape"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        created = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link), str(outside)],
+            capture_output=True,
+            text=True,
+        )
+        if created.returncode != 0:
+            pytest.skip("cannot create a symlink or junction in this environment")
+    scope = build_scope(f"desktop {root}", [], "scope-test")
+    with pytest.raises(ToolError, match="workspace_scope"):
+        assert_scope("write_file", {"path": str(link / "evil.txt")}, scope)
+
+
 def test_state_machine_rejects_completed_to_executing():
     row = SimpleNamespace(status=machine.COMPLETED, current_phase=machine.COMPLETED, finished_at=None)
     with pytest.raises(ToolError, match="invalid_task_transition"):
@@ -267,6 +340,62 @@ def test_stop_halts_further_tools(setup):
         row = require_row(db, LocalTask, context.task_id)
         assert row.status == machine.STOPPED
     assert "read_file" not in host.handled
+
+
+def test_stop_cancels_a_pending_confirmation(setup):
+    """A stopped task leaves no approvable confirmation behind it."""
+    from app.tools.confirmation import confirm_allow, make_envelope, store_envelope
+
+    _headers, context, _events, _root, _host, _device = setup
+    with SessionLocal() as db:
+        task = LocalTask(
+            user_id=context.user_id,
+            chat_id=context.chat_id,
+            status=machine.WAITING_CONFIRMATION,
+            current_phase=machine.WAITING_CONFIRMATION,
+            original_user_request="stage a pending command",
+            updated_at=now(),
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+        run = ToolRun(
+            user_id=context.user_id,
+            chat_id=context.chat_id,
+            tool_name="run_process",
+            provider="local_device",
+            risk_level="NORMAL_CHANGE",
+            status="waiting_confirmation",
+            input_summary={"action": "run_process"},
+            input_digest="a" * 64,
+            result_metadata={},
+            origin="model",
+            task_id=task.id,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        store_envelope(
+            run,
+            make_envelope(
+                user_id=context.user_id,
+                task_id=task.id,
+                tool_name="run_process",
+                risk_level="NORMAL_CHANGE",
+                payload={"executable": "python"},
+                confirmation_id=run.id,
+            ),
+        )
+        db.commit()
+        run_id = run.id
+
+        LocalTaskController().stop(db, task=task, user_id=context.user_id)
+
+        assert require_row(db, ToolRun, run_id).status == "stopped"
+        assert require_row(db, ToolRun, run_id).error_code == "task_stopped"
+        assert require_row(db, LocalTask, task.id).status == machine.STOPPED
+        with pytest.raises(ToolError, match="confirmation_already_used"):
+            confirm_allow(db, run_id=run_id, user_id=context.user_id)
 
 
 def test_budget_exhausted_blocks_fourth_tool(setup):
@@ -694,6 +823,62 @@ def test_write_run_fix_rerun_returns_real_stdout(setup):
             if run.tool_name == "run_python":
                 stdout.append(str(hosted.get("stdout") or ""))
         assert stdout == ["4\n", "6\n"]
+
+
+def test_orchestrator_uses_a_directory_with_spaces(setup, tmp_path, client):
+    """The real orchestrator + real host executor, with `Canalla E2E 1.2.3` in the path."""
+    headers, context, _events, _root, host, _device = setup
+    live_dir = tmp_path / "Canalla E2E 1.2.3" / "agent-live"
+    live_dir.mkdir(parents=True)
+    # The user granted this directory; the task scope is inferred from the prompt. With `ask`
+    # the same action is confirmed through the real UI/confirmation API, never silently widened.
+    client.put(
+        "/tools/preferences",
+        headers=headers,
+        json={"computer_mode": "trusted", "workspace_roots": [str(live_dir)]},
+    )
+    context.user_prompt = (
+        f"На desktop в {live_dir} подготовь agent_hello.py с содержимым print(2 + 2), "
+        "выполни agent_hello.py через run_python, затем измени на print(2 * 3) и выполни снова."
+    )
+    script = [
+        _call(
+            "write_file",
+            {"path": str(live_dir / "agent_hello.py"), "content": "print(2 + 2)\n", "purpose": "create"},
+            "w1",
+        ),
+        _call("run_python", {"argv": ["agent_hello.py"], "cwd": str(live_dir), "purpose": "run"}, "r1"),
+        _call(
+            "write_file",
+            {"path": str(live_dir / "agent_hello.py"), "content": "print(2 * 3)\n", "purpose": "fix"},
+            "w2",
+        ),
+        _call("run_python", {"argv": ["agent_hello.py"], "cwd": str(live_dir), "purpose": "rerun"}, "r2"),
+    ]
+    orchestrator = ToolOrchestrator(make_registry(), ToolExecutor(make_registry()))
+    asyncio.run(
+        orchestrator.prepare(
+            ScriptedPlanner(script),
+            [{"role": "user", "content": context.user_prompt}],
+            0,
+            context,
+            {},
+        )
+    )
+
+    assert host.handled.count("write_file") == 2
+    assert host.handled.count("run_python") == 2
+    assert (live_dir / "agent_hello.py").read_text(encoding="utf-8") == "print(2 * 3)\n"
+    with SessionLocal() as db:
+        runs = db.scalars(select_completed(context.task_id)).all()
+        stdout = [
+            str(((run.result_metadata or {}).get("host_result") or {}).get("stdout") or "")
+            for run in runs
+            if run.tool_name == "run_python"
+        ]
+        row = require_row(db, LocalTask, context.task_id)
+        assert stdout == ["4\n", "6\n"]
+        assert not (row.facts or {}).get("workspace_scope_violations_blocked")
 
 
 def test_a_duplicate_write_is_not_applied_twice(setup):

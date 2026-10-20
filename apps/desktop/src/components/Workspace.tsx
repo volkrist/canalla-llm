@@ -395,11 +395,7 @@ export default function Workspace({
             <p>Один вопрос может стать началом чего-то большего.</p>
             <div className="suggestions">
               {ideas.map((idea) => (
-                <button
-                  key={idea.title}
-                  disabled={chat.loading}
-                  onClick={() => setDraft(idea.text)}
-                >
+                <button key={idea.title} onClick={() => setDraft(idea.text)}>
                   <idea.icon size={21} strokeWidth={1.5} />
                   <span>{idea.title}</span>
                   <ArrowUpRight size={16} />

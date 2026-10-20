@@ -1085,6 +1085,20 @@ class LocalTaskController:
         for step in self.steps(db, row.id):
             if step.status in {"PENDING", "RUNNING", "WAITING"}:
                 step.status = "CANCELLED"
+        # A stopped task must not keep a live confirmation behind it: an approval sent after the
+        # stop would otherwise execute an effect for a task the user already cancelled, and a
+        # pending row also holds the shared compute session open.
+        for pending in db.scalars(
+            select(ToolRun).where(
+                ToolRun.task_id == row.id,
+                ToolRun.status.in_(("waiting_confirmation", "approved")),
+            )
+        ).all():
+            pending.status = "stopped"
+            pending.cancelled_at = now()
+            pending.finished_at = now()
+            pending.error_code = "task_stopped"
+            pending.result_metadata = {**(pending.result_metadata or {}), "reserved_budget": 0}
         append_event(db, row.id, "STOPPED", {})
         release(db, row.id)
         row.updated_at = now()
