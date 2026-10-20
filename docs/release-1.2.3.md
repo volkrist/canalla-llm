@@ -55,25 +55,27 @@ The owner approved one short paid attempt under the standing limits ($2/h, one P
 ≤$0.40). It ran on an NVIDIA L40S 48 GB ($1.09/h, US-TX-3) for **726 s** and cost about
 **$0.225**; it stopped cleanly (`pods []`, `active_session=null`, watchdog `closed`, one Pod).
 B (Computer `read_file`) and the UI navigation check passed. A, C and D failed; the evidence
-identified three separate causes:
+identified four separate causes:
 
 | Finding | Evidence | Fix |
 |---|---|---|
 | The first planner request after model readiness took **240 s** (prefill of the full tool system prompt). The harness client timeout was exactly 240 s, so A aborted 4 s before the `200` arrived; B, immediately after, took 6 s. | Gateway journal: `POST /v1/chat/completions` at 12:22:38 completed at 12:26:38; the next at 12:26:44 completed quickly. A's chat stayed `stopped` with an empty assistant message. | The harness per-prompt timeout is now **300 s**; the 700 s watchdog and 60 s allocation bound are unchanged. This is a test-harness limit, not a Gateway failure. |
 | The deterministic local route wrote the **filename** (`agent_hello.py`, taken from the quoted `argv` entry) as the file body and then only verified/read it. The model answered `4`/`6` without ever running Python. | `tool_runs` for C/D: `origin=server_policy`, `host_args.content="agent_hello.py"`; no `run_python` row; C task `COMPLETED`, D `FAILED verification_required`. | `local/intent.py` now takes the body only from an explicit content phrase (`content is exactly …`, `содержимым …`), never from a quoted token; an unknown body defers to the model. When the prompt asks to run a written `.py`, the route schedules `run_python` itself. `local/plan.py` recognises `write_file`/`run_python`/`run_process` and `create <name>.py` as computer signals. |
 | After the clean Stop the AI chip showed «Ресурс больше не существует в RunPod» (`not_found`): the Gateway finalizes the terminated Pod as `provider_missing`, and the client relayed that code even though the state was off. | `/llm/status`: `ai=off`, `compute_state=stopped`, `typed_error=not_found`; `/status` chip `off` with a provider-error message. | `cloud/state.py` and `status/snapshot.py` clear `not_found`/`provider_missing` only when the state is `offline`/`stopped` and no session is active; the chip and `/llm/status` now say «AI не запущен». |
+| A capacity wait survived Stop: the second attempt found no GPU, the Gateway parked `waiting_capacity`, and `/compute/stop` left the durable wait active around 13 minutes later. | `/llm/status`: `wait_active=true`, `wait_elapsed_seconds=784`, `state=waiting_capacity` after the harness stop. | `GatewayClient.cancel_wait` + `/cloud/compute/stop` now call `/compute/wait/cancel` (the Gateway's own route); an older Gateway without it is tolerated. The stuck wait was cancelled with the installation credential (`state=offline`, `wait=null`); `test_a_manual_stop_cancels_a_persistent_capacity_wait` pins it. |
 
 New regressions: `test_write_route_takes_content_not_the_argv_filename` and
 `test_deterministic_write_runs_the_written_script` (real orchestrator + host executor,
-`stdout == "4\n"`), plus `test_a_clean_stop_does_not_show_the_vanished_pod_as_an_error` and
-`test_the_raw_llm_status_does_not_report_a_stopped_pod_as_an_error`. The final build is
-installed as installer `bdc6d9ef…0c1a` (95,447,108 bytes), sidecar `b661719d…ef7ef`,
-`source_digest=218ef061…00b6`; the free explicit host chain still returns `4\n`/`6\n` on it,
-and `/llm/status` is clean (`last_error=null`, `typed_error=null`).
+`stdout == "4\n"`), plus `test_a_clean_stop_does_not_show_the_vanished_pod_as_an_error`,
+`test_the_raw_llm_status_does_not_report_a_stopped_pod_as_an_error` and
+`test_a_manual_stop_cancels_a_persistent_capacity_wait`. The final build is installed as
+installer `4a4407bf…c3563` (95,425,039 bytes), sidecar `007d6ca3…a015b`,
+`source_digest=66a92af3…deef2`; the free explicit host chain still returns `4\n`/`6\n`, and
+`/llm/status` is clean (`last_error=null`, `typed_error=null`, `wait_active=false`).
 
 ## Verification
 
-- Backend: `956 passed, 4 skipped` (the sidecar stamp test passes after a rebuild).
+- Backend: `957 passed, 4 skipped` (the sidecar stamp test passes after a rebuild).
 - Gateway: `261 passed`.
 - Frontend: `309 passed` (includes `navigation-not-blocked`).
 - GUI: Playwright `e2e/generation-navigation.spec.ts` passed against a real mock backend; the
@@ -82,14 +84,16 @@ and `/llm/status` is clean (`last_error=null`, `typed_error=null`).
 - Developer gate: 9 steps, 0 FAIL, 0 BLOCKED.
 - Live web (no GPU): TinyFish search returned 5 sources; 3 fetches returned real titles and text.
 - Installed Windows 1.2.3 test build over 1.2.2:
-  - Installer `bdc6d9ef…0c1a`, 95,447,108 bytes; sidecar `b661719d…ef7ef`,
-    `source_digest=218ef061…00b6`. Previous builds are kept under `artifacts/` for rollback.
+  - Installer `4a4407bf…c3563`, 95,425,039 bytes; sidecar `007d6ca3…a015b`,
+    `source_digest=66a92af3…deef2`. Previous builds are kept under `artifacts/` for rollback.
   - `/health`: `version 1.2.3`, protocol 1.
   - 22 chats preserved; preferences unchanged (`computer_mode=ask`, 48 GB, ≤$2/h, idle 10).
   - Computer Ready (live heartbeat, real host), Tor Ready, Web Configured, Memory Ready,
     AI off, cloud connected; compute `stopped`.
-  - RunPod `pods: []`, balance `$10.52`, watchdog `closed`; the 726 s L40S session cost
-  about `$0.225` and no second Pod was created.
+  - RunPod `pods: []`, balance `$10.51`, watchdog disarmed/closed; the 726 s L40S session cost
+  about `$0.225` and no second Pod was created. The second attempt found no capacity
+  (`gpu_unavailable`), so it created nothing and incurred no GPU charge; its parked wait was
+  cancelled (`wait_active=false`).
   - Data backups before installs: verified in-app backups `20261020T115130Z-manual` and
     `20261020T132002Z-manual`, plus raw SQLite copies with `integrity_check=ok`.
 

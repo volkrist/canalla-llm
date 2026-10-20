@@ -133,6 +133,7 @@ class FakeGateway:
         self.planner_calls = 0
         self.ensure_calls = 0
         self.stop_calls = 0
+        self.wait_cancel_calls = 0
         self.ensure_bodies: list[dict] = []
         # Tool planning through the Gateway: the body is captured so a test can prove `tools`
         # really reached the model endpoint, and the answer is scripted independently of the
@@ -214,6 +215,20 @@ class FakeGateway:
                 "managed": False,
                 "session": None,
                 "search": None,
+            }
+            return httpx.Response(200, json=self.compute)
+        if path == "/compute/wait/cancel":
+            self.wait_cancel_calls += 1
+            self.compute = {
+                **self.compute,
+                "state": "offline",
+                "ai": "off",
+                "ai_label": "AI Off",
+                "error_code": None,
+                "managed": False,
+                "session": None,
+                "search": None,
+                "wait": None,
             }
             return httpx.Response(200, json=self.compute)
         if path == "/balance":

@@ -99,6 +99,13 @@ async def stop_compute(request: Request, user: User = Depends(current_user)) -> 
         payload = await cloud.client.stop_compute(operation_id="local-" + str(uuid4()))
     except CloudError as error:
         raise _http(error) from None
+    try:
+        # A persistent capacity wait is a separate durable intent on the Gateway. `/compute/stop`
+        # does not clear it, and a later chat could resume it; Stop must cancel it explicitly.
+        payload = await cloud.client.cancel_wait(operation_id="local-cancel-" + str(uuid4()))
+    except CloudError:
+        # A Gateway that predates the wait contract has nothing to cancel; the stop above stands.
+        pass
     # A pending automatic attempt must not resurrect compute the user just stopped.
     demand.cancel_pending()
     # And the stop is remembered: a chat request is not an explicit invitation to start again.

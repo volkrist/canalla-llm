@@ -905,6 +905,29 @@ def test_a_manual_stop_is_not_undone_by_a_new_chat(shared_app, client, auth):
     assert [name for name, _ in sse_events(second.text)].count("done") == 1
 
 
+def test_a_manual_stop_cancels_a_persistent_capacity_wait(shared_app, client, auth):
+    """A wait for a free GPU is durable and survives `/compute/stop` on the Gateway.
+
+    The user's Stop must cancel it explicitly, or the chip keeps saying «Ожидаем свободную GPU»
+    and a later chat could resume the intent.
+    """
+    headers = auth()
+    shared_app.gateway.compute = compute_payload(
+        "waiting_capacity",
+        ai="starting",
+        error_code="gpu_unavailable",
+        wait=wait_block(elapsed=4242, attempts=9),
+    )
+
+    stopped = client.post("/cloud/compute/stop", json={}, headers=headers)
+
+    assert stopped.status_code == 200, stopped.text
+    assert shared_app.gateway.wait_cancel_calls == 1
+    assert shared_app.gateway.compute["state"] == "offline"
+    assert shared_app.gateway.compute["wait"] is None
+    assert chip_for(shared_app.cloud)["state"] == "off"
+
+
 def test_a_search_window_that_never_settles_fails_bounded(shared_app):
     """No unbounded wait: the client's own window closes and the reason is typed."""
     searching = compute_payload(

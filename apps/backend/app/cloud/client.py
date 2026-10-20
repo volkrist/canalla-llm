@@ -221,6 +221,13 @@ class GatewayClient:
     async def stop_compute(self, *, operation_id: str):
         return await self.request("POST", "/compute/stop", json={"operation_id": operation_id}, timeout=60)
 
+    async def cancel_wait(self, *, operation_id: str):
+        """Stop waiting for a GPU. A persistent wait survives a plain stop on the Gateway, so
+        the user's Stop has to cancel it explicitly; it never touches a running Pod."""
+        return await self.request(
+            "POST", "/compute/wait/cancel", json={"operation_id": operation_id}, timeout=60
+        )
+
     async def balance(self) -> dict:
         return await self.request("GET", "/balance")
 
