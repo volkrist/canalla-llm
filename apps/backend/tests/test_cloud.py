@@ -139,6 +139,7 @@ class FakeGateway:
         # really reached the model endpoint, and the answer is scripted independently of the
         # plain-chat default.
         self.planner_bodies: list[dict] = []
+        self.stream_bodies: list[dict] = []
         self.planner_message: dict = {"role": "assistant", "content": "Привет из облака"}
         self.planner_status: int | None = None
         # Transient planner failures before the scripted answer; proves bounded retry/backoff.
@@ -274,6 +275,7 @@ class FakeGateway:
                     content=planner_events(self.planner_message),
                 )
             self.stream_calls += 1
+            self.stream_bodies.append(body)
             owner = self
 
             async def events():
@@ -518,6 +520,9 @@ def test_streaming_inference_goes_through_the_gateway(gateway):
     assert "".join(parts) == "Привет, облако"
     assert gateway.chat_calls == 1
     assert gateway.stream_closed is True
+    # The final answer must use the same no-hidden-thinking contract as the planner. Without
+    # this, a Qwen reasoning channel produces no content deltas and the stream looks silent.
+    assert gateway.stream_bodies[0]["chat_template_kwargs"] == {"enable_thinking": False}
 
 
 def test_usage_is_reported_from_the_gateway_stream(gateway):

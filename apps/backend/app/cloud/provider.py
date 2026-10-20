@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
@@ -255,6 +256,14 @@ class GatewayProvider(LLMProvider):
 
     async def _plan_stream(self, body: dict, usage: dict) -> dict:
         """One streaming planner turn, accumulating tool-call deltas into one message."""
+        started_at = time.monotonic()
+        request_id = uuid.uuid4().hex[:8]
+        logger.info(
+            "gateway_plan_start id=%s messages=%d tools=%d",
+            request_id,
+            len(body.get("messages") or []),
+            len(body.get("tools") or []),
+        )
         headers = self.client.stream_headers()
         headers["Authorization"] = "Bearer " + await self.client.token()
         client = self.client.stream_client(self.settings.alex_gateway_plan_timeout_seconds)
@@ -263,6 +272,12 @@ class GatewayProvider(LLMProvider):
                 "POST", self.client.url + "/v1/chat/completions", json=body, headers=headers
             )
             response = await client.send(request, stream=True)
+            logger.info(
+                "gateway_plan_headers id=%s status=%d elapsed_ms=%d",
+                request_id,
+                response.status_code,
+                int((time.monotonic() - started_at) * 1000),
+            )
         except CloudError:
             await client.aclose()
             raise
@@ -306,6 +321,7 @@ class GatewayProvider(LLMProvider):
             text_parts: list[str] = []
             calls: dict[int, dict] = {}
             completed = False
+            first_token_at: float | None = None
             async for line in response.aiter_lines():
                 if not line.startswith("data:"):
                     continue
@@ -343,7 +359,15 @@ class GatewayProvider(LLMProvider):
                 content = delta.get("content")
                 if isinstance(content, str) and content:
                     text_parts.append(content)
-                for raw in delta.get("tool_calls") or []:
+                tool_deltas = delta.get("tool_calls") or []
+                if (content or tool_deltas) and first_token_at is None:
+                    first_token_at = time.monotonic()
+                    logger.info(
+                        "gateway_plan_first_token id=%s elapsed_ms=%d",
+                        request_id,
+                        int((first_token_at - started_at) * 1000),
+                    )
+                for raw in tool_deltas:
                     if not isinstance(raw, dict):
                         continue
                     index = raw.get("index")
@@ -378,6 +402,14 @@ class GatewayProvider(LLMProvider):
                 call["id"] = f"call_plan_{position}"
             if not call["function"].get("name"):
                 raise LLMError("malformed_response")
+        logger.info(
+            "gateway_plan_done id=%s elapsed_ms=%d first_token_ms=%s tool_calls=%d completed=%s",
+            request_id,
+            int((time.monotonic() - started_at) * 1000),
+            "none" if first_token_at is None else int((first_token_at - started_at) * 1000),
+            len(message["tool_calls"]),
+            completed,
+        )
         return message
 
     async def stream_with_usage(self, messages, usage):
@@ -394,7 +426,14 @@ class GatewayProvider(LLMProvider):
             "messages": messages,
             "stream": True,
             "stream_options": {"include_usage": True},
+            # The planner already disables hidden thinking. The final answer must do the same:
+            # a reasoning-only channel produces no `content` deltas, so the user and the harness
+            # wait in silence while the model thinks. One transport contract for both turns.
+            "chat_template_kwargs": {"enable_thinking": False},
         }
+        started_at = time.monotonic()
+        request_id = uuid.uuid4().hex[:8]
+        logger.info("gateway_stream_start id=%s messages=%d", request_id, len(body.get("messages") or []))
         headers = self.client.stream_headers()
         headers["Authorization"] = "Bearer " + await self.client.token()
         # A32: the stream uses the longer read budget so a legitimate queue wait is not turned into
@@ -405,6 +444,12 @@ class GatewayProvider(LLMProvider):
                 "POST", self.client.url + "/v1/chat/completions", json=body, headers=headers
             )
             response = await client.send(request, stream=True)
+            logger.info(
+                "gateway_stream_headers id=%s status=%d elapsed_ms=%d",
+                request_id,
+                response.status_code,
+                int((time.monotonic() - started_at) * 1000),
+            )
         except CloudError as error:
             await client.aclose()
             raise LLMError(error.code) from None
@@ -435,11 +480,18 @@ class GatewayProvider(LLMProvider):
                 raise LLMError("llm_unavailable")
             if not response.is_success:
                 raise LLMError("llm_unavailable")
+            first_token_at: float | None = None
             async for line in response.aiter_lines():
                 if not line.startswith("data:"):
                     continue
                 data = line[5:].strip()
                 if data == "[DONE]":
+                    logger.info(
+                        "gateway_stream_done id=%s elapsed_ms=%d total_tokens=%s",
+                        request_id,
+                        int((time.monotonic() - started_at) * 1000),
+                        usage.get("total_tokens"),
+                    )
                     return
                 try:
                     event = json.loads(data)
@@ -470,7 +522,20 @@ class GatewayProvider(LLMProvider):
                     if content:
                         if not isinstance(content, str):
                             raise LLMError("malformed_response")
+                        if first_token_at is None:
+                            first_token_at = time.monotonic()
+                            logger.info(
+                                "gateway_stream_first_token id=%s elapsed_ms=%d",
+                                request_id,
+                                int((first_token_at - started_at) * 1000),
+                            )
                         yield content
+            logger.info(
+                "gateway_stream_interrupted id=%s elapsed_ms=%d first_token_ms=%s",
+                request_id,
+                int((time.monotonic() - started_at) * 1000),
+                "none" if first_token_at is None else int((first_token_at - started_at) * 1000),
+            )
             raise LLMError("stream_interrupted")
         finally:
             try:

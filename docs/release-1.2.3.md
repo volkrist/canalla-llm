@@ -73,6 +73,36 @@ installer `4a4407bf…c3563` (95,425,039 bytes), sidecar `007d6ca3…a015b`,
 `source_digest=66a92af3…deef2`; the free explicit host chain still returns `4\n`/`6\n`, and
 `/llm/status` is clean (`last_error=null`, `typed_error=null`, `wait_active=false`).
 
+## Acceptance system for the remaining Qwen gates
+
+The 20 Oct runs exposed two defects in the **test system itself**, not only in the product:
+
+- the watchdog checked the 700 s cap every 15 s and sent the terminate at the cap, so the Pod
+  was confirmed stopped at **726 s**;
+- the final answer stream did not disable hidden thinking (the planner did), and the surviving
+  logs could not separate queue, prefill and generation time.
+
+The watchdog now stops at `created + 655 s` (45 s reserve) and records
+`confirmed_elapsed_seconds`/`within_cap`; `--self-test` pins the arithmetic. The installed
+watchdog was updated on the VPS with a backup of the previous file. `GatewayProvider` now logs
+`gateway_plan_start/headers/first_token/done` and
+`gateway_stream_start/headers/first_token/done` with elapsed milliseconds, and sends
+`chat_template_kwargs: {enable_thinking: false}` on the final stream as well as the planner.
+
+`artifacts/acceptance-123/` is the executable acceptance system: 28 scenarios (S1–S7, M1–M7,
+H1–H6, T1–T8), each with its own prompt, timeout, expected tools, files, independent checker
+and verdict. `catalog.py --self-test` proves a `server_policy` action can never be reported as
+a model-origin PASS. The free preflight (`preflight.py --with-ui`) creates all 28 fixtures,
+checks the seed projects (M2 expected `200/9/20/120`, H2 fails before the fix, H3 passes),
+runs the installed host smoke (`write_file → read_file → run_python` → `PREFLIGHT_HOST_OK`),
+confirms the host runtime (Python 3.12.9 + pytest 9.1.1), the installed-window UI frames, the
+model-origin rule, RunPod `pods: []`, balance and the disarmed watchdog. It does not start
+compute and does not claim a scenario PASS.
+
+The live plan and budgets are in `artifacts/acceptance-123/plan.md`: 11 possible sessions,
+3 gated packages, a maximum of about **$2.33** at $1.09/h, and a likely 6–8 sessions once the
+measured first turn is known. No paid Pod was started while building this system.
+
 ## Verification
 
 - Backend: `957 passed, 4 skipped` (the sidecar stamp test passes after a rebuild).
@@ -84,8 +114,8 @@ installer `4a4407bf…c3563` (95,425,039 bytes), sidecar `007d6ca3…a015b`,
 - Developer gate: 9 steps, 0 FAIL, 0 BLOCKED.
 - Live web (no GPU): TinyFish search returned 5 sources; 3 fetches returned real titles and text.
 - Installed Windows 1.2.3 test build over 1.2.2:
-  - Installer `4a4407bf…c3563`, 95,425,039 bytes; sidecar `007d6ca3…a015b`,
-    `source_digest=66a92af3…deef2`. Previous builds are kept under `artifacts/` for rollback.
+  - Installer `d3ed5486…e635e`, 95,421,542 bytes; sidecar `37ce9adc…883d0`,
+    `source_digest=99f7f111…e6e7`. Previous builds are kept under `artifacts/` for rollback.
   - `/health`: `version 1.2.3`, protocol 1.
   - 22 chats preserved; preferences unchanged (`computer_mode=ask`, 48 GB, ≤$2/h, idle 10).
   - Computer Ready (live heartbeat, real host), Tor Ready, Web Configured, Memory Ready,
