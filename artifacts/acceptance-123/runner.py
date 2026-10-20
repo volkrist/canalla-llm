@@ -78,6 +78,10 @@ def wait_ready(token: str, timeout: int = 420) -> tuple[bool, dict]:
         diagnostic = value.get("diagnostic") or {}
         if value.get("ai") == "ready" or diagnostic.get("compute_state") in {"ready", "generating"}:
             return True, value
+        if diagnostic.get("compute_state") == "waiting_capacity":
+            # The product opened a durable capacity wait. A live acceptance session must not
+            # spend its window polling for hardware: report the typed blocker and stop.
+            return False, value
         if diagnostic.get("compute_state") in {"offline", "error"} and value.get("ai") in {
             "off",
             "error",

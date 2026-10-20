@@ -78,7 +78,8 @@ free first.
 - selected GPU rate > $2.00/h or unknown → reject (watchdog already refuses);
 - spend estimate > $0.40 for the session → stop before the next scenario;
 - any expected tool is `server_policy` → `BLOCKED_DETERMINISTIC`, not PASS;
-- provider returns `gpu_unavailable` → typed external blocker, no retry loop, no second Pod;
+- provider returns `gpu_unavailable` or the Gateway parks `waiting_capacity` → typed external
+  blocker, the client aborts immediately, cancels the wait, and no retry loop or second Pod runs;
 - watchdog must report `within_cap=true`; if not, the session is a failure regardless of model output.
 
 ## Evidence per scenario
