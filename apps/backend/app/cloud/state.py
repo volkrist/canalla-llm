@@ -241,6 +241,17 @@ class CloudAi:
         search = compute.get("search") if isinstance(compute.get("search"), dict) else {}
         wait = compute.get("wait") if isinstance(compute.get("wait"), dict) else {}
         state = compute.get("state")
+        session = compute.get("session") if isinstance(compute.get("session"), dict) else {}
+        session_active = bool(session) and session.get("state") not in {"stopped", "terminated", "offline"}
+        if (
+            state in {"offline", "stopped"}
+            and not session_active
+            and last_error in {"not_found", "provider_missing"}
+        ):
+            # The managed stop terminates the Pod, and the provider then answers `not_found`.
+            # That is the expected result of the user's Stop, not a live failure: with no
+            # session left there is nothing the user could retry.
+            last_error = None
         live_search = self.search_active()
         gateway_ai = compute.get("ai")
         # A30-A32: the Gateway's own connection contract (one operation, one stage, one
@@ -249,6 +260,13 @@ class CloudAi:
         connection = compute.get("connection")
         if not isinstance(connection, dict):
             connection = {}
+        connection_error = connection.get("typed_error")
+        if (
+            state in {"offline", "stopped"}
+            and not session_active
+            and connection_error in {"not_found", "provider_missing"}
+        ):
+            connection_error = None
         ai = gateway_ai
         if ai is None:
             # No successful Gateway read yet: an unenrolled or unreachable installation is
@@ -288,7 +306,7 @@ class CloudAi:
                 "last_success_at": connection.get("last_success_at"),
                 "readiness_valid_until": connection.get("readiness_valid_until"),
                 "terminal_state": connection.get("terminal_state"),
-                "typed_error": connection.get("typed_error") or last_error,
+                "typed_error": connection_error or last_error,
                 # A7/Task-1: the persistent capacity wait, read-only.
                 "wait_active": bool(wait.get("active")),
                 "wait_elapsed_seconds": wait.get("elapsed_seconds"),

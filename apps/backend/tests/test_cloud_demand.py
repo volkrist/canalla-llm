@@ -132,6 +132,41 @@ def test_a_terminated_pod_is_disconnected(gateway):
     assert chip_for(refreshed(gateway))["state"] == "off"
 
 
+def test_a_clean_stop_does_not_show_the_vanished_pod_as_an_error(gateway):
+    """The managed stop terminates the Pod; the provider then answers `not_found`.
+
+    The Gateway keeps that code on the finalized session, but an off chip must not tell the user
+    «Ресурс больше не существует» about the Pod they just stopped.
+    """
+    gateway.compute = compute_payload(
+        "offline",
+        ai="off",
+        error_code="not_found",
+        connection={"terminal_state": True, "typed_error": "not_found"},
+    )
+    chip = chip_for(refreshed(gateway))
+
+    assert chip["state"] == "off"
+    assert chip["detail_code"] is None
+    assert "не запущен" in chip["message"]
+    assert chip["details"]["typed_error"] is None
+
+
+def test_the_raw_llm_status_does_not_report_a_stopped_pod_as_an_error(gateway):
+    """The same clean stop, read through `/llm/status` rather than the chip mapping."""
+    gateway.compute = compute_payload(
+        "offline",
+        ai="off",
+        error_code="not_found",
+        connection={"terminal_state": True, "typed_error": "not_found"},
+    )
+    payload = CloudAi(refreshed(gateway)).llm_public_status(stub_user(use_memory=False))
+
+    assert payload["ai"] == "off"
+    assert payload["diagnostic"]["last_error"] is None
+    assert payload["diagnostic"]["typed_error"] is None
+
+
 def test_a_stale_searching_gateway_is_never_connecting(gateway):
     """Exactly the production symptom: `searching` with no operation behind it at all."""
     gateway.compute = compute_payload("searching", ai="starting", error_code="gpu_unavailable", search=None)

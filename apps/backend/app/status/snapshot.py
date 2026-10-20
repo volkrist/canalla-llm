@@ -155,6 +155,11 @@ def ai_status(controller, user: User):
             state, action, recoverable = UNAVAILABLE, "retry", True
     else:
         state, action, recoverable = ERROR, "retry", True
+    if state == OFF:
+        # A clean stop finalizes the vanished Pod as `not_found`/`provider_missing`. That is the
+        # expected result of the user's Stop, not an error to show on an off chip: no live
+        # session exists, so the default «AI не запущен» is the only honest message.
+        error_code = None
     message = (ERROR_MESSAGES.get(error_code) if error_code else None) or defaults[state][0]
     details = {
         "provider": payload.get("provider"),
@@ -181,7 +186,9 @@ def ai_status(controller, user: User):
         "last_success_at": diagnostic.get("last_success_at"),
         "readiness_valid_until": diagnostic.get("readiness_valid_until"),
         "terminal_state": diagnostic.get("terminal_state"),
-        "typed_error": diagnostic.get("typed_error") or (error_code if isinstance(error_code, str) else None),
+        "typed_error": None
+        if state == OFF
+        else (diagnostic.get("typed_error") or (error_code if isinstance(error_code, str) else None)),
         # A7/Task-1: the persistent capacity wait, so the chip can say «Ожидаем свободную GPU» and
         # show the elapsed time without inventing anything.
         "wait_active": bool(diagnostic.get("wait_active")),
