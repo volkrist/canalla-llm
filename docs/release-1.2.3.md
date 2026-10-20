@@ -49,9 +49,28 @@ the installed backend and the in-app native host, with every action confirmed th
 `computer_mode=ask` endpoint. stdout was `4\\n` then `6\\n`, and the file on disk ended as
 `print(2 * 3)\\n` (`artifacts/free-host-live-20261020T205514Z/host-chain.json`).
 
+## Second live run (12:21 UTC) and the follow-up fix
+
+The owner approved one short paid attempt under the standing limits ($2/h, one Pod, 700 s,
+≤$0.40). It ran on an NVIDIA L40S 48 GB ($1.09/h, US-TX-3) for **726 s** and cost about
+**$0.225**; it stopped cleanly (`pods []`, `active_session=null`, watchdog `closed`, one Pod).
+B (Computer `read_file`) and the UI navigation check passed. A, C and D failed; the evidence
+identified two separate causes:
+
+| Finding | Evidence | Fix |
+|---|---|---|
+| The first planner request after model readiness took **240 s** (prefill of the full tool system prompt). The harness client timeout was exactly 240 s, so A aborted 4 s before the `200` arrived; B, immediately after, took 6 s. | Gateway journal: `POST /v1/chat/completions` at 12:22:38 completed at 12:26:38; the next at 12:26:44 completed quickly. A's chat stayed `stopped` with an empty assistant message. | The harness per-prompt timeout is now **300 s**; the 700 s watchdog and 60 s allocation bound are unchanged. This is a test-harness limit, not a Gateway failure. |
+| The deterministic local route wrote the **filename** (`agent_hello.py`, taken from the quoted `argv` entry) as the file body and then only verified/read it. The model answered `4`/`6` without ever running Python. | `tool_runs` for C/D: `origin=server_policy`, `host_args.content="agent_hello.py"`; no `run_python` row; C task `COMPLETED`, D `FAILED verification_required`. | `local/intent.py` now takes the body only from an explicit content phrase (`content is exactly …`, `содержимым …`), never from a quoted token; an unknown body defers to the model. When the prompt asks to run a written `.py`, the route schedules `run_python` itself. `local/plan.py` recognises `write_file`/`run_python`/`run_process` and `create <name>.py` as computer signals. |
+
+New regressions: `test_write_route_takes_content_not_the_argv_filename` and
+`test_deterministic_write_runs_the_written_script` (real orchestrator + host executor,
+`stdout == "4\n"`). The fixed build is installed as installer `9dbad23a…ecf9d`
+(95,460,778 bytes), sidecar `497ed954…5e18`, `source_digest=dc25973f…799c`; the free explicit
+host chain still returns `4\n`/`6\n` on that build.
+
 ## Verification
 
-- Backend: `952 passed, 4 skipped` (the sidecar stamp test passes after a rebuild).
+- Backend: `954 passed, 4 skipped` (the sidecar stamp test passes after a rebuild).
 - Gateway: `261 passed`.
 - Frontend: `309 passed` (includes `navigation-not-blocked`).
 - GUI: Playwright `e2e/generation-navigation.spec.ts` passed against a real mock backend; the
@@ -60,23 +79,25 @@ the installed backend and the in-app native host, with every action confirmed th
 - Developer gate: 9 steps, 0 FAIL, 0 BLOCKED.
 - Live web (no GPU): TinyFish search returned 5 sources; 3 fetches returned real titles and text.
 - Installed Windows 1.2.3 test build over 1.2.2:
-  - Installer `81bc6a40…e088a9`, 95,453,616 bytes; sidecar `411136fa…f33af`,
-    `source_digest=f521d1db…54ec2`. The previous build is kept as
-    `artifacts/Canalla.LLM_1.2.3_x64-setup.prev-cdb7fb52.exe` for rollback.
+  - Installer `9dbad23a…ecf9d`, 95,460,778 bytes; sidecar `497ed954…5e18`,
+    `source_digest=dc25973f…799c`. Previous builds are kept under `artifacts/` for rollback.
   - `/health`: `version 1.2.3`, protocol 1.
   - 17 chats preserved; preferences unchanged (`computer_mode=ask`, 48 GB, ≤$2/h, idle 10).
   - Computer Ready (heartbeat 1.9 s, real host), Tor Ready, Web Configured, Memory Ready,
     AI off, cloud Disconnected; compute `stopped`.
-  - RunPod `pods: []`, balance `$10.75`.
-  - Data backup before install: verified in-app backup `20261020T115130Z-manual` plus
-    `Documents/Canalla-Backups/pre-install-1.2.3-20261020T205130/alex.db` (integrity `ok`).
+  - RunPod `pods: []`, balance `$10.52`, watchdog `closed`; the 726 s L40S session cost
+  about `$0.225` and no second Pod was created.
+  - Data backups before installs: verified in-app backups `20261020T115130Z-manual` and
+    `20261020T132002Z-manual`, plus raw SQLite copies with `integrity_check=ok`.
 
 ## Remaining live gate (not approved yet)
 
 One paid Qwen session, ≤ $2.00/h, ≥ 48 GB, ≤ 700 s (watchdog; the model startup deadline stays
 300 s), budget ≤ $0.40, in US-TX-3 or US-MO-1. The session must prove: real `tool_call` →
 web page result → Computer `read_file` → the model writes, runs, fixes and reruns a Python file
-→ Stop → `pods: []`. The host chain itself is already proven above without a model.
+→ Stop → `pods: []`. The host chain and the deterministic write/run route are already proven
+without a model; what remains is Qwen's own multi-step tool calling on the fixed build. A fresh
+owner approval is required because the one-Pod rule still applies.
 
 ## Known limitations
 

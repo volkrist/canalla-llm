@@ -881,6 +881,46 @@ def test_orchestrator_uses_a_directory_with_spaces(setup, tmp_path, client):
         assert not (row.facts or {}).get("workspace_scope_violations_blocked")
 
 
+def test_deterministic_write_runs_the_written_script(setup, tmp_path, client):
+    """The 20 Oct paid-run defect: the route wrote the argv filename instead of the body and never
+    ran the script. The deterministic route must write the requested content and execute it."""
+    headers, context, _events, _root, host, _device = setup
+    live = tmp_path / "Canalla E2E 1.2.3" / "agent-live"
+    live.mkdir(parents=True)
+    client.put(
+        "/tools/preferences",
+        headers=headers,
+        json={"computer_mode": "trusted", "workspace_roots": [str(live)]},
+    )
+    prompt = (
+        f"In {live} use write_file to create agent_hello.py whose content is exactly "
+        "print(2 + 2). Do not use run_process or python -c. Then use run_python "
+        f'(argv ["agent_hello.py"], cwd {live}). Reply with only the stdout.'
+    )
+    context.user_prompt = prompt
+
+    class EmptyPlanner:
+        supports_tools = True
+
+        async def plan_tools(self, messages, tools, usage):
+            return {"tool_calls": []}
+
+    orchestrator = ToolOrchestrator(make_registry(), ToolExecutor(make_registry()))
+    asyncio.run(orchestrator.prepare(EmptyPlanner(), [{"role": "user", "content": prompt}], 0, context, {}))
+
+    assert (live / "agent_hello.py").read_text(encoding="utf-8") == "print(2 + 2)"
+    assert "write_file" in host.handled
+    assert "run_python" in host.handled
+    with SessionLocal() as db:
+        runs = db.scalars(select_completed(context.task_id)).all()
+        stdout = [
+            str(((run.result_metadata or {}).get("host_result") or {}).get("stdout") or "")
+            for run in runs
+            if run.tool_name == "run_python"
+        ]
+        assert stdout == ["4\n"]
+
+
 def test_a_duplicate_write_is_not_applied_twice(setup):
     """After a recovery the model may re-propose the same bytes; the file write is not repeated."""
     from app.tools.local.facts import record

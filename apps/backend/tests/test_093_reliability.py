@@ -17,7 +17,7 @@ from app.tools.local import machine
 from app.tools.local.continue_task import continue_pending
 from app.tools.local.facts import from_tool, latest, public_block, record
 from app.tools.local.grounding import contradiction, fallback_answer, incomplete, issue_for
-from app.tools.local.intent import select_local_route
+from app.tools.local.intent import requested_file_content, select_local_route
 from app.tools.local.progress import should_block
 from app.tools.local.scope import assert_scope, build_scope
 from app.tools.local.task import LocalTaskController
@@ -533,6 +533,30 @@ def test_deterministic_fallback_and_repair_prompt():
     assert "3.13.7 Documentation" in fallback_answer(
         page, "Открой в браузере официальный сайт Python и скажи заголовок следующей страницы."
     )
+
+
+def test_write_route_takes_content_not_the_argv_filename():
+    root = r"C:\Users\Volkr\Desktop\Canalla E2E 1.2.3\agent-live"
+    context = SimpleNamespace(
+        task_scope=SimpleNamespace(primary_root=root), settings=WebSettings(workspace_roots=[root])
+    )
+    prompt = (
+        "In " + root + " use write_file to create agent_hello.py whose content is exactly "
+        "print(2 + 2). Do not use run_process, python -c or list_directory. Then use run_python "
+        '(argv ["agent_hello.py"], cwd ' + root + "). Reply with only the stdout."
+    )
+    # The quoted argv entry is a filename, not the requested body.
+    assert requested_file_content(prompt) == "print(2 + 2)"
+    decision = select_local_route(prompt, context)
+    assert decision.action == "write_file"
+    assert decision.arguments["content"] == "print(2 + 2)"
+    assert any(name == "run_python" for name, _arguments in decision.extra)
+    assert requested_file_content('Use run_python with argv ["agent_hello.py"].') == ""
+    assert (
+        requested_file_content("Use write_file to change x.py so its content is exactly print(2 * 3).")
+        == "print(2 * 3)"
+    )
+    assert requested_file_content("Создай a.py с содержимым print(2 + 2), затем выполни.") == "print(2 + 2)"
 
 
 def test_write_routes_preserve_requested_content():

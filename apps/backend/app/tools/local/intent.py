@@ -15,6 +15,17 @@ CONTENT_PHRASE = re.compile(
     r"с текстом|with(?: the)? text|containing|содерж(?:ащ(?:им|ий|ее)?|ит)"
     r")\s+(?:[«\"']([^\"'«»]+)[»\"']|(\S+))"
 )
+# An explicit body phrase may contain spaces and quotes: ``content is exactly print(2 + 2)``.
+# The old heuristic then fell through to the first quoted token in the prompt, which in a coding
+# request is the *filename* used by ``argv`` (``["agent_hello.py"]``), so the controller wrote the
+# filename into the file. The body phrase is the only trustworthy source here.
+EXACT_CONTENT = re.compile(
+    r"(?i)(?:"
+    r"content\s*(?:is|:|=)|"
+    r"содержим(?:ое|ым)(?:\s+файла)?\s*(?:—|:|=)?|"
+    r"содержит"
+    r")\s*(?:exactly\s+|ровно\s+|буквально\s+)?"
+)
 
 
 @dataclass(frozen=True)
@@ -50,8 +61,43 @@ def marker(prompt: str) -> str:
     return match.group(0) if match else ""
 
 
+def _balanced_sentence(rest: str) -> str:
+    """The body expression after a phrase, without swallowing the next sentence."""
+    value = re.split(r"(?:\.\s|\.$|;\s|\n)", rest, maxsplit=1)[0]
+    depth = 0
+    for index, character in enumerate(value):
+        if character in "([{":
+            depth += 1
+        elif character in ")]}":
+            depth = max(0, depth - 1)
+        elif character == "," and depth == 0 and value[index + 1 : index + 2] == " ":
+            value = value[:index]
+            break
+    return value.strip(" \t\r\n«»\"',;.")
+
+
+def _exact_content(text: str) -> str:
+    match = EXACT_CONTENT.search(text)
+    if not match:
+        return ""
+    rest = text[match.end() :]
+    if rest.startswith("`"):
+        end = rest.find("`", 1)
+        if end > 0:
+            return rest[1:end].strip()
+    if rest[:1] in {'"', "'", "«"}:
+        close = {'"': '"', "'": "'", "«": "»"}[rest[:1]]
+        end = rest.find(close, 1)
+        if end > 0:
+            return rest[1:end].strip()
+    return _balanced_sentence(rest)
+
+
 def requested_file_content(prompt: str) -> str:
     text = prompt or ""
+    value = _exact_content(text)
+    if value:
+        return value
     match = CONTENT_PHRASE.search(text)
     if match:
         value = (match.group(1) or match.group(2) or "").strip(" «»\"',.;:")
@@ -60,10 +106,8 @@ def requested_file_content(prompt: str) -> str:
     token = marker(text)
     if token:
         return token
-    for match in re.finditer(r"[«\"']([^\"'«»]{1,400})[»\"']", text):
-        value = match.group(1).strip()
-        if value and not re.search(r"[\\/]|\.txt$", value, re.I) and " " not in value:
-            return value
+    # No quoted-token fallback: in a coding request the quoted token is usually the filename or an
+    # argv entry. An unknown body must be supplied by the model, never guessed from the path.
     return ""
 
 
@@ -162,13 +206,32 @@ def select_local_route(prompt: str, context=None) -> LocalDecision:
     )
     if creating_file:
         content = requested_file_content(text)
+        if not content:
+            # The filename is not a body. Let the planner/model supply the real content instead of
+            # writing a path into the file and calling that a completed action.
+            return LocalDecision(None, {}, "content_unknown")
         path_write = resolved.path if resolved.kind == "file" else _join(root, name)
-        extra = (("read_file", {"path": path_write, "purpose": "verify write"}),)
+        extra = [("read_file", {"path": path_write, "purpose": "verify write"})]
+        if path_write.lower().endswith(".py") and re.search(
+            r"(?i)run_python|запусти|выполни|execute|run (?:the )?(?:script|file|program)", text
+        ):
+            # The prompt asked for the script to be executed. A write plus a read is not that
+            # action; the deterministic route must run the file it just wrote.
+            extra.append(
+                (
+                    "run_python",
+                    {
+                        "argv": [os.path.basename(path_write)],
+                        "cwd": os.path.dirname(path_write) or root,
+                        "purpose": "run written script",
+                    },
+                )
+            )
         return LocalDecision(
             "write_file",
             {"path": path_write, "content": content, "purpose": "create file"},
             "write_file",
-            extra,
+            tuple(extra),
         )
     if re.search(r"(?i)создай.{0,24}папк|create.{0,24}folder|create_directory", text) and not re.search(
         r"(?i)файл|\.txt", text

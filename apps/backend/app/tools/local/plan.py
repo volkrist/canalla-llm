@@ -11,6 +11,7 @@ COMPUTER_HINT = (
     r"рабоч(ий|ем)\s+стол|desktop|"
     r"alex-llm-e2e|hello\.txt|grounded\.txt|"
     r"создай.*(папк|файл|директор)|создай .{0,80}\.\w{1,8}|create.{0,40}file|"
+    r"create .{0,80}\.\w{1,8}|write_file|patch_file|run_python|run_process|"
     r"with(?: the)? text|с текстом|"
     r"установи.*(jq|winget|програм)|"
     r"посчитай.*(sha256|хеш|hash)|sha256|hash_file|"
