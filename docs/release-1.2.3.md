@@ -156,6 +156,20 @@ unless Canalla is the foreground window, and proves Settings by its panel (≥10
 plus an Escape round trip (≤5 % residue) instead of a changed hash. The live S7 run used the fixed
 script.
 
+### Open finding from S7 (not fixed here)
+
+S7's verdict is about the interface, and the interface behaved correctly. The same request also
+exposed a **stalled planner stream**: `gateway_plan_start id=550af6a0` at 21:05:07, headers in
+4.3 s, the first token in 4.6 s, and then **no further chunk for 240 s** — no `gateway_plan_done`,
+no error, no retry. The harness gave up on its own read timeout; the product would have ended the
+turn at its 300 s planner budget and parked the task as recoverable `llm_unavailable`.
+
+This is a new, measured case of the «no progress after the first token» class, and the next fix
+should be an **inter-chunk deadline** (after the first token, N s without any chunk is a typed
+stall, not a slow model) plus a log line with the request id. It is deliberately not shipped here:
+the change touches both stream paths and needs its own live re-check, which is not part of
+Package A.
+
 ## Verification
 
 - Backend: developer gate `pytest.backend` PASS; the last full run reports `959 passed, 4 skipped`
