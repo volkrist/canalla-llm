@@ -158,7 +158,16 @@ class LocalDeviceProvider(ToolProvider):
         error = str(payload.get("error") or payload.get("text") or "")
         if error in {"conflict", "hash_mismatch"} or payload.get("conflict"):
             raise ToolError("conflict")
-        text = str(payload.get("text") or payload.get("stdout") or "")
+        text = str(payload.get("text") or "")
+        stdout = str(payload.get("stdout") or "")
+        # A process result's answer is its output. The host reports both a short status ("ok") and
+        # stdout, and preferring the status left the model and the user with "ok" instead of the
+        # program's real output.
+        if stdout:
+            if text.strip().lower() in {"", "ok", "done", "success", "completed"}:
+                text = stdout
+            elif stdout.strip() not in text:
+                text = text + "\n" + stdout
         stderr = str(payload.get("stderr") or "")
         sha = payload.get("before_sha256") or payload.get("sha256")
         if sha and f"sha256={sha}" not in text:

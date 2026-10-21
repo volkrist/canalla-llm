@@ -911,6 +911,39 @@ def test_orchestrator_uses_a_directory_with_spaces(setup, tmp_path, client):
         assert stdout == ["4\n", "6\n"]
         assert not (row.facts or {}).get("workspace_scope_violations_blocked")
 
+    # The final answer is a separate model turn: it must receive the tool results, or the model
+    # answers that it cannot access the computer right after a successful run.
+    from app.context_builder import ContextBuilder
+
+    history = [{"role": "user", "content": context.user_prompt}]
+    final = ContextBuilder.with_tool_results(history, context.tool_transcript, 20000)
+    outputs = []
+    for message in final:
+        if message.get("role") != "user" or message is history[0]:
+            continue
+        outputs.append(str(message.get("content") or ""))
+    tool_text = "\n".join(outputs)
+    assert '"text": "4\\n"' in tool_text and '"text": "6\\n"' in tool_text, outputs
+
+
+def test_tool_results_are_bounded_and_ordered():
+    from app.context_builder import ContextBuilder
+
+    history = [{"role": "user", "content": "go"}]
+    transcript = [
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "c1", "function": {"name": "read_file"}}]},
+        {"role": "tool", "tool_call_id": "c1", "content": "x" * 900},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "c2", "function": {"name": "run_python"}}]},
+        {"role": "tool", "tool_call_id": "c2", "content": "y" * 900},
+    ]
+    assert ContextBuilder.with_tool_results(history, [], 4000) == history
+    kept = ContextBuilder.with_tool_results(history, transcript, 1200)
+    # The request stays last; the newest result is the one kept when the budget is tight.
+    assert kept[-1] == history[-1]
+    assert kept[-2]["role"] == "user" and "y" * 10 in kept[-2]["content"]
+    assert "x" * 10 not in kept[-2]["content"]
+    assert len(kept) == 2  # the results note plus the original request
+
 
 def test_deterministic_write_runs_the_written_script(setup, tmp_path, client):
     """The 20 Oct paid-run defect: the route wrote the argv filename instead of the body and never

@@ -308,6 +308,16 @@ async def stream_response(
                     if await request.is_disconnected():
                         raise asyncio.CancelledError()
             enriched_history = await tool_task
+            # A tool result has to reach the answer that quotes it. Without this the final stream
+            # only sees the conversation, so a completed read_file is invisible to the model and
+            # it answers that it cannot access the computer.
+            from .context_builder import ContextBuilder
+
+            enriched_history = ContextBuilder.with_tool_results(
+                enriched_history,
+                getattr(tool_context, "tool_transcript", None),
+                settings.tools_max_chars * 4,
+            )
             with SessionLocal() as snapshot_db:
                 snapshot = snapshot_db.get(MessageContext, assistant_id)
                 if snapshot:
@@ -319,7 +329,7 @@ async def stream_response(
                         "web_source_count": len(tool_context.sources),
                         "web_chars": sum(len(source["excerpt"]) for source in tool_context.sources),
                         "planner_usage": planner_usage,
-                        "total_chars": sum(len(m["content"]) for m in enriched_history),
+                        "total_chars": sum(len(m.get("content") or "") for m in enriched_history),
                     }
                     snapshot_db.commit()
             halt = getattr(tool_context, "task_halt", None)
@@ -451,7 +461,10 @@ async def stream_response(
         except Exception as error:
             status = "error"
             logger.warning(
-                "generation_failed type=%s request_id=%s", type(error).__name__, usage_id or assistant_id
+                "generation_failed type=%s request_id=%s",
+                type(error).__name__,
+                usage_id or assistant_id,
+                exc_info=not isinstance(error, LLMError),
             )
             yield sse(
                 "error",
