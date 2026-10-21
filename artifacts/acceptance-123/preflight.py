@@ -129,7 +129,8 @@ def host_smoke(token: str) -> dict:
     if status not in (200, 201):
         return {"ok": False, "error": "chat_create_failed", "body": text[:300]}
     chat_id = json.loads(text)["id"]
-    script = root / "preflight_host.py"
+    script = root / "spaced dir" / "preflight host.py"
+    script.parent.mkdir(parents=True, exist_ok=True)
     evidence = {"root": str(root), "chat_id": chat_id, "steps": []}
     try:
         write = execute_tool(

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 
 from ..contracts import ToolError
-from .paths import native_path
+from .paths import DRIVE, longest_existing_path, native_path
 
 FILE_OPS = {"read_file", "write_file", "hash_file", "patch_file", "delete_file"}
 FILE_EXT = (
@@ -73,6 +73,15 @@ def extract_absolute_paths(prompt: str) -> list[str]:
         value = match.group(0).rstrip(".,;:)")
         if value not in found:
             found.append(value)
+    # A regex cannot know where a path with spaces ends. The filesystem can: every real path on
+    # disk is recovered in full, so `C:\\...\\Canalla E2E 1.2.3\\readme with spaces.txt` is one
+    # target instead of `C:\\...\\Canalla` plus the word "spaces.txt".
+    for match in re.finditer(r"[A-Za-z]:[\\/]", text):
+        value = longest_existing_path(text, match.start())
+        if value:
+            value = native_path(value)
+            if value not in found:
+                found.append(value)
     for match in QUOTED.finditer(prompt or ""):
         value = match.group(1).strip()
         if re.match(r"(?:[A-Za-z]:\\|\\\\)", value) and value not in found:
@@ -103,7 +112,17 @@ def looks_like_file_path(path: str, roots: list[str] | None = None) -> bool:
     if not value or is_directory_path(value, roots):
         return False
     name = PureWindowsPath(value).name
-    return bool(name and FILENAME.fullmatch(name))
+    if not name:
+        return False
+    if FILENAME.fullmatch(name):
+        return True
+    # A real Windows file name may contain spaces (``readme with spaces.txt``). The extension is
+    # what identifies a file here, and the dot rule keeps a folder such as ``Canalla E2E 1.2.3``
+    # out of it.
+    stem, dot, extension = name.rpartition(".")
+    if not dot or not stem.strip() or not extension:
+        return False
+    return bool(re.fullmatch(FILE_EXT, extension, re.IGNORECASE))
 
 
 @dataclass(frozen=True)
@@ -226,6 +245,17 @@ def coerce_file_argument(
 ) -> str:
     if tool not in FILE_OPS:
         return path
+    # An absolute path the model supplied is authoritative. Prompt inference exists to *fill in*
+    # a missing target, never to replace a correct one: it used to rewrite
+    # ``C:\...\readme with spaces.txt`` into ``spaces.txt``, which the host then refused as
+    # ``path_denied``. That is a product bug, not a model mistake.
+    offered = native_path(path).strip()
+    absolute = bool(
+        offered
+        and (os.path.isabs(offered) or DRIVE.match(offered) or PureWindowsPath(offered).is_absolute())
+    )
+    if absolute and not is_directory_path(offered, roots):
+        return offered
     resolved = resolve_target(
         prompt,
         workspace_root=workspace_root,

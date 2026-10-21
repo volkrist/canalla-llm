@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ...data_paths import default_root
 from ..contracts import ToolError
-from .paths import native_path
+from .paths import longest_existing_path, native_path
 
 WRITE_TOOLS = {
     "write_file",
@@ -83,27 +83,8 @@ def cleanup_scratch(task_id: str):
 
 
 def _longest_existing_path(text: str, start: int) -> str:
-    """The longest on-disk path beginning at ``start``, spaces included.
-
-    The old regex stopped at the first whitespace, so a task in
-    ``C:\\Users\\...\\Desktop\\Canalla E2E 1.2.3\\agent-live`` got the scope
-    ``C:\\Users\\...\\Desktop\\Canalla`` and every write into the real directory was refused as
-    ``workspace_scope``. The prompt itself is the only source of the path, and it is not quoted
-    in ordinary speech, so the filesystem is the authority for where the path ends.
-    """
-    tail = text[start:]
-    for end in range(len(tail), 2, -1):
-        candidate = tail[:end].rstrip(" .,;:	" + os.sep + "/")
-        if len(candidate) == 2 and candidate[1] == ":":
-            candidate += os.sep
-        if not candidate:
-            continue
-        try:
-            if Path(candidate).exists():
-                return candidate
-        except OSError:
-            continue
-    return ""
+    """Kept as the module-local name; the implementation is shared with the target resolver."""
+    return longest_existing_path(text, start)
 
 
 def infer_primary(prompt: str, roots: list[str], known_desktop: str = "") -> str:

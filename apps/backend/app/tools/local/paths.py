@@ -21,6 +21,31 @@ def normalize_preview(path: str) -> str:
     return native_path(str(path or "").strip())
 
 
+def longest_existing_path(text: str, start: int) -> str:
+    """The longest on-disk path beginning at ``start``, spaces included.
+
+    A regex stops at the first whitespace, so ``C:\\Users\\...\\Desktop\\Canalla E2E 1.2.3\\a.txt``
+    became ``C:\\Users\\...\\Desktop\\Canalla`` and the rest of the name was treated as prose. The
+    filesystem is the only authority for where a real path ends, so the path is grown from the
+    drive letter until it no longer exists.
+    """
+    if not text or start < 0 or start >= len(text):
+        return ""
+    tail = text[start:]
+    for end in range(len(tail), 2, -1):
+        candidate = tail[:end].rstrip(" .,;:\t" + os.sep + "/")
+        if len(candidate) == 2 and candidate[1] == ":":
+            candidate += os.sep
+        if not candidate:
+            continue
+        try:
+            if os.path.exists(candidate):
+                return candidate
+        except (OSError, ValueError):
+            continue
+    return ""
+
+
 def assert_local_path(path: str) -> str:
     value = normalize_preview(path)
     if not value or value.startswith(UNC) or "\x00" in value:

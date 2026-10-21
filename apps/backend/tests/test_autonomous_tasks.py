@@ -157,6 +157,37 @@ def test_scope_keeps_a_directory_with_spaces(tmp_path):
     assert infer_primary(f'Use read_file on "{readme}" and reply.', [], "") == str(root)
 
 
+def test_target_resolution_keeps_a_file_name_with_spaces(tmp_path):
+    """A model-supplied absolute path is never rewritten into a bare file name.
+
+    Regression: ``coerce_file_argument`` resolved ``readme with spaces.txt`` from the prompt and
+    returned ``spaces.txt`` even though the model had passed the full absolute path, so the host
+    refused a correct call with ``path_denied``.
+    """
+    from app.tools.local.paths import native_path
+    from app.tools.local.targets import (
+        coerce_file_argument,
+        extract_absolute_paths,
+        looks_like_file_path,
+        resolve_target,
+    )
+
+    root = tmp_path / "Canalla E2E 1.2.3" / "agent-live"
+    root.mkdir(parents=True)
+    target = root / "readme with spaces.txt"
+    target.write_text("S3_CANALLA_READ_OK", encoding="utf-8")
+    prompt = f"Открой файл {target} через инструмент read_file и перескажи содержимое."
+    expected = native_path(str(target))
+
+    assert looks_like_file_path(str(target))
+    assert not looks_like_file_path(str(root))
+    assert expected in extract_absolute_paths(prompt)
+    resolved = resolve_target(prompt, workspace_root=str(root), roots=[str(root)], expect="file")
+    assert resolved.kind == "file" and resolved.path == expected
+    assert coerce_file_argument("read_file", str(target), prompt) == expected
+    assert coerce_file_argument("read_file", expected, prompt, roots=[str(root)]) == expected
+
+
 def test_scope_handles_normal_nested_and_unicode_paths(tmp_path):
     from app.tools.local.scope import assert_scope, build_scope, infer_primary
 
