@@ -251,15 +251,51 @@ def estimate() -> dict:
         "catalog_seconds": seconds,
         "catalog_minutes": round(seconds / 60, 1),
         "gpu_usd_at_1_09_per_hour": round(seconds / 3600 * 1.09, 2),
-        "note": "Catalog seconds are prompt budgets, not wall time; add 60 s startup per session "
-        "and 240 s for the first planner turn measured on 20 Oct.",
+        "note": "Catalog seconds are prompt budgets, not wall time; add 60 s startup per session. "
+        "The 240 s first-turn figure was measured on 20 Oct *before* the final-stream thinking "
+        "fix and must be re-measured, never assumed.",
     }
+
+
+def route_checks() -> dict:
+    """Free guard: a prompt the server would execute itself cannot prove Qwen did it."""
+    values: dict[str, dict] = {}
+    for scenario in catalog.SCENARIOS:
+        values[scenario.id] = catalog.route_decision(
+            scenario.prompt, catalog.scenario_root(scenario.id)
+        )
+    return values
+
+
+def gate_problems(checks: dict, package_names) -> list[str]:
+    problems: list[str] = []
+    for scenario in catalog.package_scenarios(package_names):
+        decision = checks.get(scenario.id) or {}
+        if not decision.get("ok"):
+            problems.append(scenario.id + ": route guard unavailable " + str(decision.get("error")))
+            continue
+        if decision.get("deterministic") and scenario.require_model and scenario.expected_tools:
+            problems.append(
+                scenario.id
+                + ": prompt is handled by the server as "
+                + str(decision.get("action"))
+                + " ("
+                + str(decision.get("reason"))
+                + ")"
+            )
+    return problems
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--with-ui", action="store_true")
     parser.add_argument("--skip-host", action="store_true")
+    parser.add_argument(
+        "--gate-package",
+        nargs="+",
+        default=["simple-a", "simple-b"],
+        help="packages whose deterministic-route guard blocks the live run",
+    )
     args = parser.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
 
@@ -279,8 +315,16 @@ def main() -> int:
     report["checks"]["computer_mode"] = body_dict(prefs).get("computer_mode")
     report["checks"]["runpod"] = runpod_state()
     report["checks"]["watchdog"] = watchdog_state()
+    report["checks"]["sandbox"] = str(common.SANDBOX)
     report["fixtures"] = setup_all()
     report["estimate"] = estimate()
+    report["checks"]["deterministic_route"] = route_checks()
+    gate = gate_problems(report["checks"]["deterministic_route"], args.gate_package)
+    report["checks"]["route_gate"] = {
+        "packages": args.gate_package,
+        "ok": not gate,
+        "problems": gate,
+    }
 
     try:
         catalog.self_test()
@@ -311,7 +355,7 @@ def main() -> int:
             )[:30],
         }
 
-    report["verdict"] = "PREFLIGHT COMPLETE"
+    report["verdict"] = "PREFLIGHT COMPLETE" if not gate else "PREFLIGHT BLOCKED"
     (OUT / "preflight.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -327,19 +371,29 @@ def main() -> int:
         f"| cloud | {body_dict(cloud).get('state') or cloud.get('http')} |",
         f"| computer mode | {body_dict(prefs).get('computer_mode')} |",
         f"| online devices | {len(report['checks']['online_devices'])} |",
+        f"| sandbox | {report['checks']['sandbox']} |",
         f"| RunPod pods | {report['checks']['runpod'].get('pods')} |",
         f"| balance | {report['checks']['runpod'].get('balance_usd')} |",
         f"| watchdog | {report['checks']['watchdog'].get('status')} |",
         f"| host smoke | {(report['checks'].get('host_smoke') or {}).get('ok')} |",
         f"| pytest on host | {(report['checks'].get('host_smoke') or {}).get('pytest_available')} |",
         f"| model-origin rule | {report['checks']['model_origin_rule'].get('ok')} |",
+        f"| installed-window navigation | {(report['checks'].get('ui') or {}).get('ok')} |",
+        f"| deterministic route gate | {'clean' if not gate else 'BLOCKED'} "
+        f"({', '.join(args.gate_package)}) |",
         f"| scenarios | {report['estimate']['scenarios']} ({report['estimate']['by_tier']}) |",
         "",
         "This is a preflight, not a scenario PASS. No model turn and no compute were used.",
     ]
+    if gate:
+        lines.extend(["", "## Route gate problems", ""])
+        lines.extend("- " + item for item in gate)
     (OUT / "report.md").write_text("\n".join(lines), encoding="utf-8")
     print("\n".join(lines))
     print("evidence:", OUT)
+    if gate:
+        print("PREFLIGHT BLOCKED: fix the prompts before any paid run")
+        return 1
     return 0
 
 

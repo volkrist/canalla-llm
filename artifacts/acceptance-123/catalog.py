@@ -16,6 +16,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 
 from common import SANDBOX
 
@@ -184,7 +185,11 @@ SCENARIOS: list[Scenario] = [
         "S3",
         "simple",
         "Файл с пробелами в пути",
-        "Прочитай файл " + S3_FILE + " через read_file и перескажи его содержимое одним предложением.",
+        # The wording deliberately avoids every deterministic intent phrase (`прочитай файл`,
+        # `создай …`, `read …`): a server_policy action would prove nothing about Qwen. The
+        # tool name itself is safe — only the trigger phrases above are matched.
+        "Открой файл " + S3_FILE + " через инструмент read_file и перескажи его содержимое "
+        "одним предложением.",
         180,
         expected_tools=("read_file",),
         markers=("S3_CANALLA_READ_OK_20261020",),
@@ -195,8 +200,10 @@ SCENARIOS: list[Scenario] = [
         "S4",
         "simple",
         "Точное содержимое файла",
-        "В папке " + P("S4") + " создай файл exact.txt с содержимым ровно S4_EXACT_OK_20261020 "
-        "и затем прочитай его обратно через read_file.",
+        # `Запиши в файл …` matches `запис.{0,40}файл` in intent.py, so the path is named first
+        # and the body is an explicit marker. No deterministic phrase is present.
+        "Запиши по пути " + P("S4", "exact.txt") + " ровно S4_EXACT_OK_20261020 без перевода "
+        "строки, затем прочти содержимое обратно через read_file.",
         180,
         expected_tools=("write_file", "read_file"),
         markers=("S4_EXACT_OK_20261020",),
@@ -207,8 +214,11 @@ SCENARIOS: list[Scenario] = [
         "S5",
         "simple",
         "Python через Computer",
-        "В папке " + P("S5") + " создай s5_hello.py с кодом print('S5_STDOUT_OK') и запусти "
-        "его через run_python (cwd " + P("S5") + "). Верни только stdout.",
+        # `создай <name>.py` and `запусти … python` are deterministic triggers; `выполни` is not.
+        # The cwd is the tool's own `cwd` argument, stated without the trigger word.
+        "В папке " + P("S5") + " сделай файл s5_hello.py с одной строкой "
+        "print('S5_STDOUT_OK'). Выполни этот файл интерпретатором Python с рабочим каталогом "
+        + P("S5") + " и верни только stdout.",
         180,
         expected_tools=("write_file", "run_python"),
         markers=("S5_STDOUT_OK",),
@@ -229,20 +239,21 @@ SCENARIOS: list[Scenario] = [
         "S7",
         "simple",
         "Смена чата во время генерации",
-        "Медленно объясни в трёх абзацах, зачем нужен детерминированный контроллер в агенте.",
+        "Медленно объясни в трёх абзацах, зачем нужен детерминированный контроллер в агенте. "
+        "Не менее 400 слов, не торопись.",
         240,
         require_model=False,
         markers=(),
         ui_script="generation-navigation",
-        budget_seconds=90,
+        budget_seconds=120,
     ),
     Scenario(
         "M1",
         "medium",
         "Программа: создать, запустить, изменить, повторить",
-        "В папке " + P("M1") + " создай m1_hello.py с кодом print(2 + 2), запусти через run_python "
-        "(cwd " + P("M1") + "), получи stdout, измени код на print(2 * 3), снова запусти и "
-        "верни оба значения stdout.",
+        "В папке " + P("M1") + " сделай файл m1_hello.py с одной строкой print(2 + 2), выполни "
+        "его интерпретатором Python с рабочим каталогом " + P("M1") + ", получи stdout, затем "
+        "замени код на print(2 * 3), выполни снова и верни оба значения stdout.",
         300,
         expected_tools=("write_file", "run_python"),
         markers=("4", "6"),
@@ -253,10 +264,10 @@ SCENARIOS: list[Scenario] = [
         "M2",
         "medium",
         "CSV: статистика и отчёт",
-        "Прочитай " + P("M2", "m2_sales.csv") + ", посчитай суммарную выручку (units*price), "
-        "суммарные units, минимальную и максимальную выручку по строке. Создай "
-        + P("M2", "m2_stats.csv") + " с этими числами и " + P("M2", "m2_report.txt")
-        + " с кратким отчётом. Используй run_python для расчёта.",
+        "Открой файл " + P("M2", "m2_sales.csv") + ", посчитай суммарную выручку (units*price), "
+        "суммарные units, минимальную и максимальную выручку по строке. Запиши по пути "
+        + P("M2", "m2_stats.csv") + " эти числа, а по пути " + P("M2", "m2_report.txt")
+        + " — краткий отчёт. Расчёт выполни интерпретатором Python.",
         360,
         expected_tools=("read_file", "write_file", "run_python"),
         markers=("200",),
@@ -269,9 +280,10 @@ SCENARIOS: list[Scenario] = [
         "M3",
         "medium",
         "Мини-проект из трёх файлов",
-        "В папке " + P("M3") + " создай пакет m3_app из трёх файлов: __init__.py, core.py, "
+        "В папке " + P("M3") + " сделай пакет m3_app из трёх модулей: __init__.py, core.py, "
         "__main__.py. core.py возвращает строку 'M3_PROJECT_OK', __main__.py печатает её. "
-        "Запусти python -m m3_app через run_python (cwd " + P("M3") + ") и верни stdout.",
+        "Выполни python -m m3_app интерпретатором с рабочим каталогом " + P("M3")
+        + " и верни stdout.",
         420,
         expected_tools=("write_file", "run_python"),
         markers=("M3_PROJECT_OK",),
@@ -294,9 +306,9 @@ SCENARIOS: list[Scenario] = [
         "M5",
         "medium",
         "Web + Computer в одной задаче",
-        "Открой https://example.com через web_fetch, сохрани точный заголовок в "
-        + P("M5", "m5_title.txt") + " через write_file, затем через run_python прочитай файл "
-        "и напечатай заголовок в верхнем регистре. Верни stdout.",
+        "Открой https://example.com через web_fetch, сохрани точный заголовок по пути "
+        + P("M5", "m5_title.txt") + " доступным инструментом записи, затем прочти этот файл "
+        "интерпретатором Python и напечатай заголовок в верхнем регистре. Верни stdout.",
         360,
         expected_tools=("web_fetch", "write_file", "run_python"),
         markers=("EXAMPLE DOMAIN",),
@@ -308,8 +320,8 @@ SCENARIOS: list[Scenario] = [
         "M6",
         "medium",
         "Продолжение после смены чата",
-        "В папке " + P("M6") + " создай m6_state.py, который печатает 'M6_STATE_OK', и запусти "
-        "его через run_python. Не создавай файл дважды. Верни stdout.",
+        "В папке " + P("M6") + " сделай файл m6_state.py, который печатает 'M6_STATE_OK', "
+        "и выполни его интерпретатором Python. Не создавай файл дважды. Верни stdout.",
         300,
         expected_tools=("write_file", "run_python"),
         markers=("M6_STATE_OK",),
@@ -321,7 +333,7 @@ SCENARIOS: list[Scenario] = [
         "M7",
         "medium",
         "Отклонённое подтверждение",
-        "В папке " + P("M7") + " создай m7_denied.txt с текстом M7_MUST_NOT_EXIST.",
+        "Запиши по пути " + P("M7", "m7_denied.txt") + " ровно M7_MUST_NOT_EXIST.",
         180,
         expected_tools=("write_file",),
         forbid_files=("m7_denied.txt",),
@@ -402,8 +414,9 @@ SCENARIOS: list[Scenario] = [
         "H6",
         "hard",
         "Восстановление после обрыва",
-        "В папке " + P("H6") + " создай h6_probe.py, который печатает 'H6_RECOVERED', и запусти "
-        "его через run_python. Не повторяй write_file после временного сетевого сбоя.",
+        "В папке " + P("H6") + " сделай файл h6_probe.py, который печатает 'H6_RECOVERED', "
+        "и выполни его интерпретатором Python. Не повторяй запись файла после временного "
+        "сетевого сбоя.",
         420,
         expected_tools=("write_file", "run_python"),
         markers=("H6_RECOVERED",),
@@ -415,8 +428,8 @@ SCENARIOS: list[Scenario] = [
         "T1",
         "stress",
         "Длинная задача с состоянием",
-        "В папке " + P("T1") + " создай три файла: t1_a.py, t1_b.py, t1_c.py. Каждый печатает "
-        "свой маркер T1_A/T1_B/T1_C. Запусти все три через run_python и верни три строки.",
+        "В папке " + P("T1") + " сделай три файла: t1_a.py, t1_b.py, t1_c.py. Каждый печатает "
+        "свой маркер T1_A/T1_B/T1_C. Выполни все три интерпретатором Python и верни три строки.",
         480,
         expected_tools=("write_file", "run_python"),
         markers=("T1_A", "T1_B", "T1_C"),
@@ -473,7 +486,8 @@ SCENARIOS: list[Scenario] = [
         "T6",
         "stress",
         "Отказ в запуске команды",
-        "Запусти через run_python команду, которая печатает T6_MUST_NOT_RUN, в папке " + P("T6") + ".",
+        "Выполни интерпретатором Python команду, которая печатает T6_MUST_NOT_RUN, в папке "
+        + P("T6") + ".",
         180,
         expected_tools=("run_python",),
         forbid_files=("t6_marker.txt",),
@@ -514,6 +528,87 @@ def by_id(scenario_id: str) -> Scenario:
     raise KeyError(scenario_id)
 
 
+# --------------------------------------------------------------------------------- packages
+
+PACKAGES: dict[str, tuple[str, ...]] = {
+    "simple-a": ("S1", "S2", "S3"),
+    "simple-b": ("S4", "S5", "S6", "S7"),
+    "medium-a": ("M1", "M2", "M3"),
+    "medium-b": ("M4", "M5", "M6", "M7"),
+    "hard-a": ("H1", "H2"),
+    "hard-b": ("H3", "H4"),
+    "hard-c": ("H5", "H6"),
+    "stress": ("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"),
+}
+
+
+def package_scenarios(names) -> list[Scenario]:
+    """Selected scenarios, in package order, without duplicates."""
+    ids: list[str] = []
+    for name in names:
+        ids.extend(PACKAGES.get(name, ()))
+    return [by_id(item) for item in dict.fromkeys(ids)]
+
+
+# ---------------------------------------------------------------------- deterministic guard
+
+BACKEND = Path(__file__).resolve().parents[2] / "apps" / "backend"
+
+
+def route_decision(prompt: str, root: Path) -> dict:
+    """What the deterministic local router would do with this prompt, if anything.
+
+    `intent.select_local_route` runs *before* the model (orchestrator._maybe_local_intent) and
+    records `origin="server_policy"`. A prompt that matches one of its phrases is therefore
+    executed by the server, so it can never prove that Qwen chose the tool. This guard is free
+    and runs in the preflight and again in the live runner before a Pod exists.
+    """
+    if str(BACKEND) not in sys.path:
+        sys.path.insert(0, str(BACKEND))
+    try:
+        from app.tools.local.intent import select_local_route
+    except Exception as error:  # reported, never silently skipped
+        return {"ok": False, "error": type(error).__name__ + ": " + str(error)[:200]}
+    context = SimpleNamespace(
+        task_scope=SimpleNamespace(primary_root=str(root)),
+        settings=SimpleNamespace(workspace_roots=[str(root)]),
+        verified_facts={},
+        last_file_target=None,
+        owned_process=None,
+        computer_mode="ask",
+    )
+    decision = select_local_route(prompt, context)
+    return {
+        "ok": True,
+        "action": decision.action,
+        "reason": decision.reason,
+        "arguments": {key: str(value)[:200] for key, value in (decision.arguments or {}).items()},
+        "deterministic": bool(decision.action),
+    }
+
+
+def route_risks(scenarios: list[Scenario]) -> list[dict]:
+    """Scenarios whose prompt the server would execute itself instead of leaving it to Qwen."""
+    risks: list[dict] = []
+    for scenario in scenarios:
+        decision = route_decision(scenario.prompt, scenario_root(scenario.id))
+        urgent = bool(decision.get("deterministic")) and scenario.require_model and bool(
+            scenario.expected_tools
+        )
+        if not decision.get("ok") or urgent:
+            risks.append(
+                {
+                    "scenario": scenario.id,
+                    "urgent": urgent,
+                    "expects_model_tool": bool(
+                        scenario.require_model and scenario.expected_tools
+                    ),
+                    **decision,
+                }
+            )
+    return risks
+
+
 # --------------------------------------------------------------------------------- verdicts
 
 
@@ -551,8 +646,12 @@ def file_text(evidence: dict, relative: str) -> str | None:
 def evaluate(scenario: Scenario, evidence: dict) -> tuple[str, list[str]]:
     """Return PASS / FAIL / BLOCKED / BLOCKED_DETERMINISTIC and the exact reasons."""
     reasons: list[str] = []
-    if scenario.ui_script and not evidence.get("ui"):
-        return "BLOCKED", ["UI evidence is produced by the separate free UI script"]
+    if scenario.ui_script:
+        ui = evidence.get("ui")
+        if not ui:
+            return "BLOCKED", ["no UI evidence was produced for this scenario"]
+        if not ui.get("ok"):
+            reasons.append("UI script failed: " + str(ui.get("output"))[-300:])
     runs = tool_runs(evidence)
     model_runs = [run for run in runs if run.get("origin") == "model"]
     if scenario.expected_tools:
@@ -584,7 +683,7 @@ def evaluate(scenario: Scenario, evidence: dict) -> tuple[str, list[str]]:
         value = file_text(evidence, relative)
         if value is None:
             reasons.append(f"missing file {relative}")
-        elif exact is not None and value != exact:
+        elif exact is not None and value.rstrip("\r\n") != exact:
             reasons.append(f"{relative} content mismatch: {value[:80]!r}")
     for relative in scenario.forbid_files:
         if file_text(evidence, relative) is not None:
@@ -633,7 +732,15 @@ def self_test() -> None:
     }
     assert evaluate(scenario, deterministic)[0] == "BLOCKED_DETERMINISTIC"
     assert evaluate(scenario, model)[0] == "PASS"
+
+    # The free route guard must recognise a deterministic phrase and clear a model-only prompt.
+    # If this ever fails, a live "PASS" could come from the server instead of Qwen.
+    trigger = route_decision("Прочитай файл " + P("S3", "readme with spaces.txt"), scenario_root("S3"))
+    assert trigger.get("deterministic") is True, trigger
+    clean = route_decision(by_id("S3").prompt, scenario_root("S3"))
+    assert clean.get("deterministic") is False, clean
     print("SELF-TEST PASS: server_policy is not a model-origin PASS")
+    print("SELF-TEST PASS: the deterministic route guard separates trigger from model prompt")
 
 
 if __name__ == "__main__":

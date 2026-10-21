@@ -27,7 +27,7 @@ ROOT = os.path.join(os.environ["LOCALAPPDATA"], "Alex LLM")
 SANDBOX = Path(
     os.environ.get(
         "CANALLA_ACCEPTANCE_SANDBOX",
-        os.path.join(os.path.expanduser("~"), "Desktop", "Canalla E2E 1.2.3", "acceptance"),
+        os.path.join(os.path.expanduser("~"), "Canalla Acceptance"),
     )
 )
 

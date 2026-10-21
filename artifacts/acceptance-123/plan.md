@@ -36,20 +36,21 @@ cheapest simple scenario available and records phase timings.
 
 | Session | Scenarios | Prompt budgets | Estimate | Max USD at $1.09/h |
 |---|---|---|---:|---:|
-| simple-a | S1–S5 | 45+45+60+60+60 = 270 | 60 + 240 + 270 = **570 s** | 0.17 |
-| simple-b | S6–S7 | 90+90 = 180 | 60 + 240 + 180 = **480 s** | 0.15 |
-| medium-a | M1–M3 | 120+150+180 = 450 | 60 + 240 + 450 = **750 s** → stop at 700, carry M3 | 0.21 |
-| medium-b | M4–M7 | 120+150+120+60 = 450 | 60 + 240 + 450 = **750 s** → carry the last | 0.21 |
-| hard-a | H1 | 300 | 60 + 240 + 300 = **600 s** | 0.18 |
-| hard-b | H2 | 300 | 60 + 240 + 300 = **600 s** | 0.18 |
-| hard-c | H3 | 300 | 60 + 240 + 300 = **600 s** | 0.18 |
-| hard-d | H4 + H6 | 240+180 = 420 | 60 + 240 + 420 = **720 s** → H6 in the next window | 0.21 |
-| hard-e | H5 | 300 | 60 + 240 + 300 = **600 s** | 0.18 |
-| stress-a | T1 | 240 | 60 + 240 + 240 = **540 s** | 0.16 |
-| stress-b | T2, T5–T7 | 60+90+60+60 = 270 | 60 + 240 + 270 = **570 s** | 0.17 |
+| simple-a | S1–S3 | 45+45+60 = 150 | 60 + 150 = **210 s** (+ first turn) | 0.06 |
+| simple-b | S4–S7 | 60+60+90+120 = 330 | 60 + 330 = **390 s** (+ first turn) | 0.12 |
+| medium-a | M1–M3 | 120+150+180 = 450 | 60 + 450 = **510 s** (+ first turn) | 0.15 |
+| medium-b | M4–M7 | 120+150+120+60 = 450 | 60 + 450 = **510 s** (+ first turn) | 0.15 |
+| hard-a | H1 + H2 | 300+300 | 60 + 600 = **660 s** → stop at 700, carry H2 | 0.20 |
+| hard-b | H3 + H4 | 300+240 = 540 | 60 + 540 = **600 s** | 0.18 |
+| hard-c | H5 + H6 | 300+180 = 480 | 60 + 480 = **540 s** | 0.16 |
+| stress | T1–T8 | 240+60+60+60+90+60+60+60 = 690 | 60 + 690 = **750 s** → carry the tail | 0.23 |
 
-T3, T4 and T8 are free UI/host checks and are not paid sessions. H4+H6 may need a sixth hard
-session if H4's research runs long; a capacity failure ends the package instead of retrying.
+These are prompt budgets, not wall time; each session also pays for the first planner turn and
+for model startup. The 240 s first turn was measured **before** `enable_thinking:false` reached
+the final stream, so simple-a must re-measure it from `gateway_plan_*` before any later session
+is booked. `runner.py --max-session-seconds` (default 600) stops scenarios locally before the
+watchdog's 655 s terminate, and `--budget-usd` refuses to start a scenario whose budget would
+not fit in what is left.
 
 **Maximum**: 11 sessions × 700 s = 7,700 s = 2.14 h ≈ **$2.33** at $1.09/h (plus the volume's
 $0.01/h). **Likely**: 6–8 sessions if the measured first turn drops below 240 s after the
@@ -101,9 +102,13 @@ post-check agree. A model's prose alone is never a PASS.
 
 ## Free preflight that must stay green
 
-- `python artifacts/acceptance-123/catalog.py` — model-origin self-test;
+- `python artifacts/acceptance-123/catalog.py` — model-origin self-test and the deterministic
+  route guard (a prompt that `intent.py` would execute itself is refused, not counted as Qwen);
+- `python artifacts/acceptance-123/runner.py --self-test` — budget guard and package selection;
 - `python artifacts/acceptance-123/preflight.py --with-ui` — 28 fixture directories, seed checks,
-  host smoke, pytest on the host runtime, RunPod `pods: []`, watchdog `disarmed`, UI frames;
+  host smoke, pytest on the host runtime, RunPod `pods: []`, watchdog `disarmed`, UI frames and
+  the route gate for `simple-a`+`simple-b` (non-zero exit when a gated prompt would be handled
+  by the server);
 - `python scripts/release-gate.py developer` — CI parity;
 - Playwright `e2e/generation-navigation.spec.ts` — UI during streaming.
 
