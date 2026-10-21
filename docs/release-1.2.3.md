@@ -103,38 +103,98 @@ The live plan and budgets are in `artifacts/acceptance-123/plan.md`: 11 possible
 3 gated packages, a maximum of about **$2.33** at $1.09/h, and a likely 6–8 sessions once the
 measured first turn is known. No paid Pod was started while building this system.
 
+## Package A live acceptance (21 Oct 2026)
+
+Owner-approved package: S1–S7 in sequential Pods, **$0.32** total, ≤ 700 s per Pod, real Qwen.
+The first two attempts failed before the package could be called green, and both failures were
+product defects, not model behaviour:
+
+| Attempt | Result | Cause found |
+|---|---|---|
+| simple-a (10:30 UTC) | two free capacity attempts (`price_limit`, no Pod), then a Pod; S1/S2 PASS, S3 FAIL | `coerce_file_argument` rewrote the model's correct `C:\...\readme with spaces.txt` into `spaces.txt`, so the host refused a valid read with `path_denied` |
+| simple-a (11:03 UTC) | the model-origin `read_file` completed, the final answer still said it had no filesystem access | the final answer was generated from the plain conversation and never received the tool transcript |
+| simple-a (12:00 UTC) | **S1, S2, S3 PASS** | — |
+| simple-b (12:03 UTC) | **S4, S5, S6, S7 PASS** | — |
+
+Both defects are fixed (commits `74f1f96`, `942e1dd`) with regressions in
+`apps/backend/tests/test_autonomous_tasks.py`:
+
+- an absolute path the model supplied is authoritative — prompt inference may fill a missing
+  target but never replaces a correct one, and an existing path with spaces is recovered from the
+  filesystem (`longest_existing_path`); the scope boundary, `..`, junction and `argv` checks are
+  unchanged;
+- the turn's tool results travel to the final answer as a bounded, labelled user note, so a
+  completed `read_file` cannot be denied by the answer that quotes it;
+- a process result's text is its **stdout**, not the host's `ok` status.
+
+Evidence is in `artifacts/acceptance-123/runs/live-20261021T120054/` and
+`.../live-20261021T120316/`: every scenario has its prompt, SSE timings, `origin=model` tool runs
+with arguments, the host result and the final answer.
+
+| Scenario | Evidence | Verdict |
+|---|---|---|
+| S1 | a Russian answer to the question | PASS |
+| S2 | the second fact (`123`) | PASS |
+| S3 | model-origin `read_file` of the spaced path; content returned; the answer quotes `S3_CANALLA_READ_OK_20261020` | PASS |
+| S4 | model-origin `write_file` + `read_file`, body exactly `S4_EXACT_OK_20261020` | PASS |
+| S5 | model-origin `write_file` + `run_python`, stdout `S5_STDOUT_OK` | PASS |
+| S6 | model-origin `web_fetch` of `https://example.com`, the answer names `Example Domain` | PASS |
+| S7 | the installed-window script ran **inside** the streaming turn (New Chat, chat switching, Settings, Escape, typing) | PASS |
+
+Cost: four Pods in total, all NVIDIA L40S 48 GB at $1.09/h in US-TX-3, each stopped inside the
+700 s cap (the last one `within_cap: true`, 353.3 s from create to confirmed delete). GPU cost
+**$0.218** (`$0.044` + `$0.042` + `$0.026` + `$0.106`), inside the $0.32 package budget. Every
+session ended with `pods: []`, `active_session=null` and no automatic reconnect. Three Pods were
+needed instead of the planned two because the first two exposed the defects above.
+
+### The UI test itself was wrong
+
+`helpers/ui-nav-during-gen.ps1` reported PASS while capturing and typing into the **ChatGPT**
+desktop window: a topmost window covered the rectangle, and the script trusted “the hash changed”.
+It now picks the screen with the fewest overlapping windows, raises Canalla, refuses to continue
+unless Canalla is the foreground window, and proves Settings by its panel (≥10 % of the frame)
+plus an Escape round trip (≤5 % residue) instead of a changed hash. The live S7 run used the fixed
+script.
+
 ## Verification
 
-- Backend: `957 passed, 4 skipped` (the sidecar stamp test passes after a rebuild).
-- Gateway: `261 passed`.
-- Frontend: `309 passed` (includes `navigation-not-blocked`).
-- GUI: Playwright `e2e/generation-navigation.spec.ts` passed against a real mock backend; the
-  installed-window script `artifacts/ui-nav-during-gen.ps1` passed with validated 1216×859 frames.
+- Backend: developer gate `pytest.backend` PASS; the last full run reports `959 passed, 4 skipped`
+  (the sidecar stamp test is green against the installed build).
+- Gateway: `261 passed` (`pytest.gateway` in the gate).
+- Frontend: `309 passed`, plus `tsc`, Prettier and the Vite build in the gate.
+- GUI: Playwright `e2e/generation-navigation.spec.ts`; the installed-window script passed with
+  validated 1280×900 frames on a display no other window covered, and was used live in S7.
 - Rust host: `14 passed`.
-- Developer gate: 9 steps, 0 FAIL, 0 BLOCKED.
+- Developer gate: **9 steps, 0 FAIL, 0 BLOCKED → PASS** (re-run after the formatting commit).
 - Live web (no GPU): TinyFish search returned 5 sources; 3 fetches returned real titles and text.
-- Installed Windows 1.2.3 test build over 1.2.2:
-  - Installer `d3ed5486…e635e`, 95,421,542 bytes; sidecar `37ce9adc…883d0`,
-    `source_digest=99f7f111…e6e7`. Previous builds are kept under `artifacts/` for rollback.
+- Live Qwen (Package A): S1–S7 **PASS**, $0.218, four Pods, `pods: []` after every stop.
+- Installed Windows 1.2.3 test build (21 Oct, final):
+  - Installer `b4b55325…ab4bf`, 95,463,526 bytes; sidecar `19976051…33f363`,
+    `source_digest=fec4bb1d…5084813`. Previous builds stay under `artifacts/` for rollback.
   - `/health`: `version 1.2.3`, protocol 1.
-  - 22 chats preserved; preferences unchanged (`computer_mode=ask`, 48 GB, ≤$2/h, idle 10).
-  - Computer Ready (live heartbeat, real host), Tor Ready, Web Configured, Memory Ready,
-    AI off, cloud connected; compute `stopped`.
-  - RunPod `pods: []`, balance `$10.51`, watchdog disarmed/closed; the 726 s L40S session cost
-  about `$0.225` and no second Pod was created. The second attempt found no capacity
-  (`gpu_unavailable`), so it created nothing and incurred no GPU charge; its parked wait was
-  cancelled (`wait_active=false`).
-  - Data backups before installs: verified in-app backups `20261020T115130Z-manual` and
-    `20261020T132002Z-manual`, plus raw SQLite copies with `integrity_check=ok`.
+  - 36 chats preserved; preferences unchanged (`computer_mode=ask`, 48 GB, ≤$2/h, idle 10).
+  - Computer Ready with a live host heartbeat, Tor Ready, Web Configured, Memory Ready, AI off,
+    cloud connected, compute `stopped`.
+  - RunPod `pods: []`, balance `$10.07`, watchdog `closed`/`within_cap`.
+  - Data backups before installs: verified in-app backups plus raw SQLite copies with
+    `integrity_check=ok` (last: `artifacts/install-backup-20261021T221015Z`).
 
 ## Remaining live gate (not approved yet)
 
-One paid Qwen session, ≤ $2.00/h, ≥ 48 GB, ≤ 700 s (watchdog; the model startup deadline stays
-300 s), budget ≤ $0.40, in US-TX-3 or US-MO-1. The session must prove: real `tool_call` →
-web page result → Computer `read_file` → the model writes, runs, fixes and reruns a Python file
-→ Stop → `pods: []`. The host chain and the deterministic write/run route are already proven
-without a model; what remains is Qwen's own multi-step tool calling on the fixed build. The
-one paid attempt for this stage has been used; a second create requires fresh owner approval.
+Package A is green. The remaining packages are **not** authorized:
+
+- **Package B** (medium-a + medium-b + hard-a): M1–M7, H1 — create/run/fix, CSV statistics with
+  an independent checker, a three-module project, two web sources, Web + Computer in one task, a
+  chat switch mid-task, and a **denied** confirmation.
+- **Package C** (hard-b + hard-c + hard-d + stress): H2–H6, T1, T2, T5–T7 — pytest diagnosis,
+  refactor, multi-source report, a long Web → files → Python → tests chain, transport recovery,
+  long state, Stop during generation, provider error and tool timeout.
+
+Both need a fresh owner approval and a budget; the harness (`runner.py --package … --budget-usd …`)
+and the watchdog are ready, and every prompt in the catalog is now free of deterministic-route
+triggers (`preflight.py` refuses to start a Pod otherwise). The one remaining product question for
+those packages is whether Qwen completes a 5+ step chain without a transport error; Package A
+proved single- and double-step tool use only.
 
 ## Known limitations
 
