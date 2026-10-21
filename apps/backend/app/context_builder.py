@@ -209,7 +209,9 @@ class ContextBuilder:
             elif role == "tool":
                 content = str(message.get("content") or "").strip()
                 if content:
-                    blocks.append("[{}]\n{}".format(names.get(str(message.get("tool_call_id")), "tool"), content))
+                    blocks.append(
+                        "[{}]\n{}".format(names.get(str(message.get("tool_call_id")), "tool"), content)
+                    )
         if not blocks:
             return messages
         budget = max(1000, int(budget_chars))

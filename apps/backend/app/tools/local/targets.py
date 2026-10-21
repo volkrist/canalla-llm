@@ -251,8 +251,7 @@ def coerce_file_argument(
     # ``path_denied``. That is a product bug, not a model mistake.
     offered = native_path(path).strip()
     absolute = bool(
-        offered
-        and (os.path.isabs(offered) or DRIVE.match(offered) or PureWindowsPath(offered).is_absolute())
+        offered and (os.path.isabs(offered) or DRIVE.match(offered) or PureWindowsPath(offered).is_absolute())
     )
     if absolute and not is_directory_path(offered, roots):
         return offered

@@ -931,9 +931,17 @@ def test_tool_results_are_bounded_and_ordered():
 
     history = [{"role": "user", "content": "go"}]
     transcript = [
-        {"role": "assistant", "content": None, "tool_calls": [{"id": "c1", "function": {"name": "read_file"}}]},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"id": "c1", "function": {"name": "read_file"}}],
+        },
         {"role": "tool", "tool_call_id": "c1", "content": "x" * 900},
-        {"role": "assistant", "content": None, "tool_calls": [{"id": "c2", "function": {"name": "run_python"}}]},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"id": "c2", "function": {"name": "run_python"}}],
+        },
         {"role": "tool", "tool_call_id": "c2", "content": "y" * 900},
     ]
     assert ContextBuilder.with_tool_results(history, [], 4000) == history
