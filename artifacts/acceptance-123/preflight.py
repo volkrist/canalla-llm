@@ -153,7 +153,7 @@ def host_smoke(token: str) -> dict:
             token,
             chat_id,
             "run_python",
-            {"argv": [script.name], "cwd": str(root), "purpose": "acceptance preflight host smoke"},
+            {"argv": [script.name], "cwd": str(script.parent), "purpose": "acceptance preflight host smoke"},
         )
         runtime = execute_tool(
             token,
