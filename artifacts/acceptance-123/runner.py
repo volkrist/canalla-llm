@@ -174,6 +174,9 @@ def run_scenario(scenario: catalog.Scenario, token: str) -> dict:
     root.mkdir(parents=True, exist_ok=True)
     if scenario.setup:
         catalog.setup_fixture(scenario.setup, root)
+    # A task parked by an earlier session owns the single computer workspace; without this the
+    # new scenario would answer `WAITING_WORKSPACE` and never reach the model.
+    stale = common.stop_stale_tasks(token, common.SANDBOX)
     before = common.snapshot(root)
     chat_id = new_chat(token, "acceptance " + scenario.id)
     confirmations: list[dict] = []
@@ -250,6 +253,7 @@ def run_scenario(scenario: catalog.Scenario, token: str) -> dict:
         "stream": stream,
         "session": session,
         "confirmations": confirmations,
+        "stale_tasks_stopped": stale,
         "files_before": before,
         "files_after": after,
         "files_changed": changed,

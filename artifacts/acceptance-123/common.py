@@ -309,6 +309,38 @@ def safe_run(run: dict, sandbox: Path) -> bool:
     return True
 
 
+def stop_stale_tasks(token_value: str, sandbox: Path) -> list[dict]:
+    """Stop parked acceptance tasks that would hold the computer lock.
+
+    One task owns the whole per-user computer workspace. A task parked by an earlier session
+    (`WAITING_LLM`, `WAITING_CONFIRMATION`, `WAITING_WORKSPACE`) keeps that lock, and a new
+    scenario then returns `WAITING_WORKSPACE` without ever reaching the model. Only tasks whose
+    title names this acceptance sandbox are touched, so a real user task is never stopped.
+    """
+    stopped: list[dict] = []
+    status, text = call("GET", "/tasks?limit=100", token=token_value, timeout=30)
+    if status != 200:
+        return stopped
+    try:
+        rows = json.loads(text)
+    except ValueError:
+        return stopped
+    marker = str(sandbox).casefold()
+    for row in rows if isinstance(rows, list) else []:
+        if str(row.get("status") or "") in {"COMPLETED", "FAILED", "STOPPED"}:
+            continue
+        haystack = (str(row.get("title") or "") + " " + str(row.get("original_user_request") or "")).casefold()
+        if marker not in haystack:
+            continue
+        run_status, body = call(
+            "POST", "/tasks/" + str(row.get("id")) + "/stop", token=token_value, body={}, timeout=30
+        )
+        stopped.append(
+            {"id": row.get("id"), "status": row.get("status"), "http": run_status, "body": body[:120]}
+        )
+    return stopped
+
+
 def confirm(token_value: str, run_id: str, allow: bool) -> tuple[int | None, str]:
     run_status, run_text = call("GET", "/tools/runs/" + run_id, token=token_value, timeout=20)
     digest = ""
