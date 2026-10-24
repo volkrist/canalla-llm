@@ -916,7 +916,15 @@ fn fs_write(args: &Value, roots: &[String]) -> LocalOutcome {
     let Ok(file) = crate::fs_guard::resolve(&path, roots) else {
         return err_text("path_denied");
     };
-    let content = str_arg(args, "content");
+    // The body is opaque data: never trim it. `str_arg` strips leading/trailing quotes (tolerating a
+    // model that wraps a path in quotes), and applied to content it deleted a Python file's leading
+    // `"""` docstring. The file then differed from what was requested, `write_file` reported
+    // `write_verification_failed`, and the model retried the same correct write.
+    let content = args
+        .get("content")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
     let expected = args.get("expected_before_sha256").and_then(Value::as_str);
     let before = fs::read(&file).ok().map(|bytes| sha256_hex(&bytes));
     if let Some(expected) = expected.filter(|value| !value.is_empty()) {
@@ -1810,6 +1818,22 @@ impl IfEmpty for String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn write_file_keeps_leading_and_trailing_quotes_in_the_body() {
+        // A Python module usually starts with a `"""` docstring. Trimming it produced a file that
+        // differed from the requested content and every such write failed verification.
+        let dir = std::env::temp_dir().join("alex-llm-write-quotes-test");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("module.py");
+        let body = "\"\"\"Doc.\"\"\"\nvalue = 1\n";
+        let args = json!({"path": file.to_string_lossy(), "content": body});
+        let out = run_local_tool("write_file", &args, &[], "write-quotes", || false);
+        assert_eq!(out.exit_code, Some(0));
+        assert_eq!(fs::read_to_string(&file).unwrap(), body);
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn delete_file_uses_disposable_temp() {
