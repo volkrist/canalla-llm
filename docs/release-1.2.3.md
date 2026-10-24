@@ -277,15 +277,99 @@ after 45 s it stayed stopped — no auto-reconnect. RunPod `pods: []`; watchdog 
 `confirmed_stopped`, `within_cap=true`; no `WAITING_LLM` tasks in the local DB. Stop AI was
 called after every session.
 
-## Package C — prepared, not authorized
+## Package C live acceptance (24 Oct 2026)
 
-Package C (`hard-b`, `hard-c`, `stress`) was **not** run and no Pod was created for it. It needs
-a fresh owner approval and a budget. What is already green: the free catalog/route self-tests,
-the runner self-test, the preflight (against the installed 1.2.3 build) and the 7/7 CI. What is
-still missing before C: H1/H2 have never run (the third Pod died on `startup_timeout`), M3 has
-not been re-run with the fixed harness, and the root cause of the planner silence is open. A
-fresh C approval should therefore include at least one spare Pod/budget for H1/H2 and a re-run
-of M3, not another 3-Pod cap that leaves no room for a startup failure.
+Owner-approved envelope: **4 Pods (including failed starts), $1.00, ≤$2/h, ≥48 GB, one at a time,
+700 s per Pod**. Four Pods were used and **$0.4106** of GPU time was spent. Result:
+**M3 PASS, H2 PASS, H1 FAIL (three independent causes, all outside the model), H3–H6 and T1–T8
+not run — the Pod cap was spent on the two open items and on proving the defects found.**
+
+| Scenario | Verdict | What really happened |
+|---|---|---|
+| M3 | **PASS** | 7 model-origin tool calls (`run_python` ×5, `write_file`, `list_directory`, one refused `write_file`); the package `m3_app/` was created and `python -m m3_app` printed `M3_PROJECT_OK` |
+| H1 | **FAIL** | the model wrote correct modules, but three product/harness defects broke the task (below). No final answer: the last planner turn ended `llm_unavailable` |
+| H2 | **PASS** | 9 model-origin tool calls (`read_file` ×3, `run_python` ×3, `write_file`, `patch_file`, `list_directory`); `calc.py` repaired, `pytest` green — the independent checker agrees. The final *prose* was the typed recovery message, not a summary |
+| H3–H6, T1–T8 | **NOT RUN** | the 4-Pod cap was exhausted; no budget was spent on them |
+
+The H2 code fix is real even though the answer text is not: `post_check` ran the project's own
+`pytest` and the previously failing `test_calc.py` passes, with the changed file on disk.
+
+### H1: three causes, none of them the model
+
+| Attempt | Cause | Evidence | Status |
+|---|---|---|---|
+| Pod 1 | **transport**: the Gateway completed the request in 4 s with `200`, the client received no headers for 300 s and ended `llm_unavailable` (status 0) | Gateway journal `POST /v1/chat/completions 200` at 12:35:38 for a request started 12:35:34; no client headers | open (network path) |
+| Pod 2 | **workspace lock**: a task parked in Pod 1 held `user:<id>:computer`, so H1 and H2 answered `WAITING_WORKSPACE` and never reached the model | `workspace_locks` row for task `73f0dfc7`, two `workspace_waiters` | fixed in the harness (`stop_stale_tasks`) |
+| Pod 3 | **`run_process` never returned**: the host delivered `exit_code 9009`; `HostResult` allowed only −1…255, so the POST was `422`, the host retried every 2 s forever and the tool ended `timeout` | host journal `"exit_code":9009`, backend access log `host-result 422` repeated | **fixed** (`HostResult.exit_code` is signed 32-bit), proven free |
+| Pod 4 | **`write_file` mangled the body**: the host passed content through `trim_matches('"')`, deleting a leading `"""` docstring; the file differed from the request, `write_verification_failed` fired, and the model retried the same correct write four times | intended `"""h1_cli package."""\n` vs disk `h1_cli package."""\n`; `expected_sha256 != actual_sha256` | **fixed** (`host.rs` writes the body verbatim), proven free |
+
+Free proof of the write fix, with no model and no GPU (`POST /tools/execute`): the body
+`"""Module docstring."""\nvalue = 1\n` is written byte-for-byte, `expected_sha256 ==
+actual_sha256 == 907f0ebb…`, and the docstring is intact. The `run_process` probe now completes
+in about one second with `exit_code 9009` and the real stderr instead of a 30 s `timeout`.
+
+### The two `llm_stream_stalled` turns (diagnosis, not a cure)
+
+Both are real planner turns in M2 (Package B):
+
+```
+19:20:25 gateway_plan_start id=c4e99dd2 -> headers 2.3 s -> first token 3.1 s -> 24 lines -> 60.0 s silence
+19:22:41 gateway_plan_start id=02cad99d -> headers 3.3 s -> first token 3.5 s -> 70 lines -> 60.0 s silence
+```
+
+The client saw SSE lines and then **no byte at all**; the Gateway stayed healthy (health, models
+and balance polls answered throughout) and served the next request in 7.5 s. So the silence is
+between the Gateway's upstream socket and llama.cpp: either the generation paused after a partial
+tool call, or the Gateway's read stalled. It cannot be attributed further from the surviving
+evidence, because the Gateway records no per-chunk timing and the Pod (and its llama.cpp log) is
+gone. Detection is `app/providers.py` (60 s inter-chunk deadline); the cause remains open.
+
+During Package C the same guard fired **twice more** (22:24:43 `841373fa`, 128 lines;
+22:27:01 `2e79372d`, 56 lines), both inside H2, which still passed because the tool work had
+completed.
+
+### Startup timeout of Package B's third Pod
+
+Session `70257548…` (US-MO-1 / volume `y92bt25ru8`) never reached `ready_at` and was stopped by
+D-9 at 303 s. It was created **50 s after** the previous Pod on the *same* volume stopped; that
+Pod had worked normally 4 minutes earlier. The likely cause is the regional volume detaching from
+the stopped Pod before the next mount, so the new Pod could not mount the model in time. The
+startup deadline stays **300 s**; the harness now waits (`--cooldown-seconds`) between Pods.
+
+### Cost, Pods, ready latency
+
+| Session | DC / volume | created → ready | billable | cost |
+|---|---|---|---:|---:|
+| medium-a (M3 + H1) | US-TX-3 / `uwgeaie5b0` | 73.0 s | 462 s | $0.139883 |
+| H1/H2 (locked) | US-MO-1 / `y92bt25ru8` | 105.6 s | 160 s | $0.048444 |
+| H1 | US-TX-3 / `uwgeaie5b0` | 50.8 s | 438 s | $0.132617 |
+| H1 + H2 | US-TX-3 / `uwgeaie5b0` | 21.8 s | 296 s | $0.089622 |
+| **Total (4 Pods)** | | mean 62.8 s | | **$0.410566** |
+
+Every Pod was an NVIDIA L40S 48 GB at $1.09/h, one at a time, `within_cap=true`, no capacity
+wait. The account balance moved `$9.182830 → $8.761883` (the Gateway estimate is the GPU figure;
+the delta also carries the volume's hourly charge).
+
+### Latency in the Package C window (installed backend log)
+
+| Phase | n | min | p50 | p95 | max |
+|---|---:|---:|---:|---:|---:|
+| planner turn, total | 38 | 3.67 s | **5.44 s** | **10.39 s** | 10.67 s |
+| planner turn, first token | 38 | 1.91 s | **2.72 s** | **6.19 s** | 6.84 s |
+| final answer stream | 1 | 5.63 s | 5.63 s | 5.63 s | 5.63 s |
+
+The single completed final stream is itself a finding: when a planner turn stalls, the turn ends
+`llm_unavailable` and `skip_final_stream` suppresses the answer, so the user sees «LLM unavailable.
+Task will continue after recovery.» even though the tool work succeeded (H2). The task is parked
+and resumable, but the wording does not match what happened.
+
+### Harness changes (test-only, no product permission widened)
+
+- `patch_file` is approvable inside the scenario sandbox (H2 needed it).
+- Parked acceptance tasks are stopped before a scenario, so they cannot hold the single computer
+  workspace and turn every new scenario into `WAITING_WORKSPACE`.
+- Pods are spaced by `--cooldown-seconds` (volume detach) and the runner no longer reports an
+  empty `pods []` as “not empty”.
 
 ## Known limitations
 
@@ -293,3 +377,8 @@ of M3, not another 3-Pod cap that leaves no room for a startup failure.
 - Gateway production still runs 1.2.2; `docs/replica-us-mo-1.json` now names 1.2.3 for this
   build, but the replica itself must be updated only by an approved deploy.
 - Computer Ready is proven by the authenticated host heartbeat, not by a per-poll tool probe.
+- The planner can stall after its first tokens (four real cases, all detected at 60 s and all
+  recovered); the cause is not yet identified at the provider or the Gateway.
+- `run_process` runs with the host's minimal PATH, so a bare `python` resolves to the Windows
+  Store alias and exits `9009`. The result is now delivered honestly; `run_python` remains the
+  route for Python.
