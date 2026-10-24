@@ -279,7 +279,14 @@ def collect_session(token_value: str, chat_id: str) -> dict:
 def safe_run(run: dict, sandbox: Path) -> bool:
     name = str(run.get("tool_name") or "")
     summary = run.get("input_summary") or {}
-    if name not in {"read_file", "list_directory", "write_file", "run_python"}:
+    # A package directory has to exist before its modules can be written. The product asks for
+    # confirmation on this NORMAL_CHANGE; the harness may approve it *inside* the sandbox, just
+    # like write_file. This is a test-harness policy, never a product permission.
+    if name == "run_process":
+        executable = Path(str(summary.get("executable") or "").strip('"')).name.lower()
+        if executable not in {"python", "python.exe"} or not summary.get("cwd"):
+            return False
+    elif name not in {"read_file", "list_directory", "write_file", "run_python", "create_directory"}:
         return False
     for key in ("path", "cwd", "root"):
         value = summary.get(key)

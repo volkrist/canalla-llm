@@ -179,11 +179,11 @@ first opportunity to observe it live.
 
 ## Verification
 
-- Backend: developer gate `pytest.backend` PASS. After the stream-stall fix the full run reports
-  `962 passed, 4 skipped, 1 failed`; the only failure is
-  `test_the_staged_sidecar_in_this_repository_is_current` (`BACKEND_SIDECAR_STALE`), because the
-  backend source changed after the staged sidecar was built. The installer must be rebuilt before
-  packaging; the targeted provider/cloud tests are `47 passed`.
+- Backend: developer gate `pytest.backend` PASS. After the sidecar rebuild the full run reports
+  **963 passed, 0 failed, 4 skipped**; the staged sidecar stamp is current
+  (`source_digest=f1893258…9fbc`). The targeted provider/cloud tests are `47 passed`.
+- CI: **7/7 PASS** on `ce7a93c` (developer, frontend-e2e, native, tor, llama runtime,
+  llama runtime image, installer build).
 - Gateway: `261 passed` (`pytest.gateway` in the gate).
 - Frontend: `309 passed`, plus `tsc`, Prettier and the Vite build in the gate.
 - GUI: Playwright `e2e/generation-navigation.spec.ts`; the installed-window script passed with
@@ -192,9 +192,11 @@ first opportunity to observe it live.
 - Developer gate: **9 steps, 0 FAIL, 0 BLOCKED → PASS** (re-run after the formatting commit).
 - Live web (no GPU): TinyFish search returned 5 sources; 3 fetches returned real titles and text.
 - Live Qwen (Package A): S1–S7 **PASS**, $0.218, four Pods, `pods: []` after every stop.
-- Installed Windows 1.2.3 test build (21 Oct, final):
-  - Installer `b4b55325…ab4bf`, 95,463,526 bytes; sidecar `19976051…33f363`,
-    `source_digest=fec4bb1d…5084813`. Previous builds stay under `artifacts/` for rollback.
+- Installed Windows 1.2.3 test build (24 Oct, Package B):
+  - Installer `86536fcd…21cd`, 95,459,567 bytes; sidecar `6b19756a…64ed`,
+    `source_digest=f1893258…9fbc`. Previous builds stay under `artifacts/` for rollback.
+  - Over-install preserved 36 chats and preferences; SQLite `integrity_check=ok`
+    (backup `artifacts/install-backup-20261024-pre-package-b/alex.db`).
   - `/health`: `version 1.2.3`, protocol 1.
   - 36 chats preserved; preferences unchanged (`computer_mode=ask`, 48 GB, ≤$2/h, idle 10).
   - Computer Ready with a live host heartbeat, Tor Ready, Web Configured, Memory Ready, AI off,
@@ -203,25 +205,87 @@ first opportunity to observe it live.
   - Data backups before installs: verified in-app backups plus raw SQLite copies with
     `integrity_check=ok` (last: `artifacts/install-backup-20261021T221015Z`).
 
-## Package B and C — prepared, not authorized
+## Package B live acceptance (24 Oct 2026)
 
-Package A is green. The remaining packages are **not** authorized: no Pod was created for them.
+Owner-approved envelope: **3 Pods, $0.60, ≤$2/h, ≥48 GB, one at a time, 700 s per Pod**.
+Result: **M1, M2, M4, M5, M6, M7 PASS; M3 FAIL (test-harness policy); H1/H2 BLOCKED by
+`startup_timeout`; the third Pod was the last allowed one.**
 
-| Package | Sessions (one Pod each) | Scenarios | Max estimate |
-|---|---|---|---:|
-| B | medium-a, medium-b, hard-a | M1–M7, H1 | **$0.60** |
-| C | hard-b, hard-c, stress | H3–H6, T1–T8 (T3/T4/T8 are free UI checks) | **$0.60** |
+| Scenario | Verdict | What the model actually did |
+|---|---|---|
+| M1 | PASS | model-origin `write_file` → `run_python` → `write_file` → `run_python`; stdout **4** then **6**; final file `print(2 * 3)` |
+| M2 | PASS | `read_file` → `write_file` (calc script) → `run_python` → `read_file`; independent check: revenue 200, units 9, min 20, max 120; report file matches |
+| M3 | FAIL | the model correctly chose `create_directory` for `m3_app`, but the harness allowlist denied it; `write_file` then had no parent directory. No Qwen failure: the product asked for the normal NORMAL_CHANGE confirmation, the test policy refused it. Fixed free; not re-run because the 3-Pod cap was spent. |
+| M4 | PASS | model-origin `web_fetch` of `example.com` and `python.org`; exact titles and both links |
+| M5 | PASS | model-origin `web_fetch` → `write_file` (`m5_title.txt`) → `run_python`; answer `EXAMPLEDOMAIN` |
+| M6 | PASS | `write_file` → `run_python`; a second chat was created/read mid-turn (`chat_switched=true`); `M6_STATE_OK`; file was not recreated |
+| M7 | PASS | `write_file` confirmation **denied**; no file was created; answer names `confirmation_denied`; no bypass |
+| H1/H2 | BLOCKED | no model turn: Pod 3 never became ready, the Gateway's D-9 stopped it as `startup_timeout` (309.8 s) |
 
-Each session is a separate `runner.py --live --confirm-paid --package <name> --budget-usd <n>`
-invocation, so exactly one Pod is created and confirmed stopped per session. The free gates are
-green now: `catalog.py` (model-origin and deterministic-route self-tests), `runner.py --self-test`
-(budget guard, package selection, route gate), and `runner.py --sessions` prints the grouping
-above. `preflight.py --with-ui` still has to run against a live local backend before the first
-paid session, exactly as it did before Package A.
+Model-origin evidence is in `artifacts/acceptance-123/runs/live-20261024T101659/` (M1–M3) and
+`.../live-20261024T102626/` (M4–M7). A `server_policy` web step is never counted as a Qwen PASS;
+the M2/M4/M5 extra `web_search` calls were deterministic and are ignored for the verdict.
 
-The product question those packages answer is whether Qwen completes a 5+ step chain without a
-transport error (Package A proved single- and double-step tool use only), plus the live re-check
-of the new inter-chunk stall deadline.
+### Cost, Pods and time
+
+| Session | Pod | DC / Volume | Confirmed lifetime | Gateway cost |
+|---|---|---|---|---:|
+| medium-a | `oq27ufvafpmspq` | US-TX-3 / `uwgeaie5b0` | 421.5 s | $0.124139 |
+| medium-b | `rl766abs1rnjfo` | US-MO-1 / `y92bt25ru8` | 232.0 s | $0.065703 |
+| hard-a | `rkybxq7g8m239b` | US-MO-1 / `y92bt25ru8` | 309.8 s (`startup_timeout`) | $0.091742 |
+| **Total** | **3 Pods** | | all `within_cap=true` | **$0.281584** |
+
+Every Pod was an NVIDIA L40S 48 GB at **$1.09/h**; one at a time; no capacity wait, no second
+Pod. RunPod balance moved `$9.392691 → $9.202275` (the Gateway session estimate is $0.281584;
+the account is shared, so the balance delta is not a single-package meter).
+
+### Timing
+
+- Planner turns: first token median **2.6 s**, max 7.2 s; completed planner turn median **4.8 s**,
+  max 25.9 s (20 turns in medium-a, 11 in medium-b).
+- Final answer stream: first token 2.5–5.6 s; done 3.3–8.5 s.
+- First streamed content delta for the six PASS scenarios: **average 48.6 s**, median **29.6 s**
+  (tool work happens before the answer). Time to the first model action (first tool call):
+  **average 9.0 s**.
+- No planner turn exceeded the 60 s inter-chunk deadline without being typed.
+
+### The S7 fix fired live — twice
+
+`llm_stream_stalled` is in the real log, not just unit tests:
+
+```
+19:21:28 llm_stream_stalled what=gateway_plan:c4e99dd2 lines=24 elapsed_ms=61094 silent_ms=60015
+19:23:46 llm_stream_stalled what=gateway_plan:02cad99d lines=70 elapsed_ms=61937 silent_ms=60000
+```
+
+The client ended the turn at 60 s instead of waiting out 240–300 s, kept the completed tool
+result, and the final answer still ran. **This is detection and recovery, not a cure for the
+underlying silence**: the model/Gateway produced no chunk after the first tokens in two real
+turns, and the reason is still unknown. It is recorded as an open product finding, not as a
+fixed root cause.
+
+### Harness defects fixed free
+
+- `common.safe_run` allowed `create_directory` inside the sandbox (and `run_process` only for
+  `python` with a sandbox `cwd`); this is a test-harness policy, not a product permission change.
+- `runner.py` no longer reports an empty `pods []` as “not empty”.
+
+### State after Package B
+
+`/llm/status`: **AI off**, compute `stopped`, `last_error=startup_timeout`, `session=null`;
+after 45 s it stayed stopped — no auto-reconnect. RunPod `pods: []`; watchdog `disarmed` /
+`confirmed_stopped`, `within_cap=true`; no `WAITING_LLM` tasks in the local DB. Stop AI was
+called after every session.
+
+## Package C — prepared, not authorized
+
+Package C (`hard-b`, `hard-c`, `stress`) was **not** run and no Pod was created for it. It needs
+a fresh owner approval and a budget. What is already green: the free catalog/route self-tests,
+the runner self-test, the preflight (against the installed 1.2.3 build) and the 7/7 CI. What is
+still missing before C: H1/H2 have never run (the third Pod died on `startup_timeout`), M3 has
+not been re-run with the fixed harness, and the root cause of the planner silence is open. A
+fresh C approval should therefore include at least one spare Pod/budget for H1/H2 and a re-run
+of M3, not another 3-Pod cap that leaves no room for a startup failure.
 
 ## Known limitations
 

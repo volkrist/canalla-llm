@@ -295,7 +295,7 @@ def run_live(args) -> int:
         return 2
     pods_before, _ = pods()
     print("pods_before", pods_before)
-    if "pods=[]" not in json.dumps(pods_before):
+    if str(pods_before.get("pods") or "").strip() != "pods []":
         print("NOTE pods_before is not empty; the one-Pod rule is checked again after stop")
     code, text = watchdog("--arm 700")
     print("watchdog_arm", code, text[:300])
