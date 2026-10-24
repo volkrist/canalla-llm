@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     # RunPod volume. This is the single source of truth the composer's context meter
     # reports against (docs/context-usage.md); it is never assumed by the frontend.
     llm_context_window: int = Field(default=32768, ge=1024, le=1048576)
+    # A stream that has already produced an event must not go silent for long. The first
+    # chunk is still bounded by the transport read budget (Gateway queue admission plus
+    # prefill), but after that a gap is a stall, not a slow model: without this bound a
+    # missing chunk held the turn until the whole 300-450 s read budget expired.
+    llm_stream_stall_seconds: float = Field(default=60, ge=0.05, le=600)
     runpod_gateway_port: int = Field(default=9000, ge=1024, le=65535)
     presence_heartbeat_seconds: int = Field(default=20, ge=10, le=30)
     presence_idle_seconds: int = Field(default=300, ge=30, le=3600)

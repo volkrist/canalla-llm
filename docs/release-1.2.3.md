@@ -156,7 +156,7 @@ unless Canalla is the foreground window, and proves Settings by its panel (≥10
 plus an Escape round trip (≤5 % residue) instead of a changed hash. The live S7 run used the fixed
 script.
 
-### Open finding from S7 (not fixed here)
+### S7 stalled planner — measured, then fixed free
 
 S7's verdict is about the interface, and the interface behaved correctly. The same request also
 exposed a **stalled planner stream**: `gateway_plan_start id=550af6a0` at 21:05:07, headers in
@@ -164,16 +164,26 @@ exposed a **stalled planner stream**: `gateway_plan_start id=550af6a0` at 21:05:
 no error, no retry. The harness gave up on its own read timeout; the product would have ended the
 turn at its 300 s planner budget and parked the task as recoverable `llm_unavailable`.
 
-This is a new, measured case of the «no progress after the first token» class, and the next fix
-should be an **inter-chunk deadline** (after the first token, N s without any chunk is a typed
-stall, not a slow model) plus a log line with the request id. It is deliberately not shipped here:
-the change touches both stream paths and needs its own live re-check, which is not part of
-Package A.
+The free fix is implemented. `iter_stream_lines` in `app/providers.py` keeps the first chunk under
+the transport read budget (Gateway queue admission plus prefill) and turns a gap longer than
+`llm_stream_stall_seconds` (default **60 s**) after the first event into a typed `llm_stalled`
+instead of waiting out the whole budget. Both the planner and the final-answer streams use it,
+in shared and direct mode, and the log line carries the request id
+(`llm_stream_stalled what=gateway_plan:<id>`). Regressions: the two silent-stream tests and the
+"slow first chunk is not a stall" test in `tests/test_cloud.py`, plus the local-provider case in
+`tests/test_providers.py`; **47 passed**.
+
+The **live re-check remains**: a real Qwen stream that stalls after the first token. It needs a
+paid Pod, so it was not part of Package A's authorization; Package B's long turns (H1) are the
+first opportunity to observe it live.
 
 ## Verification
 
-- Backend: developer gate `pytest.backend` PASS; the last full run reports `959 passed, 4 skipped`
-  (the sidecar stamp test is green against the installed build).
+- Backend: developer gate `pytest.backend` PASS. After the stream-stall fix the full run reports
+  `962 passed, 4 skipped, 1 failed`; the only failure is
+  `test_the_staged_sidecar_in_this_repository_is_current` (`BACKEND_SIDECAR_STALE`), because the
+  backend source changed after the staged sidecar was built. The installer must be rebuilt before
+  packaging; the targeted provider/cloud tests are `47 passed`.
 - Gateway: `261 passed` (`pytest.gateway` in the gate).
 - Frontend: `309 passed`, plus `tsc`, Prettier and the Vite build in the gate.
 - GUI: Playwright `e2e/generation-navigation.spec.ts`; the installed-window script passed with
@@ -193,22 +203,25 @@ Package A.
   - Data backups before installs: verified in-app backups plus raw SQLite copies with
     `integrity_check=ok` (last: `artifacts/install-backup-20261021T221015Z`).
 
-## Remaining live gate (not approved yet)
+## Package B and C — prepared, not authorized
 
-Package A is green. The remaining packages are **not** authorized:
+Package A is green. The remaining packages are **not** authorized: no Pod was created for them.
 
-- **Package B** (medium-a + medium-b + hard-a): M1–M7, H1 — create/run/fix, CSV statistics with
-  an independent checker, a three-module project, two web sources, Web + Computer in one task, a
-  chat switch mid-task, and a **denied** confirmation.
-- **Package C** (hard-b + hard-c + hard-d + stress): H2–H6, T1, T2, T5–T7 — pytest diagnosis,
-  refactor, multi-source report, a long Web → files → Python → tests chain, transport recovery,
-  long state, Stop during generation, provider error and tool timeout.
+| Package | Sessions (one Pod each) | Scenarios | Max estimate |
+|---|---|---|---:|
+| B | medium-a, medium-b, hard-a | M1–M7, H1 | **$0.60** |
+| C | hard-b, hard-c, stress | H3–H6, T1–T8 (T3/T4/T8 are free UI checks) | **$0.60** |
 
-Both need a fresh owner approval and a budget; the harness (`runner.py --package … --budget-usd …`)
-and the watchdog are ready, and every prompt in the catalog is now free of deterministic-route
-triggers (`preflight.py` refuses to start a Pod otherwise). The one remaining product question for
-those packages is whether Qwen completes a 5+ step chain without a transport error; Package A
-proved single- and double-step tool use only.
+Each session is a separate `runner.py --live --confirm-paid --package <name> --budget-usd <n>`
+invocation, so exactly one Pod is created and confirmed stopped per session. The free gates are
+green now: `catalog.py` (model-origin and deterministic-route self-tests), `runner.py --self-test`
+(budget guard, package selection, route gate), and `runner.py --sessions` prints the grouping
+above. `preflight.py --with-ui` still has to run against a live local backend before the first
+paid session, exactly as it did before Package A.
+
+The product question those packages answer is whether Qwen completes a 5+ step chain without a
+transport error (Package A proved single- and double-step tool use only), plus the live re-check
+of the new inter-chunk stall deadline.
 
 ## Known limitations
 

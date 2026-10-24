@@ -1,8 +1,10 @@
 import asyncio
 import json
+import logging
 import re
+import time
 from abc import ABC, abstractmethod
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
 
 import httpx
 
@@ -12,6 +14,50 @@ from .tools.local.workspace import looks_like_coding
 from .tools.tor.browser import browser_target_from_prompt, looks_like_tor_browser
 from .tools.tor.router import classify_tor
 from .tools.web_router import classify_web
+
+logger = logging.getLogger(__name__)
+
+
+async def iter_stream_lines(
+    lines: AsyncIterator[str],
+    *,
+    stall_seconds: float,
+    what: str,
+) -> AsyncGenerator[str, None]:
+    """Yield SSE lines and turn a silent stream into a typed stall.
+
+    The first line may legitimately take a long time: the Gateway queues a request for
+    up to 120 s and the model may spend up to 300 s on prefill, both bounded by the
+    transport read timeout. Once an event has arrived, a gap longer than
+    ``stall_seconds`` means no further chunk is coming; waiting for the full read
+    budget would look like a dead provider instead of a stalled stream.
+    """
+    iterator = lines.__aiter__()
+    started_at = time.monotonic()
+    last_at = started_at
+    count = 0
+    while True:
+        try:
+            if count == 0:
+                line = await iterator.__anext__()
+            else:
+                line = await asyncio.wait_for(iterator.__anext__(), timeout=max(0.001, stall_seconds))
+        except StopAsyncIteration:
+            return
+        except TimeoutError:
+            now_at = time.monotonic()
+            logger.warning(
+                "llm_stream_stalled what=%s lines=%d elapsed_ms=%d silent_ms=%d timeout_s=%s",
+                what,
+                count,
+                int((now_at - started_at) * 1000),
+                int((now_at - last_at) * 1000),
+                stall_seconds,
+            )
+            raise LLMError("llm_stalled") from None
+        count += 1
+        last_at = time.monotonic()
+        yield line
 
 
 def _mock_tool_call(name, args, call_id):
@@ -387,6 +433,7 @@ class LlamaCppProvider(LLMProvider):
         self.headers = {"Authorization": f"Bearer {settings.llm_api_key}"} if settings.llm_api_key else {}
         self.target = target
         self.transport = transport
+        self.stall_seconds = settings.llm_stream_stall_seconds
 
     def endpoint(self):
         base = self.target() if self.target else self.base
@@ -465,7 +512,11 @@ class LlamaCppProvider(LLMProvider):
                     raise LLMError("connection_auth_failed")
                 if not response.is_success:
                     raise LLMError("llm_unavailable")
-                async for line in response.aiter_lines():
+                async for line in iter_stream_lines(
+                    response.aiter_lines(),
+                    stall_seconds=self.stall_seconds,
+                    what="local_stream",
+                ):
                     if not line.startswith("data:"):
                         continue
                     data = line[5:].strip()
@@ -512,6 +563,7 @@ class LLMError(RuntimeError):
             "malformed_response": "AI вернул неподдерживаемый ответ.",
             "llm_timeout": "AI не ответил вовремя.",
             "stream_interrupted": "Поток AI прерван до completion marker. Полученный текст сохранён.",
+            "llm_stalled": ("AI перестал присылать ответ. Запрос прерван. Отправьте сообщение ещё раз."),
             "llm_unavailable": "AI временно недоступен.",
             # A capacity search that ran out of its 60-second window is a typed external blocker,
             # not a broken model: the user is told what is missing and may simply ask again.

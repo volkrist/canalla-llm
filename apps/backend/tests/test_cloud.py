@@ -146,6 +146,11 @@ class FakeGateway:
         self.planner_failures = 0
         # An SSE that ends with no [DONE] and no content (a dropped connection).
         self.planner_empty_stream = False
+        # Silence after the stream has started: the S7 defect. The first delay proves the
+        # pre-first-chunk allowance, the second proves the inter-chunk deadline.
+        self.planner_silence_before_first: float | None = None
+        self.planner_silence_after_first: float | None = None
+        self.stream_silence_after_first: float | None = None
         self.planner_detail = "AI отклонил запрос (400). tools are not supported by this build"
         # Scripted answers: one payload per call, and the last one keeps answering. A test can
         # therefore pin the exact Gateway sequence a request produces without any timing.
@@ -157,6 +162,21 @@ class FakeGateway:
         self.time = datetime(2026, 9, 21, tzinfo=timezone.utc)
         self.token_ttl = 900
         self.stream_closed = False
+
+    async def stalled_planner(self):
+        if self.planner_silence_before_first is not None:
+            await asyncio.sleep(float(self.planner_silence_before_first))
+        content = str(self.planner_message.get("content") or "начало")
+        yield sse({"choices": [{"delta": {"content": content}}]})
+        if self.planner_silence_after_first is not None:
+            await asyncio.sleep(float(self.planner_silence_after_first))
+        yield sse({"usage": {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7}})
+        yield b"data: [DONE]\n\n"
+
+    async def stalled_generation(self):
+        yield sse({"choices": [{"delta": {"content": "Привет"}}]})
+        await asyncio.sleep(float(self.stream_silence_after_first or 0))
+        yield b"data: [DONE]\n\n"
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -264,6 +284,15 @@ class FakeGateway:
                     )
                 if self.planner_empty_stream:
                     return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=b"")
+                if (
+                    self.planner_silence_before_first is not None
+                    or self.planner_silence_after_first is not None
+                ):
+                    return httpx.Response(
+                        200,
+                        headers={"content-type": "text/event-stream"},
+                        content=self.stalled_planner(),
+                    )
                 if self.planner_status is not None:
                     return httpx.Response(
                         self.planner_status,
@@ -276,6 +305,12 @@ class FakeGateway:
                 )
             self.stream_calls += 1
             self.stream_bodies.append(body)
+            if self.stream_silence_after_first is not None:
+                return httpx.Response(
+                    200,
+                    headers={"content-type": "text/event-stream"},
+                    content=self.stalled_generation(),
+                )
             owner = self
 
             async def events():
@@ -616,6 +651,50 @@ def test_the_planner_uses_its_own_bounded_timeout(gateway, monkeypatch):
     run(provider.plan_tools([{"role": "user", "content": "x"}], [], {}))
 
     assert captured["timeout"] == 300
+
+
+def test_a_silent_planner_after_the_first_event_is_a_typed_stall(gateway):
+    """S7: after the first event, 240 s of silence looked like a dead provider.
+
+    The first chunk is still allowed to wait (queue admission and prefill); once an
+    event arrived, a gap is a typed stall and the turn ends instead of hanging.
+    """
+    from app.providers import LLMError
+
+    gateway.planner_silence_after_first = 5
+    provider = GatewayProvider(shared_settings(llm_stream_stall_seconds=0.05), client_for(gateway))
+
+    with pytest.raises(LLMError) as error:
+        run(provider.plan_tools([{"role": "user", "content": "x"}], [], {}))
+
+    assert error.value.code == "llm_stalled"
+    assert gateway.planner_calls == 1
+
+
+def test_a_silent_generation_after_the_first_chunk_is_a_typed_stall(gateway):
+    from app.providers import LLMError
+
+    gateway.stream_silence_after_first = 5
+    provider = GatewayProvider(shared_settings(llm_stream_stall_seconds=0.05), client_for(gateway))
+
+    async def scenario():
+        return [part async for part in provider.stream_chat([{"role": "user", "content": "x"}])]
+
+    with pytest.raises(LLMError) as error:
+        run(scenario())
+
+    assert error.value.code == "llm_stalled"
+
+
+def test_the_first_chunk_is_not_cut_by_the_stall_deadline(gateway):
+    """A slow queue or prefill is not a stall; only silence after the first event is."""
+    gateway.planner_silence_before_first = 0.2
+    gateway.planner_message = {"role": "assistant", "content": "Хорошо"}
+    provider = GatewayProvider(shared_settings(llm_stream_stall_seconds=0.05), client_for(gateway))
+
+    message = run(provider.plan_tools([{"role": "user", "content": "x"}], [], {}))
+
+    assert message["content"] == "Хорошо"
 
 
 def test_a_stream_break_is_reported_as_interrupted(gateway):

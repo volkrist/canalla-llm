@@ -111,6 +111,23 @@ def test_llamacpp_plan_tools_disables_thinking_and_keeps_tools(monkeypatch):
     assert usage["total_tokens"] == 12
 
 
+def test_llamacpp_reports_a_silent_stream_as_a_stall(monkeypatch):
+    async def body():
+        yield b'data: {"choices":[{"delta":{"content":"\xd0\x9f"}}]}\n\n'
+        await asyncio.sleep(5)
+        yield b"data: [DONE]\n\n"
+
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=body()))
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        providers.httpx, "AsyncClient", lambda **kwargs: original(transport=transport, **kwargs)
+    )
+    provider = providers.LlamaCppProvider(make_settings(_env_file=None, llm_stream_stall_seconds=0.05))
+    with pytest.raises(providers.LLMError) as error:
+        asyncio.run(provider.chat([{"role": "user", "content": "hello"}]))
+    assert error.value.code == "llm_stalled"
+
+
 def test_llamacpp_rejects_truncated_stream(monkeypatch):
     original = httpx.AsyncClient
     transport = httpx.MockTransport(lambda request: httpx.Response(200, text='data: {"choices":[]}\n\n'))

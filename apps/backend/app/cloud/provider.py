@@ -20,7 +20,7 @@ from decimal import Decimal, InvalidOperation
 import httpx
 
 from ..config import Settings
-from ..providers import LLMError, LLMProvider
+from ..providers import LLMError, LLMProvider, iter_stream_lines
 from .client import CloudError, GatewayClient
 
 # Compute states in which a model endpoint can exist — ready to serve, or on its way there.
@@ -248,6 +248,7 @@ class GatewayProvider(LLMProvider):
                 "gateway_request_conflict",
                 "offline",
                 "stream_interrupted",
+                "llm_stalled",
             }:
                 raise error
             raise LLMError("llm_unavailable") from None
@@ -322,7 +323,11 @@ class GatewayProvider(LLMProvider):
             calls: dict[int, dict] = {}
             completed = False
             first_token_at: float | None = None
-            async for line in response.aiter_lines():
+            async for line in iter_stream_lines(
+                response.aiter_lines(),
+                stall_seconds=self.settings.llm_stream_stall_seconds,
+                what=f"gateway_plan:{request_id}",
+            ):
                 if not line.startswith("data:"):
                     continue
                 data = line[5:].strip()
@@ -481,7 +486,11 @@ class GatewayProvider(LLMProvider):
             if not response.is_success:
                 raise LLMError("llm_unavailable")
             first_token_at: float | None = None
-            async for line in response.aiter_lines():
+            async for line in iter_stream_lines(
+                response.aiter_lines(),
+                stall_seconds=self.settings.llm_stream_stall_seconds,
+                what=f"gateway_stream:{request_id}",
+            ):
                 if not line.startswith("data:"):
                     continue
                 data = line[5:].strip()
