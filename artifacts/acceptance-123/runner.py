@@ -295,8 +295,14 @@ def run_live(args) -> int:
         return 2
     pods_before, _ = pods()
     print("pods_before", pods_before)
-    if str(pods_before.get("pods") or "").strip() != "pods []":
+    if "pods=[]" not in json.dumps(pods_before):
         print("NOTE pods_before is not empty; the one-Pod rule is checked again after stop")
+    if args.cooldown_seconds > 0:
+        # A regional Network Volume has to detach from the Pod that just stopped before the next
+        # Pod can mount it. Creating immediately is the plausible cause of a 300 s
+        # `startup_timeout` seen after a back-to-back stop on the same volume.
+        print("cooldown", args.cooldown_seconds, "s before the next Pod")
+        time.sleep(args.cooldown_seconds)
     code, text = watchdog("--arm 700")
     print("watchdog_arm", code, text[:300])
     if code != 0 or '"deadline_seconds": 700' not in text:
@@ -427,7 +433,36 @@ def self_test() -> int:
     assert both == ["S1", "S2", "S3", "S4", "S5", "S6", "S7"], both
     risks = catalog.route_risks(catalog.package_scenarios(["simple-a", "simple-b"]))
     assert not risks, risks
+
+    # The harness policy that blocked M3: a package directory and a patch inside the sandbox are
+    # approvable; a command outside it, or a non-Python executable, is not.
+    sandbox = common.SANDBOX / "SELFTEST"
+    assert common.safe_run(
+        {"tool_name": "create_directory", "input_summary": {"path": str(sandbox / "pkg")}},
+        sandbox,
+    )
+    assert common.safe_run(
+        {"tool_name": "patch_file", "input_summary": {"path": str(sandbox / "pkg" / "a.py")}},
+        sandbox,
+    )
+    assert not common.safe_run(
+        {"tool_name": "create_directory", "input_summary": {"path": "C:\\Windows\\Temp\\x"}},
+        sandbox,
+    )
+    assert common.safe_run(
+        {"tool_name": "run_process", "input_summary": {"executable": "python", "cwd": str(sandbox)}},
+        sandbox,
+    )
+    assert not common.safe_run(
+        {"tool_name": "run_process", "input_summary": {"executable": "cmd", "cwd": str(sandbox)}},
+        sandbox,
+    )
+    assert not common.safe_run(
+        {"tool_name": "run_process", "input_summary": {"executable": "python", "cwd": "C:\\Windows"}},
+        sandbox,
+    )
     print("SELF-TEST PASS: budget guard, package selection and the model-origin route gate")
+    print("SELF-TEST PASS: the harness approves package dirs and patches inside the sandbox only")
     return 0
 
 
@@ -453,6 +488,12 @@ def main() -> int:
         type=float,
         default=None,
         help="USD budget for this invocation; a scenario that would exceed it is not started",
+    )
+    parser.add_argument(
+        "--cooldown-seconds",
+        type=int,
+        default=0,
+        help="wait this long before creating a Pod (volume detach after a previous session)",
     )
     parser.add_argument("--sessions", action="store_true")
     args = parser.parse_args()

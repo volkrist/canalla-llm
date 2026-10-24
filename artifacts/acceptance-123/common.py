@@ -286,7 +286,14 @@ def safe_run(run: dict, sandbox: Path) -> bool:
         executable = Path(str(summary.get("executable") or "").strip('"')).name.lower()
         if executable not in {"python", "python.exe"} or not summary.get("cwd"):
             return False
-    elif name not in {"read_file", "list_directory", "write_file", "run_python", "create_directory"}:
+    elif name not in {
+        "read_file",
+        "list_directory",
+        "write_file",
+        "patch_file",
+        "create_directory",
+        "run_python",
+    }:
         return False
     for key in ("path", "cwd", "root"):
         value = summary.get(key)
