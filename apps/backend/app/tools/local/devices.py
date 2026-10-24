@@ -55,7 +55,11 @@ class HostResult(BaseModel):
     digest: str = Field(min_length=64, max_length=64)
     claim_id: str = Field(default="", max_length=64)
     status: str = Field(default="completed", max_length=32)
-    exit_code: int | None = Field(default=None, ge=-1, le=255)
+    # A Windows process exit code is 32-bit: 9009 ("command not found" through the shell alias)
+    # and negative crash codes such as -1073741510 are ordinary results. A tighter bound rejected
+    # them as 422, the host retried the same delivery forever and the tool reported `timeout`
+    # instead of the real exit code.
+    exit_code: int | None = Field(default=None, ge=-(2**31), le=2**31 - 1)
     stdout: str = Field(default="", max_length=20000)
     stderr: str = Field(default="", max_length=20000)
     text: str = Field(default="", max_length=20000)

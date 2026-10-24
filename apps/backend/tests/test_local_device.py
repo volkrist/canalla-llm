@@ -33,6 +33,19 @@ def test_secret_and_path_policy():
         assert_local_path(r"\\server\share\file.txt")
 
 
+def test_host_result_accepts_real_windows_exit_codes():
+    """9009 and negative crash codes are results, not malformed payloads.
+
+    The old `-1..255` bound made the host's delivery a 422; the host retried it every two
+    seconds and the tool ended as `timeout`, hiding the real exit code and the stderr.
+    """
+    from app.tools.local.devices import HostResult
+
+    for code in (0, 1, 255, 256, 9009, -1073741510):
+        parsed = HostResult(digest="a" * 64, claim_id="claim", exit_code=code)
+        assert parsed.exit_code == code
+
+
 def test_trusted_reduces_normal_change_confirmations():
     policy = ToolPolicy()
     registry = make_registry()
