@@ -460,6 +460,40 @@ confirmed stop 02:05:21), NVIDIA L40S 48 GB at $1.09/h. Balance `$8.6452 → $8.
   is now localisable: the client and the Gateway both record per-chunk gaps with the request
   id, but the production Gateway has not been redeployed with its side of that logging.
   Recovered tasks now produce their real answer instead of a blanket failure message.
-- `run_process` runs with the host's minimal PATH, so a bare `python` resolves to the Windows
-  Store alias and exits `9009`. The result is now delivered honestly; `run_python` remains the
-  route for Python.
+- `run_process` with a bare `python` used to resolve to the Windows Store alias and exit `9009`
+  with empty stdout. It now resolves `python`/`python3`/`py` to the same interpreter `run_python`
+  uses, and an explicit path is never rewritten (`a_bare_python_executable_is_resolved_like_run_python`).
+
+## Final acceptance — H1 (25 Oct 2026)
+
+One Pod, NVIDIA L40S 48 GB, US-TX-3, **$1.09/h**, created 11:50:32 UTC and confirmed stopped at
+**184.6 s** (watchdog deadline **480 s**, `within_cap: true`, `pods: []`, no reconnect).
+
+**H1 PASS**, with model-origin evidence only:
+
+| Check | Result |
+|---|---|
+| model-origin tool calls | **9**, every one confirmed in `mode=ask` |
+| files created by Qwen | `h1_cli/__init__.py`, `h1_cli/__main__.py`, `h1_cli/core.py`, `tests/test_core.py`, `README.md` |
+| `run_process executable=python -m h1_cli` | stdout **`H1_CLI_OK`**, exit 0 |
+| `run_python -m pytest -q` | **3 passed**, exit 0 |
+| final answer in the chat | persisted in the assistant message, contains `H1_CLI_OK` |
+| task status | `FAILED: git_not_reviewed` before the fix below; a plain folder is no longer failed for a missing repository |
+
+Scenario time 98.2 s; whole paid run 178.4 s; balance `$8.0198 → $7.9548` (the Pod and the
+background volume charge). No second Pod was created.
+
+### Related fix: a plain folder has no git review
+
+`final_review()` required `git_reviewed` for every coding task, so a completed and tested project
+in a folder without `.git` was marked `FAILED: git_not_reviewed` after the answer had already been
+delivered. The criterion now applies only when the task root is actually inside a repository
+(`Do not fail a finished build for a missing git review`). Regression:
+`test_a_plain_folder_is_not_failed_for_missing_git_review`.
+
+### Final gates (commit `8051c23`)
+
+- `scripts/release-gate.py developer`: **9/9 PASS**.
+- backend: **985 passed, 4 skipped**; gateway **261**; frontend **312**; Rust **36 + 74 + 16**.
+- installed build: installer `5c2bb86d…`, sidecar `eb26b4b9…`, source digest `64dd1446…`.
+- Draft Release v1.2.3 updated with this asset and these notes; **not published**.
