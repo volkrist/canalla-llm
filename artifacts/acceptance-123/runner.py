@@ -380,9 +380,9 @@ def run_live(args) -> int:
         # `startup_timeout` seen after a back-to-back stop on the same volume.
         print("cooldown", args.cooldown_seconds, "s before the next Pod")
         time.sleep(args.cooldown_seconds)
-    code, text = watchdog("--arm 700")
+    code, text = watchdog("--arm " + str(args.watchdog_seconds))
     print("watchdog_arm", code, text[:300])
-    if code != 0 or '"deadline_seconds": 700' not in text:
+    if code != 0 or f'"deadline_seconds": {args.watchdog_seconds}' not in text:
         print("ABORT watchdog not armed")
         return 3
     run_dir = HERE / "runs" / ("live-" + common.now().replace(":", "").replace("-", "")[:15])
@@ -421,10 +421,20 @@ def run_live(args) -> int:
             planned = scenario.budget_seconds + 20
             remaining = args.max_session_seconds - elapsed
             effective_timeout = remaining_timeout(scenario.timeout, remaining)
+            # The money budget is a second bound, measured at the rate the Gateway actually
+            # charged. Without it a cheaper cap could still overspend if the Pod ran the full
+            # session window at a higher rate than planned.
+            if args.budget_usd is not None and state.get("remaining_usd") is not None:
+                affordable = (
+                    int(max(0.0, state["remaining_usd"]) / state["rate_usd_per_hour_used"] * 3600)
+                    - 15
+                )
+                effective_timeout = min(effective_timeout, affordable)
             if effective_timeout < 60:
                 reason = (
-                    f"session cap {args.max_session_seconds}s: "
-                    f"elapsed {elapsed:.0f}s leaves {remaining:.0f}s, less than the 60 s minimum"
+                    f"effective window {effective_timeout}s is less than the 60 s minimum "
+                    f"(session cap {args.max_session_seconds}s leaves {remaining:.0f}s; "
+                    f"budget ${args.budget_usd} at ${state['rate_usd_per_hour_used']}/h)"
                 )
                 print(" skip", scenario.id, reason)
                 results.append(
@@ -594,6 +604,12 @@ def main() -> int:
         type=int,
         default=0,
         help="wait this long before creating a Pod (volume detach after a previous session)",
+    )
+    parser.add_argument(
+        "--watchdog-seconds",
+        type=int,
+        default=700,
+        help="independent watchdog deadline from Pod creation (hard cap for this run)",
     )
     parser.add_argument("--sessions", action="store_true")
     args = parser.parse_args()

@@ -1,3 +1,4 @@
+import os
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -1285,6 +1286,27 @@ class LocalTaskController:
             if step.finished_at is None:
                 step.finished_at = now()
 
+    @staticmethod
+    def _has_git_workspace(row) -> bool:
+        """Is there a repository a git review could actually run in?
+
+        A build into a plain folder (the H1 acceptance sandbox, a user's new project
+        directory) has no `git status` to review. Requiring one failed a completed, tested
+        project with `git_not_reviewed` after every file was written and pytest passed.
+        """
+        facts = row.facts or {}
+        root = str((facts.get("scope") or {}).get("primary_root") or "")
+        if not root:
+            return False
+        current = os.path.abspath(root)
+        while True:
+            if os.path.exists(os.path.join(current, ".git")):
+                return True
+            parent = os.path.dirname(current)
+            if parent == current:
+                return False
+            current = parent
+
     def final_review(self, row) -> dict:
         facts = row.facts or {}
         verification = row.verification or {}
@@ -1307,8 +1329,9 @@ class LocalTaskController:
             )
             if facts.get("baseline_tests") is False and not changed:
                 missing.append("no_effective_change")
-        if looks_like_coding(row.original_user_request) and not verification.get("git_reviewed"):
-            missing.append("git_not_reviewed")
+        if looks_like_coding(row.original_user_request) and self._has_git_workspace(row):
+            if not verification.get("git_reviewed"):
+                missing.append("git_not_reviewed")
         if needs_research(row.original_user_request) and not (
             facts.get("source_count")
             or any(item.get("kind") == "RESEARCH_SOURCE" for item in facts.get("verified") or [])

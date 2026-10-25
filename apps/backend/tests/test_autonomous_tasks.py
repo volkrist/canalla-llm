@@ -318,6 +318,34 @@ def test_a_plan_with_pending_steps_is_never_goal_met(setup):
         assert orchestrator._goal_satisfied(context, h1) is True
 
 
+def test_a_plain_folder_is_not_failed_for_missing_git_review(tmp_path):
+    """H1 live: a completed, tested project was marked FAILED as `git_not_reviewed`.
+
+    The acceptance folder is not a repository, and neither is a user's brand-new project
+    directory. A git review can only be required where a repository exists; in a real
+    repository the criterion still applies.
+    """
+    row = SimpleNamespace(
+        original_user_request=(
+            "В папке C:\\tmp создай рабочий Python CLI-проект: пакет, модуль, тесты и README. "
+            "python -m h1_cli должен печатать H1_CLI_OK, pytest -q должен проходить."
+        ),
+        facts={"scope": {"primary_root": str(tmp_path)}, "file_hashes": {"a": "b"}},
+        verification={"tests": "passed"},
+        tool_calls_used=8,
+        checkpoint={"commands": [{"tool": "write_file"}], "changed_files": []},
+        success_criteria={"all": ["done"]},
+    )
+    controller = LocalTaskController()
+    assert controller.final_review(row)["ok"] is True
+
+    (tmp_path / ".git").mkdir()
+    row.verification = {"tests": "passed"}
+    review = controller.final_review(row)
+    assert review["ok"] is False
+    assert review["reason"] == "git_not_reviewed"
+
+
 def test_compact_keeps_failure_line():
     text = "ok\n" * 4000 + "FAILED test_app.py::test_add - assert 0 == 4\n"
     packed = compact_text(text, 400)
