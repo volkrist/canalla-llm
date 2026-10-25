@@ -187,7 +187,15 @@ async def execute_tool(
             result = await task
             yield (
                 "event: tool_result\ndata: "
-                + json.dumps({"text": result.text, "metadata": result.metadata}, ensure_ascii=False)
+                + json.dumps(
+                    {
+                        "text": result.text,
+                        "metadata": result.metadata,
+                        "sources": result.sources,
+                        "errors": result.errors,
+                    },
+                    ensure_ascii=False,
+                )
                 + "\n\n"
             )
             yield "event: done\ndata: {}\n\n"

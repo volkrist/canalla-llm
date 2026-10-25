@@ -617,6 +617,11 @@ def tool_runs(evidence: dict) -> list[dict]:
 
 
 def final_text(evidence: dict) -> str:
+    # A scenario whose client stream ended before the answer (a detached turn or a recovered
+    # outage) is judged by the answer that was actually persisted in the chat.
+    late = str(evidence.get("late_answer") or "").strip()
+    if late:
+        return late
     messages = (evidence.get("session") or {}).get("messages") or []
     for message in reversed(messages):
         if message.get("role") == "assistant" and message.get("content"):

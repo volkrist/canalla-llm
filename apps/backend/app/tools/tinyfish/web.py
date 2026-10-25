@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import date
 from typing import Literal
@@ -8,6 +9,8 @@ from ..contracts import ToolError, ToolProvider, ToolResult
 from ..security import validate_url
 from .classify import markdown_needs_browser
 from .client import FETCH, SEARCH, get_tinyfish_client
+
+logger = logging.getLogger(__name__)
 
 
 def bounded_excerpt(text, purpose, limit=6000):
@@ -112,8 +115,13 @@ class TinyFishSearchProvider(ToolProvider[SearchArgs]):
                     "retrieval": "search",
                 }
             )
-        if not sources and errors:
-            # An empty answer with provider errors is a failed search, not a successful empty one.
+        if not sources:
+            # An empty answer with no provider error is still not a successful search.
+            logger.warning(
+                "tinyfish_search_empty query_chars=%d provider_errors=%d",
+                len(args.query or ""),
+                len(value.get("errors") or []),
+            )
             raise ToolError("search_failed")
         return ToolResult(
             sources=sources,
@@ -169,9 +177,16 @@ class TinyFishFetchProvider(ToolProvider[FetchArgs]):
                     "needs_browser": markdown_needs_browser(excerpt),
                 }
             )
-        if not sources and errors:
-            # Every requested URL failed: report the tool as failed so a retry is possible and
-            # the UI does not show a green «Завершено» over an empty result.
+        if not sources:
+            # An empty answer is not a successful fetch: the page text is the product. A provider
+            # that answers with no result (an empty 200, or a 204 termination) must be a typed
+            # failure so the UI never shows a green «Завершено» over nothing.
+            logger.warning(
+                "tinyfish_fetch_empty urls=%d terminated=%s provider_errors=%d",
+                len(args.urls),
+                bool(value.get("terminated")),
+                len(value.get("errors") or []),
+            )
             raise ToolError("fetch_failed")
         return ToolResult(
             sources=sources,

@@ -150,6 +150,10 @@ class FakeGateway:
         # A response the Gateway completed but the client never received (a lost response).
         self.planner_headers_timeouts = 0
         self.stream_headers_timeouts = 0
+        # A response whose body dies before the first event/token (headers arrived, then the
+        # connection was lost). Nothing was produced, so a retry is safe.
+        self.planner_iter_timeouts = 0
+        self.stream_iter_timeouts = 0
         # An SSE that ends with no [DONE] and no content (a dropped connection).
         self.planner_empty_stream = False
         # Silence after the stream has started: the S7 defect. The first delay proves the
@@ -289,6 +293,16 @@ class FakeGateway:
                 if self.planner_headers_timeouts:
                     self.planner_headers_timeouts -= 1
                     raise httpx.ReadTimeout("lost planner response", request=request)
+                if self.planner_iter_timeouts:
+                    self.planner_iter_timeouts -= 1
+
+                    async def dead_planner():
+                        raise httpx.ReadTimeout("lost planner body", request=request)
+                        yield b""  # pragma: no cover - the raise is the point
+
+                    return httpx.Response(
+                        200, headers={"content-type": "text/event-stream"}, content=dead_planner()
+                    )
                 if self.planner_failures:
                     self.planner_failures -= 1
                     return httpx.Response(
@@ -320,6 +334,16 @@ class FakeGateway:
             if self.stream_headers_timeouts:
                 self.stream_headers_timeouts -= 1
                 raise httpx.ReadTimeout("lost answer response", request=request)
+            if self.stream_iter_timeouts:
+                self.stream_iter_timeouts -= 1
+
+                async def dead_answer():
+                    raise httpx.ReadTimeout("lost answer body", request=request)
+                    yield b""  # pragma: no cover - the raise is the point
+
+                return httpx.Response(
+                    200, headers={"content-type": "text/event-stream"}, content=dead_answer()
+                )
             if self.stream_silence_after_first is not None:
                 return httpx.Response(
                     200,
@@ -382,6 +406,23 @@ def test_the_legacy_client_sees_a_named_refusal_not_a_502():
     assert map_code("gateway_budget_denied") == "gateway_budget_denied"
     assert _http(CloudError("gateway_stop_forbidden")).status_code == 409
     assert _http(CloudError("gateway_budget_denied")).status_code == 409
+
+
+def test_a_configured_proxy_is_never_silently_bypassed(monkeypatch):
+    """A custom transport object disables httpx's env-proxy mounting.
+
+    The H6 fault proxy and an operator proxy both ride on `HTTPS_PROXY`. The IPv4-preferred
+    transport must only be used when no proxy is configured, or the fault would never reach the
+    backend and H6 would test nothing.
+    """
+    for name in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    settings = shared_settings()
+
+    assert GatewayClient(settings)._transport() is not None
+
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:8765")
+    assert GatewayClient(settings)._transport() is None
 
 
 def test_the_stream_read_budget_covers_the_gateway_queue_admission():
@@ -702,6 +743,31 @@ def test_a_lost_answer_response_is_retried_before_anything_was_shown(gateway):
     assert "".join(parts) == "Привет, облако"
 
 
+def test_a_planner_stream_that_dies_before_any_event_is_retried(gateway):
+    """Headers arrived, the body died: nothing reached the planner, so one retry is safe."""
+    gateway.planner_iter_timeouts = 1
+    gateway.planner_message = {"role": "assistant", "content": "Ок"}
+    provider = GatewayProvider(shared_settings(), client_for(gateway))
+
+    message = run(provider.plan_tools([{"role": "user", "content": "x"}], [], {}))
+
+    assert gateway.planner_calls == 2
+    assert message["content"] == "Ок"
+
+
+def test_an_answer_stream_that_dies_before_any_token_is_retried(gateway):
+    gateway.stream_iter_timeouts = 1
+    provider = GatewayProvider(shared_settings(), client_for(gateway))
+
+    async def collect():
+        return [part async for part in provider.stream_chat([{"role": "user", "content": "x"}])]
+
+    parts = run(collect())
+
+    assert gateway.stream_calls == 2
+    assert "".join(parts) == "Привет, облако"
+
+
 def test_a_mid_stream_stall_is_never_replayed(gateway):
     """A duplicated prefix is worse than a typed interruption: only a zero-token turn retries."""
     from app.providers import LLMError
@@ -761,6 +827,32 @@ def test_the_first_chunk_is_not_cut_by_the_stall_deadline(gateway):
     message = run(provider.plan_tools([{"role": "user", "content": "x"}], [], {}))
 
     assert message["content"] == "Хорошо"
+
+
+def test_a_planner_that_never_sends_a_first_event_is_bounded_and_retried(gateway):
+    """Headers arrived, then nothing: the 25 Oct lost-response class.
+
+    The first event is now bounded separately from the inter-chunk gap, and because no token
+    or tool call was produced the planner may retry. Before this, the turn either waited the
+    whole transport budget or (after the mid-stream guard) reported `llm_stalled`, telling the
+    user to resend a message the server had already accepted.
+    """
+    import time
+
+    from app.providers import LLMError
+
+    gateway.planner_silence_before_first = 5
+    provider = GatewayProvider(
+        shared_settings(llm_stream_first_line_seconds=0.05, llm_stream_stall_seconds=5),
+        client_for(gateway),
+    )
+    started = time.monotonic()
+    with pytest.raises(LLMError) as error:
+        run(provider.plan_tools([{"role": "user", "content": "x"}], [], {}))
+
+    assert error.value.code == "llm_unavailable"
+    assert gateway.planner_calls >= 2, "a header-only silence must be retried, not accepted"
+    assert time.monotonic() - started < 10, "the first-line budget is a guard, not a 60 s wait"
 
 
 def test_a_stream_break_is_reported_as_interrupted(gateway):

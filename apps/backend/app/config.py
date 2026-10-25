@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     # prefill), but after that a gap is a stall, not a slow model: without this bound a
     # missing chunk held the turn until the whole 300-450 s read budget expired.
     llm_stream_stall_seconds: float = Field(default=60, ge=0.05, le=600)
+    # How long the first line of an SSE response may take AFTER the headers arrived. A planner's
+    # first token is normally 2-7 s; the 25 Oct lost-response class delivered headers and then
+    # nothing, so waiting the full 130 s read budget burned most of a scenario. This is a guard,
+    # not a queue-admission budget: the headers themselves keep their own bound.
+    llm_stream_first_line_seconds: float = Field(default=20, ge=1, le=120)
     runpod_gateway_port: int = Field(default=9000, ge=1024, le=65535)
     presence_heartbeat_seconds: int = Field(default=20, ge=10, le=30)
     presence_idle_seconds: int = Field(default=300, ge=30, le=3600)
@@ -223,11 +228,11 @@ class Settings(BaseSettings):
     # the per-call tool ceiling.
     alex_gateway_plan_timeout_seconds: float = Field(default=300, ge=30, le=300)
     # How long one request may wait for the response headers before the client treats it as a lost
-    # response. The Gateway queues a generation for at most 120 s; 90 s covers admission for the
-    # single generation this product runs and still leaves room for one bounded retry inside the
-    # task window. A response that the Gateway completed but the client never received used to
-    # hold the turn for the full 450 s read budget.
-    alex_gateway_first_response_seconds: float = Field(default=130, ge=10, le=300)
+    # response. The single generation this product runs normally starts in under 10 s; the bound is
+    # a guard against the lost-response class, not a queue-admission allowance, and it leaves room
+    # for one bounded retry inside the task window. A response that the Gateway completed but the
+    # client never received used to hold the turn for the full 450 s read budget.
+    alex_gateway_first_response_seconds: float = Field(default=45, ge=10, le=300)
     gateway_status_active_seconds: float = Field(default=5, ge=1, le=300)
     gateway_status_idle_seconds: float = Field(default=15, ge=1, le=600)
     balance_background_enabled: bool = True

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 # status chips and the balance panel keep working unchanged.
 LOCAL_CODES = {
     "gateway_unavailable": "gateway_unavailable",
+    "gateway_timeout": "gateway_timeout",
     "gateway_upstream_rejected": "gateway_upstream_rejected",
     "gateway_busy": "gateway_busy",
     "gateway_queue_full": "gateway_queue_full",
@@ -101,6 +103,36 @@ class GatewayClient:
     def shared(self) -> bool:
         return self.settings.alex_ai_mode == "shared"
 
+    def _transport(self):
+        """An IPv4-preferred transport for each Gateway request.
+
+        The 25 Oct outages had one shape: the Gateway completed a request (its access log says
+        `200 OK`) while the client never received the response and waited out its whole read
+        budget. The hostname is dual-stack behind Cloudflare; a broken IPv6 flow produces exactly
+        that asymmetry, where the origin's writes succeed and the client sees nothing. Binding to
+        `0.0.0.0` keeps every Gateway request on the IPv4 path. Each client owns and closes its
+        transport, so this stays a fresh connection per request; the callers still bound and
+        retry a lost response on top of it.
+        """
+        if self.transport is not None:
+            return self.transport
+        if any(
+            os.environ.get(name)
+            for name in (
+                "HTTPS_PROXY",
+                "https_proxy",
+                "HTTP_PROXY",
+                "http_proxy",
+                "ALL_PROXY",
+                "all_proxy",
+            )
+        ):
+            # A transport object silently bypasses httpx's environment-proxy mounting. The
+            # acceptance fault proxy depends on that mounting, and an operator proxy must work
+            # too, so a configured proxy keeps the default transport.
+            return None
+        return httpx.AsyncHTTPTransport(local_address="0.0.0.0", retries=0)
+
     def timeout(self, value: float | None = None) -> httpx.Timeout:
         return httpx.Timeout(value or self.settings.alex_gateway_timeout_seconds, connect=10)
 
@@ -159,7 +191,7 @@ class GatewayClient:
             headers["Authorization"] = "Bearer " + await self.token()
         try:
             async with httpx.AsyncClient(
-                timeout=self.timeout(timeout), follow_redirects=False, transport=self.transport
+                timeout=self.timeout(timeout), follow_redirects=False, transport=self._transport()
             ) as client:
                 response = await client.request(method, self.url + path, json=json, headers=headers)
         except httpx.TimeoutException:
@@ -254,13 +286,13 @@ class GatewayClient:
         return headers
 
     def client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(timeout=self.timeout(), follow_redirects=False, transport=self.transport)
+        return httpx.AsyncClient(timeout=self.timeout(), follow_redirects=False, transport=self._transport())
 
     def stream_client(self, timeout: float | None = None) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             timeout=httpx.Timeout(timeout, connect=10) if timeout else self.stream_timeout(),
             follow_redirects=False,
-            transport=self.transport,
+            transport=self._transport(),
         )
 
 

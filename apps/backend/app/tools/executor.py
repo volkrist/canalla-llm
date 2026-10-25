@@ -936,7 +936,8 @@ class ToolExecutor:
 
     async def save_sources(self, result: ToolResult, context, definition):
         if not context.generation_id:
-            result.sources = []
+            # A direct tool call has no generation row to attach sources to, but the caller still
+            # needs to see what the tool actually returned. Keep them on the result; never invent.
             return
         saved, returned = [], []
         channel = "tor" if definition.capability.startswith("tor") else "web"

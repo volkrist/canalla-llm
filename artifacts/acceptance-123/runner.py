@@ -137,6 +137,11 @@ def budget_state(elapsed_s: float, rate: float | None, budget: float | None) -> 
     }
 
 
+def remaining_timeout(scenario_timeout: float, remaining: float) -> int:
+    """A scenario may never run past the Pod's remaining window (15 s stop margin)."""
+    return int(min(scenario_timeout, remaining - 15))
+
+
 def fits_budget(state: dict, planned_seconds: int, budget: float | None) -> bool:
     if budget is None:
         return True
@@ -170,21 +175,31 @@ def ui_during_generation() -> dict:
     }
 
 
-def run_scenario(scenario: catalog.Scenario, token: str) -> dict:
+def fault_control(path: str, timeout: float = 8.0) -> dict:
+    """Arm/clear the local fault proxy. It never touches the Gateway or the product."""
+    import urllib.error
+    import urllib.request
+
+    request = urllib.request.Request("http://127.0.0.1:8766" + path, method="POST", data=b"")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return {"http": response.status, "body": response.read().decode("utf-8", "replace")[:400]}
+    except (urllib.error.URLError, OSError) as error:
+        return {"http": 0, "error": str(error)[:200]}
+
+
+def run_scenario(scenario: catalog.Scenario, token: str, timeout: float | None = None) -> dict:
     root = catalog.scenario_root(scenario.id)
     root.mkdir(parents=True, exist_ok=True)
+    # Every scenario starts from its own clean directory, seeded or not. A leftover from a failed
+    # attempt must never be read as this attempt's work (H1 was failed by exactly that).
+    for child in root.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child, ignore_errors=True)
+        else:
+            child.unlink(missing_ok=True)
     if scenario.setup:
         catalog.setup_fixture(scenario.setup, root)
-    else:
-        # A scenario that builds its project from scratch must not inherit a previous attempt.
-        # H1 was failed by a corrupted `h1_cli/__init__.py` left behind by the 1.2.3 trim defect:
-        # the model inspected the stale tree and never wrote a clean README. The path is inside
-        # the acceptance sandbox only.
-        for child in root.iterdir():
-            if child.is_dir():
-                shutil.rmtree(child, ignore_errors=True)
-            else:
-                child.unlink(missing_ok=True)
     # A task parked by an earlier session owns the single computer workspace; without this the
     # new scenario would answer `WAITING_WORKSPACE` and never reach the model.
     stale = common.stop_stale_tasks(token, common.SANDBOX)
@@ -193,6 +208,7 @@ def run_scenario(scenario: catalog.Scenario, token: str) -> dict:
     confirmations: list[dict] = []
     switched = False
     seen: set[str] = set()
+    fault: dict = {"armed": False}
     ui_state: dict = {"result": None, "started_at": None}
 
     def on_event(event: str, data: dict) -> None:
@@ -214,6 +230,25 @@ def run_scenario(scenario: catalog.Scenario, token: str) -> dict:
                     "body": text[:200],
                 }
             )
+        if (
+            scenario.id == "H6"
+            and not fault["armed"]
+            and event == "tool"
+            and data.get("tool_name") == "write_file"
+            and data.get("status") == "completed"
+        ):
+            # The write is on disk. Break backend -> Gateway for 6 s: the next planner call and
+            # the immediate answer both fail typed, the task parks, then the queue monitor's
+            # backoff retry reaches the Gateway again. The write must not be replayed.
+            fault["armed"] = True
+            fault["armed_at"] = common.now()
+
+            def disturb() -> None:
+                fault["block"] = fault_control("/block?seconds=6")
+                time.sleep(6)
+                fault["clear"] = fault_control("/clear")
+
+            threading.Thread(target=disturb, daemon=True).start()
         if (
             scenario.id == "M6"
             and not switched
@@ -244,13 +279,38 @@ def run_scenario(scenario: catalog.Scenario, token: str) -> dict:
     stream = common.stream_chat(
         chat_id,
         scenario.prompt,
-        timeout=scenario.timeout,
+        timeout=timeout or scenario.timeout,
         token_value=token,
         on_event=on_event,
     )
     if ui_thread is not None:
         ui_thread.join(240)
     session = common.collect_session(token, chat_id)
+    late_answer = ""
+    if scenario.id == "H6" and fault.get("armed"):
+        # The stream ends while the task is parked. The answer arrives after the network is back;
+        # that persisted answer is the evidence for H6, not the interim halt text.
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            status, text = common.call(
+                "GET", "/chats/" + chat_id + "/messages", token=token, timeout=20
+            )
+            if status == 200:
+                try:
+                    rows = json.loads(text)
+                except ValueError:
+                    rows = []
+                for message in reversed(rows):
+                    content = str(message.get("content") or "")
+                    if message.get("role") == "assistant" and any(
+                        marker in content for marker in scenario.markers
+                    ):
+                        late_answer = content
+                        break
+            if late_answer:
+                break
+            time.sleep(2)
+        fault["late_answer_seconds"] = int(time.monotonic() - (deadline - 90))
     after = common.snapshot(root)
     changed = sorted(
         path for path in set(before) | set(after) if before.get(path) != after.get(path)
@@ -272,6 +332,8 @@ def run_scenario(scenario: catalog.Scenario, token: str) -> dict:
         "ui": ui_state["result"],
         "ui_started_at": ui_state["started_at"],
         "ui_stream_open_ms": stream.get("elapsed_ms"),
+        "late_answer": late_answer,
+        "fault": fault,
     }
     verdict, reasons = catalog.evaluate(scenario, evidence)
     evidence["verdict"] = verdict
@@ -337,10 +399,13 @@ def run_live(args) -> int:
         if not ready:
             print("ABORT not ready; capacity/search is not retried")
             return 5
-        started = time.monotonic()
         session_start = session_spend(token)
         rate = session_start.get("hourly_rate_usd")
-        print("session", json.dumps(session_start, ensure_ascii=False))
+        # The Pod's clock started when it was created, not when the model became ready. Counting
+        # the startup seconds is what keeps `max_session_seconds` a real cap on Pod lifetime.
+        startup_seconds = float(session_start.get("billable_seconds") or 0)
+        started = time.monotonic() - startup_seconds
+        print("session", json.dumps(session_start, ensure_ascii=False), "startup_s", startup_seconds)
         for scenario in selected:
             if scenario.ui_script and not args.with_ui:
                 results.append(
@@ -354,10 +419,12 @@ def run_live(args) -> int:
             elapsed = time.monotonic() - started
             state = budget_state(elapsed, rate, args.budget_usd)
             planned = scenario.budget_seconds + 20
-            if elapsed + planned > args.max_session_seconds:
+            remaining = args.max_session_seconds - elapsed
+            effective_timeout = remaining_timeout(scenario.timeout, remaining)
+            if effective_timeout < 60:
                 reason = (
                     f"session cap {args.max_session_seconds}s: "
-                    f"elapsed {elapsed:.0f}s + {planned}s would exceed it"
+                    f"elapsed {elapsed:.0f}s leaves {remaining:.0f}s, less than the 60 s minimum"
                 )
                 print(" skip", scenario.id, reason)
                 results.append(
@@ -374,8 +441,20 @@ def run_live(args) -> int:
                     {"scenario": scenario.id, "verdict": "BLOCKED_BUDGET", "reasons": [reason]}
                 )
                 continue
-            print("scenario", scenario.id, scenario.title, state)
-            evidence = run_scenario(scenario, token)
+            if scenario.id == "H6":
+                probe = fault_control("/status")
+                if probe.get("http") != 200:
+                    reason = (
+                        "fault proxy is not running; H6 would not test a real interruption: "
+                        + str(probe)[:200]
+                    )
+                    print(" skip", scenario.id, reason)
+                    results.append(
+                        {"scenario": scenario.id, "verdict": "BLOCKED", "reasons": [reason]}
+                    )
+                    continue
+            print("scenario", scenario.id, scenario.title, state, "timeout_s", effective_timeout)
+            evidence = run_scenario(scenario, token, timeout=effective_timeout)
             (run_dir / (scenario.id + ".json")).write_text(
                 json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8"
             )
@@ -442,6 +521,12 @@ def self_test() -> int:
     assert fits_budget(roomy, 600, 0.32), roomy
     assert not fits_budget(roomy, 1200, 0.32), roomy
     assert budget_state(0, None, None)["rate_usd_per_hour_used"] == 2.0
+    # A scenario can never outlive the Pod: it gets the smaller of its own timeout and what is
+    # left, minus the stop margin.
+    assert remaining_timeout(480, 300) == 285
+    assert remaining_timeout(480, 1000) == 480
+    assert remaining_timeout(300, 1000) == 300
+    assert remaining_timeout(480, 60) == 45
     package = [item.id for item in catalog.package_scenarios(["simple-a"])]
     assert package == ["S1", "S2", "S3"], package
     both = [item.id for item in catalog.package_scenarios(["simple-a", "simple-b"])]

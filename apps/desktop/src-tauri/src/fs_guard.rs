@@ -121,14 +121,32 @@ pub fn resolve(path: &str, _roots: &[String]) -> Result<PathBuf, String> {
     let candidate = PathBuf::from(value);
     let resolved = if candidate.exists() {
         canonicalize_existing(&candidate)?
-    } else if let Some(parent) = candidate.parent().filter(|p| !p.as_os_str().is_empty()) {
-        if parent.exists() {
-            canonicalize_existing(parent)?.join(candidate.file_name().unwrap_or_default())
-        } else {
-            return Err("path_denied".into());
-        }
     } else {
-        return Err("path_denied".into());
+        // The parent chain may not exist yet: creating a package directory in one write is normal.
+        // Resolve the nearest existing ancestor and re-append the missing components. Every
+        // component above was already checked to be local and free of `..`.
+        let mut missing: Vec<std::ffi::OsString> = Vec::new();
+        let mut cursor = candidate.as_path();
+        loop {
+            let Some(name) = cursor.file_name() else {
+                return Err("path_denied".into());
+            };
+            missing.push(name.to_os_string());
+            let Some(parent) = cursor.parent() else {
+                return Err("path_denied".into());
+            };
+            if parent.as_os_str().is_empty() {
+                return Err("path_denied".into());
+            }
+            if parent.exists() {
+                let mut base = canonicalize_existing(parent)?;
+                for part in missing.iter().rev() {
+                    base.push(part);
+                }
+                break base;
+            }
+            cursor = parent;
+        }
     };
     deny_secret(&resolved)?;
     Ok(resolved)

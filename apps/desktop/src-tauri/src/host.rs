@@ -993,6 +993,16 @@ fn fs_write(args: &Value, roots: &[String]) -> LocalOutcome {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
+    // A package file is often the first thing written into a new directory. Creating the missing
+    // parent keeps one failed `write_file` from stalling a multi-step task; `resolve` already
+    // checked that the whole path is local, `..`-free and not a secret path.
+    if let Some(parent) = file.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            if fs::create_dir_all(parent).is_err() {
+                return err_text("write_failed");
+            }
+        }
+    }
     let expected = args.get("expected_before_sha256").and_then(Value::as_str);
     let before = fs::read(&file).ok().map(|bytes| sha256_hex(&bytes));
     if let Some(expected) = expected.filter(|value| !value.is_empty()) {
@@ -1257,7 +1267,7 @@ fn run_exec(
             };
             (exe, prefix)
         }
-        _ => (str_arg(args, "executable"), vec![]),
+        _ => resolve_process_executable(&str_arg(args, "executable")),
     };
     if exe.is_empty() {
         return err_text("invalid_arguments");
@@ -1288,6 +1298,32 @@ fn run_exec(
     out.stderr = redact_text(&out.stderr);
     out.text = redact_text(&out.text);
     out
+}
+
+/// Resolve the executable a `run_process` call asked for.
+///
+/// A bare interpreter name means the same thing as `run_python`: run the Python this installation
+/// can actually find. `PATH` on Windows 11 often points at the Microsoft Store alias stub, which
+/// exits 9009 and writes nothing, so the model saw an empty stdout for `python -m h1_cli` while the
+/// code was correct (live H1, 25 Oct). A path is never rewritten.
+fn resolve_process_executable(requested: &str) -> (String, Vec<String>) {
+    let bare = !requested.contains('\\') && !requested.contains('/');
+    let lower = requested.trim().to_ascii_lowercase();
+    if bare
+        && matches!(
+            lower.as_str(),
+            "python" | "python3" | "python.exe" | "py" | "py.exe"
+        )
+    {
+        let exe = python_executable();
+        let prefix = if exe.to_ascii_lowercase().ends_with("py.exe") {
+            vec!["-3".to_string()]
+        } else {
+            Vec::new()
+        };
+        return (exe, prefix);
+    }
+    (requested.to_string(), Vec::new())
 }
 
 fn python_executable() -> String {
@@ -1904,6 +1940,21 @@ mod tests {
     }
 
     #[test]
+    fn write_file_creates_a_missing_parent_directory() {
+        // H1 live: the model wrote a package file before the directory existed and the host
+        // answered `path_denied`, which stalled the whole task.
+        let dir = std::env::temp_dir().join("alex-llm-write-parents-test");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("pkg").join("nested").join("module.py");
+        let args = json!({"path": file.to_string_lossy(), "content": "x = 1\n"});
+        let out = run_local_tool("write_file", &args, &[], "write-parents", || false);
+        assert_eq!(out.exit_code, Some(0), "{}", out.stderr);
+        assert_eq!(fs::read_to_string(&file).unwrap(), "x = 1\n");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn delete_file_uses_disposable_temp() {
         let dir = std::env::temp_dir().join("alex-llm-delete-test");
         fs::create_dir_all(&dir).unwrap();
@@ -1932,6 +1983,29 @@ mod tests {
         assert!(info.text.contains("cpu_logical_processors="));
         assert!(!info.text.to_ascii_lowercase().contains("machineguid"));
         assert!(!info.text.to_ascii_lowercase().contains("mac"));
+    }
+
+    #[test]
+    fn a_bare_python_executable_is_resolved_like_run_python() {
+        // H1 live: `run_process executable="python"` found the Store alias stub, exited 9009 and
+        // returned empty stdout, so a correct CLI looked like it printed nothing.
+        let (exe, prefix) = super::resolve_process_executable("python");
+        assert_eq!(exe, super::python_executable());
+        if exe.to_ascii_lowercase().ends_with("py.exe") {
+            assert_eq!(prefix, vec!["-3".to_string()]);
+        } else {
+            assert!(prefix.is_empty());
+        }
+        assert_eq!(super::resolve_process_executable("python3").0, exe);
+    }
+
+    #[test]
+    fn an_explicit_executable_path_is_never_rewritten() {
+        let (exe, prefix) = super::resolve_process_executable(r"C:\Tools\python.exe");
+        assert_eq!(exe, r"C:\Tools\python.exe");
+        assert!(prefix.is_empty());
+        let (git, _) = super::resolve_process_executable("git");
+        assert_eq!(git, "git");
     }
 
     #[test]

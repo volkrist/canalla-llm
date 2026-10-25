@@ -163,6 +163,7 @@ async def stream_response(
         tool_task = None
         planner_usage = {}
         parked = False
+        detached = False
         tool_context = None
         usage_id = None
         # Verified results of this turn. A halted answer quotes them, so the user sees what the
@@ -177,6 +178,74 @@ async def stream_response(
             if queue.full():
                 queue.get_nowait()
             queue.put_nowait((event, jsonable_encoder(value)))
+
+        async def finish_detached(task, context):
+            """Write the answer of a turn whose client went away, then release the chat.
+
+            A browser reload, a navigation or a closed window must not destroy a multi-step
+            task: the tool phase keeps running, its results are already on disk, and the answer
+            is written into the same assistant message. The generation slot stays held until
+            then, so a second message in the same chat cannot race the detached turn.
+            """
+            final_status = "complete"
+            try:
+                enriched = await task
+                from .context_builder import ContextBuilder as _ContextBuilder
+                from .tools.local.continue_task import finish_resumed_task
+                from .tools.local.task import LocalTaskController as _Controller
+
+                enriched = _ContextBuilder.with_tool_results(
+                    enriched,
+                    getattr(context, "tool_transcript", None),
+                    get_settings().tools_max_chars * 4,
+                )
+                halt = getattr(context, "task_halt", None)
+                if halt and halt != "llm_unavailable":
+                    # Only the user can resolve these (confirmation, pause, device). Never
+                    # fabricate an answer for a turn that is deliberately waiting.
+                    with SessionLocal() as db:
+                        row = _Controller()._row(db, context)
+                        facts = dict(row.facts or {}) if row else {}
+                        message = db.get(Message, assistant_id)
+                        if message is not None:
+                            message.content = public_assistant_text("", halt, facts)
+                            message.status = "complete"
+                            message.completed_at = now()
+                        db.commit()
+                else:
+                    text = await finish_resumed_task(
+                        context.task_id, request.app.state.provider, enriched, context
+                    )
+                    if text is not None:
+                        with SessionLocal() as db:
+                            _Controller().promote_for_answer(db, context)
+                            _Controller().conclude(db, context)
+                            _Controller().clear_transcript(db, context)
+                    else:
+                        with SessionLocal() as db:
+                            row = _Controller()._row(db, context)
+                            facts = dict(row.facts or {}) if row else {}
+                            message = db.get(Message, assistant_id)
+                            if message is not None:
+                                message.content = public_assistant_text("", "llm_unavailable", facts)
+                                message.status = "complete"
+                                message.completed_at = now()
+                            db.commit()
+            except Exception:
+                final_status = "error"
+                logger.warning(
+                    "detached_turn_failed task_id=%s",
+                    getattr(context, "task_id", None),
+                    exc_info=True,
+                )
+            finally:
+                if usage_id:
+                    compute.finish_generation(usage_id, final_status, assistant_id, tokens)
+                request.app.state.generating.discard(chat_id)
+                import anyio as _anyio
+
+                with _anyio.CancelScope(shield=True):
+                    await request.app.state.presence.publish()
 
         try:
             await request.app.state.presence.publish()
@@ -294,6 +363,9 @@ async def stream_response(
             tool_context.autonomous = autonomous
             tool_context.resume_task_id = resume_task_id
             tool_context.resuming = bool(resume_task_id)
+            # The chat stream concludes the task after the tool phase (or the detached answer
+            # does). The orchestrator must not lock it before the prose exists.
+            tool_context.defer_conclusion = True
             tool_task = asyncio.create_task(
                 make_orchestrator(request.app.state.tools).prepare(
                     request.app.state.provider,
@@ -309,12 +381,32 @@ async def stream_response(
                     yield sse(event, value)
                 except TimeoutError:
                     if await request.is_disconnected():
+                        task_id = getattr(tool_context, "task_id", None)
+                        if tool_task is not None and not tool_task.done() and task_id:
+                            # The client is gone; the work is not. Detach the tool phase and let
+                            # the answer be written into the same message when it finishes.
+                            logger.info(
+                                "turn_detached_client_gone task_id=%s chat_id=%s",
+                                task_id,
+                                chat_id,
+                            )
+                            detached = True
+                            asyncio.create_task(finish_detached(tool_task, tool_context))
+                            tool_task = None
                         raise asyncio.CancelledError()
             enriched_history = await tool_task
             # A tool result has to reach the answer that quotes it. Without this the final stream
             # only sees the conversation, so a completed read_file is invisible to the model and
             # it answers that it cannot access the computer.
             from .context_builder import ContextBuilder
+
+            if not getattr(tool_context, "final_after_halt", False):
+                # The tool phase is over and `defer_conclusion` kept the task open. Conclude it
+                # now, exactly where the orchestrator used to: parked states refuse on their own.
+                from .tools.local.task import LocalTaskController as _ConcludeController
+
+                with SessionLocal() as conclude_db:
+                    _ConcludeController().conclude(conclude_db, tool_context)
 
             enriched_history = ContextBuilder.with_tool_results(
                 enriched_history,
@@ -519,6 +611,10 @@ async def stream_response(
             # Shield cleanup so cancellation cannot skip provider closure and persistence.
             import anyio
 
+            if detached:
+                # The detached turn owns the chat slot, the assistant message and the generation
+                # record. This generator must not cancel it or persist a half-turn.
+                return
             if parked:
                 request.app.state.generating.discard(chat_id)
                 return

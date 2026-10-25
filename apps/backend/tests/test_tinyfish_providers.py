@@ -115,6 +115,25 @@ def test_fetch_fresh_partial_and_unsafe_redirect():
     assert result.errors == ["fetch_failed", "unsafe_redirect"]
 
 
+def test_an_empty_fetch_is_a_typed_failure_not_a_silent_success():
+    """A 200 with no results (or a 204 termination) has no page text; never report it green."""
+    provider = TinyFishFetchProvider(client(lambda request: httpx.Response(200, json={"results": []})))
+
+    with pytest.raises(ToolError) as error:
+        asyncio.run(provider.execute(FetchArgs(urls=["https://example.com"], fresh=True), Context()))
+
+    assert error.value.code == "fetch_failed"
+
+
+def test_an_empty_search_is_a_typed_failure_not_a_silent_success():
+    provider = TinyFishSearchProvider(client(lambda request: httpx.Response(200, json={"results": []})))
+
+    with pytest.raises(ToolError) as error:
+        asyncio.run(provider.execute(SearchArgs(query="example"), Context()))
+
+    assert error.value.code == "search_failed"
+
+
 @pytest.mark.parametrize(
     "status,code",
     [

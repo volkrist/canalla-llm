@@ -46,6 +46,28 @@ def test_host_result_accepts_real_windows_exit_codes():
         assert parsed.exit_code == code
 
 
+def test_a_host_failure_is_surfaced_not_rewritten():
+    """A host's `path_denied` must reach the model as `path_denied`.
+
+    H1 live: write_file into a new package directory was denied by the host, but the executor's
+    write verification replaced the cause with `write_verification_failed`; the model could not
+    learn that the directory was missing.
+    """
+    from types import SimpleNamespace
+
+    from app.tools.local.provider import LocalDeviceProvider
+
+    provider = LocalDeviceProvider("local_fs")
+    context = SimpleNamespace(
+        preview={"host_result": {"error": "path_denied", "exit_code": 1, "text": "path_denied"}}
+    )
+
+    with pytest.raises(ToolError) as error:
+        asyncio.run(provider.execute(SimpleNamespace(path="C:/work/pkg/module.py"), context))
+
+    assert error.value.code == "path_denied"
+
+
 def test_trusted_reduces_normal_change_confirmations():
     policy = ToolPolicy()
     registry = make_registry()

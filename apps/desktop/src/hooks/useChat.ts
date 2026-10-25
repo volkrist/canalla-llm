@@ -9,6 +9,7 @@ import type {
   AutonomousTask,
 } from "../lib/tools";
 import { publicAssistantText } from "../lib/tools";
+import { awaitsLateAnswer } from "../lib/late-answer";
 
 type SendAction = { kind: "resend" | "regenerate"; messageId: string };
 type PendingSend = {
@@ -71,7 +72,7 @@ export function useChat(api: Api, onExpired: () => void) {
     };
   }, [api]);
   const active = useRef(true);
-  const selecting = useRef(false);
+  const selecting = useRef(0);
   const selectedRef = useRef<string | null>(null);
   const streamRef = useRef<StreamState | null>(null);
   const pendingRef = useRef<PendingSend | null>(null);
@@ -110,15 +111,17 @@ export function useChat(api: Api, onExpired: () => void) {
   }, [api, handleError]);
 
   async function select(id: string | null) {
-    // Navigation is never blocked by a running generation. The stream keeps writing to its own
-    // chat; only the visible message list follows the selected chat.
-    if (selecting.current) return;
-    selecting.current = true;
+    // Navigation is never blocked by a running generation, and it is never silently dropped
+    // either: the click the user made last wins. The previous guard ignored a click that
+    // arrived while a chat switch was still loading (`api.messages`, then tool runs, then
+    // tasks), so New Chat could do nothing at all — the Playwright navigation regression
+    // caught it when the draft of the new chat came back empty.
+    const token = ++selecting.current;
     setLoading(true);
     setError("");
     try {
       let data = id ? await api.messages(id) : [];
-      if (!active.current) return;
+      if (!active.current || token !== selecting.current) return;
       // Coming back to the chat that is still streaming: the database has the messages created
       // at `meta`, but the live response body lives in the stream cache.
       const stream = streamRef.current;
@@ -145,34 +148,38 @@ export function useChat(api: Api, onExpired: () => void) {
             "/tools/runs?chat_id=" + encodeURIComponent(id),
           )
         : [];
+      if (!active.current || token !== selecting.current) return;
       const live = stream && id === stream.chatId;
-      if (active.current) {
-        setToolRuns(
-          live
-            ? runs.map(
-                (run) => stream!.runs.find((item) => item.id === run.id) || run,
-              )
-            : runs,
-        );
-      }
+      setToolRuns(
+        live
+          ? runs.map(
+              (run) => stream!.runs.find((item) => item.id === run.id) || run,
+            )
+          : runs,
+      );
       setTask(null);
       if (id) {
         const listed = await api.json<AutonomousTask[]>(
           "/tasks?chat_id=" + encodeURIComponent(id),
         );
+        if (!active.current || token !== selecting.current) return;
         const current =
           listed.find(
             (item) => !["COMPLETED", "FAILED", "STOPPED"].includes(item.status),
           ) || listed[0];
         if (current) setTask(current);
+        if (current && awaitsLateAnswer(current.status)) {
+          // The stream that would have delivered this answer is gone (reload, navigation, a
+          // detached turn). Watch the task so the late answer still reaches the open chat.
+          setRecovering(current.id);
+        }
       }
       const history = await api.json<AutonomousTask[]>("/tasks");
-      if (active.current) setTasks(history);
+      if (active.current && token === selecting.current) setTasks(history);
     } catch (e) {
-      handleError(e);
+      if (token === selecting.current) handleError(e);
     } finally {
-      selecting.current = false;
-      if (active.current) setLoading(false);
+      if (active.current && token === selecting.current) setLoading(false);
     }
   }
 

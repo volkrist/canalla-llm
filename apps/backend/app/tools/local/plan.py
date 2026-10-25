@@ -33,6 +33,13 @@ WRITE_HINT = (
 )
 COMMIT_HINT = r"(?i)(\bgit\s+commit\b|\bcommit\b|закоммить|сделай commit)"
 PUSH_HINT = r"(?i)(\bgit\s+push\b|\bpush\b|запуш|отправь.*(remote|репозитор))"
+GREENFIELD_HINT = (
+    r"(?i)("
+    r"(создай|сделай|create|build|scaffold|напиши).{0,120}"
+    r"(проект|project|cli|пакет|package|программ|program|приложен|app)"
+    r")"
+)
+REPAIR_HINT = r"(?i)(исправ|fix|refactor|рефактор|debug|найди (причин|ошиб)|failing test|почини)"
 
 
 def needs_research(prompt: str) -> bool:
@@ -65,6 +72,14 @@ def looks_like_push_request(prompt: str) -> bool:
     return bool(re.search(PUSH_HINT, prompt or ""))
 
 
+def looks_like_greenfield(prompt: str) -> bool:
+    """A build from scratch, not a repair of an existing project."""
+    import re
+
+    text = prompt or ""
+    return bool(re.search(GREENFIELD_HINT, text)) and not re.search(REPAIR_HINT, text)
+
+
 def looks_like_autonomous(prompt: str) -> bool:
     import re
 
@@ -85,6 +100,65 @@ def looks_like_autonomous(prompt: str) -> bool:
 
 def default_plan(prompt: str, *, coding: bool, research: bool, tor: bool) -> list[dict]:
     steps = []
+    if coding and looks_like_greenfield(prompt):
+        # A build from scratch is not a repair plan. The repair steps ("run baseline tests",
+        # "edit failing source") led a live model to stop after one package file; these steps
+        # name the whole deliverable and the exact verifications the user asked for.
+        return [
+            _step(
+                "inspect",
+                "Inspect the workspace",
+                "List the target directory so the new project starts from a known state.",
+                "local_fs",
+            ),
+            _step(
+                "scaffold",
+                "Create every requested file",
+                "Create the package directory and EACH file the user listed (package modules, "
+                "tests and README). One file is not the project; do not stop after the package init.",
+                "local_fs",
+            ),
+            _step(
+                "implement",
+                "Implement the code",
+                "Write the real implementation for every module, not a placeholder.",
+                "local_fs",
+            ),
+            _step(
+                "tests",
+                "Write the tests",
+                "Create the test files the user asked for and make them assert the required output.",
+                "local_fs",
+            ),
+            _step(
+                "readme",
+                "Write the README",
+                "Document install and usage exactly as requested.",
+                "local_fs",
+            ),
+            _step(
+                "run_cli",
+                "Run the program",
+                "Execute the CLI command the user named and capture its real stdout.",
+                "local_process",
+                verify=True,
+            ),
+            _step(
+                "run_tests",
+                "Run the tests",
+                "Execute the test command the user named (for Python, run_python -m pytest) and "
+                "fix failures until it passes.",
+                "local_process",
+                verify=True,
+            ),
+            _step(
+                "report",
+                "Final report",
+                "Summarize the created files, the real stdout and the test result.",
+                "verify",
+                verify=True,
+            ),
+        ]
     if coding:
         steps.extend(
             [

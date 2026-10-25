@@ -15,7 +15,7 @@ from app.tools.contracts import ToolError
 from app.tools.executor import ExecutionContext, ToolExecutor, reconcile_tools
 from app.tools.local import machine
 from app.tools.local.compact import compact_text
-from app.tools.local.plan import default_plan, looks_like_autonomous
+from app.tools.local.plan import default_plan, looks_like_autonomous, looks_like_greenfield
 from app.tools.local.task import LocalTaskController
 from app.tools.models import LocalTask, PairedDevice, ToolRun
 from app.tools.orchestrator import ToolOrchestrator
@@ -254,6 +254,68 @@ def test_plan_is_actionable_and_does_not_invent_cause():
     assert "baseline" in " ".join(item["key"] for item in plan)
     assert "причину бага" not in titles.lower()
     assert looks_like_autonomous("Полностью разберись с этим проектом и исправь ошибки")
+
+
+def test_a_build_from_scratch_gets_a_build_plan():
+    """H1 live: the repair plan told the model to "run baseline tests" and "edit failing source";
+    it wrote one package file and stopped. A greenfield request gets deliverable steps instead."""
+    h1 = (
+        "В папке C:\\Users\\Volkr\\Canalla Acceptance\\H1 создай рабочий Python CLI-проект "
+        "h1_cli: пакет h1_cli/__main__.py, h1_cli/core.py, tests/test_core.py и README.md. "
+        "python -m h1_cli должен печатать H1_CLI_OK, pytest -q должен проходить."
+    )
+    assert looks_like_greenfield(h1)
+
+    plan = default_plan(h1, coding=True, research=False, tor=False)
+    keys = [item["key"] for item in plan]
+
+    assert keys[:3] == ["inspect", "scaffold", "implement"]
+    assert "tests" in keys and "readme" in keys
+    assert "run_cli" in keys and "run_tests" in keys
+
+    repair = default_plan("Исправь failing tests", coding=True, research=False, tor=False)
+    repair_keys = [item["key"] for item in repair]
+    assert "baseline" in repair_keys
+    assert "scaffold" not in repair_keys
+    assert not looks_like_greenfield("Выполни безопасный рефакторинг существующего проекта")
+
+
+def test_a_plan_with_pending_steps_is_never_goal_met(setup):
+    """H1 live: one `write_file` matched «создай», so the turn ended after __init__.py.
+
+    A completed file write is a goal only when the controller's own plan has nothing left.
+    Otherwise the model is never asked for the remaining modules, tests and README and the
+    user gets a summary that claims a project that does not exist.
+    """
+    from app.tools.local.facts import record
+
+    _headers, context, _events, root, _host, _device = setup
+    h1 = (
+        f"В папке {root} создай рабочий Python CLI-проект h1_cli: пакет "
+        "h1_cli/__main__.py, h1_cli/core.py, tests/test_core.py и README.md. "
+        "python -m h1_cli должен печатать H1_CLI_OK, pytest -q должен проходить."
+    )
+    context.user_prompt = h1
+    controller = LocalTaskController()
+    controller.attach(context)
+    orchestrator = ToolOrchestrator(None, None)
+
+    with SessionLocal() as db:
+        row = controller.open(db, context)
+        assert row is not None
+        context.task_id = row.id
+        steps = controller.steps(db, row.id)
+        assert {"inspect", "scaffold", "implement", "tests", "readme", "run_cli", "run_tests"} <= {
+            step.key for step in steps
+        }
+        row.facts = record({}, "FILE_CREATED", {"path": str(root / "h1_cli" / "__init__.py")})
+        db.commit()
+        assert orchestrator._goal_satisfied(context, h1) is False
+
+        for step in steps:
+            step.status = "COMPLETED"
+        db.commit()
+        assert orchestrator._goal_satisfied(context, h1) is True
 
 
 def test_compact_keeps_failure_line():
@@ -927,6 +989,97 @@ def test_a_halted_answer_still_reports_the_real_work(setup):
     assert "llm_stalled" in text
     assert "прочитан файл" in text
     assert "LLM unavailable" not in text
+
+
+def test_a_client_disconnect_does_not_destroy_the_task(setup, client, monkeypatch):
+    """A reload/navigation while tools run must not cancel the task or replay its work.
+
+    The client is gone, the stream ends, but the tool phase continues in the background, the
+    answer is written into the same assistant message and the task concludes normally.
+    """
+    import asyncio
+    import time
+    from types import SimpleNamespace
+
+    from sqlalchemy import select
+
+    from app.chat_stream import stream_response
+    from app.database import SessionLocal
+    from app.main import app
+    from app.models import Chat, Message, User
+
+    headers, context, _events, root, host, _device = setup
+    chat_id = client.post("/chats", headers=headers, json={}).json()["id"]
+
+    class DetachingProvider:
+        supports_tools = True
+
+        def __init__(self):
+            self.plans = 0
+
+        async def plan_tools(self, messages, tools, usage):
+            self.plans += 1
+            if self.plans == 1:
+                # The client is gone long before this turn returns its tool call.
+                await asyncio.sleep(1.0)
+                return {
+                    "tool_calls": _call("read_file", {"path": str(root / "app.py"), "purpose": "read"}, "c1")
+                }
+            return {"tool_calls": []}
+
+        async def stream_chat(self, messages):
+            yield "DETACHED_OK"
+
+        async def stream_with_usage(self, messages, usage):
+            yield "DETACHED_OK"
+
+        async def chat(self, messages):
+            return "DETACHED_OK"
+
+        async def health(self):
+            return True
+
+        async def status(self):
+            return "ready"
+
+    monkeypatch.setattr(app.state, "provider", DetachingProvider())
+    start = time.monotonic()
+
+    async def disconnected():
+        return time.monotonic() - start > 0.2
+
+    request = SimpleNamespace(app=app, is_disconnected=disconnected)
+
+    async def scenario():
+        with SessionLocal() as db:
+            chat = db.get(Chat, chat_id)
+            user = db.get(User, chat.user_id)
+            response = await stream_response(chat, "Посмотри на файл app.py на desktop.", request, user, db)
+            async for _ in response.body_iterator:
+                pass
+        # `asyncio.run` cancels pending tasks, so the event loop has to stay alive until the
+        # detached turn has written its answer.
+        deadline = time.monotonic() + 20
+        answer = ""
+        while time.monotonic() < deadline:
+            with SessionLocal() as db:
+                rows = db.scalars(
+                    select(Message).where(Message.chat_id == chat_id).order_by(Message.created_at)
+                ).all()
+                tasks = db.scalars(select(LocalTask).where(LocalTask.chat_id == chat_id)).all()
+            if rows and rows[-1].role == "assistant" and rows[-1].content:
+                answer = rows[-1].content
+                if tasks and tasks[-1].status == machine.COMPLETED:
+                    return answer, tasks[-1].status
+            await asyncio.sleep(0.2)
+        return answer, (tasks[-1].status if tasks else "")
+
+    answer, status = asyncio.run(scenario())
+
+    assert answer == "DETACHED_OK"
+    assert status == machine.COMPLETED
+    assert host.handled.count("read_file") == 1
+    assert chat_id not in app.state.generating
 
 
 def test_write_run_fix_rerun_returns_real_stdout(setup):

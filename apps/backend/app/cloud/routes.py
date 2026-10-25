@@ -121,6 +121,7 @@ def _http(error: CloudError) -> HTTPException:
     status_code = {
         "gateway_not_connected": 503,
         "gateway_unavailable": 503,
+        "gateway_timeout": 503,
         "gateway_busy": 429,
         "gateway_queue_full": 429,
         "installation_revoked": 409,

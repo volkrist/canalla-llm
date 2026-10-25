@@ -340,6 +340,7 @@ class GatewayProvider(LLMProvider):
                 response.aiter_lines(),
                 stall_seconds=self.settings.llm_stream_stall_seconds,
                 what=f"gateway_plan:{request_id}",
+                first_line_seconds=self.settings.llm_stream_first_line_seconds,
             ):
                 if not line.startswith("data:"):
                     continue
@@ -407,6 +408,12 @@ class GatewayProvider(LLMProvider):
                             slot["function"]["arguments"] += str(function["arguments"])
             if not completed and not calls and not text_parts:
                 raise LLMError("stream_interrupted")
+        except httpx.TimeoutException:
+            # A read timeout while consuming the stream is a lost response, not a provider
+            # failure: nothing was produced, so the planner may safely retry it.
+            raise LLMError("llm_timeout") from None
+        except httpx.HTTPError:
+            raise LLMError("llm_unavailable") from None
         finally:
             try:
                 await response.aclose()
@@ -531,6 +538,7 @@ class GatewayProvider(LLMProvider):
                 response.aiter_lines(),
                 stall_seconds=self.settings.llm_stream_stall_seconds,
                 what=f"gateway_stream:{request_id}",
+                first_line_seconds=self.settings.llm_stream_first_line_seconds,
             ):
                 if not line.startswith("data:"):
                     continue
@@ -587,6 +595,12 @@ class GatewayProvider(LLMProvider):
                 "none" if first_token_at is None else int((first_token_at - started_at) * 1000),
             )
             raise LLMError("stream_interrupted")
+        except httpx.TimeoutException:
+            # The response stopped arriving (or never started). This is the lost-response class:
+            # a typed code, so the one zero-token retry in `_stream` can run.
+            raise LLMError("llm_timeout") from None
+        except httpx.HTTPError:
+            raise LLMError("llm_unavailable") from None
         finally:
             try:
                 await response.aclose()

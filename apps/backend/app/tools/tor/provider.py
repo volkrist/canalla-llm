@@ -347,6 +347,13 @@ class TorFetchProvider(ToolProvider[TorFetchArgs]):
                 )
                 continue
             reachable = bool(page.get("text"))
+            if not reachable:
+                logger.warning(
+                    "tor_fetch_empty url=%s status=%s body_bytes=%s",
+                    url,
+                    page.get("status"),
+                    (page.get("http") or {}).get("body_bytes"),
+                )
             reached += 1 if reachable else 0
             raw_html = page.get("text") or ""
             links = extract_page_links(page.get("url") or url, raw_html)
@@ -361,6 +368,8 @@ class TorFetchProvider(ToolProvider[TorFetchArgs]):
                     "authority": classify_authority(url, reachable, settings),
                     "links": links,
                     "reachable": reachable,
+                    "status": page.get("status"),
+                    "body_bytes": (page.get("http") or {}).get("body_bytes"),
                     "transport": "tor",
                     "needs_browser": fetch_needs_browser(raw_html),
                     "retrieval": "http",

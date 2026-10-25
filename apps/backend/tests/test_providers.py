@@ -157,6 +157,50 @@ def test_iter_stream_lines_logs_the_gap_and_the_stall_point(caplog):
     assert "first_line_ms=" in logged
 
 
+def test_a_silent_first_line_is_a_retryable_timeout_not_a_stall(caplog):
+    """Headers arrived and then nothing: no token exists, so the turn may safely retry.
+
+    The 25 Oct lost-response class looked exactly like this. Raising `llm_stalled` would
+    have told the user to "send the message again" for a server-side failure, and waiting
+    the whole transport budget burned most of the scenario's window.
+    """
+    import logging
+
+    async def lines():
+        await asyncio.sleep(5)
+        yield "data: {}"
+
+    async def collect():
+        return [
+            line
+            async for line in providers.iter_stream_lines(
+                lines(), stall_seconds=5, what="probe", first_line_seconds=0.05
+            )
+        ]
+
+    with caplog.at_level(logging.WARNING, logger="app.providers"):
+        with pytest.raises(providers.LLMError) as error:
+            asyncio.run(collect())
+
+    assert error.value.code == "llm_timeout"
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "llm_stream_first_line_timeout what=probe" in logged
+
+
+def test_a_slow_first_line_keeps_the_transport_budget_when_unset():
+    """Direct llama.cpp mode passes no first-line budget; prefill must not be cut short."""
+
+    async def lines():
+        await asyncio.sleep(0.2)
+        yield "data: {}"
+        yield "data: [DONE]"
+
+    async def collect():
+        return [line async for line in providers.iter_stream_lines(lines(), stall_seconds=0.05, what="probe")]
+
+    assert asyncio.run(collect()) == ["data: {}", "data: [DONE]"]
+
+
 def test_llamacpp_rejects_truncated_stream(monkeypatch):
     original = httpx.AsyncClient
     transport = httpx.MockTransport(lambda request: httpx.Response(200, text='data: {"choices":[]}\n\n'))

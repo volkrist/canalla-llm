@@ -155,9 +155,14 @@ class LocalDeviceProvider(ToolProvider):
         payload = (context.preview or {}).get("host_result") or {}
         if not payload:
             raise ToolError("host_offline")
-        error = str(payload.get("error") or payload.get("text") or "")
-        if error in {"conflict", "hash_mismatch"} or payload.get("conflict"):
-            raise ToolError("conflict")
+        failure = str(payload.get("error") or "")
+        if failure:
+            if failure in {"conflict", "hash_mismatch"} or payload.get("conflict"):
+                raise ToolError("conflict")
+            # The host's own typed failure (path_denied, write_failed, …). Returning it as a
+            # successful empty result let the executor rewrite it as write_verification_failed,
+            # hiding the real cause from the model.
+            raise ToolError(failure)
         text = str(payload.get("text") or "")
         stdout = str(payload.get("stdout") or "")
         # A process result's answer is its output. The host reports both a short status ("ok") and

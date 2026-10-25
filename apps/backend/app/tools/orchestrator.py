@@ -332,6 +332,9 @@ class ToolOrchestrator:
             "When this is a coding workspace repair, inspect the workspace, run tests, then edit "
             "the failing source with patch_file or write_file. Copy sha256 from read_file into "
             "patch_file.expected_before_sha256. Do not create unrelated scratch files. "
+            "When this is a build from scratch, create EVERY file the user listed (modules, "
+            "tests, README) before verifying; a package __init__ alone is not the project. Then "
+            "run the exact CLI and test commands the user named and report their real output. "
             "Never invent tool results or citations. "
             "Never request external writes or login through a read tool. "
             "Prefer search then fetch unless the controller already opened a browser or agent result. "
@@ -944,11 +947,21 @@ class ToolOrchestrator:
     def _goal_satisfied(self, context, prompt) -> bool:
         from ..database import SessionLocal
         from .local.grounding import goal_met
-        from .local.task import LocalTaskController
+        from .local.task import STEP_DONE, LocalTaskController
 
         with SessionLocal() as db:
-            row = LocalTaskController()._row(db, context)
-            return bool(row and goal_met(row.facts, prompt))
+            controller = LocalTaskController()
+            row = controller._row(db, context)
+            if row is None:
+                return False
+            # A multi-step plan is the controller's own decomposition of the request. Reporting
+            # the goal met while steps are still PENDING ended H1 after the first file: the
+            # "create a file" fact matched, but implement/tests/readme/run/tests/report had not
+            # run yet, so the user got one __init__.py and a summary that claimed success.
+            steps = controller.steps(db, row.id)
+            if any(step.status not in STEP_DONE for step in steps):
+                return False
+            return bool(goal_met(row.facts, prompt))
 
     async def _close_tinyfish_browser(self, context=None, notes=None):
         try:

@@ -24,14 +24,23 @@ async def iter_stream_lines(
     stall_seconds: float,
     what: str,
     slow_gap_seconds: float = 5.0,
+    first_line_seconds: float | None = None,
 ) -> AsyncGenerator[str, None]:
     """Yield SSE lines and turn a silent stream into a typed stall.
 
-    The first line may legitimately take a long time: the Gateway queues a request for
-    up to 120 s and the model may spend up to 300 s on prefill, both bounded by the
-    transport read timeout. Once an event has arrived, a gap longer than
-    ``stall_seconds`` means no further chunk is coming; waiting for the full read
-    budget would look like a dead provider instead of a stalled stream.
+    The first line may legitimately take longer than a later one: the Gateway admits the
+    request and the model may still be prefilling. ``first_line_seconds`` bounds only that
+    wait *after* the response headers arrived; measured warm starts deliver the first event
+    0.5-5.5 s after the headers, so a much longer silence means the bytes never left the
+    Gateway (the 25 Oct lost-response class) and holding the turn for the full transport
+    read budget wastes most of a scenario. When the argument is ``None`` the first line
+    keeps the transport read budget, which is what direct llama.cpp mode wants.
+
+    Once an event has arrived, a gap longer than ``stall_seconds`` means no further chunk is
+    coming; waiting for the full read budget would look like a dead provider instead of a
+    stalled stream. A first-line timeout raises ``llm_timeout`` (nothing was produced, so one
+    retry is safe) while a mid-stream stall raises ``llm_stalled`` (partial output exists and
+    must never be replayed).
 
     Every gap above ``slow_gap_seconds`` is logged with the request id, the line index and
     the silence duration. Those lines are what separates "the upstream stopped sending"
@@ -44,7 +53,9 @@ async def iter_stream_lines(
     count = 0
     while True:
         try:
-            if count == 0:
+            if count == 0 and first_line_seconds is not None:
+                line = await asyncio.wait_for(iterator.__anext__(), timeout=max(0.001, first_line_seconds))
+            elif count == 0:
                 line = await iterator.__anext__()
             else:
                 line = await asyncio.wait_for(iterator.__anext__(), timeout=max(0.001, stall_seconds))
@@ -52,6 +63,16 @@ async def iter_stream_lines(
             return
         except TimeoutError:
             now_at = time.monotonic()
+            if not count and first_line_seconds is not None:
+                # Headers arrived and then nothing: no token, no tool call, no content. This is
+                # the lost-response class, so it is typed as a timeout the caller may retry.
+                logger.warning(
+                    "llm_stream_first_line_timeout what=%s elapsed_ms=%d timeout_s=%s",
+                    what,
+                    int((now_at - started_at) * 1000),
+                    first_line_seconds,
+                )
+                raise LLMError("llm_timeout") from None
             logger.warning(
                 "llm_stream_stalled what=%s lines=%d elapsed_ms=%d silent_ms=%d timeout_s=%s "
                 "first_line_ms=%s",
@@ -455,6 +476,7 @@ class LlamaCppProvider(LLMProvider):
         self.target = target
         self.transport = transport
         self.stall_seconds = settings.llm_stream_stall_seconds
+        self.first_line_seconds = settings.llm_stream_first_line_seconds
 
     def endpoint(self):
         base = self.target() if self.target else self.base
@@ -537,6 +559,7 @@ class LlamaCppProvider(LLMProvider):
                     response.aiter_lines(),
                     stall_seconds=self.stall_seconds,
                     what="local_stream",
+                    first_line_seconds=self.first_line_seconds,
                 ):
                     if not line.startswith("data:"):
                         continue
