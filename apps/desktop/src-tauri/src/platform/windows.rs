@@ -657,7 +657,7 @@ mod tests {
 
     #[test]
     fn login_round_trips_through_the_registry() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let exe = Path::new(r"C:\Program Files\Canalla LLM\alex-llm.exe");
         login_write(false, exe).unwrap();
         assert_eq!(login_read().unwrap(), None);
@@ -677,7 +677,7 @@ mod tests {
 
     #[test]
     fn writing_twice_keeps_exactly_one_value() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let exe = Path::new(r"C:\Program Files\Canalla LLM\alex-llm.exe");
         let first = login_write(true, exe).unwrap();
         let second = login_write(true, exe).unwrap();

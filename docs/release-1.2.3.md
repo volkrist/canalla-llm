@@ -371,14 +371,95 @@ and resumable, but the wording does not match what happened.
 - Pods are spaced by `--cooldown-seconds` (volume detach) and the runner no longer reports an
   empty `pods []` as “not empty”.
 
+## Reliability pass — answer after a stalled planner (25 Oct 2026)
+
+Package C exposed the difference between *doing the work* and *finishing the task*: H2 fixed
+`calc.py`, pytest went green, and the chat still ended with «LLM unavailable». Four planner
+streams went silent after their first tokens (`c4e99dd2`, `02cad99d`, `841373fa`, `2e79372d`);
+the client ended each turn at the 60 s inter-chunk guard, the Gateway stayed healthy, and the
+next request normally succeeded.
+
+What changed (all free tests cover it):
+
+- **The answer is attempted in the same turn.** When a planner call fails after at least one
+  successful tool call, the orchestrator sets `final_after_halt` instead of suppressing the
+  final stream. The tool results are already in `enriched_history`; a fresh answer request
+  normally succeeds, and the task is concluded only after that answer exists. A failed answer
+  parks the task again (same backoff, same transcript) instead of recording a completed task
+  with no answer.
+- **A halted answer is honest.** The assistant text now names the typed cause (`llm_stalled`,
+  `host_offline`) and lists the verified results already produced (files written/read, pages
+  opened, processes started). It no longer says «Task will continue after recovery» as if
+  nothing had run (`app/tools/local/public_text.py`).
+- **The transcript is preserved across the attempt.** `clear_transcript` runs only after the
+  answer is generated, so a second failure still resumes from the real tool results and never
+  replays a completed write or command.
+- **The late answer reaches an open window.** The existing `recovering` poll in `useChat`
+  already refreshes the chat when the backend concludes a parked task; the final stream now
+  emits the concluding `task` event as well, so the wait ends immediately.
+
+### Stream diagnostics
+
+- The backend logs every gap above 5 s between upstream lines with the request id and line
+  index (`llm_stream_gap what=gateway_plan:<id> after_line=… gap_ms=…`) and includes
+  `first_line_ms` in the stall line (`app/providers.py`).
+- The Gateway relay logs `gateway_stream_end id=… status=… chunks=… bytes=… first_chunk_ms=…
+  max_gap_ms=…` and a `gateway_stream_gap` line for every upstream gap above 5 s
+  (`apps/gateway/gateway/inference.py`). A client-side stall with no Gateway gap line means the
+  bytes left the pod; a Gateway gap line means llama.cpp or the pod socket stopped producing.
+  The production Gateway is **not** redeployed in this pass.
+
+### The 25 Oct live follow-up (two Pods, $0.2212 total)
+
+| Scenario | Verdict | What actually happened |
+|---|---|---|
+| **H1** | **FAIL** | The model wrote `tests/test_core.py`, then inspected the scenario directory and stopped: it inherited a corrupted `h1_cli/__init__.py` from the previous failed attempt (the old body-trim defect) and never wrote `README.md`. No `run_python` completed. The harness now **clears a from-scratch scenario root** before the prompt; the product-side trim defect was already fixed and is proven byte-for-byte on the installed build. |
+| **T1** | **FAIL** | All three files were created and executed (6 model-origin calls, stdout from all three). The final answer produced nothing for **451 s**: the Gateway completed the POST at 01:57:51 (its access log shows `200 OK`), but the response never reached the client, which then hit the 450 s stream read budget. This is the same lost-response shape as the first `ensure` of the run. |
+
+Two product fixes came out of it (free tests, installed build):
+
+- **A lost response is detected early and retried once.** `alex_gateway_first_response_seconds`
+  (130 s) bounds the wait for response headers instead of the 450 s stream budget, and a planner
+  or answer request that produced **no token at all** is retried exactly once. A mid-stream stall
+  is never replayed, so a visible prefix can never be duplicated. A planner headers timeout is
+  now `gateway_timeout`, a retryable code.
+- **A lost ensure response is read back, not reported as a failure.** When
+  `POST /compute/ensure` times out, the client performs one `GET /compute/status`; if the Gateway
+  has an attempt, that is the answer. It can never create a second Pod. The first run of the day
+  failed exactly here: the Gateway had created and started an L40S, while the client returned
+  `gateway_unavailable` after 60 s and the Pod was stopped 60 s later.
+
+Both are covered by `tests/test_cloud.py` (lost planner headers, lost answer headers, mid-stream
+stall is not replayed) and `tests/test_cloud_demand.py` (lost ensure is read back; a state with no
+attempt still fails typed).
+
+### RunPod after the follow-up
+
+`pods: []`, watchdog `closed`, `within_cap: true`, the only Pod ran **644 s** (created 01:54:37,
+confirmed stop 02:05:21), NVIDIA L40S 48 GB at $1.09/h. Balance `$8.6452 → $8.4240`:
+**$0.2212** for the whole package, including the aborted first attempt.
+
+### Host delivery and the Rust suite
+
+- A refused result POST (4xx other than 408/425/429) is no longer retried forever: it is
+  classified `Rejected`, kept in `host-journal.json` as evidence, and never posted again.
+  Transient failures and a lost ACK still re-deliver from the journal without re-running the
+  tool (`delivery_outcome` in `apps/desktop/src-tauri/src/host.rs`).
+- The full `cargo test` is stable again: the supervisor test no longer attaches to the
+  operator's installed backend on port 8000 (a test-only ephemeral port override), and the
+  shared `TEST_ENV_LOCK` is poison-tolerant so one genuine failure cannot cascade into every
+  environment-sensitive test. Result: **68 + 16 passed, 0 failed**.
+
 ## Known limitations
 
 - The test installer is unsigned (no Authenticode).
-- Gateway production still runs 1.2.2; `docs/replica-us-mo-1.json` now names 1.2.3 for this
-  build, but the replica itself must be updated only by an approved deploy.
+- Gateway production runs 1.2.3; the replica entry in `docs/replica-us-mo-1.json` names the same
+  version and must still be updated only by an approved deploy.
 - Computer Ready is proven by the authenticated host heartbeat, not by a per-poll tool probe.
-- The planner can stall after its first tokens (four real cases, all detected at 60 s and all
-  recovered); the cause is not yet identified at the provider or the Gateway.
+- The planner can still stall after its first tokens (four real cases in Package C). The cause
+  is now localisable: the client and the Gateway both record per-chunk gaps with the request
+  id, but the production Gateway has not been redeployed with its side of that logging.
+  Recovered tasks now produce their real answer instead of a blanket failure message.
 - `run_process` runs with the host's minimal PATH, so a bare `python` resolves to the Windows
   Store alias and exits `9009`. The result is now delivered honestly; `run_python` remains the
   route for Python.

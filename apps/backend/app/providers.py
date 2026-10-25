@@ -23,6 +23,7 @@ async def iter_stream_lines(
     *,
     stall_seconds: float,
     what: str,
+    slow_gap_seconds: float = 5.0,
 ) -> AsyncGenerator[str, None]:
     """Yield SSE lines and turn a silent stream into a typed stall.
 
@@ -31,10 +32,15 @@ async def iter_stream_lines(
     transport read timeout. Once an event has arrived, a gap longer than
     ``stall_seconds`` means no further chunk is coming; waiting for the full read
     budget would look like a dead provider instead of a stalled stream.
+
+    Every gap above ``slow_gap_seconds`` is logged with the request id, the line index and
+    the silence duration. Those lines are what separates "the upstream stopped sending"
+    from "the client stopped reading" when the next stall is investigated.
     """
     iterator = lines.__aiter__()
     started_at = time.monotonic()
     last_at = started_at
+    first_line_at: float | None = None
     count = 0
     while True:
         try:
@@ -47,16 +53,31 @@ async def iter_stream_lines(
         except TimeoutError:
             now_at = time.monotonic()
             logger.warning(
-                "llm_stream_stalled what=%s lines=%d elapsed_ms=%d silent_ms=%d timeout_s=%s",
+                "llm_stream_stalled what=%s lines=%d elapsed_ms=%d silent_ms=%d timeout_s=%s "
+                "first_line_ms=%s",
                 what,
                 count,
                 int((now_at - started_at) * 1000),
                 int((now_at - last_at) * 1000),
                 stall_seconds,
+                "none" if first_line_at is None else int((first_line_at - started_at) * 1000),
             )
             raise LLMError("llm_stalled") from None
+        now_at = time.monotonic()
+        if first_line_at is None:
+            first_line_at = now_at
+        gap = now_at - last_at
+        if count and gap >= slow_gap_seconds:
+            logger.warning(
+                "llm_stream_gap what=%s after_line=%d gap_ms=%d elapsed_ms=%d chars=%d",
+                what,
+                count,
+                int(gap * 1000),
+                int((now_at - started_at) * 1000),
+                len(line or ""),
+            )
         count += 1
-        last_at = time.monotonic()
+        last_at = now_at
         yield line
 
 

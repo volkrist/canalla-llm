@@ -222,6 +222,12 @@ class Settings(BaseSettings):
     # is not a total deadline) and this bounds the client side, below the task runtime and above
     # the per-call tool ceiling.
     alex_gateway_plan_timeout_seconds: float = Field(default=300, ge=30, le=300)
+    # How long one request may wait for the response headers before the client treats it as a lost
+    # response. The Gateway queues a generation for at most 120 s; 90 s covers admission for the
+    # single generation this product runs and still leaves room for one bounded retry inside the
+    # task window. A response that the Gateway completed but the client never received used to
+    # hold the turn for the full 450 s read budget.
+    alex_gateway_first_response_seconds: float = Field(default=130, ge=10, le=300)
     gateway_status_active_seconds: float = Field(default=5, ge=1, le=300)
     gateway_status_idle_seconds: float = Field(default=15, ge=1, le=600)
     balance_background_enabled: bool = True

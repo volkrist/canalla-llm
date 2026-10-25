@@ -132,6 +132,9 @@ class FakeGateway:
         self.stream_calls = 0
         self.planner_calls = 0
         self.ensure_calls = 0
+        # Transport failures (a lost response) before the scripted ensure answer. The state read
+        # that follows is what proves the Gateway's attempt exists.
+        self.ensure_transport_failures = 0
         self.stop_calls = 0
         self.wait_cancel_calls = 0
         self.ensure_bodies: list[dict] = []
@@ -144,6 +147,9 @@ class FakeGateway:
         self.planner_status: int | None = None
         # Transient planner failures before the scripted answer; proves bounded retry/backoff.
         self.planner_failures = 0
+        # A response the Gateway completed but the client never received (a lost response).
+        self.planner_headers_timeouts = 0
+        self.stream_headers_timeouts = 0
         # An SSE that ends with no [DONE] and no content (a dropped connection).
         self.planner_empty_stream = False
         # Silence after the stream has started: the S7 defect. The first delay proves the
@@ -223,6 +229,9 @@ class FakeGateway:
         if path == "/compute/ensure":
             self.ensure_calls += 1
             self.ensure_bodies.append(json.loads(request.content))
+            if self.ensure_transport_failures > 0:
+                self.ensure_transport_failures -= 1
+                raise httpx.ReadTimeout("lost response", request=request)
             self.compute = next_step(self.ensure_results, self.compute)
             return httpx.Response(200, json=self.compute)
         if path == "/compute/stop":
@@ -277,6 +286,9 @@ class FakeGateway:
             if "tool_choice" in body:
                 self.planner_calls += 1
                 self.planner_bodies.append(body)
+                if self.planner_headers_timeouts:
+                    self.planner_headers_timeouts -= 1
+                    raise httpx.ReadTimeout("lost planner response", request=request)
                 if self.planner_failures:
                     self.planner_failures -= 1
                     return httpx.Response(
@@ -305,6 +317,9 @@ class FakeGateway:
                 )
             self.stream_calls += 1
             self.stream_bodies.append(body)
+            if self.stream_headers_timeouts:
+                self.stream_headers_timeouts -= 1
+                raise httpx.ReadTimeout("lost answer response", request=request)
             if self.stream_silence_after_first is not None:
                 return httpx.Response(
                     200,
@@ -634,8 +649,12 @@ def test_a_transient_planner_outage_is_retried_within_the_turn(gateway):
     assert message["tool_calls"][0]["function"]["arguments"] == '{"path":"C:/x.txt"}'
 
 
-def test_the_planner_uses_its_own_bounded_timeout(gateway, monkeypatch):
-    """The planner budget is a setting, not the short non-streaming read timeout of 90 s."""
+def test_the_planner_waits_a_bounded_first_response_not_the_full_task_budget(gateway, monkeypatch):
+    """A lost response must be detected long before the 450 s stream read budget.
+
+    The first-response bound is its own setting: it covers the Gateway's 120 s queue admission
+    plus a margin, and it is short enough that one retry still fits inside the task window.
+    """
     captured: dict = {}
     original = GatewayClient.stream_client
 
@@ -650,7 +669,54 @@ def test_the_planner_uses_its_own_bounded_timeout(gateway, monkeypatch):
     )
     run(provider.plan_tools([{"role": "user", "content": "x"}], [], {}))
 
-    assert captured["timeout"] == 300
+    assert captured["timeout"] == settings.alex_gateway_first_response_seconds
+    assert captured["timeout"] < settings.alex_gateway_plan_timeout_seconds
+
+
+def test_a_lost_planner_response_is_retried_once(gateway):
+    """The 25 Oct live failure: the Gateway answered, the client never received the headers.
+
+    Nothing was produced, so one retry cannot duplicate a tool call; without it the turn waited
+    out the whole read budget and reported a dead model for a healthy generation.
+    """
+    gateway.planner_headers_timeouts = 1
+    gateway.planner_message = {"role": "assistant", "content": "Хорошо"}
+    provider = GatewayProvider(shared_settings(), client_for(gateway))
+
+    message = run(provider.plan_tools([{"role": "user", "content": "x"}], [], {}))
+
+    assert gateway.planner_calls == 2
+    assert message["content"] == "Хорошо"
+
+
+def test_a_lost_answer_response_is_retried_before_anything_was_shown(gateway):
+    gateway.stream_headers_timeouts = 1
+    provider = GatewayProvider(shared_settings(), client_for(gateway))
+
+    async def collect():
+        return [part async for part in provider.stream_chat([{"role": "user", "content": "x"}])]
+
+    parts = run(collect())
+
+    assert gateway.stream_calls == 2
+    assert "".join(parts) == "Привет, облако"
+
+
+def test_a_mid_stream_stall_is_never_replayed(gateway):
+    """A duplicated prefix is worse than a typed interruption: only a zero-token turn retries."""
+    from app.providers import LLMError
+
+    gateway.stream_silence_after_first = 5
+    provider = GatewayProvider(shared_settings(llm_stream_stall_seconds=0.05), client_for(gateway))
+
+    async def collect():
+        return [part async for part in provider.stream_chat([{"role": "user", "content": "x"}])]
+
+    with pytest.raises(LLMError) as error:
+        run(collect())
+
+    assert error.value.code == "llm_stalled"
+    assert gateway.stream_calls == 1
 
 
 def test_a_silent_planner_after_the_first_event_is_a_typed_stall(gateway):

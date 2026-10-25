@@ -1169,6 +1169,23 @@ class LocalTaskController:
         row.updated_at = now()
         db.commit()
 
+    def promote_for_answer(self, db, context):
+        """Leave WAITING_LLM so the finished answer can conclude the task.
+
+        The answer after a planner stall is generated in the same turn as the tool work.
+        ``conclude`` deliberately refuses to close a parked task, so the state is promoted first;
+        if the answer fails, ``waiting_llm`` parks it again with the same backoff.
+        """
+        row = self._row(db, context)
+        if not row:
+            return
+        if row.status == machine.WAITING_LLM:
+            machine.transition(row, machine.RECOVERING)
+            machine.transition(row, machine.READY)
+            row.last_error = None
+        row.updated_at = now()
+        db.commit()
+
     def waiting_llm(self, db, context, code="llm_unavailable"):
         row = self._row(db, context)
         if not row or row.status in machine.TERMINAL:

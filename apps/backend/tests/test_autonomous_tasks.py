@@ -819,6 +819,116 @@ def test_a_gateway_outage_after_a_tool_keeps_the_result_and_finishes(setup):
         assert not (row.checkpoint or {}).get("tool_transcript")
 
 
+def test_a_planner_stall_after_tools_keeps_the_answer_in_the_same_turn(setup, client):
+    """H2 live: pytest passed, then the planner went silent and the user saw only a failure.
+
+    The completed tool work is on disk. A fresh answer request usually succeeds, so the turn must
+    answer from those results and conclude the task instead of ending with "LLM unavailable".
+    """
+    from app.main import app
+    from app.providers import LLMError
+
+    headers, context, _events, root, host, _device = setup
+    calls = {"plans": 0}
+
+    class StallThenAnswer:
+        supports_tools = True
+
+        async def plan_tools(self, messages, tools, usage):
+            calls["plans"] += 1
+            if calls["plans"] == 1:
+                return {
+                    "tool_calls": _call("read_file", {"path": str(root / "app.py"), "purpose": "read"}, "c1")
+                }
+            raise LLMError("llm_stalled")
+
+        async def stream_with_usage(self, messages, usage):
+            yield "Файл прочитан: add(a, b) возвращает a - b."
+
+        async def chat(self, messages):
+            return "Файл прочитан: add(a, b) возвращает a - b."
+
+        async def health(self):
+            return True
+
+        async def status(self):
+            return "ready"
+
+    previous = app.state.provider
+    app.state.provider = StallThenAnswer()
+    try:
+        response = client.post(
+            f"/chats/{context.chat_id}/stream",
+            headers=headers,
+            json={"content": "Посмотри на файл app.py на desktop."},
+        )
+    finally:
+        app.state.provider = previous
+
+    assert response.status_code == 200
+    assert "event: done" in response.text
+    assert "Файл прочитан: add(a, b) возвращает a - b." in response.text
+    # The transient task label may still say WAITING_LLM, but the answer itself must not
+    # be the old blanket failure text.
+    assert "LLM unavailable. Task will continue after recovery." not in response.text
+    assert host.handled.count("read_file") == 1
+
+    from sqlalchemy import select
+
+    with SessionLocal() as db:
+        messages = db.scalars(
+            select(Message).where(Message.chat_id == context.chat_id).order_by(Message.created_at)
+        ).all()
+        answer = messages[-1]
+        assert answer.role == "assistant"
+        assert answer.content.startswith("Файл прочитан")
+        assert answer.status == "complete"
+        row = db.scalars(select(LocalTask)).all()[-1]
+        assert row.status == machine.COMPLETED
+        # Nothing is left to replay on a later resume.
+        assert not (row.checkpoint or {}).get("tool_transcript")
+
+
+def test_a_halted_answer_still_reports_the_real_work(setup):
+    """When even the answer request fails, the message names the cause and the saved results."""
+    from app.providers import LLMError
+    from app.tools.local.public_text import public_assistant_text
+
+    _headers, context, _events, root, host, _device = setup
+
+    class StallAfterTool:
+        supports_tools = True
+
+        def __init__(self):
+            self.calls = 0
+
+        async def plan_tools(self, messages, tools, usage):
+            self.calls += 1
+            if self.calls == 1:
+                return {
+                    "tool_calls": _call("read_file", {"path": str(root / "app.py"), "purpose": "read"}, "c1")
+                }
+            raise LLMError("llm_stalled")
+
+    orchestrator = ToolOrchestrator(make_registry(), ToolExecutor(make_registry()))
+    asyncio.run(
+        orchestrator.prepare(
+            StallAfterTool(), [{"role": "user", "content": context.user_prompt}], 0, context, {}
+        )
+    )
+
+    assert context.final_after_halt is True
+    assert context.skip_final_stream is False
+    assert host.handled.count("read_file") == 1
+    with SessionLocal() as db:
+        row = require_row(db, LocalTask, context.task_id)
+        text = public_assistant_text("", "llm_unavailable", row.facts)
+        assert row.status == machine.WAITING_LLM
+    assert "llm_stalled" in text
+    assert "прочитан файл" in text
+    assert "LLM unavailable" not in text
+
+
 def test_write_run_fix_rerun_returns_real_stdout(setup):
     """A deterministic planner still uses the real host executor for every step."""
     _headers, context, _events, root, host, _device = setup

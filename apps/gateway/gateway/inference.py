@@ -38,6 +38,9 @@ logger = logging.getLogger(__name__)
 
 REQUEST_MEMORY_SECONDS = 300
 REQUEST_MEMORY_MAX = 256
+# A gap between upstream chunks longer than this is logged with the request id. It is the
+# difference between "the model stopped producing" and "the client stopped reading".
+SLOW_CHUNK_MS = 5000
 
 
 class InferenceQueue:
@@ -329,8 +332,33 @@ class InferenceProxy:
 
         async def relay():
             status = "completed"
+            started_at = time.monotonic()
+            last_at = started_at
+            first_chunk_ms: int | None = None
+            chunks = 0
+            total_bytes = 0
+            max_gap_ms = 0
             try:
                 async for chunk in response.aiter_bytes():
+                    now_at = time.monotonic()
+                    gap_ms = int((now_at - last_at) * 1000)
+                    if chunks and gap_ms >= SLOW_CHUNK_MS:
+                        # The upstream went quiet between two chunks. A client stall with no such
+                        # line means the bytes were produced but never reached the client; a
+                        # line here means llama.cpp (or the pod socket) stopped sending.
+                        logger.warning(
+                            "gateway_stream_gap id=%s after_chunk=%d gap_ms=%d elapsed_ms=%d",
+                            request_id,
+                            chunks,
+                            gap_ms,
+                            int((now_at - started_at) * 1000),
+                        )
+                    if first_chunk_ms is None:
+                        first_chunk_ms = int((now_at - started_at) * 1000)
+                    chunks += 1
+                    total_bytes += len(chunk)
+                    max_gap_ms = max(max_gap_ms, gap_ms)
+                    last_at = now_at
                     self.authority.mark_activity()
                     yield chunk
             except (asyncio.CancelledError, GeneratorExit):
@@ -343,6 +371,17 @@ class InferenceProxy:
                 yield sse_error(GatewayError("gateway_unavailable"))
                 yield b"data: [DONE]\n\n"
             finally:
+                logger.info(
+                    "gateway_stream_end id=%s status=%s chunks=%d bytes=%d elapsed_ms=%d "
+                    "first_chunk_ms=%s max_gap_ms=%d",
+                    request_id,
+                    status,
+                    chunks,
+                    total_bytes,
+                    int((time.monotonic() - started_at) * 1000),
+                    "none" if first_chunk_ms is None else first_chunk_ms,
+                    max_gap_ms,
+                )
                 # The slot is released synchronously first, so a cancelled or abandoned
                 # stream can never leave the single generation slot occupied.
                 finish(status)

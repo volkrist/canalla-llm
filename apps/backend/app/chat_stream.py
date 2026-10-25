@@ -165,6 +165,9 @@ async def stream_response(
         parked = False
         tool_context = None
         usage_id = None
+        # Verified results of this turn. A halted answer quotes them, so the user sees what the
+        # tools already did instead of a blanket failure.
+        facts: dict = {}
         queue = asyncio.Queue(maxsize=64)
         from .tools.local.plan import looks_like_autonomous, looks_like_computer
         from .tools.local.public_text import public_assistant_text
@@ -341,15 +344,20 @@ async def stream_response(
                 row = LocalTaskController()._row(snapshot_db, tool_context)
                 if row:
                     facts = dict(row.facts or {})
-            if skip_final or halt in {
-                "task_paused",
-                "waiting_workspace",
-                "waiting_confirmation",
-                "host_offline",
-                "llm_unavailable",
-                "task_stopped",
-            }:
-                text = public_assistant_text("", halt)
+            final_after_halt = bool(getattr(tool_context, "final_after_halt", False))
+            if not final_after_halt and (
+                skip_final
+                or halt
+                in {
+                    "task_paused",
+                    "waiting_workspace",
+                    "waiting_confirmation",
+                    "host_offline",
+                    "llm_unavailable",
+                    "task_stopped",
+                }
+            ):
+                text = public_assistant_text("", halt, facts)
                 parts.append(text)
                 yield sse("delta", {"content": text})
                 status = "complete"
@@ -401,26 +409,57 @@ async def stream_response(
                         # and the model may still explain what it did or did not receive.
                         yield sse("web_status", {"state": "failed", "code": "browser_no_page_result"})
                     iterator = request.app.state.provider.stream_with_usage(enriched_history, tokens)
-                    async for token in iterator:
-                        if await request.is_disconnected():
-                            cancellation.update(
-                                application_cancelled=True,
-                                cancel_requested_at=now().isoformat(),
-                                client_stream_closed_at=now().isoformat(),
-                            )
-                            break
-                        if first_token_at is None:
-                            first_token_at = now()
-                        parts.append(token)
-                        visible = public_assistant_text(token)
-                        if visible:
-                            yield sse("delta", {"content": visible})
-                    else:
+                    answer_failed = False
+                    try:
+                        async for token in iterator:
+                            if await request.is_disconnected():
+                                cancellation.update(
+                                    application_cancelled=True,
+                                    cancel_requested_at=now().isoformat(),
+                                    client_stream_closed_at=now().isoformat(),
+                                )
+                                break
+                            if first_token_at is None:
+                                first_token_at = now()
+                            parts.append(token)
+                            visible = public_assistant_text(token)
+                            if visible:
+                                yield sse("delta", {"content": visible})
+                        else:
+                            status = "complete"
+                    except LLMError as error:
+                        if not final_after_halt:
+                            raise
+                        # The tools did the work; only the prose request failed. Say what is
+                        # true and leave the task parked for the queue monitor.
+                        logger.warning(
+                            "final_answer_after_halt_failed code=%s task_id=%s",
+                            error.code,
+                            getattr(tool_context, "task_id", None),
+                        )
+                        text = public_assistant_text("", "llm_unavailable", facts)
+                        parts.append(text)
+                        yield sse("delta", {"content": text})
+                        yield sse("task_status", {"state": "WAITING_LLM", "code": error.code})
                         status = "complete"
+                        answer_failed = True
+                    if status == "complete" and getattr(tool_context, "final_after_halt", False):
+                        # The answer exists, so the task may conclude now (it was left parked only
+                        # because its prose was missing). A failed answer stays parked instead.
+                        with SessionLocal() as db:
+                            LocalTaskController().promote_for_answer(db, tool_context)
+                            LocalTaskController().conclude(db, tool_context)
+                            LocalTaskController().clear_transcript(db, tool_context)
+                            row = LocalTaskController()._row(db, tool_context)
+                            payload = LocalTaskController().public(db, row) if row else None
+                        if payload:
+                            # The last task event said WAITING_LLM; this one ends the recovery view.
+                            yield sse("task", payload)
                     joined = public_assistant_text("".join(parts))
                     issue = issue_for(joined, grounded, prompt)
-                    if (not joined.strip() and (store(grounded) or looks_like_browser_task(prompt))) or (
-                        issue and status == "complete"
+                    if not answer_failed and (
+                        (not joined.strip() and (store(grounded) or looks_like_browser_task(prompt)))
+                        or (issue and status == "complete")
                     ):
                         repaired = ""
                         if joined.strip() and issue:
@@ -529,6 +568,7 @@ async def stream_response(
                                 getattr(tool_context, "task_halt", None)
                                 if getattr(tool_context, "skip_final_stream", False)
                                 else None,
+                                facts,
                             ),
                             status,
                         )

@@ -387,6 +387,37 @@ def test_an_explicit_start_lifts_the_manual_stop(shared_demand):
     assert shared_demand.gateway.ensure_calls == 1
 
 
+def test_a_lost_ensure_response_is_read_back_instead_of_failing(shared_demand):
+    """The live 25 Oct failure: the Gateway created the Pod, the response never arrived.
+
+    The client waited out its 60 s read budget and reported `gateway_unavailable` although the
+    Gateway had answered 200 and a Pod was starting. A lost response is not a failed ensure:
+    one bounded state read must recover the attempt, and it can never create a second Pod.
+    """
+    shared_demand.gateway.ensure_results = [compute_payload("starting_pod", ai="starting")]
+    shared_demand.gateway.compute_steps = [compute_payload("starting_pod", ai="starting")]
+    shared_demand.gateway.ensure_transport_failures = 1
+
+    outcome = run(shared_demand.demand.ensure(caps={}, origin="chat"))
+
+    assert outcome["kind"] == "starting", outcome
+    assert shared_demand.gateway.ensure_calls == 1
+    assert shared_demand.gateway.compute_calls >= 1
+
+
+def test_a_lost_ensure_with_no_attempt_still_fails_typed(shared_demand):
+    """If the state read carries no state at all, the original transport failure is the answer."""
+    from app.cloud.client import CloudError
+
+    shared_demand.gateway.ensure_transport_failures = 1
+    shared_demand.gateway.compute_steps = [{}]
+
+    with pytest.raises(CloudError) as error:
+        run(shared_demand.demand.ensure(caps={}, origin="chat"))
+
+    assert error.value.code == "gateway_unavailable"
+
+
 @pytest.fixture
 def shared_app(monkeypatch, shared_demand):
     """A real app in shared mode, wired to the fake Gateway. The chat path is real.

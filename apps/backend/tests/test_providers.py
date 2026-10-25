@@ -128,6 +128,35 @@ def test_llamacpp_reports_a_silent_stream_as_a_stall(monkeypatch):
     assert error.value.code == "llm_stalled"
 
 
+def test_iter_stream_lines_logs_the_gap_and_the_stall_point(caplog):
+    """A silent stream must leave evidence of *where* it stopped, not only that it did."""
+    import logging
+
+    async def lines():
+        yield "first"
+        await asyncio.sleep(0.05)
+        yield "second"
+        await asyncio.sleep(0.3)
+
+    async def collect():
+        return [
+            line
+            async for line in providers.iter_stream_lines(
+                lines(), stall_seconds=0.2, what="probe", slow_gap_seconds=0.01
+            )
+        ]
+
+    with caplog.at_level(logging.WARNING, logger="app.providers"):
+        with pytest.raises(providers.LLMError) as error:
+            asyncio.run(collect())
+
+    assert error.value.code == "llm_stalled"
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "llm_stream_gap what=probe after_line=1" in logged
+    assert "llm_stream_stalled what=probe lines=2" in logged
+    assert "first_line_ms=" in logged
+
+
 def test_llamacpp_rejects_truncated_stream(monkeypatch):
     original = httpx.AsyncClient
     transport = httpx.MockTransport(lambda request: httpx.Response(200, text='data: {"choices":[]}\n\n'))

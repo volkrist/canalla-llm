@@ -663,6 +663,11 @@ class ToolOrchestrator:
                     LocalTaskController().finish(db, context, "FAILED")
         else:
             close_task()
+        completed_tools = int(getattr(context, "completed_tool_calls", 0) or 0)
+        # A silent planner after real tool work is not a failed task: the work is on disk, the
+        # transcript is saved, and a fresh answer request normally succeeds. Try that answer in
+        # this turn; the task stays WAITING_LLM until it exists, so a failure is still resumable.
+        context.final_after_halt = halt == "llm_unavailable" and completed_tools > 0
         if halt in {
             "task_paused",
             "waiting_workspace",
@@ -671,7 +676,7 @@ class ToolOrchestrator:
             "llm_unavailable",
             "task_stopped",
         }:
-            context.skip_final_stream = True
+            context.skip_final_stream = not context.final_after_halt
             context.task_halt = halt
         with SessionLocal() as db:
             row = LocalTaskController()._row(db, context)
@@ -682,7 +687,6 @@ class ToolOrchestrator:
                 "WAITING_DEVICE",
                 "WAITING_LLM",
             }:
-                context.skip_final_stream = True
                 context.task_halt = {
                     "PAUSED": "task_paused",
                     "WAITING_WORKSPACE": "waiting_workspace",
@@ -690,6 +694,9 @@ class ToolOrchestrator:
                     "WAITING_DEVICE": "host_offline",
                     "WAITING_LLM": "llm_unavailable",
                 }.get(row.status, context.task_halt)
+                # The answer attempt after a planner stall is the one case that keeps the final
+                # stream: the work is done and only the prose is missing.
+                context.skip_final_stream = not context.final_after_halt
         if not context.skip_final_stream and not context.task_halt:
             # The turn reached the model again: nothing is left to recover. This also resets the
             # retry window so a later, unrelated outage starts from a fresh schedule.
@@ -1384,6 +1391,7 @@ class ToolOrchestrator:
                     if row:
                         row.checkpoint = {**(row.checkpoint or {}), "owned_browser": True}
                         db.commit()
+            context.completed_tool_calls = int(getattr(context, "completed_tool_calls", 0) or 0) + 1
             return packed
         except ToolError as error:
             context.limits.calls = max(context.limits.calls, len(notes) + 1)

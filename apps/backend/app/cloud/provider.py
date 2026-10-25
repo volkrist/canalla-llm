@@ -56,6 +56,9 @@ BALANCE_CODES = {
 PLANNER_RETRY_CODES = frozenset(
     {"gateway_unavailable", "gateway_busy", "gateway_queue_full", "gateway_rate_limited"}
 )
+# A response that never arrived produced nothing, so retrying it can never duplicate a tool call.
+# It is the one slow failure that still deserves a retry.
+LOST_RESPONSE_CODES = frozenset({"gateway_timeout", "llm_timeout"})
 
 
 class GatewayBalanceSource:
@@ -215,10 +218,20 @@ class GatewayProvider(LLMProvider):
                     isinstance(failure, LLMError)
                     and failure.code in {"llm_unavailable", "stream_interrupted", "gateway_busy"}
                 )
+                lost_response = (isinstance(failure, CloudError) and failure.code in LOST_RESPONSE_CODES) or (
+                    isinstance(failure, LLMError) and failure.code in LOST_RESPONSE_CODES
+                )
                 # A full-budget timeout is a conclusion, not a blip: retrying it would only
                 # spend another 300 s of the task's window. Fast transport failures are
-                # retried; slow ones park the task for the queue monitor's backoff.
-                if not retryable or attempt == attempts - 1 or time.monotonic() - started > 30:
+                # retried; slow ones park the task for the queue monitor's backoff. A lost
+                # response is different: nothing was produced, so exactly one retry is allowed
+                # even after a long wait (the first attempt is already bounded by the
+                # first-response budget).
+                if not retryable and not lost_response:
+                    break
+                if attempt == attempts - 1:
+                    break
+                if time.monotonic() - started > 30 and not (lost_response and attempt == 0):
                     break
                 await asyncio.sleep(0.5 * (2**attempt))
             except Exception:
@@ -267,7 +280,7 @@ class GatewayProvider(LLMProvider):
         )
         headers = self.client.stream_headers()
         headers["Authorization"] = "Bearer " + await self.client.token()
-        client = self.client.stream_client(self.settings.alex_gateway_plan_timeout_seconds)
+        client = self.client.stream_client(self.settings.alex_gateway_first_response_seconds)
         try:
             request = client.build_request(
                 "POST", self.client.url + "/v1/chat/completions", json=body, headers=headers
@@ -284,7 +297,7 @@ class GatewayProvider(LLMProvider):
             raise
         except httpx.TimeoutException:
             await client.aclose()
-            raise CloudError("gateway_unavailable", "Canalla Cloud не ответил вовремя.") from None
+            raise CloudError("gateway_timeout", "Canalla Cloud не ответил вовремя.") from None
         except httpx.HTTPError:
             await client.aclose()
             raise CloudError("gateway_unavailable", "Canalla Cloud сейчас недоступен.") from None
@@ -426,6 +439,34 @@ class GatewayProvider(LLMProvider):
             await iterator.aclose()
 
     async def _stream(self, messages, usage):
+        """Stream one answer, retrying once when nothing was produced.
+
+        A lost response (the Gateway completed the request, the client never received it) used
+        to end the turn after the full 450 s read budget. The first attempt is bounded by
+        ``alex_gateway_first_response_seconds``; if it produced no token at all, one retry is
+        safe because the user has seen nothing yet. Once a token was yielded the answer is
+        never repeated — a duplicated prefix is worse than a typed interruption.
+        """
+        for attempt in (1, 2):
+            yielded = False
+            try:
+                async for part in self._stream_once(messages, usage):
+                    yielded = True
+                    yield part
+                return
+            except LLMError as error:
+                retryable = error.code in {
+                    "llm_timeout",
+                    "llm_stalled",
+                    "llm_unavailable",
+                    "stream_interrupted",
+                }
+                if yielded or attempt == 2 or not retryable:
+                    raise
+                logger.warning("gateway_stream_retry code=%s attempt=%d", error.code, attempt)
+                await asyncio.sleep(0.5)
+
+    async def _stream_once(self, messages, usage):
         body = {
             "model": self.settings.llm_model,
             "messages": messages,
@@ -443,7 +484,7 @@ class GatewayProvider(LLMProvider):
         headers["Authorization"] = "Bearer " + await self.client.token()
         # A32: the stream uses the longer read budget so a legitimate queue wait is not turned into
         # a dead-model error before the Gateway's admitted window ends.
-        client = self.client.stream_client()
+        client = self.client.stream_client(self.settings.alex_gateway_first_response_seconds)
         try:
             request = client.build_request(
                 "POST", self.client.url + "/v1/chat/completions", json=body, headers=headers

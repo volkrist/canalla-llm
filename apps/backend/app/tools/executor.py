@@ -202,6 +202,12 @@ class ExecutionContext:
     resuming: bool = False
     skip_final_stream: bool = False
     task_halt: str | None = None
+    # Tools that already succeeded in this turn. A planner stall after real work must still
+    # produce an answer (and must never look like the whole task failed).
+    completed_tool_calls: int = 0
+    # The planner went silent, but the tool phase had already done real work: the final answer is
+    # attempted in this same turn, and the task is concluded only after it exists.
+    final_after_halt: bool = False
 
     async def progress(self, **values):
         # Providers pass only documented, allowlisted metadata, never raw responses.

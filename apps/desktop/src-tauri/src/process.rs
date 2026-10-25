@@ -309,7 +309,7 @@ fn run_elevated(_exe: &str, _args: &[String], _cwd: Option<&str>) -> LocalOutcom
 mod tests {
     #[test]
     fn sanitized_env_omits_application_secrets() {
-        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         std::env::set_var("RUNPOD_API_KEY", "secret");
         std::env::set_var("TINYFISH_API_KEY", "secret");
         std::env::set_var("LLM_API_KEY", "secret");
@@ -340,7 +340,7 @@ mod tests {
             super::OUTPUT_BYTE_LIMIT,
         );
         handle.join().unwrap();
-        let data = sink.lock().unwrap();
+        let data = sink.lock().unwrap_or_else(|error| error.into_inner());
         assert_eq!(data.len(), super::OUTPUT_BYTE_LIMIT);
     }
 

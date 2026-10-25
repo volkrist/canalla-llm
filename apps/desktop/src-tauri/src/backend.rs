@@ -18,6 +18,22 @@ use uuid_lite::UuidLite;
 
 const PREFERRED_PORT: u16 = 8000;
 const PORT_SPAN: u16 = 20;
+
+/// Tests that drive the supervisor must never attach to the operator's installed backend on the
+/// product port. The override keeps them on an ephemeral, isolated listener.
+#[cfg(test)]
+static TEST_PREFERRED_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+
+fn preferred_port() -> u16 {
+    #[cfg(test)]
+    {
+        let value = TEST_PREFERRED_PORT.load(std::sync::atomic::Ordering::SeqCst);
+        if value != 0 {
+            return value;
+        }
+    }
+    PREFERRED_PORT
+}
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(45);
 const HEALTH_TIMEOUT: Duration = Duration::from_millis(400);
 
@@ -753,7 +769,7 @@ fn ensure_locked(sup: &mut Supervisor) -> Result<BackendStatus, String> {
     }
     sup.restarts = restart_from.max(sup.restarts);
 
-    let port = select_listen_port(PREFERRED_PORT)?;
+    let port = select_listen_port(preferred_port())?;
     match classify_port(port) {
         PortKind::Alex => {
             let body = alex_health(&url_for(port)).unwrap_or(json!({}));
@@ -1294,9 +1310,16 @@ ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
         use std::time::Instant;
 
         let _supervisor = supervisor_guard();
-        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let _guard =
+            crate::credential::TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let previous_root = std::env::var("ALEX_LLM_DATA_DIR").ok();
         let root = std::env::temp_dir().join(format!("alex-watchdog-{}", UuidLite::instance()));
+        // Never attach to the operator's running installation on the product port.
+        let isolated_port = {
+            let probe = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a free port");
+            probe.local_addr().expect("an address").port()
+        };
+        TEST_PREFERRED_PORT.store(isolated_port, std::sync::atomic::Ordering::SeqCst);
         std::env::set_var("ALEX_LLM_DATA_DIR", &root);
         *TEST_LAUNCH.lock().unwrap() = Some((python_bin(), vec!["-c".into(), FAKE_SIDECAR.into()]));
         resume_after_shutdown_for_tests();
@@ -1312,6 +1335,7 @@ ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
         };
         assert_eq!(first.state, BackendState::Ready);
         let first_pid = first.pid.expect("a pid");
+        assert_ne!(first_pid, 0, "the test must own the child it kills");
         let port = first.port.expect("a port");
 
         // Crash it the way a real sidecar dies: the process is gone, the handle is stale.
@@ -1361,6 +1385,7 @@ ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
             Some(value) => std::env::set_var("ALEX_LLM_DATA_DIR", value),
             None => std::env::remove_var("ALEX_LLM_DATA_DIR"),
         }
+        TEST_PREFERRED_PORT.store(0, std::sync::atomic::Ordering::SeqCst);
         let _ = fs::remove_dir_all(&root);
     }
 

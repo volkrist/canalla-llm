@@ -19,10 +19,14 @@ This module owns that attempt:
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 
 from ..providers import LLMError
+from .client import CloudError
 from .state import CloudState, search_active
+
+logger = logging.getLogger(__name__)
 
 # The product rule, and the same hard bound the Gateway enforces on its own side.
 CAPACITY_WINDOW_SECONDS = 60.0
@@ -360,12 +364,37 @@ class SharedDemand:
     async def _gateway_ensure(self, task_id: str | None, caps: dict | None) -> dict:
         from uuid import uuid4
 
-        payload = await self.cloud.client.ensure_compute(
-            operation_id="local-" + str(uuid4()),
-            task_id=task_id,
-            caps=caps or {},
-            origin=self._origin,
-        )
+        operation_id = "local-" + str(uuid4())
+        try:
+            payload = await self.cloud.client.ensure_compute(
+                operation_id=operation_id,
+                task_id=task_id,
+                caps=caps or {},
+                origin=self._origin,
+            )
+        except CloudError as error:
+            if error.code != "gateway_unavailable":
+                raise
+            # A lost response is not a failed ensure. The request may have reached the Gateway and
+            # created the attempt; asking for the state is the only honest way to find out, and it
+            # can never create a second Pod. One bounded read, then the original error stands.
+            logger.warning(
+                "gateway_ensure_transport_lost operation_id=%s task_id=%s",
+                operation_id,
+                task_id or "",
+            )
+            await self._sleep(1.0)
+            try:
+                payload = await self.cloud.client.compute_status()
+            except CloudError:
+                raise error from None
+            if not isinstance(payload, dict) or not payload.get("state"):
+                raise error from None
+            logger.info(
+                "gateway_ensure_recovered operation_id=%s state=%s",
+                operation_id,
+                payload.get("state"),
+            )
         self.cloud.compute = payload
         self.cloud.fetched_at = self.cloud.clock()
         if self._first is not None and not self._first.done():

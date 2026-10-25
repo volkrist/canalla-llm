@@ -119,7 +119,17 @@ async def continue_task(task_id: str, orchestrator, provider, *, host_online=Tru
                 row.facts = facts
                 db.commit()
         raise
-    if not getattr(context, "skip_final_stream", False) and not getattr(context, "task_halt", None):
+    has_tool_results = any(
+        message.get("role") == "tool" for message in (getattr(context, "resume_transcript", None) or [])
+    )
+    answer_deferred = (
+        not getattr(context, "skip_final_stream", False) and not getattr(context, "task_halt", None)
+    ) or getattr(context, "final_after_halt", False)
+    # A resumed task whose planner went silent again still has its completed tool results. The
+    # answer request is cheap compared with keeping the user without the result they asked for.
+    if getattr(context, "task_halt", None) == "llm_unavailable" and has_tool_results:
+        answer_deferred = True
+    if answer_deferred:
         text = await finish_resumed_task(task_id, provider, enriched, context)
         if text is None:
             return SimpleNamespace(context=context, events=events)

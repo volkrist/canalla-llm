@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn install_id_is_stable_across_reads() {
-        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let (temp, previous) = isolated_root();
         let first = install_id();
         let second = install_id();
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn session_pointer_validation_rejects_junk() {
-        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let (temp, previous) = isolated_root();
         let _ = fs::create_dir_all(runtime_dir());
         fs::write(session_id_path(), "not a valid id!").unwrap();
@@ -350,7 +350,7 @@ mod tests {
     fn logout_keeps_provider_credentials() {
         // Logout clears the device session only. Provider credentials are
         // installation-global and must survive it untouched.
-        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let (temp, previous) = isolated_root();
         let _ = fs::create_dir_all(runtime_dir());
         let session_id = format!("logout-test-{}", UuidLite::instance());
@@ -392,7 +392,7 @@ mod tests {
     fn provider_secret_roundtrip_uses_the_scoped_store() {
         // Mechanism check with a unique name: tests never write the real
         // `provider/runpod` credential.
-        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let (temp, previous) = isolated_root();
         let name = format!("unit-global-{}", UuidLite::instance());
         assert!(crate::credential::store_scoped("provider", &name, "secret-value").is_ok());

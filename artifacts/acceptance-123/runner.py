@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 import threading
@@ -174,6 +175,16 @@ def run_scenario(scenario: catalog.Scenario, token: str) -> dict:
     root.mkdir(parents=True, exist_ok=True)
     if scenario.setup:
         catalog.setup_fixture(scenario.setup, root)
+    else:
+        # A scenario that builds its project from scratch must not inherit a previous attempt.
+        # H1 was failed by a corrupted `h1_cli/__init__.py` left behind by the 1.2.3 trim defect:
+        # the model inspected the stale tree and never wrote a clean README. The path is inside
+        # the acceptance sandbox only.
+        for child in root.iterdir():
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                child.unlink(missing_ok=True)
     # A task parked by an earlier session owns the single computer workspace; without this the
     # new scenario would answer `WAITING_WORKSPACE` and never reach the model.
     stale = common.stop_stale_tasks(token, common.SANDBOX)

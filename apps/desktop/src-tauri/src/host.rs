@@ -423,6 +423,35 @@ async fn fetch_jobs(
     }
 }
 
+/// How a delivery attempt ended.
+///
+/// A refused payload (validation, scope, a run that no longer exists) is not evidence that the
+/// backend will accept the same bytes later: retrying it forever only re-sends a request the
+/// backend already answered. Transient failures (network, 5xx, throttling) are retried on the
+/// next poll instead, and the journal keeps the result until it is accepted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Delivery {
+    Delivered,
+    Retry,
+    Rejected,
+}
+
+fn delivery_outcome(status: reqwest::StatusCode) -> Delivery {
+    if status.is_success() {
+        return Delivery::Delivered;
+    }
+    let code = status.as_u16();
+    // 409 means the backend already holds this result (the executor consumed it). The journal
+    // entry has served its purpose even though this POST was not the one that stored it.
+    if code == 409 {
+        return Delivery::Delivered;
+    }
+    if code == 408 || code == 425 || code == 429 || status.is_server_error() {
+        return Delivery::Retry;
+    }
+    Delivery::Rejected
+}
+
 /// Deliver a stored result and acknowledge it. Returns true only once the backend has it.
 async fn deliver_and_ack(
     client: &reqwest::Client,
@@ -430,18 +459,34 @@ async fn deliver_and_ack(
     token: &mut String,
     run_id: &str,
     body: &Value,
-) -> bool {
+) -> Delivery {
     let result_url = format!("{base}/tools/runs/{run_id}/host-result");
     match authed_post(client, base, token, &result_url, body).await {
-        Some(status) if status.is_success() => {}
-        _ => return false,
+        Some(status) => match delivery_outcome(status) {
+            Delivery::Delivered => {}
+            other => return other,
+        },
+        None => return Delivery::Retry,
     }
     let claim_id = body.get("claim_id").cloned().unwrap_or_else(|| json!(""));
     let ack_url = format!("{base}/tools/runs/{run_id}/host-ack");
-    matches!(
-        authed_post(client, base, token, &ack_url, &json!({"claim_id": claim_id})).await,
-        Some(status) if status.is_success()
+    match authed_post(
+        client,
+        base,
+        token,
+        &ack_url,
+        &json!({"claim_id": claim_id}),
     )
+    .await
+    {
+        Some(status) => match delivery_outcome(status) {
+            // A lost ACK is retried from the journal; the result itself was accepted.
+            Delivery::Delivered => Delivery::Delivered,
+            Delivery::Retry => Delivery::Retry,
+            Delivery::Rejected => Delivery::Delivered,
+        },
+        None => Delivery::Retry,
+    }
 }
 
 /// Decline a job whose effect may already have run. Never a success, never a replay.
@@ -485,13 +530,24 @@ async fn handle_job(
         match phase.as_str() {
             "done" => {
                 if let Some(result) = entry.result.clone() {
-                    if deliver_and_ack(&client, &backend, &mut token, &run_id, &result).await {
-                        journal_remove(&run_id);
+                    match deliver_and_ack(&client, &backend, &mut token, &run_id, &result).await {
+                        Delivery::Delivered => journal_remove(&run_id),
+                        Delivery::Retry => {}
+                        Delivery::Rejected => {
+                            // The backend refused these bytes. Keep them as evidence, stop posting.
+                            journal_write(
+                                &run_id,
+                                JournalEntry {
+                                    phase: "rejected".into(),
+                                    ..entry
+                                },
+                            );
+                        }
                     }
                 }
                 return;
             }
-            "unknown" => return,
+            "unknown" | "rejected" => return,
             "started" => {
                 report_unknown(
                     &client,
@@ -563,8 +619,20 @@ async fn handle_job(
             result: Some(result.clone()),
         },
     );
-    if deliver_and_ack(&client, &backend, &mut token, &run_id, &result).await {
-        journal_remove(&run_id);
+    match deliver_and_ack(&client, &backend, &mut token, &run_id, &result).await {
+        Delivery::Delivered => journal_remove(&run_id),
+        // Transient: the next poll re-delivers from the journal, never re-runs the tool.
+        Delivery::Retry => {}
+        // Refused: keep the bytes as evidence and stop posting this run.
+        Delivery::Rejected => journal_write(
+            &run_id,
+            JournalEntry {
+                claim_id,
+                digest,
+                phase: "rejected".into(),
+                result: Some(result),
+            },
+        ),
     }
 }
 
@@ -2136,11 +2204,46 @@ mod tests {
         }
     }
 
+    /// A refused payload must not be posted forever: the previous 422 (an out-of-range exit code)
+    /// re-sent the same bytes every two seconds while the tool call sat waiting on the backend.
+    #[test]
+    fn delivery_classifies_refusals_separately_from_transient_failures() {
+        use reqwest::StatusCode;
+
+        assert_eq!(delivery_outcome(StatusCode::OK), Delivery::Delivered);
+        assert_eq!(delivery_outcome(StatusCode::CONFLICT), Delivery::Delivered);
+        assert_eq!(
+            delivery_outcome(StatusCode::UNPROCESSABLE_ENTITY),
+            Delivery::Rejected
+        );
+        assert_eq!(
+            delivery_outcome(StatusCode::BAD_REQUEST),
+            Delivery::Rejected
+        );
+        assert_eq!(delivery_outcome(StatusCode::FORBIDDEN), Delivery::Rejected);
+        assert_eq!(delivery_outcome(StatusCode::NOT_FOUND), Delivery::Rejected);
+        assert_eq!(
+            delivery_outcome(StatusCode::REQUEST_TIMEOUT),
+            Delivery::Retry
+        );
+        assert_eq!(
+            delivery_outcome(StatusCode::TOO_MANY_REQUESTS),
+            Delivery::Retry
+        );
+        assert_eq!(delivery_outcome(StatusCode::BAD_GATEWAY), Delivery::Retry);
+        assert_eq!(
+            delivery_outcome(StatusCode::SERVICE_UNAVAILABLE),
+            Delivery::Retry
+        );
+    }
+
     /// A crash after the effect is a `started` marker on disk: the next process must see it and
     /// decline, not run the command a second time.
     #[test]
     fn journal_survives_a_process_restart() {
-        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let _guard = crate::credential::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let (dir, previous) = journal_dir("restart");
         journal_write(
             "run-1",
@@ -2166,7 +2269,9 @@ mod tests {
     /// Once the result exists it is held on disk, so a lost POST is a re-read, never a re-run.
     #[test]
     fn journal_keeps_the_result_for_redelivery() {
-        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let _guard = crate::credential::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let (dir, previous) = journal_dir("done");
         let result = json!({
             "digest": "d1",
