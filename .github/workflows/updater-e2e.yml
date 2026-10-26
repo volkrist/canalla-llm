@@ -8,6 +8,12 @@ name: Updater installed E2E
 # production secret: the update is public and is verified by the public key compiled into the
 # 1.2.3 client. No GPU, no Pod, no Gateway account.
 on:
+  # GitHub only enables `workflow_dispatch` for a workflow that exists on the default branch, so
+  # the branch that adds it can bootstrap with a push scoped to these two files.
+  push:
+    paths:
+      - ".github/workflows/updater-e2e.yml"
+      - "apps/desktop/e2e/updater-live.mjs"
   workflow_dispatch:
     inputs:
       from_version:
@@ -37,7 +43,7 @@ jobs:
       - name: Download the published installer and its checksums
         shell: pwsh
         env:
-          FROM_VERSION: ${{ inputs.from_version }}
+          FROM_VERSION: ${{ inputs.from_version || '1.2.3' }}
         run: |
           $version = $env:FROM_VERSION
           $base = "https://github.com/volkrist/canalla-llm/releases/download/v$version"
@@ -69,8 +75,8 @@ jobs:
       - name: Run the installed update E2E
         working-directory: apps/desktop
         env:
-          CANALLA_FROM_VERSION: ${{ inputs.from_version }}
-          CANALLA_TARGET_VERSION: ${{ inputs.target_version }}
+          CANALLA_FROM_VERSION: ${{ inputs.from_version || '1.2.3' }}
+          CANALLA_TARGET_VERSION: ${{ inputs.target_version || '1.2.4' }}
         run: node e2e/updater-live.mjs
 
       - name: Upload evidence
