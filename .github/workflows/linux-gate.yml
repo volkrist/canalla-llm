@@ -1,0 +1,85 @@
+name: Linux gate
+
+# Native Ubuntu compilation and tests. This is BUILD/TEST evidence, not an installed
+# acceptance: packaging, the sidecar and the bundled Tor are exercised by the dedicated
+# jobs below as they become available.
+on:
+  push:
+    paths:
+      - ".github/workflows/linux-gate.yml"
+      - "apps/desktop/src-tauri/**"
+      - "apps/backend/**"
+  workflow_dispatch:
+
+jobs:
+  linux-rust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install the Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf libssl-dev build-essential pkg-config \
+            libxdo-dev libsoup-3.0-dev
+
+      - name: Install frontend dependencies and build the dist the Tauri macro embeds
+        working-directory: apps/desktop
+        run: |
+          npm ci
+          npx vite build
+
+      - name: Provide the bundle resources a compile-only run needs
+        run: |
+          mkdir -p apps/desktop/src-tauri/runtime/tor
+          mkdir -p apps/desktop/src-tauri/sidecar/alex-backend
+          touch apps/desktop/src-tauri/sidecar/alex-host-loop
+
+      - name: cargo test (native Linux)
+        working-directory: apps/desktop/src-tauri
+        run: cargo test
+
+      - name: The desktop binary links on Linux
+        working-directory: apps/desktop/src-tauri
+        run: |
+          cargo build --bin alex-llm
+          test -x target/debug/alex-llm
+          ldd target/debug/alex-llm | grep -E "webkit2gtk|gtk-3|not found" || true
+
+  linux-backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r apps/backend/requirements.lock
+
+      - name: Backend suite on Linux
+        working-directory: apps/backend
+        env:
+          PYTHONUTF8: "1"
+        run: python -m pytest -q
+
+      - name: Build the packaged backend sidecar
+        working-directory: apps/backend
+        run: |
+          python -m pip install "pyinstaller>=6,<7"
+          pyinstaller --noconfirm alex-backend.spec
+          test -x dist/alex-backend/alex-backend || (echo "no Linux sidecar produced" && exit 1)
+          ls -l dist/alex-backend/alex-backend
