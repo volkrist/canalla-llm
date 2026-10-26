@@ -523,6 +523,26 @@ SCENARIOS: list[Scenario] = [
         budget_seconds=60,
         notes="Playwright and the installed-window script; no model PASS is claimed.",
     ),
+    Scenario(
+        "LA",
+        "stress",
+        "Длинная автономная цепочка",
+        "В папке " + P("LA") + " собери небольшой Python-проект целиком самостоятельно. "
+        "Нужны пакет la_app с __init__.py, core.py (функции normalize, summarize, validate), "
+        "cli.py и tests/test_core.py; README.md с описанием. Затем запусти pytest -q. "
+        "Если тесты падают — найди причину, исправь исходный код и повторяй до PASS. "
+        "После зелёных тестов запусти python -m la_app.cli и сохрани его stdout в la_report.txt. "
+        "Не останавливайся на первом успехе: проверь каждый модуль отдельно. "
+        "В конце выведи LA_DONE и коротко перечисли, что создано и что проверено.",
+        900,
+        expected_tools=("write_file", "read_file", "run_python"),
+        markers=("LA_DONE",),
+        files=(("la_report.txt", None),),
+        stdout_markers=("LA_DONE",),
+        budget_seconds=520,
+        notes="The model-origin tool call count is reported separately; the 15-call threshold is "
+        "a PASS only when it is actually reached.",
+    ),
 ]
 
 
@@ -544,6 +564,7 @@ PACKAGES: dict[str, tuple[str, ...]] = {
     "hard-b": ("H3", "H4"),
     "hard-c": ("H5", "H6"),
     "stress": ("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"),
+    "long": ("LA",),
 }
 
 

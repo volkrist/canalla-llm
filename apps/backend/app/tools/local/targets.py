@@ -77,11 +77,7 @@ def extract_absolute_paths(prompt: str) -> list[str]:
     # disk is recovered in full, so `C:\\...\\Canalla E2E 1.2.3\\readme with spaces.txt` is one
     # target instead of `C:\\...\\Canalla` plus the word "spaces.txt". The same recovery runs for a
     # POSIX path, which the whitespace regex truncates for exactly the same reason.
-    recovery = (
-        r"[A-Za-z]:[\\/]"
-        if os.sep != "/"
-        else r"(?:[A-Za-z]:[\\/]|(?<![A-Za-z0-9])/)"
-    )
+    recovery = r"[A-Za-z]:[\\/]" if os.sep != "/" else r"(?:[A-Za-z]:[\\/]|(?<![A-Za-z0-9])/)"
     for match in re.finditer(recovery, text):
         value = longest_existing_path(text, match.start())
         if value:
