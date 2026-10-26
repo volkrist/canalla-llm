@@ -93,6 +93,9 @@ def infer_primary(prompt: str, roots: list[str], known_desktop: str = "") -> str
     # `native_path` later. Recognising only `C:\` made every task on Linux fall back to the first
     # trusted root (or to the empty string) even when the prompt named a real directory.
     absolute = r"(?:[A-Za-z]:[\\/]|/)"
+    # In free text a POSIX path only starts a token: the slash in `archive/notes.txt` belongs to a
+    # relative name and must not be read as `/notes.txt`.
+    token_absolute = r"(?:[A-Za-z]:[\\/]|(?<![A-Za-z0-9])/)"
     # A quoted path is unambiguous even when it contains spaces.
     quoted = re.search(r"[\"«'](" + absolute + r"[^\"»']{2,240})[\"»']", text)
     if quoted:
@@ -109,7 +112,7 @@ def infer_primary(prompt: str, roots: list[str], known_desktop: str = "") -> str
         if value:
             path = Path(native_path(value))
             return str(path.parent) if path.is_file() else value
-    match = re.search(r"(" + absolute + r"[^\s\"«»]{3,200})", text)
+    match = re.search(r"(" + token_absolute + r"[^\s\"«»]{3,200})", text)
     if match:
         value = match.group(1).rstrip(".,;")
         path = Path(native_path(value))
