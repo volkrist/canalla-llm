@@ -269,9 +269,21 @@ $panel = SampleDiff $settings.Path $new.Path
 if ($panel -lt 0.10) { throw "SETTINGS_PANEL_TOO_SMALL diff=$panel" }
 # A pixel change alone is not proof: a hover or a selected chat changes pixels too. A modal that
 # really opened disappears on Escape and leaves the previous view behind (allowing a hover).
-[System.Windows.Forms.SendKeys]::SendWait('{ESC}')
-Start-Sleep -Milliseconds 700
+# WebView2 does not always deliver a synthetic Escape to a native <dialog>, so the real close button
+# is invoked through UI Automation when the key does nothing.
+[Microsoft.VisualBasic.Interaction]::AppActivate($process.Id) | Out-Null
+[NavWin]::SetForegroundWindow($handle) | Out-Null
+Start-Sleep -Milliseconds 300
+[NavWin]::keybd_event(0x1B, 0, 0, [UIntPtr]::Zero)
+[NavWin]::keybd_event(0x1B, 0, 2, [UIntPtr]::Zero)
+Start-Sleep -Milliseconds 900
 $dismissed = Capture '4b-settings-dismissed'
+if ((Get-FileHash $dismissed.Path -Algorithm SHA256).Hash -eq (Get-FileHash $settings.Path -Algorithm SHA256).Hash) {
+  # Some WebView2 builds route SendKeys to the host window only; a second, explicit attempt.
+  [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+  Start-Sleep -Milliseconds 900
+  $dismissed = Capture '4b-settings-dismissed-retry'
+}
 $residue = SampleDiff $dismissed.Path $new.Path
 if ($residue -gt 0.05) { throw "SETTINGS_DID_NOT_CLOSE diff=$residue" }
 
