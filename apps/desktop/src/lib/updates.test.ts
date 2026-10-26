@@ -472,6 +472,29 @@ describe("the updater against the endpoint", () => {
         expect(result.reason).toBe("artifact_name_mismatch");
     });
 
+    it("refuses GitHub's dotted asset name for a signature that keeps the space", async () => {
+      // GitHub rewrites the space in an uploaded file name to a dot, while the signature keeps
+      // the name it was made for. A manifest that points at the GitHub asset is therefore not
+      // bound to the signature - which is why releases are served from the Gateway's
+      // `/downloads/`, where the real name survives.
+      const signed = artifactName("1.2.1");
+      mockedCheck.mockResolvedValue(
+        asUpdate(
+          fakeUpdate({
+            version: "1.2.1",
+            rawJson: manifest("1.2.1", {
+              signedName: signed,
+              urlName: signed.replace(/ /g, "."),
+            }),
+          }),
+        ),
+      );
+      const result = await checkForUpdate();
+      expect(result.status).toBe("refused");
+      if (result.status === "refused")
+        expect(result.reason).toBe("artifact_name_mismatch");
+    });
+
     it("refuses a signed name that carries no version at all", async () => {
       // Shape case: a signed name without a version can never be bound to one, so it is refused
       // instead of being offered as any release. No genuine signature carries such a name - the

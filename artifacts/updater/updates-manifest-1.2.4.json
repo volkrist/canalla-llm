@@ -1,0 +1,13 @@
+{
+ "version": "1.2.4",
+ "pub_date": "2026-10-26T12:06:27Z",
+ "channel": "stable",
+ "notes": "Canalla LLM 1.2.4 — Windows x64. Stop AI теперь останавливает и ответ, и оплачиваемый Pod; после остановки статус честно показывает AI Off. Обновление подписано production-ключом и проверяется перед установкой. Live-приёмка: H4, H5, H6, T2, T5, T6, T7 — PASS.",
+ "platforms": {
+  "windows-x86_64": {
+   "url": "https://gateway.12testers.store/downloads/Canalla%20LLM_1.2.4_x64-setup.exe",
+   "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTeUh4MFIvNDR5bTc4eXJzTzVhSkc1SXVkcXhhbEdGREhoYU9qdStLaDlvVGxnLzFDd3UxZkU4cmdlSG14Uzc0WVRCd2lhTXJUQXhlUkhIejdqQXBxdWt5RHAwTlRKVHcwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMDE0MzI4CWZpbGU6Q2FuYWxsYSBMTE1fMS4yLjRfeDY0LXNldHVwLmV4ZQpNd1BQcW5lRERLVURzMXVDbzdnbWFjZ3YzbDRYZUZ4WWdMV3VnaTNtbWtFSFBEb20raE51ZUk2azI5ckdscTJlVUNqWTJyRXIxb1JvYWkvYWthelBDQT09Cg==",
+   "sha256": "8db307489f0b5f0da077158e50d329a57d4fcd2c64707c3f149a2196f9c8de7e"
+  }
+ }
+}

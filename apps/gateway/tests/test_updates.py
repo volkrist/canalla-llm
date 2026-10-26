@@ -216,6 +216,21 @@ def test_a_signed_name_that_is_not_the_served_file_is_refused(manifest_file):
     assert str(error.value) == "updates_manifest_entry_unbound:windows-x86_64"
 
 
+def test_a_github_normalised_asset_name_is_not_the_signed_name(manifest_file):
+    """GitHub turns the space in an upload name into a dot, and the signature keeps the space.
+
+    A manifest that points at `.../Canalla.LLM_1.2.0_x64-setup.exe` while the trusted comment says
+    `Canalla LLM_1.2.0_x64-setup.exe` is therefore refused. This is why a release serves the
+    artifact from `/downloads/`, which preserves the name the signature was made for; pointing at
+    the GitHub asset and relaxing this rule would break the binding for every future release.
+    """
+    dotted = WINDOWS_URL.replace("Canalla%20LLM", "Canalla.LLM")
+    path = manifest_file(manifest(platforms={"windows-x86_64": {**ENTRY, "url": dotted}}))
+    with pytest.raises(updates.UpdateManifestError) as error:
+        updates.latest(path=path, inline=None, platform="windows-x86_64", current_version="1.1.0")
+    assert str(error.value) == "updates_manifest_entry_unbound:windows-x86_64"
+
+
 def test_an_old_validly_signed_artifact_cannot_be_replayed_as_a_newer_release():
     """The attack this rule exists for: the genuine 1.2.0 package is republished as 1.2.1.
 

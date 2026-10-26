@@ -316,23 +316,37 @@ fn an_empty_pub_date_would_not_parse_which_is_why_the_endpoint_omits_it() {
 
 // ------------------------------------------------- the artifact this tree just built, as it will ship
 
+fn product_version() -> String {
+    let config: serde_json::Value =
+        serde_json::from_str(CONFIG).expect("tauri.conf.json must be valid JSON");
+    config["version"]
+        .as_str()
+        .expect("the product version must be configured")
+        .to_string()
+}
+
 /// The installer a release build leaves in the bundle directory, with the signature written beside
-/// it. `cargo test` on a machine that has not run a release build finds nothing here, and the gate
-/// below says so rather than pretending to have checked an artifact that does not exist.
-fn built_installer() -> Option<(Vec<u8>, String)> {
+/// it. The name is derived from the configured version: pinning it to one release made this gate
+/// check a stale installer (or skip silently) as soon as the tree moved on.
+/// `cargo test` on a machine that has not run a release build for *this* version finds nothing here,
+/// and the gate below says so rather than pretending to have checked an artifact that does not exist.
+fn built_installer() -> Option<(Vec<u8>, String, String)> {
+    let version = product_version();
+    let artifact_name = format!("Canalla LLM_{version}_x64-setup.exe");
     let bundle = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("target")
         .join("release")
         .join("bundle")
         .join("nsis");
-    let artifact = bundle.join(SERVED_ARTIFACT);
-    let signature = bundle.join(format!("{SERVED_ARTIFACT}.sig"));
+    let artifact = bundle.join(&artifact_name);
+    let signature = bundle.join(format!("{artifact_name}.sig"));
     if !artifact.is_file() || !signature.is_file() {
         return None;
     }
     Some((
         std::fs::read(&artifact).expect("the built installer is readable"),
         std::fs::read_to_string(&signature).expect("the built signature is readable"),
+        artifact_name,
     ))
 }
 
@@ -342,9 +356,10 @@ fn the_built_release_artifact_is_signed_by_the_production_identity() {
     // but not the artifact that ships. This one checks the real installer a release build left in
     // `target/release/bundle/nsis`, against the key the client actually compiles in, and asserts the
     // signed name carries the released version — the binding the Gateway refuses a manifest for.
-    let Some((bytes, signature)) = built_installer() else {
+    let Some((bytes, signature, artifact_name)) = built_installer() else {
         eprintln!(
-            "no release bundle in this tree: the shipping artifact's signature was not checked here"
+            "no release bundle for version {} in this tree: the shipping artifact's signature was not checked here",
+            product_version()
         );
         return;
     };
@@ -367,12 +382,9 @@ fn the_built_release_artifact_is_signed_by_the_production_identity() {
 
     let parsed = Signature::decode(&signature_text(&signature)).expect("a minisign signature");
     let name = signed_name(&parsed);
-    assert_eq!(
-        name, SERVED_ARTIFACT,
-        "the signature names the shipped file"
-    );
+    assert_eq!(name, artifact_name, "the signature names the shipped file");
     assert!(
-        name.contains("1.2.0"),
+        name.contains(&product_version()),
         "the signed name must carry the product version: {name}"
     );
 
@@ -383,4 +395,80 @@ fn the_built_release_artifact_is_signed_by_the_production_identity() {
         "the installer must carry the packaged backend and the Tor runtime, not a stub: {} bytes",
         bytes.len()
     );
+}
+
+// ------------------------------------------------- the deployed endpoint, as a real client checks it
+
+/// The live check `cargo test` must not run by accident: it talks to the deployed Gateway.
+/// The release acceptance runs it explicitly with
+/// `cargo test --test updater_signature -- --ignored live_`.
+fn live_client() -> reqwest::blocking::Client {
+    reqwest::blocking::Client::builder()
+        // The plugin's own user agent (Cloudflare answers an unknown bot UA with 403/1010).
+        .user_agent(concat!("tauri-plugin-updater/", "2"))
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .expect("a client")
+}
+
+fn live_endpoint(current: &str) -> String {
+    let config: serde_json::Value =
+        serde_json::from_str(CONFIG).expect("tauri.conf.json must be valid JSON");
+    config["plugins"]["updater"]["endpoints"][0]
+        .as_str()
+        .expect("the updater endpoint is configured")
+        .replace("{{target}}", "windows")
+        .replace("{{arch}}", "x86_64")
+        .replace("{{current_version}}", current)
+}
+
+#[test]
+#[ignore = "network: checks the deployed updater endpoint"]
+fn live_endpoint_offers_the_signed_release_to_an_older_client() {
+    let version = product_version();
+    let response = live_client()
+        .get(live_endpoint("1.2.3"))
+        .send()
+        .expect("the endpoint answers");
+    assert_eq!(response.status(), 200, "1.2.3 must be offered {version}");
+    let body = response.text().expect("a body");
+    let release: tauri_plugin_updater::RemoteRelease =
+        serde_json::from_str(&body).expect("the client parses the served body");
+    assert_eq!(release.version.to_string(), version);
+
+    let url = release
+        .download_url("windows-x86_64")
+        .expect("a windows artifact is offered");
+    let signature = release
+        .signature("windows-x86_64")
+        .expect("a signature is offered");
+    let bytes = live_client()
+        .get(url.as_str())
+        .send()
+        .expect("the artifact downloads")
+        .bytes()
+        .expect("artifact bytes");
+    assert!(
+        bytes.len() > 80 * 1024 * 1024,
+        "the served artifact must be the packaged installer, not a stub: {} bytes",
+        bytes.len()
+    );
+
+    let key = configured_pubkey();
+    assert_eq!(key_id(&key), PRODUCTION_KEY_ID);
+    assert_eq!(
+        verify(&key, signature, &bytes),
+        Ok(()),
+        "the served artifact must verify against the key the client compiles in"
+    );
+}
+
+#[test]
+#[ignore = "network: checks the deployed updater endpoint"]
+fn live_endpoint_offers_nothing_to_the_current_client() {
+    let response = live_client()
+        .get(live_endpoint(&product_version()))
+        .send()
+        .expect("the endpoint answers");
+    assert_eq!(response.status(), 204, "the current release gets no update");
 }

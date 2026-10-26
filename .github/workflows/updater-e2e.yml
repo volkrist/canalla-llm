@@ -1,0 +1,83 @@
+name: Updater installed E2E
+
+# The one check a unit test cannot make: an actually installed 1.2.3 desktop asks the deployed
+# endpoint, the Tauri plugin verifies the signature over the downloaded bytes, the NSIS installer
+# replaces the programme, and the isolated data root survives the upgrade.
+#
+# It runs on a throwaway Windows VM, never against an owner's installation, and it needs no
+# production secret: the update is public and is verified by the public key compiled into the
+# 1.2.3 client. No GPU, no Pod, no Gateway account.
+on:
+  workflow_dispatch:
+    inputs:
+      from_version:
+        description: "Installed version to upgrade from"
+        required: false
+        default: "1.2.3"
+      target_version:
+        description: "Version the endpoint must offer"
+        required: false
+        default: "1.2.4"
+
+jobs:
+  installed-update:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Playwright (no browser download: this connects to WebView2)
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Download the published installer and its checksums
+        shell: pwsh
+        env:
+          FROM_VERSION: ${{ inputs.from_version }}
+        run: |
+          $version = $env:FROM_VERSION
+          $base = "https://github.com/volkrist/canalla-llm/releases/download/v$version"
+          $installer = Join-Path $env:RUNNER_TEMP "Canalla.LLM_${version}_x64-setup.exe"
+          Invoke-WebRequest -Uri "$base/Canalla.LLM_${version}_x64-setup.exe" -OutFile $installer
+          Invoke-WebRequest -Uri "$base/SHA256SUMS-$version.txt" -OutFile (Join-Path $env:RUNNER_TEMP "SHA256SUMS-$version.txt")
+          $sums = Join-Path $env:RUNNER_TEMP "SHA256SUMS-$version.txt"
+          $expected = (Get-Content $sums | Where-Object { $_ -match "\.exe\s*$" } | Select-Object -First 1).Split(" ")[0].Trim()
+          $actual = (Get-FileHash -Algorithm SHA256 -Path $installer).Hash.ToLower()
+          if ($actual -ne $expected.ToLower()) {
+            throw "installer sha256 $actual != published $expected"
+          }
+          Write-Host "installer sha256 $actual verified"
+          "CANALLA_INSTALLED_EXE=$installer" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Install ${{ inputs.from_version }} silently
+        shell: pwsh
+        run: |
+          Start-Process -FilePath $env:CANALLA_INSTALLED_EXE -ArgumentList "/S" -Wait
+          Start-Sleep -Seconds 5
+          $exe = Join-Path $env:LOCALAPPDATA "Programs\Canalla LLM\alex-llm.exe"
+          if (-not (Test-Path $exe)) { throw "the installer did not lay down $exe" }
+          $version = (Get-Item $exe).VersionInfo.FileVersion
+          Write-Host "installed $version"
+          if (-not $version.StartsWith("${{ inputs.from_version }}")) {
+            throw "installed $version, expected ${{ inputs.from_version }}"
+          }
+
+      - name: Run the installed update E2E
+        working-directory: apps/desktop
+        env:
+          CANALLA_FROM_VERSION: ${{ inputs.from_version }}
+          CANALLA_TARGET_VERSION: ${{ inputs.target_version }}
+        run: node e2e/updater-live.mjs
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-e2e-evidence
+          path: |
+            apps/desktop/test-results/**
+          if-no-files-found: ignore
