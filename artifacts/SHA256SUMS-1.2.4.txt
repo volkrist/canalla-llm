@@ -1,1 +1,2 @@
-8db307489f0b5f0da077158e50d329a57d4fcd2c64707c3f149a2196f9c8de7e *Canalla LLM_1.2.4_x64-setup.exe
+8db307489f0b5f0da077158e50d329a57d4fcd2c64707c3f149a2196f9c8de7e  Canalla.LLM_1.2.4_x64-setup.exe
+ddcddf51c40aafa501bf32f1ea4f1f5b46378aa667745cd7e512b39b39130354  Canalla.LLM_1.2.4_x64-setup.exe.sig

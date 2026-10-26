@@ -7,8 +7,11 @@ public endpoint — are unchanged on purpose; see the Naming section of `AGENTS.
 
 ## [1.2.4]
 
-Built and installed on 26 Oct 2026; **not published** (H5/H6 live acceptance and the updater
-signature are still open — see `docs/release-1.2.4.md`).
+Released 26 Oct 2026 as a public Windows x64 GitHub Release. Installer
+`Canalla LLM_1.2.4_x64-setup.exe`, SHA256
+`8db307489f0b5f0da077158e50d329a57d4fcd2c64707c3f149a2196f9c8de7e`; production updater
+`.sig` valid (key `9B328EFF111D1FB2`). H5 and H6 pass with real Qwen; see
+`artifacts/release-notes-v1.2.4.md`.
 
 ### Fixed
 
@@ -24,6 +27,13 @@ signature are still open — see `docs/release-1.2.4.md`).
 
 - The Gateway package/config version is checked against itself, not against the desktop version:
   the Gateway is deployed separately and may legitimately lag a desktop release.
+
+### Verification
+
+- H4/H5/H6 and T2/T5/T6/T7 PASS; T3/T4/T8 covered by free/installed equivalents.
+- CI 7/7; backend 988, gateway 261, frontend 313, Rust 126, Playwright 21; installed
+  always-ready 32/32.
+- No Authenticode; Ubuntu and clean-Windows-VM acceptance were not run.
 
 ## [1.1.0]
 

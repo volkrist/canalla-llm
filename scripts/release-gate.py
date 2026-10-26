@@ -127,13 +127,24 @@ def parse_minisign_public_key(pubkey_b64: str) -> tuple[bytes, bytes]:
 
 
 def parse_minisign_signature(sig_text: str) -> dict:
-    lines = [line for line in sig_text.strip().splitlines() if line.strip()]
+    raw = sig_text.strip()
+    if "untrusted comment:" not in raw:
+        # Tauri writes the whole four-line minisign text base64-encoded (the updater's
+        # `signature` field). A plain minisign file is accepted as well.
+        try:
+            decoded = base64.b64decode(raw).decode("utf-8")
+        except Exception:
+            decoded = ""
+        if "untrusted comment:" in decoded:
+            raw = decoded
+    lines = [line for line in raw.splitlines() if line.strip()]
     if len(lines) < 3:
         raise ValueError("malformed signature")
     blob = base64.b64decode(lines[1])
-    if len(blob) < 74 or blob[:2] != b"Ed":
+    if len(blob) < 74 or blob[:2] not in (b"ED", b"Ed"):
         raise ValueError("unsupported signature algorithm")
     return {
+        "sig_alg": blob[:2],
         "key_id": blob[2:10],
         "signature": blob[10:74],
         "blob": blob,
@@ -141,13 +152,22 @@ def parse_minisign_signature(sig_text: str) -> dict:
     }
 
 
-def _ed25519_verify(public_key: bytes, signature: bytes, data: bytes) -> bool | None:
+def _ed25519_verify(
+    public_key: bytes, signature: bytes, data: bytes, sig_alg: bytes
+) -> bool | None:
     try:
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
     except ImportError:
         return None  # the caller reports BLOCKED, never a PASS
     try:
-        Ed25519PublicKey.from_public_bytes(public_key).verify(signature, data)
+        if sig_alg == b"ED":
+            # minisign's prehashed mode: Ed25519 over BLAKE2b-512(file), used by Tauri.
+            message = hashlib.blake2b(data, digest_size=64).digest()
+        elif sig_alg == b"Ed":
+            message = data
+        else:
+            return False
+        Ed25519PublicKey.from_public_bytes(public_key).verify(signature, message)
         return True
     except Exception:
         return False
@@ -155,6 +175,20 @@ def _ed25519_verify(public_key: bytes, signature: bytes, data: bytes) -> bool | 
 
 def read_production_pubkey() -> str:
     return str(json.loads(TAURI_CONF.read_text(encoding="utf-8"))["plugins"]["updater"]["pubkey"])
+
+
+def default_gateway_exe() -> Path | None:
+    """The packaged desktop executable that actually carries the baked Gateway URL.
+
+    NSIS compresses the executable, so the URL is not a raw string in the installer. The build
+    tree's executable is the authoritative place to check it; the candidate suite also runs
+    ``verify-packaged-gateway-url.py`` on the same file.
+    """
+    for name in ("alex-llm.exe", "Canalla LLM.exe"):
+        path = REPO / "apps" / "desktop" / "src-tauri" / "target" / "release" / name
+        if path.is_file():
+            return path
+    return None
 
 
 def product_version() -> str:
@@ -184,6 +218,7 @@ def verify_artifact(
     url: str = DEFAULT_GATEWAY_URL,
     pubkey_b64: str | None = None,
     signature: Path | None = None,
+    gateway_exe: Path | None = None,
     expect_sha256: str | None = None,
     expect_commit: str | None = None,
 ) -> list[Result]:
@@ -223,25 +258,32 @@ def verify_artifact(
         results.append(Result("artifact.signature", FAIL, f"unparsable: {error}"))
         return results
 
+    # Minisign stores the key id little-endian; display it the way the release docs do.
+    display_id = public_key_id[::-1].hex().upper()
     if parsed["key_id"] != public_key_id:
         results.append(
             Result(
                 "artifact.key_identity",
                 FAIL,
                 "signature key id "
-                + parsed["key_id"].hex().upper()
+                + parsed["key_id"][::-1].hex().upper()
                 + " != production "
-                + public_key_id.hex().upper(),
+                + display_id,
             )
         )
     else:
-        results.append(Result("artifact.key_identity", PASS, public_key_id.hex().upper()))
+        results.append(Result("artifact.key_identity", PASS, display_id))
 
-    verified = _ed25519_verify(public_key, parsed["signature"], data)
+    verified = _ed25519_verify(public_key, parsed["signature"], data, parsed["sig_alg"])
     if verified is None:
         results.append(Result("artifact.signature_verifies", BLOCKED, "cryptography not installed"))
     elif verified:
-        results.append(Result("artifact.signature_verifies", PASS, "Ed25519 over the file bytes"))
+        detail = (
+            "Ed25519 over BLAKE2b-512 (minisign ED)"
+            if parsed["sig_alg"] == b"ED"
+            else "Ed25519 over the file bytes"
+        )
+        results.append(Result("artifact.signature_verifies", PASS, detail))
     else:
         results.append(Result("artifact.signature_verifies", FAIL, "signature does not verify"))
 
@@ -254,6 +296,17 @@ def verify_artifact(
 
     if _baked_url_present(data, url):
         results.append(Result("artifact.gateway_url", PASS, url))
+    elif gateway_exe is not None and gateway_exe.is_file() and _baked_url_present(
+        gateway_exe.read_bytes(), url
+    ):
+        # The installer is compressed: the URL lives in the packaged executable.
+        results.append(
+            Result(
+                "artifact.gateway_url",
+                PASS,
+                f"{url} baked in {gateway_exe.name} (the installer is compressed)",
+            )
+        )
     else:
         results.append(Result("artifact.gateway_url", FAIL, f"bare {url} not baked into the installer"))
 
@@ -344,6 +397,7 @@ def suite_candidate(python: str, *, installer: Path, version: str, args) -> list
             version=version,
             url=args.gateway_url,
             signature=Path(args.signature) if args.signature else None,
+            gateway_exe=default_gateway_exe(),
             expect_sha256=args.expect_sha256,
             expect_commit=args.expect_commit,
         )
@@ -394,11 +448,12 @@ def self_test() -> int:
         raw_public = public.public_bytes(
             serialization.Encoding.Raw, serialization.PublicFormat.Raw
         )
-        key_id = bytes.fromhex("9B328EFF111D1FB2")
+        # Minisign stores the key id little-endian; display it the way the docs do.
+        key_id = bytes.fromhex("B21F1D11FF8E329B")
         key_blob = b"Ed" + key_id + raw_public
         pub_b64 = base64.b64encode(
             (
-                "untrusted comment: minisign public key: " + key_id.hex().upper() + "\n"
+                "untrusted comment: minisign public key: " + key_id[::-1].hex().upper() + "\n"
                 + base64.b64encode(key_blob).decode()
                 + "\n"
             ).encode()
@@ -408,16 +463,23 @@ def self_test() -> int:
         artifact = root / name
         payload = b"MZ installer bytes " + DEFAULT_GATEWAY_URL.encode() + b"\x00 tail"
         artifact.write_bytes(payload)
-        signature = private.sign(payload)
-        sig_blob = b"Ed" + key_id + signature
-        artifact.with_name(name + ".sig").write_text(
-            "untrusted comment: signature from tauri secret key\n"
-            + base64.b64encode(sig_blob).decode()
-            + "\ntrusted comment: timestamp:1790230189\tfile:" + name + "\n"
-            + base64.b64encode(private.sign(sig_blob + b"file:" + name.encode())).decode()
-            + "\n",
-            encoding="utf-8",
-        )
+        # Tauri/minisign signs the BLAKE2b-512 digest and writes the four-line text
+        # base64-encoded (the updater's `signature` field).
+        payload_digest = hashlib.blake2b(payload, digest_size=64).digest()
+        signature = private.sign(payload_digest)
+        sig_blob = b"ED" + key_id + signature
+        trusted_comment = "timestamp:1790230189\tfile:" + name
+        global_sig = private.sign(signature + trusted_comment.encode())
+        wrapped = base64.b64encode(
+            (
+                "untrusted comment: signature from tauri secret key\n"
+                + base64.b64encode(sig_blob).decode()
+                + "\ntrusted comment: " + trusted_comment + "\n"
+                + base64.b64encode(global_sig).decode()
+                + "\n"
+            ).encode()
+        ).decode()
+        artifact.with_name(name + ".sig").write_text(wrapped, encoding="utf-8")
 
         good = verify_artifact(artifact, version=version, pubkey_b64=pub_b64)
         check("a good artifact passes", all(r.status in {PASS, SKIP} for r in good))
@@ -432,7 +494,7 @@ def self_test() -> int:
 
         # A signature made by a different key must be refused on identity alone.
         other = Ed25519PrivateKey.generate()
-        other_blob = b"Ed" + key_id + other.sign(payload)
+        other_blob = b"ED" + key_id + other.sign(payload_digest)
         artifact.with_name(name + ".sig").write_text(
             "untrusted comment: x\n" + base64.b64encode(other_blob).decode() + "\ntrusted comment: y\n"
             + base64.b64encode(other.sign(other_blob)).decode() + "\n",
@@ -444,30 +506,38 @@ def self_test() -> int:
         )
 
         # Restore a good signature, then strip the baked URL: that must fail.
-        artifact.with_name(name + ".sig").write_text(
-            "untrusted comment: signature from tauri secret key\n"
-            + base64.b64encode(sig_blob).decode()
-            + "\ntrusted comment: timestamp:1790230189\tfile:" + name + "\n"
-            + base64.b64encode(private.sign(sig_blob + b"file:" + name.encode())).decode()
-            + "\n",
-            encoding="utf-8",
-        )
+        artifact.with_name(name + ".sig").write_text(wrapped, encoding="utf-8")
         no_url = root / "no-url" / name
         no_url.parent.mkdir()
-        no_url.write_bytes(b"MZ installer bytes without the bare host /updates/latest")
+        no_url_bytes = b"MZ installer bytes without the bare host /updates/latest"
+        no_url.write_bytes(no_url_bytes)
         signature_dir = no_url.with_name(name + ".sig")
-        stripped = private.sign(no_url.read_bytes())
+        stripped = private.sign(hashlib.blake2b(no_url_bytes, digest_size=64).digest())
+        stripped_comment = "timestamp:1790230189\tfile:" + name
         signature_dir.write_text(
             "untrusted comment: signature from tauri secret key\n"
-            + base64.b64encode(b"Ed" + key_id + stripped).decode()
-            + "\ntrusted comment: timestamp:1790230189\tfile:" + name + "\n"
-            + base64.b64encode(private.sign(b"Ed" + key_id + stripped + b"file:" + name.encode())).decode()
+            + base64.b64encode(b"ED" + key_id + stripped).decode()
+            + "\ntrusted comment: " + stripped_comment + "\n"
+            + base64.b64encode(private.sign(stripped + stripped_comment.encode())).decode()
             + "\n",
             encoding="utf-8",
         )
         check(
             "an artifact without the baked URL fails",
             any(r.status == FAIL for r in verify_artifact(no_url, version=version, pubkey_b64=pub_b64)),
+        )
+
+        # A compressed installer is verified through the executable it packages.
+        packaged = root / "alex-llm.exe"
+        packaged.write_bytes(b"MZ packaged exe " + DEFAULT_GATEWAY_URL.encode())
+        check(
+            "a compressed installer is verified through its packaged exe",
+            all(
+                r.status in {PASS, SKIP}
+                for r in verify_artifact(
+                    no_url, version=version, pubkey_b64=pub_b64, gateway_exe=packaged
+                )
+            ),
         )
 
         mismatch = verify_artifact(
@@ -526,6 +596,7 @@ def main(argv: list[str] | None = None) -> int:
             url=args.gateway_url,
             pubkey_b64=args.pubkey_b64 or None,
             signature=Path(args.signature) if args.signature else None,
+            gateway_exe=default_gateway_exe(),
             expect_sha256=args.expect_sha256 or None,
             expect_commit=args.expect_commit or None,
         )
