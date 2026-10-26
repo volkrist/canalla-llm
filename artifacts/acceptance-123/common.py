@@ -188,6 +188,7 @@ def stream_chat(
     timeout: int,
     token_value: str,
     on_event=None,
+    stop_event: threading.Event | None = None,
 ) -> dict:
     started = time.monotonic()
     record = {
@@ -200,6 +201,7 @@ def stream_chat(
         "first_event_ms": None,
         "first_delta_ms": None,
         "done_ms": None,
+        "aborted_by_product": False,
     }
     request = urllib.request.Request(
         BASE + "/chats/" + chat_id + "/stream",
@@ -215,6 +217,11 @@ def stream_chat(
                 record["http"] = response.status
                 block = ""
                 for raw in response:
+                    if stop_event is not None and stop_event.is_set():
+                        # The product's Stop AI aborts the answer: the UI does exactly this by
+                        # aborting the fetch. Closing the body is that disconnect.
+                        record["aborted_by_product"] = True
+                        break
                     line = raw.decode("utf-8", "replace").rstrip("\r\n")
                     if line == "":
                         parsed = _parse_event(block)

@@ -23,6 +23,7 @@ import ComputerBar from "./ComputerBar";
 import StatusChips, { StatusBilling } from "./StatusChips";
 import AiConnectionBadge from "./AiConnectionBadge";
 import { useCloud, stopCloudCompute, refreshCloud } from "../lib/cloud";
+import { stopPaidAi } from "../lib/stop-ai";
 import { useStatus } from "../hooks/useStatus";
 import type { RecoveryAction } from "../lib/status";
 import { recoveryPlan } from "../lib/errors";
@@ -84,15 +85,23 @@ export default function Workspace({
     setStopError("");
     try {
       // The same Gateway operation the chat uses; it also writes the manual-off latch, so no
-      // automatic request recreates the Pod after this click.
-      try {
-        await stopCloudCompute();
-      } catch {
-        // Direct (dev/private) mode has no shared Gateway: use the local compute stop.
-        await api.json("/compute/stop", { method: "POST", body: "{}" });
-      }
-      await status.refresh();
-      await refreshCloud();
+      // automatic request recreates the Pod after this click. The generation is aborted first:
+      // otherwise the Gateway (correctly) waits for the answer and the Pod keeps billing.
+      await stopPaidAi({
+        stopGeneration: () => chat.stop(),
+        stopCompute: async () => {
+          try {
+            await stopCloudCompute();
+          } catch {
+            // Direct (dev/private) mode has no shared Gateway: use the local compute stop.
+            await api.json("/compute/stop", { method: "POST", body: "{}" });
+          }
+        },
+        refresh: async () => {
+          await status.refresh();
+          await refreshCloud();
+        },
+      });
     } catch (error) {
       setStopError(
         error instanceof Error ? error.message : "Не удалось остановить AI",
@@ -100,7 +109,7 @@ export default function Workspace({
     } finally {
       setStoppingAi(false);
     }
-  }, [status]);
+  }, [api, chat, status]);
   const [device, setDevice] = useState<DeviceStatus>({
     paired: false,
     online: false,

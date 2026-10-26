@@ -72,16 +72,16 @@ def test_the_backend_package_carries_the_release_version():
     assert _toml(REPO / "apps" / "backend" / "pyproject.toml")["project"]["version"] == VERSION
 
 
-def test_the_gateway_package_carries_the_release_version():
-    assert _toml(REPO / "apps" / "gateway" / "pyproject.toml")["project"]["version"] == VERSION
-
-
-def test_the_gateway_reports_the_release_version():
-    # `GET /health` and `POST /enroll` answer with this value, so a stale one is visible to every
-    # client. It is a pydantic default, not imported from the backend (separate service).
+def test_the_gateway_package_and_its_config_agree():
+    # The Gateway is a separately deployed service. A desktop release does not redeploy it, so its
+    # own package and the version it reports must agree with each other — not with the desktop
+    # version. Forcing them to equal the desktop version either falsified the reserve record or
+    # required an unnecessary production deploy.
+    package = _toml(REPO / "apps" / "gateway" / "pyproject.toml")["project"]["version"]
     text = (REPO / "apps" / "gateway" / "gateway" / "config.py").read_text(encoding="utf-8")
     found = re.findall(r'^\s*version:\s*str\s*=\s*"([^"]+)"', text, re.MULTILINE)
-    assert found == [VERSION], f"gateway config.py declares {found}, expected [{VERSION}]"
+    assert found == [package], f"gateway config.py declares {found}, expected [{package}]"
+    assert RELEASE_VERSION.match(package), package
 
 
 def test_fastapi_is_told_the_version_and_not_a_literal():

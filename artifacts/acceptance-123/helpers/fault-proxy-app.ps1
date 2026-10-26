@@ -10,7 +10,7 @@ param(
   [switch]$Restore
 )
 $ErrorActionPreference = 'Stop'
-$repo = 'C:\Users\Volkr\Documents\Codex\2026-09-13\x20\outputs\worktrees\alex-llm\ruddy-jackal\alex-llm'
+$repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $python = Join-Path $repo 'apps\backend\.venv\Scripts\python.exe'
 $proxyScript = Join-Path $repo 'artifacts\acceptance-123\fault_proxy.py'
 $app = Join-Path $env:LOCALAPPDATA 'Programs\Canalla LLM\alex-llm.exe'
@@ -70,7 +70,9 @@ try {
 }
 
 $env:HTTPS_PROXY = 'http://127.0.0.1:8765'
-$env:HTTP_PROXY = 'http://127.0.0.1:8765'
+# Only HTTPS goes through the test proxy. The Computer host talks to the local backend over
+# plain HTTP; setting HTTP_PROXY too routed that heartbeat through a CONNECT proxy, the host
+# went offline and H6 could not even create its file (25 Oct).
 $env:NO_PROXY = '127.0.0.1,localhost'
 Start-Process -FilePath $app
 Start-Sleep -Seconds 2

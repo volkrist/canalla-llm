@@ -20,6 +20,15 @@ import threading
 import time
 from pathlib import Path
 
+# The acceptance console is cp1251 on this machine; a scenario title containing `→` crashed the
+# runner before the scenario ran (and burned the last paid Pod). Never let a display character
+# decide whether a test executes.
+try:
+    sys.stdout.reconfigure(errors="replace")
+    sys.stderr.reconfigure(errors="replace")
+except (AttributeError, OSError):  # pragma: no cover - non-reconfigurable stream
+    pass
+
 import catalog
 import common
 
@@ -62,6 +71,12 @@ def pods() -> tuple[dict | None, str]:
         None,
     )
     return ({"exit": result.returncode, "pods": pods_line, "balance_usd": balance, "raw": text[-400:]}, "")
+
+
+def pods_empty(state: dict | None) -> bool:
+    """The helper prints `pods []`; comparing the serialized dict to `pods=[]` never matched."""
+    value = str((state or {}).get("pods") or "").strip()
+    return value in {"pods []", "pods=[]", "[]", ""}
 
 
 def ensure(token: str) -> tuple[int | None, str]:
@@ -188,6 +203,145 @@ def fault_control(path: str, timeout: float = 8.0) -> dict:
         return {"http": 0, "error": str(error)[:200]}
 
 
+def run_stop_ai(scenario, token, root, chat_id, before, confirmations, on_event) -> dict:
+    """T2: stop the paid AI in the middle of a real model stream.
+
+    The generation runs in a thread. Once the first delta arrives and the answer is genuinely
+    streaming, the product's own Stop AI is called. The scenario passes only when the Pod is
+    gone, the watchdog confirms the stop, the AI stays off and a later read shows no reconnect.
+    """
+    first_delta = threading.Event()
+    first_delta_at: dict[str, str | None] = {"at": None}
+
+    def watch(event: str, data: dict) -> None:
+        on_event(event, data)
+        if event == "delta" and not first_delta.is_set():
+            first_delta_at["at"] = common.now()
+            first_delta.set()
+
+    box: dict = {}
+    stop_signal = threading.Event()
+
+    def generation() -> None:
+        box["stream"] = common.stream_chat(
+            chat_id,
+            scenario.prompt,
+            timeout=300,
+            token_value=token,
+            on_event=watch,
+            stop_event=stop_signal,
+        )
+
+    thread = threading.Thread(target=generation, daemon=True)
+    thread.start()
+    # The first turn can take far longer than a short poll (140 s was measured on 25 Oct).
+    # Wait for a real delta; stopping during prefill is not the mid-stream case this tests.
+    streaming = first_delta.wait(300)
+    # Mid-answer, not before the first token: the product must stop an active generation.
+    time.sleep(5)
+    stop = stop_ai(token)
+    # The product's Stop AI aborts the answer as well; that disconnect is what releases the
+    # generation the Gateway is waiting for before it terminates the Pod.
+    stop_signal.set()
+    thread.join(30)
+
+    pods_before, _ = pods()
+    # Provider termination is not instantaneous: the Pod can stay `RUNNING` for a minute while
+    # the in-flight generation drains. Poll until the provider and the independent watchdog both
+    # confirm, instead of sampling once and calling a correct stop a failure.
+    deadline = time.monotonic() + 120
+    samples: list[dict] = []
+    watchdog_state: dict = {}
+    pods_after = pods_before
+    confirmed = False
+    while time.monotonic() < deadline:
+        pods_after, _ = pods()
+        code, text = watchdog("--status")
+        try:
+            watchdog_state = json.loads(text)
+        except ValueError:
+            watchdog_state = {}
+        samples.append(
+            {
+                "at": common.now(),
+                "pods": pods_after.get("pods"),
+                "watchdog": watchdog_state.get("status"),
+            }
+        )
+        if pods_empty(pods_after) and watchdog_state.get("status") in {
+            "confirmed_stopped",
+            "closed",
+        }:
+            confirmed = True
+            break
+        time.sleep(5)
+    status, text = common.call("GET", "/llm/status", token=token, timeout=20)
+    ai = json.loads(text) if status == 200 else {}
+    status, text = common.call("GET", "/compute/status", token=token, timeout=20)
+    compute = json.loads(text) if status == 200 else {}
+    # A manual Stop must not be undone by the demand path a few seconds later.
+    time.sleep(8)
+    pods_later, _ = pods()
+    status, text = common.call("GET", "/llm/status", token=token, timeout=20)
+    ai_later = json.loads(text) if status == 200 else {}
+    no_reconnect = pods_empty(pods_later) and str(
+        ai_later.get("ai") or ""
+    ).lower() in {"off", "stopped", ""}
+    ok = bool(
+        streaming
+        and stop.get("http") == 200
+        and confirmed
+        and no_reconnect
+    )
+    ui = {
+        "ok": ok,
+        "streaming_started": bool(streaming),
+        "first_delta_at": first_delta_at["at"],
+        "stop": stop,
+        "pods_before": pods_before,
+        "pods_after": pods_after,
+        "pods_later": pods_later,
+        "stop_confirmed": confirmed,
+        "samples": samples,
+        "watchdog": watchdog_state,
+        "ai": ai,
+        "ai_later": ai_later,
+        "compute": compute,
+        "no_reconnect": no_reconnect,
+        "output": "pods=%s watchdog=%s confirmed=%s no_reconnect=%s"
+        % (
+            (pods_after or {}).get("pods"),
+            watchdog_state.get("status"),
+            confirmed,
+            no_reconnect,
+        ),
+    }
+    stream = box.get("stream") or {}
+    evidence = {
+        "scenario": scenario.id,
+        "tier": scenario.tier,
+        "title": scenario.title,
+        "chat_id": chat_id,
+        "scenario_root": str(root),
+        "stream": stream,
+        "session": common.collect_session(token, chat_id),
+        "confirmations": confirmations,
+        "files_before": before,
+        "files_after": common.snapshot(root),
+        "files_changed": [],
+        "chat_switched": False,
+        "ui": ui,
+        "ui_started_at": first_delta_at["at"],
+        "ui_stream_open_ms": stream.get("elapsed_ms"),
+        "late_answer": "",
+        "fault": {"armed": False},
+    }
+    verdict, reasons = catalog.evaluate(scenario, evidence)
+    evidence["verdict"] = verdict
+    evidence["reasons"] = reasons
+    return evidence
+
+
 def run_scenario(scenario: catalog.Scenario, token: str, timeout: float | None = None) -> dict:
     root = catalog.scenario_root(scenario.id)
     root.mkdir(parents=True, exist_ok=True)
@@ -218,7 +372,9 @@ def run_scenario(scenario: catalog.Scenario, token: str, timeout: float | None =
             if not run_id or run_id in seen:
                 return
             seen.add(run_id)
-            allow = common.safe_run(data, root) and not scenario.deny_confirm
+            # The dedicated acceptance sandbox as a whole is the trust boundary: a scenario may
+            # work in its own folder or in the shared sandbox root, but never outside it.
+            allow = common.safe_run(data, common.SANDBOX) and not scenario.deny_confirm
             status, text = common.confirm(token, run_id, allow)
             confirmations.append(
                 {
@@ -275,6 +431,11 @@ def run_scenario(scenario: catalog.Scenario, token: str, timeout: float | None =
 
         ui_thread = threading.Thread(target=drive_ui, daemon=True)
         ui_thread.start()
+
+    if scenario.id == "T2":
+        # The stop must happen inside a live stream, so it has its own flow instead of the
+        # synchronous request used by the other scenarios.
+        return run_stop_ai(scenario, token, root, chat_id, before, confirmations, on_event)
 
     stream = common.stream_chat(
         chat_id,
@@ -344,7 +505,10 @@ def run_scenario(scenario: catalog.Scenario, token: str, timeout: float | None =
 def selected_scenarios(args) -> list[catalog.Scenario]:
     chosen = catalog.package_scenarios(args.package) if args.package else list(catalog.SCENARIOS)
     if args.scenario:
-        chosen = [item for item in chosen if item.id in args.scenario]
+        # An explicit list is an execution order, not just a filter. H6 is short and H5 is long:
+        # catalog order would run the long one first and could leave the short one unrun.
+        known = {item.id: item for item in chosen}
+        chosen = [known[item] for item in args.scenario if item in known]
     if args.tier:
         chosen = [item for item in chosen if item.tier == args.tier]
     return chosen
@@ -372,7 +536,7 @@ def run_live(args) -> int:
         return 2
     pods_before, _ = pods()
     print("pods_before", pods_before)
-    if "pods=[]" not in json.dumps(pods_before):
+    if not pods_empty(pods_before):
         print("NOTE pods_before is not empty; the one-Pod rule is checked again after stop")
     if args.cooldown_seconds > 0:
         # A regional Network Volume has to detach from the Pod that just stopped before the next
@@ -407,7 +571,9 @@ def run_live(args) -> int:
         started = time.monotonic() - startup_seconds
         print("session", json.dumps(session_start, ensure_ascii=False), "startup_s", startup_seconds)
         for scenario in selected:
-            if scenario.ui_script and not args.with_ui:
+            # T2 drives the product's own Stop AI through the API and records the result as
+            # its `ui` evidence; it does not need the installed-window script.
+            if scenario.ui_script and not args.with_ui and scenario.id != "T2":
                 results.append(
                     {
                         "scenario": scenario.id,

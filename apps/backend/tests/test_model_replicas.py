@@ -10,6 +10,7 @@ dropped.
 from __future__ import annotations
 
 import json
+import tomllib
 from decimal import Decimal
 from pathlib import Path
 
@@ -30,9 +31,14 @@ from app.compute.replicas import (
     placement_refusals,
     replica_verdict,
 )
-from app.product import VERSION as PRODUCT_VERSION
 
 REPO = Path(__file__).resolve().parents[3]
+# `bootstrap_version` is the Gateway service version that gates the reserve placement, not the
+# desktop release version. The Gateway is deployed separately and may legitimately lag a desktop
+# release; comparing it to PRODUCT_VERSION made every client bump look like a replica drift.
+GATEWAY_VERSION = tomllib.loads((REPO / "apps" / "gateway" / "pyproject.toml").read_text(encoding="utf-8"))[
+    "project"
+]["version"]
 
 EXPECTED = ReplicaExpectation(
     model_id="orcarouter/Qwen3.8-27B-Uncensored",
@@ -80,7 +86,7 @@ def test_the_shipped_reserve_record_matches_this_build():
         model_id="orcarouter-qwen38-27b-q5km",  # the deployed LLM_MODEL
         model_sha256="",  # not configured in the deployment, so never contradicted
         runtime_version="",  # not configured, so the record's own value is not contested
-        bootstrap_version=PRODUCT_VERSION,
+        bootstrap_version=GATEWAY_VERSION,
     )
     placements = (
         policy.Placement(datacenter="US-TX-3", volume_id="uwgeaie5b0"),

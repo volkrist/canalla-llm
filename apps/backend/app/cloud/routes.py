@@ -102,7 +102,9 @@ async def stop_compute(request: Request, user: User = Depends(current_user)) -> 
     try:
         # A persistent capacity wait is a separate durable intent on the Gateway. `/compute/stop`
         # does not clear it, and a later chat could resume it; Stop must cancel it explicitly.
-        payload = await cloud.client.cancel_wait(operation_id="local-cancel-" + str(uuid4()))
+        # Only the side effect matters: its snapshot can still describe the pre-stop generation
+        # and must never replace the authoritative stop answer below.
+        await cloud.client.cancel_wait(operation_id="local-cancel-" + str(uuid4()))
     except CloudError:
         # A Gateway that predates the wait contract has nothing to cancel; the stop above stands.
         pass
@@ -110,8 +112,15 @@ async def stop_compute(request: Request, user: User = Depends(current_user)) -> 
     demand.cancel_pending()
     # And the stop is remembered: a chat request is not an explicit invitation to start again.
     demand.mark_manual_off()
+    # The stop answer is the authoritative post-stop state (`stopping` while an in-flight
+    # generation is still draining, then `off`). Overwriting it with the wait-cancel snapshot
+    # made the chip keep saying «AI Ready / generating» after the user pressed Stop.
     cloud.compute = payload
-    cloud.fetched_at = cloud.clock()
+    # A successful typed stop also proves the Gateway is reachable; an error cached by a
+    # concurrent read while the Pod was dying is no longer true.
+    cloud.error_code = None
+    cloud.message = None
+    cloud.fetched_at = cloud.last_success_at = cloud.clock()
     result = cloud.snapshot()
     result["compute"] = payload
     return result

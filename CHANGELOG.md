@@ -5,6 +5,26 @@ shared Canalla Cloud Gateway). Internal `Alex LLM` names — data root, credenti
 product/bundle ids, binaries, environment variables, `X-Alex-*` protocol headers and the
 public endpoint — are unchanged on purpose; see the Naming section of `AGENTS.md`.
 
+## [1.2.4]
+
+Built and installed on 26 Oct 2026; **not published** (H5/H6 live acceptance and the updater
+signature are still open — see `docs/release-1.2.4.md`).
+
+### Fixed
+
+- **Stop AI left the paid Pod running until the answer finished.** The product now aborts the
+  active generation before it stops shared compute. The Gateway intentionally waits for an
+  in-flight generation, so the client is what makes Stop effective.
+- **The AI chip kept saying `AI Ready / generating` after Stop.** The local stop endpoint replaced
+  the Gateway's authoritative stop snapshot with a later wait-cancel snapshot that could still
+  describe the old generation; it also kept a stale connection error. The stop answer is kept and
+  the stale error is cleared.
+
+### Changed
+
+- The Gateway package/config version is checked against itself, not against the desktop version:
+  the Gateway is deployed separately and may legitimately lag a desktop release.
+
 ## [1.1.0]
 
 Release candidate on `release/canalla-1.1.0`. Installer artifact:

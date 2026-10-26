@@ -959,6 +959,41 @@ def test_a_manual_stop_cancels_a_persistent_capacity_wait(shared_app, client, au
     assert chip_for(shared_app.cloud)["state"] == "off"
 
 
+def test_the_stop_answer_is_authoritative_when_cancel_wait_is_stale(shared_app, client, auth, monkeypatch):
+    """The wait-cancel snapshot can still describe the generation the user just stopped.
+
+    `/compute/stop` is the authoritative answer (state `stopping` while an in-flight turn
+    drains); `/compute/wait/cancel` is a side effect. Using the latter as the new snapshot left
+    the chip saying «AI Ready / generating» after Stop, and kept a stale connection error.
+    """
+    headers = auth()
+    shared_app.cloud.compute = compute_payload("generating", ai="ready", session={"state": "generating"})
+    shared_app.cloud.error_code = "gateway_unavailable"
+    shared_app.cloud.message = "Canalla Cloud сейчас недоступен."
+
+    stop_answer = compute_payload("stopping", ai="waiting", session={"state": "generating"})
+    stale_answer = compute_payload("generating", ai="ready", session={"state": "generating"})
+
+    async def stop_compute(*, operation_id):
+        return stop_answer
+
+    async def cancel_wait(*, operation_id):
+        return stale_answer
+
+    monkeypatch.setattr(shared_app.cloud.client, "stop_compute", stop_compute)
+    monkeypatch.setattr(shared_app.cloud.client, "cancel_wait", cancel_wait)
+
+    stopped = client.post("/cloud/compute/stop", json={}, headers=headers)
+
+    assert stopped.status_code == 200, stopped.text
+    assert stopped.json()["compute"]["state"] == "stopping"
+    assert shared_app.cloud.compute["state"] == "stopping"
+    assert shared_app.cloud.error_code is None
+    chip = chip_for(shared_app.cloud)
+    assert chip["state"] != "ready"
+    assert chip["details"]["typed_error"] is None
+
+
 def test_a_search_window_that_never_settles_fails_bounded(shared_app):
     """No unbounded wait: the client's own window closes and the reason is typed."""
     searching = compute_payload(
