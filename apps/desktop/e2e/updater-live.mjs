@@ -42,7 +42,9 @@ let failures = 0;
 let child = null;
 
 function check(name, ok, detail = "") {
-  console.log(`  [${ok ? "PASS" : "FAIL"}] ${name}${detail ? ` — ${detail}` : ""}`);
+  console.log(
+    `  [${ok ? "PASS" : "FAIL"}] ${name}${detail ? ` — ${detail}` : ""}`,
+  );
   if (!ok) failures += 1;
 }
 
@@ -68,7 +70,9 @@ function sqliteCounts(database) {
     "names=('users','conversations','messages')",
     "print(json.dumps({n: db.execute('SELECT COUNT(*) FROM ' + n).fetchone()[0] for n in names}))",
   ].join("\n");
-  const out = execFileSync("python", ["-c", script, database], { encoding: "utf8" });
+  const out = execFileSync("python", ["-c", script, database], {
+    encoding: "utf8",
+  });
   return JSON.parse(out.trim());
 }
 
@@ -86,7 +90,11 @@ function launchApp() {
   // turned a real launch error into "CDP never became ready".
   fs.mkdirSync(WORK, { recursive: true });
   const out = fs.openSync(path.join(WORK, "app.log"), "a");
-  return spawn(EXE, [], { env, stdio: ["ignore", out, out], windowsHide: false });
+  return spawn(EXE, [], {
+    env,
+    stdio: ["ignore", out, out],
+    windowsHide: false,
+  });
 }
 
 function appLog() {
@@ -108,7 +116,8 @@ async function waitCdp(timeoutMs = 300000) {
     try {
       const response = await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`);
       const targets = await response.json();
-      if (targets.some((target) => target.type === "page" && target.url)) return true;
+      if (targets.some((target) => target.type === "page" && target.url))
+        return true;
     } catch {
       /* not ready */
     }
@@ -126,7 +135,12 @@ async function connect() {
 
 async function openUpdates(page) {
   const dialog = page.getByRole("dialog");
-  if (!(await dialog.first().isVisible().catch(() => false))) {
+  if (
+    !(await dialog
+      .first()
+      .isVisible()
+      .catch(() => false))
+  ) {
     await page
       .getByRole("button", { name: "Settings", exact: true })
       .click({ timeout: 120000 })
@@ -155,7 +169,9 @@ async function quitApp(proc) {
   const deadline = Date.now() + 40000;
   while (Date.now() < deadline && proc.exitCode === null) await sleep(250);
   if (proc.exitCode === null) {
-    spawnSync("taskkill", ["/PID", String(proc.pid), "/T", "/F"], { stdio: "ignore" });
+    spawnSync("taskkill", ["/PID", String(proc.pid), "/T", "/F"], {
+      stdio: "ignore",
+    });
   }
 }
 
@@ -178,7 +194,9 @@ async function main() {
   // Only an isolated machine may clean up like that: never touch an owner's running app.
   if (process.env.CI || process.env.CANALLA_E2E_ALLOW_KILL === "1") {
     spawnSync("taskkill", ["/IM", "alex-llm.exe", "/F"], { stdio: "ignore" });
-    spawnSync("taskkill", ["/IM", "alex-backend.exe", "/F"], { stdio: "ignore" });
+    spawnSync("taskkill", ["/IM", "alex-backend.exe", "/F"], {
+      stdio: "ignore",
+    });
     await sleep(2000);
   }
 
@@ -189,11 +207,17 @@ async function main() {
     await page
       .getByRole("button", { name: "Создать владельца Canalla" })
       .waitFor({ timeout: 240000 });
-    await page.getByLabel("Имя владельца (необязательно)").fill("Updater Owner");
+    await page
+      .getByLabel("Имя владельца (необязательно)")
+      .fill("Updater Owner");
     await page.getByLabel("Email", { exact: true }).fill(EMAIL);
     await page.getByLabel("Пароль", { exact: true }).fill(PASSWORD);
-    await page.getByRole("button", { name: "Создать владельца Canalla" }).click();
-    await page.getByRole("button", { name: "New Chat" }).waitFor({ timeout: 180000 });
+    await page
+      .getByRole("button", { name: "Создать владельца Canalla" })
+      .click();
+    await page
+      .getByRole("button", { name: "New Chat" })
+      .waitFor({ timeout: 180000 });
     check("E1 the old build starts with an isolated data root", true, before);
 
     const dialog = await openUpdates(page);
@@ -238,7 +262,11 @@ async function main() {
     await sleep(1000);
     now = fileVersion(EXE);
   }
-  check("E5 the installer replaced the programme", now.startsWith(TARGET_VERSION), now);
+  check(
+    "E5 the installer replaced the programme",
+    now.startsWith(TARGET_VERSION),
+    now,
+  );
 
   child = launchApp();
   await waitCdp();
@@ -248,9 +276,11 @@ async function main() {
       .getByRole("button", { name: "New Chat" })
       .waitFor({ timeout: 240000 });
     const dialog = await openUpdates(page);
-    await dialog.getByRole("button", { name: "О программе", exact: true }).click({
-      timeout: 30000,
-    });
+    await dialog
+      .getByRole("button", { name: "О программе", exact: true })
+      .click({
+        timeout: 30000,
+      });
     const about = await dialog.innerText();
     check(
       "E6 the relaunched app reports the new version",
@@ -269,16 +299,20 @@ async function main() {
     );
 
     // The now-current client must not be offered its own version again.
-    await dialog.getByRole("button", { name: "Обновления", exact: true }).click({
-      timeout: 30000,
-    });
+    await dialog
+      .getByRole("button", { name: "Обновления", exact: true })
+      .click({
+        timeout: 30000,
+      });
     await dialog
       .getByRole("button", { name: "Проверить обновления" })
       .click({ timeout: 30000 })
       .catch(() => {});
     await sleep(4000);
     const updates = await dialog.innerText();
-    const available = /Доступная версия\s*\n?\s*([^\n]+)/.exec(updates)?.[1]?.trim();
+    const available = /Доступная версия\s*\n?\s*([^\n]+)/
+      .exec(updates)?.[1]
+      ?.trim();
     check(
       "E8 the updated client is not offered its own version",
       !available || available === "нет",
@@ -289,7 +323,9 @@ async function main() {
     await browser.close().catch(() => {});
   }
 
-  console.log(`\n${failures === 0 ? "UPDATER INSTALLED E2E: PASS" : "UPDATER INSTALLED E2E: FAIL"}`);
+  console.log(
+    `\n${failures === 0 ? "UPDATER INSTALLED E2E: PASS" : "UPDATER INSTALLED E2E: FAIL"}`,
+  );
   process.exit(failures === 0 ? 0 : 1);
 }
 

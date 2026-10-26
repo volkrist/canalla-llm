@@ -8,14 +8,15 @@ name: Updater installed E2E
 # production secret: the update is public and is verified by the public key compiled into the
 # 1.2.3 client. No GPU, no Pod, no Gateway account.
 on:
-  # GitHub only enables `workflow_dispatch` for a workflow that exists on the default branch, so
-  # the branch that adds it can bootstrap with a push scoped to these two files.
-  push:
-    paths:
-      - ".github/workflows/updater-e2e.yml"
-      - "apps/desktop/e2e/updater-live.mjs"
+  # `workflow_dispatch` is enabled only for a workflow that exists on the default branch. A
+  # self-hosted Windows runner with a logged-in desktop is required: WebView2 cannot open a window
+  # in the service session GitHub-hosted runners use, which is why this job is manual, not per push.
   workflow_dispatch:
     inputs:
+      runner:
+        description: "Self-hosted Windows runner with an interactive desktop"
+        required: false
+        default: "windows-latest"
       from_version:
         description: "Installed version to upgrade from"
         required: false
@@ -27,7 +28,7 @@ on:
 
 jobs:
   installed-update:
-    runs-on: windows-latest
+    runs-on: ${{ inputs.runner || 'windows-latest' }}
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4

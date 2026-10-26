@@ -71,6 +71,13 @@ def unsafe_ip_literal(host: str) -> bool:
     address = ip_literal(host)
     if address is None:
         return False
+    # A v4-mapped v6 address is the v4 address: judge the destination it actually reaches. Without
+    # this, `::ffff:8.8.8.8` is "not global" on one Python version and "global" on another, because
+    # the mapped IPv6 block is classified differently there - the safety answer must not depend on
+    # the interpreter.
+    mapped = getattr(address, "ipv4_mapped", None)
+    if mapped is not None:
+        address = mapped
     if not address.is_global:
         return True
     return bool(

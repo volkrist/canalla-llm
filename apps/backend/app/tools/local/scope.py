@@ -89,25 +89,30 @@ def _longest_existing_path(text: str, start: int) -> str:
 
 def infer_primary(prompt: str, roots: list[str], known_desktop: str = "") -> str:
     text = prompt or ""
+    # A drive path and a POSIX path are both absolute; the platform's own separator is applied by
+    # `native_path` later. Recognising only `C:\` made every task on Linux fall back to the first
+    # trusted root (or to the empty string) even when the prompt named a real directory.
+    absolute = r"(?:[A-Za-z]:[\\/]|/)"
     # A quoted path is unambiguous even when it contains spaces.
-    quoted = re.search(r"[\"«']([A-Za-z]:\\[^\"»']{2,240})[\"»']", text)
+    quoted = re.search(r"[\"«'](" + absolute + r"[^\"»']{2,240})[\"»']", text)
     if quoted:
         value = quoted.group(1).rstrip(".,;")
-        path = Path(value)
+        path = Path(native_path(value))
         if path.exists():
             return str(path.parent) if path.is_file() else str(path)
         return str(path.parent) if path.suffix else value
     # Prefer the longest prefix that exists. This keeps directory names with spaces intact
-    # without guessing where the path ends in free-form text.
-    for match in re.finditer(r"[A-Za-z]:\\", text):
+    # without guessing where the path ends in free-form text. A POSIX path only counts when it
+    # starts a token, so prose and URLs do not turn into candidates.
+    for match in re.finditer(r"(?:[A-Za-z]:[\\/]|(?<![A-Za-z0-9])/)", text):
         value = _longest_existing_path(text, match.start())
         if value:
-            path = Path(value)
+            path = Path(native_path(value))
             return str(path.parent) if path.is_file() else value
-    match = re.search(r"([A-Za-z]:\\[^\s\"«»]{3,200})", text)
+    match = re.search(r"(" + absolute + r"[^\s\"«»]{3,200})", text)
     if match:
         value = match.group(1).rstrip(".,;")
-        path = Path(value)
+        path = Path(native_path(value))
         if path.exists():
             return str(path.parent) if path.is_file() else str(path)
         if path.suffix:

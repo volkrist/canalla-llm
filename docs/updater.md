@@ -109,6 +109,16 @@ user agent; `scripts/updates-manifest.py` does.
 `apps/desktop/e2e/updater-live.mjs` drives an installed client over the WebView2 debug port:
 it discovers the release, downloads and verifies the package, installs it, relaunches, and checks
 the version and the isolated data root. It installs into `%LOCALAPPDATA%\Programs\Canalla LLM`, so
-it must only run on a throwaway machine — the `updater-e2e` GitHub workflow installs the published
-1.2.3 on a fresh `windows-latest` runner and runs it there, with an isolated data root and device
-credentials.
+it must only run on a throwaway machine.
+
+**Status: BLOCKED on GitHub-hosted runners.** The harness was run against a fresh `windows-latest`
+runner with the published 1.2.3 installed. The desktop process starts and stays alive, but WebView2
+does not open a window (or a debug port) because the runner executes jobs in the service session,
+not an interactive desktop. That is an environment limit, not a product verdict; the workflow is
+therefore `workflow_dispatch`-only and takes a `runner` input so it can be pointed at a self-hosted
+Windows machine with a logged-in desktop.
+
+What *is* proven without a desktop: `cargo test --test updater_signature -- --ignored live_` fetches
+the deployed endpoint with the updater's own `RemoteRelease` type, downloads the served artifact,
+and verifies its signature with the public key compiled into the client. A tampered package is
+refused by the same test suite.
