@@ -82,12 +82,29 @@ function launchApp() {
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
   };
   delete env.ALEX_GATEWAY_URL;
-  return spawn(EXE, [], { env, stdio: "ignore", windowsHide: false });
+  // The app's own stderr is the only way to see why a CI runner refuses to start it; hiding it
+  // turned a real launch error into "CDP never became ready".
+  fs.mkdirSync(WORK, { recursive: true });
+  const out = fs.openSync(path.join(WORK, "app.log"), "a");
+  return spawn(EXE, [], { env, stdio: ["ignore", out, out], windowsHide: false });
 }
 
-async function waitCdp(timeoutMs = 180000) {
+function appLog() {
+  try {
+    return fs.readFileSync(path.join(WORK, "app.log"), "utf8").slice(-4000);
+  } catch {
+    return "";
+  }
+}
+
+async function waitCdp(timeoutMs = 300000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (child && child.exitCode !== null) {
+      throw new Error(
+        `the app exited with ${child.exitCode} before opening CDP\n${appLog()}`,
+      );
+    }
     try {
       const response = await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`);
       const targets = await response.json();
@@ -97,7 +114,7 @@ async function waitCdp(timeoutMs = 180000) {
     }
     await sleep(500);
   }
-  throw new Error("CDP never became ready");
+  throw new Error(`CDP never became ready (port ${CDP_PORT})\n${appLog()}`);
 }
 
 async function connect() {
@@ -156,6 +173,14 @@ async function main() {
   fs.rmSync(WORK, { recursive: true, force: true });
   fs.mkdirSync(DATA_ROOT, { recursive: true });
   fs.mkdirSync(DEVICE_DIR, { recursive: true });
+
+  // A leftover desktop would hold the single-instance lock and exit the new process silently.
+  // Only an isolated machine may clean up like that: never touch an owner's running app.
+  if (process.env.CI || process.env.CANALLA_E2E_ALLOW_KILL === "1") {
+    spawnSync("taskkill", ["/IM", "alex-llm.exe", "/F"], { stdio: "ignore" });
+    spawnSync("taskkill", ["/IM", "alex-backend.exe", "/F"], { stdio: "ignore" });
+    await sleep(2000);
+  }
 
   child = launchApp();
   await waitCdp();
