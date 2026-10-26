@@ -36,7 +36,7 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Install Playwright (no browser download: this connects to WebView2)
+      - name: "Install Playwright (no browser download: this connects to WebView2)"
         working-directory: apps/desktop
         run: npm ci
 
