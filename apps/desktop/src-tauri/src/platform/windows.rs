@@ -378,6 +378,12 @@ fn dpapi_write_to(path: &Path, value: &str) -> Result<(), String> {
     unsafe {
         CryptProtectData(&mut in_blob, None, None, None, None, 0, &mut out_blob)
             .map_err(|e| e.to_string())?;
+        // The caller computes the path without touching the filesystem (a refused write must not
+        // leave a directory behind on a platform with no file fallback), so the DPAPI path creates
+        // its own parent here, where a write is actually happening.
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
         let bytes = std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize);
         fs::write(path, bytes).map_err(|e| e.to_string())?;
         if !out_blob.pbData.is_null() {

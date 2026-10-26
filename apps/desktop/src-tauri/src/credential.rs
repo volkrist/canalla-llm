@@ -53,9 +53,12 @@ fn fallback_path() -> PathBuf {
 /// the last write silently clobbered the others. The device credential keeps its old path for
 /// compatibility; every other target is isolated by its scope and name.
 fn scoped_fallback_path(scope: &str, name: &str) -> PathBuf {
-    let dir = data_dir().join("runtime");
-    let _ = fs::create_dir_all(&dir);
-    dir.join(format!("cred-{scope}-{name}.dpapi"))
+    // No directory is created here: computing the fallback path must have no side effect, because
+    // on a platform whose secure store refuses there is nothing to fall back to and the refusal
+    // has to leave the data directory untouched. The Windows writer creates the parent itself.
+    data_dir()
+        .join("runtime")
+        .join(format!("cred-{scope}-{name}.dpapi"))
 }
 
 pub fn store(value: &str) -> Result<(), String> {
@@ -230,7 +233,9 @@ mod tests {
     /// typed refusal - never a silent write somewhere else.
     #[test]
     fn scoped_credential_roundtrip_and_delete() {
-        let _guard = TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let (temp, previous) = isolated_device_dir();
         let name = format!("unit-{}", unique());
         match store_scoped("session", &name, "secret-value") {
@@ -269,7 +274,9 @@ mod tests {
     /// it somewhere else or it would overwrite the credential the real installation paired with.
     #[test]
     fn device_credential_target_redirects_the_machine_wide_entry() {
-        let _guard = TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let (temp, previous_dir) = isolated_device_dir();
         let previous = std::env::var("ALEX_DEVICE_CREDENTIAL_TARGET").ok();
         let target = format!("Alex LLM/device-credential-unit-{}", unique());
@@ -314,7 +321,9 @@ mod tests {
     /// Credential Manager or on the file fallback that stands behind it.
     #[test]
     fn storing_named_credentials_never_overwrites_the_device_credential() {
-        let _guard = TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let (temp, previous_dir) = isolated_device_dir();
         let previous = std::env::var("ALEX_DEVICE_CREDENTIAL_TARGET").ok();
         let target = format!("Alex LLM/device-credential-unit-{}", unique());
