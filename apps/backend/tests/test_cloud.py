@@ -843,7 +843,7 @@ def test_a_planner_that_never_sends_a_first_event_is_bounded_and_retried(gateway
 
     gateway.planner_silence_before_first = 5
     provider = GatewayProvider(
-        shared_settings(llm_stream_first_line_seconds=0.05, llm_stream_stall_seconds=5),
+        shared_settings(llm_stream_first_line_seconds=0.05, llm_stream_stall_seconds=0.2),
         client_for(gateway),
     )
     started = time.monotonic()

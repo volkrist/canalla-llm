@@ -174,7 +174,7 @@ def test_a_silent_first_line_is_a_retryable_timeout_not_a_stall(caplog):
         return [
             line
             async for line in providers.iter_stream_lines(
-                lines(), stall_seconds=5, what="probe", first_line_seconds=0.05
+                lines(), stall_seconds=0.2, what="probe", first_line_seconds=0.05
             )
         ]
 
@@ -185,6 +185,36 @@ def test_a_silent_first_line_is_a_retryable_timeout_not_a_stall(caplog):
     assert error.value.code == "llm_timeout"
     logged = "\n".join(record.getMessage() for record in caplog.records)
     assert "llm_stream_first_line_timeout what=probe" in logged
+    assert "stage=extended" in logged, "the cold-prefill allowance is what finally gives up"
+
+
+def test_a_cold_prefill_gets_one_bounded_extension(caplog):
+    """The first request after `ready` may still be prefilling and produce no bytes for a while.
+
+    The initial budget still detects a dead Gateway quickly, and because nothing was produced the
+    same request may wait once more, bounded by the stall budget - no replay, no duplicate work.
+    """
+    import logging
+
+    async def lines():
+        await asyncio.sleep(0.12)
+        yield "data: {}"
+        yield "data: [DONE]"
+
+    async def collect():
+        return [
+            line
+            async for line in providers.iter_stream_lines(
+                lines(), stall_seconds=0.5, what="probe", first_line_seconds=0.05
+            )
+        ]
+
+    with caplog.at_level(logging.WARNING, logger="app.providers"):
+        assert asyncio.run(collect()) == ["data: {}", "data: [DONE]"]
+
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "stage=initial" in logged, "the extension is recorded, not silent"
+    assert "stage=extended" not in logged
 
 
 def test_a_slow_first_line_keeps_the_transport_budget_when_unset():

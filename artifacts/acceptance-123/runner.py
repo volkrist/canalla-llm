@@ -39,14 +39,24 @@ UI_SCRIPT = HERE / "helpers" / "ui-nav-during-gen.ps1"
 ALLOWED_UNSAFE = {"M7", "T6"}
 
 
+def _text(result: subprocess.CompletedProcess) -> str:
+    """Both streams as text, never raising on a byte that is not UTF-8.
+
+    PowerShell on this host can emit a cp1251 byte (for example in a localised error message).
+    `text=True` then raised UnicodeDecodeError inside the reader thread and the harness lost the
+    very output that explained the failure.
+    """
+    raw = (result.stdout or b"") + (result.stderr or b"")
+    return raw.decode("utf-8", "replace")
+
+
 def ssh(command: str, timeout: int = 90) -> tuple[int, str]:
     result = subprocess.run(
         ["ssh", "distance", "sudo -n " + command],
         capture_output=True,
-        text=True,
         timeout=timeout,
     )
-    return result.returncode, (result.stdout or "") + (result.stderr or "")
+    return result.returncode, _text(result)
 
 
 def watchdog(argument: str) -> tuple[int, str]:
@@ -179,10 +189,9 @@ def ui_during_generation() -> dict:
     result = subprocess.run(
         ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(UI_SCRIPT)],
         capture_output=True,
-        text=True,
         timeout=240,
     )
-    text = (result.stdout or "") + (result.stderr or "")
+    text = _text(result)
     return {
         "ok": result.returncode == 0 and "installed-window-navigation: PASS" in text,
         "exit": result.returncode,

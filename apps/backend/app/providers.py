@@ -18,6 +18,54 @@ from .tools.web_router import classify_web
 logger = logging.getLogger(__name__)
 
 
+async def _first_line(
+    iterator: AsyncIterator[str],
+    *,
+    first_line_seconds: float,
+    stall_seconds: float,
+    what: str,
+    started_at: float,
+) -> str:
+    """The first event, with one bounded allowance for a cold prefill.
+
+    A warm start delivers the first event 0.5-5.5 s after the headers, so the initial budget
+    still catches the lost-response class quickly. A model that has just become ready is alive
+    but still prefilling: it produces no bytes for tens of seconds. Because nothing was produced,
+    waiting once more on the *same* request cannot replay anything, and the second wait is bounded
+    by the stall budget instead of the transport read budget.
+    """
+    # The pending read is shielded: cancelling the *wait* must not close the async generator, or
+    # the extension would have nothing left to wait on and the cold request would be lost.
+    pending = asyncio.ensure_future(iterator.__anext__())
+    try:
+        try:
+            return await asyncio.wait_for(
+                asyncio.shield(pending), timeout=max(0.001, first_line_seconds)
+            )
+        except TimeoutError:
+            logger.warning(
+                "llm_stream_first_line_timeout what=%s elapsed_ms=%d timeout_s=%s stage=initial",
+                what,
+                int((time.monotonic() - started_at) * 1000),
+                first_line_seconds,
+            )
+        try:
+            return await asyncio.wait_for(
+                asyncio.shield(pending), timeout=max(0.001, stall_seconds)
+            )
+        except TimeoutError:
+            logger.warning(
+                "llm_stream_first_line_timeout what=%s elapsed_ms=%d timeout_s=%s stage=extended",
+                what,
+                int((time.monotonic() - started_at) * 1000),
+                stall_seconds,
+            )
+            raise LLMError("llm_timeout") from None
+    finally:
+        if not pending.done():
+            pending.cancel()
+
+
 async def iter_stream_lines(
     lines: AsyncIterator[str],
     *,
@@ -54,7 +102,13 @@ async def iter_stream_lines(
     while True:
         try:
             if count == 0 and first_line_seconds is not None:
-                line = await asyncio.wait_for(iterator.__anext__(), timeout=max(0.001, first_line_seconds))
+                line = await _first_line(
+                    iterator,
+                    first_line_seconds=first_line_seconds,
+                    stall_seconds=stall_seconds,
+                    what=what,
+                    started_at=started_at,
+                )
             elif count == 0:
                 line = await iterator.__anext__()
             else:
@@ -63,16 +117,6 @@ async def iter_stream_lines(
             return
         except TimeoutError:
             now_at = time.monotonic()
-            if not count and first_line_seconds is not None:
-                # Headers arrived and then nothing: no token, no tool call, no content. This is
-                # the lost-response class, so it is typed as a timeout the caller may retry.
-                logger.warning(
-                    "llm_stream_first_line_timeout what=%s elapsed_ms=%d timeout_s=%s",
-                    what,
-                    int((now_at - started_at) * 1000),
-                    first_line_seconds,
-                )
-                raise LLMError("llm_timeout") from None
             logger.warning(
                 "llm_stream_stalled what=%s lines=%d elapsed_ms=%d silent_ms=%d timeout_s=%s "
                 "first_line_ms=%s",
