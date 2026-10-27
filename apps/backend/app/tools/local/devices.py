@@ -48,6 +48,10 @@ class PairRequest(BaseModel):
         default_factory=lambda: ["fs", "process", "registry", "credential", "system"],
         max_length=20,
     )
+    # The device this client is replacing. A re-pair after a real credential loss is a
+    # continuation of one installation, not a new machine: the old row is revoked so a reconnect
+    # cannot leave one active row per hour. Only a row owned by the authenticated user is touched.
+    previous_device_id: str | None = Field(default=None, max_length=64)
 
 
 class HostResult(BaseModel):

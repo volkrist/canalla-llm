@@ -42,6 +42,12 @@ fn save_record(record: &DeviceRecord) {
     );
 }
 
+/// The backend names a device-credential refusal `device_auth`. Any other 401 is the caller's
+/// session token, and must never make the client forget a device identity it still owns.
+fn is_device_auth_refusal(body: &str) -> bool {
+    body.contains("device_auth")
+}
+
 pub fn device_headers(token: &str) -> Result<reqwest::header::HeaderMap, String> {
     let record = load_record().ok_or("device_not_paired")?;
     let credential = crate::credential::load().ok_or("device_not_paired")?;
@@ -95,47 +101,65 @@ pub async fn pair_device(
     user_id: Option<String>,
 ) -> Result<Value, String> {
     let account = user_id.unwrap_or_default();
+    let mut previous_device: Option<String> = None;
     if let (Some(record), Some(_)) = (load_record(), crate::credential::load()) {
         // An explicit change of account or backend must not reuse another identity's device.
         let account_changed =
             !record.user_id.is_empty() && !account.is_empty() && record.user_id != account;
         let backend_changed = !record.backend.is_empty() && record.backend != backend_url;
         if !account_changed && !backend_changed {
+            previous_device = Some(record.device_id.clone());
             let client = local_client();
             let heartbeat = client
                 .post(format!("{backend_url}/tools/devices/heartbeat"))
                 .headers(device_headers(&token)?)
                 .send()
                 .await;
-            if matches!(&heartbeat, Ok(response) if response.status() == reqwest::StatusCode::UNAUTHORIZED)
-            {
-                // The stored credential belongs to a different account: forget it and pair fresh.
-                let _ = crate::credential::delete();
-                let _ = fs::remove_file(record_path());
-            } else {
-                // `online` is the verified heartbeat answer, never the bare presence of a credential.
-                let online = matches!(&heartbeat, Ok(response) if response.status().is_success());
-                if online && (record.user_id.is_empty() || record.backend.is_empty()) {
-                    save_record(&DeviceRecord {
-                        user_id: if record.user_id.is_empty() {
-                            account.clone()
-                        } else {
-                            record.user_id.clone()
-                        },
-                        backend: if record.backend.is_empty() {
-                            backend_url.clone()
-                        } else {
-                            record.backend.clone()
-                        },
-                        ..record.clone()
-                    });
+            match heartbeat {
+                Ok(response) if response.status() == reqwest::StatusCode::UNAUTHORIZED => {
+                    let body = response.text().await.unwrap_or_default();
+                    if !is_device_auth_refusal(&body) {
+                        // An expired bearer token is not a lost device credential. Treating any
+                        // 401 as one deleted a valid identity and re-paired once an hour, leaving
+                        // a stale `paired_devices` row behind on every reconnect.
+                        return Ok(json!({
+                            "device_id": record.device_id,
+                            "display_name": record.display_name,
+                            "online": false,
+                            "storage": crate::credential::storage_kind(),
+                            "reason": "token_expired",
+                        }));
+                    }
+                    // The stored credential really is not this device's: forget it and pair.
+                    let _ = crate::credential::delete();
+                    let _ = fs::remove_file(record_path());
                 }
-                return Ok(json!({
-                    "device_id": record.device_id,
-                    "display_name": record.display_name,
-                    "online": online,
-                    "storage": crate::credential::storage_kind(),
-                }));
+                other => {
+                    // `online` is the verified heartbeat answer, never the bare presence of a
+                    // credential.
+                    let online = matches!(&other, Ok(response) if response.status().is_success());
+                    if online && (record.user_id.is_empty() || record.backend.is_empty()) {
+                        save_record(&DeviceRecord {
+                            user_id: if record.user_id.is_empty() {
+                                account.clone()
+                            } else {
+                                record.user_id.clone()
+                            },
+                            backend: if record.backend.is_empty() {
+                                backend_url.clone()
+                            } else {
+                                record.backend.clone()
+                            },
+                            ..record.clone()
+                        });
+                    }
+                    return Ok(json!({
+                        "device_id": record.device_id,
+                        "display_name": record.display_name,
+                        "online": online,
+                        "storage": crate::credential::storage_kind(),
+                    }));
+                }
             }
         } else {
             let _ = crate::credential::delete();
@@ -157,7 +181,8 @@ pub async fn pair_device(
         .json(&json!({
             "display_name": alias,
             "platform": "windows",
-            "capabilities": ["fs", "process", "registry", "credential", "system"]
+            "capabilities": ["fs", "process", "registry", "credential", "system"],
+            "previous_device_id": previous_device,
         }))
         .send()
         .await
@@ -2373,5 +2398,15 @@ mod tests {
         assert!(journal_read("run-2").is_none());
         restore_journal_dir(previous);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_a_device_auth_refusal_is_a_lost_device_credential() {
+        // The hourly re-pair defect: an expired bearer token answered 401, the client deleted a
+        // valid device credential and created a new paired_devices row on every reconnect.
+        assert!(is_device_auth_refusal(r#"{"detail":"device_auth"}"#));
+        assert!(!is_device_auth_refusal(r#"{"detail":"Not authenticated"}"#));
+        assert!(!is_device_auth_refusal(r#"{"detail":"token_expired"}"#));
+        assert!(!is_device_auth_refusal(""));
     }
 }

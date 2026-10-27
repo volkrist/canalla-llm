@@ -429,6 +429,38 @@ def test_heartbeats_never_duplicate_the_device(setup, client):
     assert [row["device_id"] for row in listed] == [paired["device_id"]]
 
 
+def test_a_repair_revokes_the_device_it_replaces(setup, client):
+    """A re-pair is one installation continuing, not a second machine.
+
+    The client sends the id it owned; the old row is revoked (never deleted) so a token-expiry
+    reconnect cannot leave one active row per hour, and the Devices list keeps one entry.
+    """
+    headers, _context, _events = setup
+    first = client.post("/tools/devices/pair", headers=headers, json={"platform": "windows"}).json()
+    second = client.post(
+        "/tools/devices/pair",
+        headers=headers,
+        json={"platform": "windows", "previous_device_id": first["device_id"]},
+    ).json()
+    assert second["device_id"] != first["device_id"]
+    listed = client.get("/tools/devices", headers=headers).json()
+    assert [row["device_id"] for row in listed] == [second["device_id"]]
+    old = {
+        "X-Alex-Device-Id": first["device_id"],
+        "X-Alex-Device-Credential": first["credential"],
+    }
+    assert client.post("/tools/devices/heartbeat", headers={**headers, **old}).status_code == 401
+    # Another user's row is never touched even if its id is presented.
+    assert (
+        client.post(
+            "/tools/devices/pair",
+            headers=headers,
+            json={"platform": "windows", "previous_device_id": "00000000-0000-0000-0000-000000000000"},
+        ).status_code
+        == 200
+    )
+
+
 def test_sensitive_explanation_and_immutable_digest(setup, client):
     from pydantic import ValidationError
 

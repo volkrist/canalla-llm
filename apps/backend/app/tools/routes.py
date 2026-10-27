@@ -439,6 +439,18 @@ def pair_device(body: PairRequest, user: User = Depends(current_user), db: Sessi
     from .local.devices import hash_credential, issue_credential
 
     credential = issue_credential()
+    if body.previous_device_id:
+        previous = db.scalar(
+            select(PairedDevice).where(
+                PairedDevice.id == body.previous_device_id,
+                PairedDevice.user_id == user.id,
+                PairedDevice.revoked_at.is_(None),
+            )
+        )
+        if previous is not None:
+            # A deliberate re-pair supersedes the old row. It is revoked, never deleted: the
+            # audit trail and any historical tool runs keep a valid device reference.
+            previous.revoked_at = now()
     row = PairedDevice(
         user_id=user.id,
         display_name=body.display_name,
