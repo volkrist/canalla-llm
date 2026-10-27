@@ -32,6 +32,26 @@ def test_off_never_requires_web():
     assert classify_web("latest news", "off").required is False
 
 
+def test_a_local_coding_task_is_not_a_web_request():
+    """"проверь каждый модуль" is a coding instruction, not a request for live information.
+
+    The live LA run classified the whole greenfield prompt as a fresh-web request, so the
+    orchestrator injected a server-policy `web_search` whose query was the entire task text.
+    Its unrelated results (a YouTube video, an `__init__.py` explainer) were then carried into
+    the final answer, which never reported the work that had actually been done.
+    """
+    prompt = (
+        "В папке C:\\Work\\LA собери небольшой Python-проект целиком самостоятельно. "
+        "Нужны пакет la_app с __init__.py, core.py, cli.py и tests/test_core.py; README.md. "
+        "Затем запусти pytest -q. Если тесты падают — исправь код и повторяй до PASS. "
+        "Не останавливайся на первом успехе: проверь каждый модуль отдельно. "
+        "В конце выведи LA_DONE."
+    )
+    intent = classify_web(prompt, "auto")
+    assert intent.required is False
+    assert intent.fresh is False
+
+
 def test_tor_intent_only_when_user_asks():
     assert looks_like_tor("Через Tor найди официальный onion-ресурс Tor Project.")
     assert looks_like_tor("Open the official .onion site")

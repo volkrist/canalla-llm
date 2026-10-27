@@ -20,8 +20,14 @@ EXPLICIT_WEB = re.compile(
 )
 FRESH = re.compile(
     r"(?i)сегодня|сейчас|последн|latest|today|current|price|availability|news|"
-    r"version|weather|актуальн|свеж|\blive\b|verify|провер|прямо сейчас|документац"
+    r"version|weather|актуальн|свеж|\blive\b|прямо сейчас|документац"
 )
+# ``провер`` used to sit in FRESH, so an ordinary coding request ("проверь каждый модуль
+# отдельно") looked like a request for live information. That injected a server-policy web
+# search with the whole prompt as the query into a purely local task, and its unrelated
+# results ended up in the final answer. An actual request to verify something *online* is
+# already covered by the explicit phrases above ("проверь в сети", "проверь актуальн",
+# "проверь прямо сейчас"), so the bare verb is not evidence of a web need.
 URL = re.compile(r"https?://[^\s<>]+")
 
 
