@@ -39,9 +39,7 @@ async def _first_line(
     pending = asyncio.ensure_future(iterator.__anext__())
     try:
         try:
-            return await asyncio.wait_for(
-                asyncio.shield(pending), timeout=max(0.001, first_line_seconds)
-            )
+            return await asyncio.wait_for(asyncio.shield(pending), timeout=max(0.001, first_line_seconds))
         except TimeoutError:
             logger.warning(
                 "llm_stream_first_line_timeout what=%s elapsed_ms=%d timeout_s=%s stage=initial",
@@ -50,9 +48,7 @@ async def _first_line(
                 first_line_seconds,
             )
         try:
-            return await asyncio.wait_for(
-                asyncio.shield(pending), timeout=max(0.001, stall_seconds)
-            )
+            return await asyncio.wait_for(asyncio.shield(pending), timeout=max(0.001, stall_seconds))
         except TimeoutError:
             logger.warning(
                 "llm_stream_first_line_timeout what=%s elapsed_ms=%d timeout_s=%s stage=extended",

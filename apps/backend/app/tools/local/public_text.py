@@ -26,12 +26,17 @@ HALT_MESSAGES = {
         "Страница не получена: браузерный инструмент не вернул результат (browser_no_page_result)."
     ),
     "task_stopped": "Task stopped.",
+    "empty_model_answer": (
+        "Модель завершила ход без итогового текста. Действия инструментов сохранены; "
+        "проверьте историю и продолжите задачу."
+    ),
 }
 
 # The technical cause, named honestly, without pretending the work did not happen.
 HALT_REASONS = {
     "llm_unavailable": "модель не ответила вовремя (llm_stalled)",
     "host_offline": "потеряна связь с Computer host (host_offline)",
+    "empty_model_answer": "модель завершила ход без текста",
 }
 
 
@@ -101,7 +106,7 @@ def progress_summary(facts: dict, halt: str | None) -> str:
 
 
 def public_assistant_text(text: str, halt: str | None = None, facts: dict | None = None) -> str:
-    if halt in {"llm_unavailable", "host_offline"}:
+    if halt in {"llm_unavailable", "host_offline", "empty_model_answer"}:
         summary = progress_summary(facts, halt)
         if summary:
             return summary

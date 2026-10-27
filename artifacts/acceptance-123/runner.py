@@ -656,6 +656,9 @@ def run_live(args) -> int:
         return 0
     finally:
         elapsed_total = round(time.monotonic() - (started if "started" in locals() else time.monotonic()), 1)
+        # Even an aborted ensure (no capacity, no Pod) must leave the watchdog closed: an armed
+        # watchdog with no session is a state no later run should have to reason about.
+        print("watchdog_disarm", watchdog("--disarm")[1])
         stopped = stop_ai(token)
         print("stop", stopped)
         time.sleep(20)

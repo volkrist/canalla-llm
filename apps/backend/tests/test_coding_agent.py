@@ -12,7 +12,7 @@ from app.models import Message
 from app.tools.broker import CredentialBroker
 from app.tools.contracts import ToolError
 from app.tools.executor import ExecutionContext, ToolExecutor
-from app.tools.local.coding import GitPushArgs, GitResetArgs
+from app.tools.local.coding import GitPushArgs, GitResetArgs, PatchArgs
 from app.tools.local.task import LocalTaskController
 from app.tools.local.workspace import looks_like_coding, workspace_from_settings
 from app.tools.models import LocalTask, ToolRun
@@ -293,6 +293,24 @@ def test_patch_conflict_and_coding_loop(setup, client):
         assert saved.status == "COMPLETED"
         assert "commands" in saved.checkpoint
         assert "password" not in str(saved.checkpoint)
+
+
+def test_patch_file_requires_the_replacement_text():
+    """A missing `new_text` must be a typed invalid_arguments, not a silent deletion.
+
+    A live H2 run produced `def add(a, b):` and nothing else: the model omitted the field and the
+    Pydantic default turned it into an empty replacement, which the tool then wrote successfully.
+    An explicit empty string stays legal, because deleting text is a real edit.
+    """
+    base = {
+        "path": r"C:\AlexWorkspace\app.py",
+        "old_text": "return a - b",
+        "expected_before_sha256": "a" * 64,
+    }
+    with pytest.raises(ValidationError):
+        PatchArgs(**base)
+    assert PatchArgs(**base, new_text="return a + b").new_text == "return a + b"
+    assert PatchArgs(**base, new_text="").new_text == ""
 
 
 def test_web_plus_local_fastapi_mock(setup, client):

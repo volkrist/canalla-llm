@@ -549,10 +549,7 @@ async def stream_response(
                             yield sse("task", payload)
                     joined = public_assistant_text("".join(parts))
                     issue = issue_for(joined, grounded, prompt)
-                    if not answer_failed and (
-                        (not joined.strip() and (store(grounded) or looks_like_browser_task(prompt)))
-                        or (issue and status == "complete")
-                    ):
+                    if not answer_failed and (not joined.strip() or (issue and status == "complete")):
                         repaired = ""
                         if joined.strip() and issue:
                             try:
@@ -576,6 +573,10 @@ async def stream_response(
                             # A server-owned typed failure, never a fabricated page result.
                             final = public_assistant_text("", "browser_no_page_result")
                             yield sse("web_status", {"state": "failed", "code": "browser_no_page_result"})
+                        if not (final or "").strip():
+                            # A turn that ends with tools but no prose must still say what happened:
+                            # an empty assistant bubble is indistinguishable from a lost answer.
+                            final = public_assistant_text("", "empty_model_answer", grounded)
                         parts = [final]
                         if final != joined:
                             yield sse("delta", {"content": "\n" + final})

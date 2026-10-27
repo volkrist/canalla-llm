@@ -231,6 +231,25 @@ def test_pause_text_never_shows_raw_tool_protocol():
     assert "tool_calls" not in public_assistant_text('```json\n{"tool_calls":[]}')
 
 
+def test_an_empty_model_answer_still_says_what_happened():
+    """A turn that ends with tools but no prose must not leave an empty assistant bubble.
+
+    The live H2 run persisted `content=""`: the model returned nothing after a failed fix, and the
+    repair branch only ran for browser/grounded tasks. An empty bubble is indistinguishable from
+    a lost answer, so the verified actions are summarised instead.
+    """
+    facts = {
+        "verified": [
+            {"kind": "FILE_WRITTEN", "path": r"C:\Work\calc.py"},
+            {"kind": "FILE_READ", "path": r"C:\Work\calc.py"},
+        ]
+    }
+    text = public_assistant_text("", "empty_model_answer", facts)
+    assert text.strip()
+    assert "calc.py" in text
+    assert "без текста" in text
+
+
 def test_computer_write_queue_promotes(setup):
     _headers, context, _events, _root, _host, _client = setup
     context.user_prompt = "Создай hello.txt на рабочем столе"

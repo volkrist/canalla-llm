@@ -10,7 +10,11 @@ class PatchArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: str = Field(min_length=1, max_length=500)
     old_text: str = Field(min_length=1, max_length=20000)
-    new_text: str = Field(default="", max_length=20000)
+    # Required on purpose. A default of `""` turned a model that forgot the field into a
+    # *successful deletion* of the code it was asked to fix (a live H2 run produced exactly
+    # `def add(a, b):` and an empty file body). An explicit empty string is still allowed: a
+    # deletion is a legitimate edit when the caller actually asked for one.
+    new_text: str = Field(max_length=20000)
     expected_before_sha256: str = Field(min_length=64, max_length=64)
     purpose: str | None = Field(default=None, max_length=500)
 
