@@ -105,7 +105,9 @@ def test_ip_literal_normalises_every_textual_form():
     assert str(ip_literal("0x7f000001")) == "127.0.0.1"
     assert str(ip_literal("127.1")) == "127.0.0.1"
     mapped = ip_literal("[::ffff:127.0.0.1]")
-    assert str(mapped) == "::ffff:7f00:1"  # ipaddress renders the mapped form in hex
+    # `ipaddress` renders a v4-mapped v6 address as `::ffff:7f00:1` on some Python versions and as
+    # `::ffff:127.0.0.1` on others. The address it denotes is the same; assert that, not the spelling.
+    assert mapped.ipv4_mapped is not None
     assert str(mapped.ipv4_mapped) == "127.0.0.1"
     # A name is not an IP literal — and is never resolved here to find out.
     assert ip_literal("example.com") is None
