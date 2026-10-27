@@ -33,7 +33,7 @@ def test_off_never_requires_web():
 
 
 def test_a_local_coding_task_is_not_a_web_request():
-    """"проверь каждый модуль" is a coding instruction, not a request for live information.
+    """«проверь каждый модуль» is a coding instruction, not a request for live information.
 
     The live LA run classified the whole greenfield prompt as a fresh-web request, so the
     orchestrator injected a server-policy `web_search` whose query was the entire task text.
