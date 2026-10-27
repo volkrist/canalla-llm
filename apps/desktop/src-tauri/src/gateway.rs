@@ -514,7 +514,9 @@ mod tests {
 
     #[test]
     fn status_without_enrollment_is_not_connected_and_has_no_secret() {
-        let _guard = TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let (temp, previous, previous_name, previous_runtime, previous_data) = isolated();
         let status = gateway_status().unwrap();
         assert_eq!(status["configured"], false);
@@ -526,7 +528,15 @@ mod tests {
 
     #[test]
     fn enrollment_is_stored_securely_and_never_returned() {
-        let _guard = TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if !crate::platform::test_secret_store_available() {
+            eprintln!(
+                "no OS secret store on this host; the refusal path is covered by credential tests"
+            );
+            return;
+        }
         let (temp, previous, previous_name, previous_runtime, previous_data) = isolated();
         store_enrollment(&json!({
                 "url": "https://gateway.example",
@@ -549,7 +559,15 @@ mod tests {
 
     #[test]
     fn enrollment_environment_makes_the_backend_shared() {
-        let _guard = TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if !crate::platform::test_secret_store_available() {
+            eprintln!(
+                "no OS secret store on this host; the refusal path is covered by credential tests"
+            );
+            return;
+        }
         let (temp, previous, previous_name, previous_runtime, previous_data) = isolated();
         store_enrollment(&json!({
                 "url": "https://gateway.example",
@@ -585,7 +603,9 @@ mod tests {
 
     #[test]
     fn a_developer_checkout_without_enrollment_stays_direct() {
-        let _guard = TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let (temp, previous, previous_name, previous_runtime, previous_data) = isolated();
         let mode = std::env::var("ALEX_AI_MODE").ok();
         std::env::remove_var("ALEX_AI_MODE");
@@ -606,7 +626,9 @@ mod tests {
 
     #[test]
     fn packaged_production_is_shared_even_without_enrollment() {
-        let _guard = TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let (temp, previous, previous_name, previous_runtime, previous_data) = isolated();
         let mode = std::env::var("ALEX_AI_MODE").ok();
         let url = std::env::var("ALEX_GATEWAY_URL").ok();
@@ -642,7 +664,15 @@ mod tests {
 
     #[test]
     fn disconnect_removes_the_credential_even_when_the_gateway_is_unreachable() {
-        let _guard = TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if !crate::platform::test_secret_store_available() {
+            eprintln!(
+                "no OS secret store on this host; the refusal path is covered by credential tests"
+            );
+            return;
+        }
         let (temp, previous, previous_name, previous_runtime, previous_data) = isolated();
         store_enrollment(&json!({
                 "url": "https://127.0.0.1:9",
@@ -662,7 +692,9 @@ mod tests {
 
     #[test]
     fn the_manual_latch_is_cleared_by_an_explicit_connect() {
-        let _guard = TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let (temp, previous, previous_name, previous_runtime, previous_data) = isolated();
         mark_manual_off();
         assert!(manual_off_path().is_file());

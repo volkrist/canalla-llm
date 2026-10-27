@@ -382,6 +382,19 @@ pub fn secret_kind() -> &'static str {
     }
 }
 
+/// True when this host really has a Secret Service. A headless CI runner does not, and the
+/// product's answer there is the typed refusal (covered by `credential::tests`); tests that
+/// exercise a *successful* store must skip instead of failing on a missing desktop service.
+#[cfg(test)]
+pub fn test_secret_store_available() -> bool {
+    let target = "Alex LLM/test/store-probe";
+    let fallback = std::env::temp_dir().join("canalla-secret-probe");
+    let ok = secret_write(target, "probe", &fallback).is_ok();
+    let _ = secret_delete(target, &fallback);
+    let _ = std::fs::remove_file(&fallback);
+    ok
+}
+
 fn secret_tool_present() -> bool {
     Command::new(secret_tool())
         .arg("--version")

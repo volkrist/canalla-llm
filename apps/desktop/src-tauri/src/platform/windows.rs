@@ -446,6 +446,12 @@ pub fn secret_kind() -> &'static str {
     "windows_credential_manager"
 }
 
+/// Windows always has a store, so tests that need one never skip here.
+#[cfg(test)]
+pub fn test_secret_store_available() -> bool {
+    true
+}
+
 // ------------------------------------------------------------------------------- login entry
 
 fn registry_error(status: windows::Win32::Foundation::WIN32_ERROR) -> String {

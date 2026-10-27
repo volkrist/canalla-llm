@@ -1078,7 +1078,7 @@ mod tests {
 
     #[test]
     fn an_explicit_tor_runtime_path_wins_over_the_search() {
-        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let previous = std::env::var("ALEX_TOR_RUNTIME_DIR").ok();
         let chosen = std::env::temp_dir().join(format!("alex-tor-{}", UuidLite::instance()));
         std::env::set_var("ALEX_TOR_RUNTIME_DIR", &chosen);
@@ -1092,7 +1092,7 @@ mod tests {
 
     #[test]
     fn data_root_ignores_cwd() {
-        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let previous = std::env::var("ALEX_LLM_DATA_DIR").ok();
         let temp = std::env::temp_dir().join(format!("alex-runtime-{}", UuidLite::instance()));
         std::env::set_var("ALEX_LLM_DATA_DIR", &temp);
@@ -1391,7 +1391,7 @@ ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 
     #[test]
     fn packaged_mode_does_not_search_python() {
-        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap();
+        let _guard = crate::credential::TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let mode = std::env::var("ALEX_RUNTIME_MODE").ok();
         let sidecar = std::env::var("ALEX_BACKEND_SIDECAR").ok();
         std::env::set_var("ALEX_RUNTIME_MODE", "packaged");
