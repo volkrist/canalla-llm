@@ -33,11 +33,12 @@
 |---|---|
 | Ветка | `release/canalla-1.2.4` |
 | HEAD на входе | `8829df9c67193385120c34122408cf42119e3b7b` = tag `v1.2.5` |
-| HEAD на выходе | `e8f56b7` (два коммита: исправление D1 + формат docstring), запушен |
+| HEAD на выходе | `e6608d1` (D1 + формат docstring + evidence), запушен |
 | Теги | `v1.2.3`, `v1.2.4`, `v1.2.5` не изменялись |
 | Установленная версия | **1.2.5** (`FileVersion`/`ProductVersion` = 1.2.5) |
 | CI на `8829df9` | 7/7 PASS (run 40521282418), Linux gate PASS (40526113500) |
 | CI на `e8f56b7` | **7/7 PASS** (run 40598244685), Linux gate **PASS** (40598244803) |
+| CI на `e6608d1` | **7/7 PASS** (run 40600871825); коммит — только artifacts/docs |
 
 Незакоммиченные изменения на входе: только двоичный шум `docs/screenshots/0.4/*.png`
 (не коммитился) и stat-only записи `package.json` / `Cargo.toml` / `tauri.conf.json`
@@ -354,8 +355,9 @@ tool-protocol, `strip_tool_protocol` оставляет только префи�
 
 ## 11. GitHub / Release
 
-- Коммиты `7c7fb41` и `e8f56b7` запушены в `release/canalla-1.2.4`.
-- CI на `e8f56b7`: **7/7 success** (run 40598244685), Linux gate **success** (40598244803).
+- Коммиты `7c7fb41`, `e8f56b7`, `e6608d1` запушены в `release/canalla-1.2.4`.
+- CI на `e8f56b7` (код): **7/7 success** (40598244685), Linux gate **success** (40598244803).
+- CI на `e6608d1` (evidence/docs): **7/7 success** (40600871825).
   Промежуточный прогон на `7c7fb41` упал ровно на одном шаге — `ruff.format.backend`,
   docstring начинался с кавычки; исправлено коммитом `e8f56b7`, гейт зелёный.
 - **Windows 1.2.6 НЕ выпущен.** Причины: long autonomy FAIL (D2 открыт), T3/T4 BLOCKED,
