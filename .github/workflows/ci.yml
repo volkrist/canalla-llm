@@ -346,7 +346,7 @@ jobs:
         run: |
           $installer = Get-ChildItem apps/desktop/src-tauri/target/release/bundle/nsis -Filter *setup.exe |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          python scripts/release-gate.py verify-artifact --installer $installer.FullName --version 1.2.3
+          python scripts/release-gate.py verify-artifact --installer $installer.FullName --version 1.2.5
           if ($LASTEXITCODE -eq 0) {
             throw "the production release gate accepted an unsigned test build — it must not"
           }
