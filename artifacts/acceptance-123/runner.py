@@ -352,6 +352,14 @@ def run_stop_ai(scenario, token, root, chat_id, before, confirmations, on_event)
 
 
 def run_scenario(scenario: catalog.Scenario, token: str, timeout: float | None = None) -> dict:
+    if scenario.id in {"T3L", "T4L"}:
+        # A real relaunch / a real host disconnect cannot be expressed as a prompt plus a
+        # post-check: it controls the packaged app process while the task runs.
+        import live_restart
+
+        if scenario.id == "T3L":
+            return live_restart.run_t3(scenario, token)
+        return live_restart.run_t4(scenario, token)
     root = catalog.scenario_root(scenario.id)
     root.mkdir(parents=True, exist_ok=True)
     # Every scenario starts from its own clean directory, seeded or not. A leftover from a failed
@@ -649,7 +657,8 @@ def run_live(args) -> int:
                     "scenario": scenario.id,
                     "verdict": evidence["verdict"],
                     "reasons": evidence["reasons"],
-                    "elapsed_ms": evidence["stream"].get("elapsed_ms"),
+                    "elapsed_ms": (evidence.get("stream") or {}).get("elapsed_ms")
+                    or evidence.get("elapsed_ms"),
                     "budget": state,
                 }
             )

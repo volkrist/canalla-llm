@@ -97,6 +97,8 @@ def setup_fixture(name: str, root: Path) -> None:
         (root / "h5_data.txt").write_text("example.com\n", encoding="utf-8", newline="\n")
     elif name == "t4_file":
         (root / "t4.txt").write_text("T4_HOST_FILE_OK\n", encoding="utf-8", newline="\n")
+    elif name == "t4l_file":
+        (root / "t4l.txt").write_text("T4L_HOST_VALUE_417\n", encoding="utf-8", newline="\n")
 
 
 def seed_check(name: str, root: Path) -> tuple[bool, str]:
@@ -545,6 +547,43 @@ SCENARIOS: list[Scenario] = [
     ),
 ]
 
+# T3/T4 live: the installed window is restarted (T3) or the Computer host loses its transport
+# (T4) while Qwen works. Their flows live in `live_restart.py` because they drive the real app
+# process; the catalog still owns the prompts so preparation and execution cannot drift.
+LIVE_RESTART: list[Scenario] = [
+    Scenario(
+        "T3L",
+        "stress",
+        "Перезапуск окна во время живой задачи",
+        "В папке " + P("T3L") + " собери два небольших скрипта: t3l_a.py с печатью "
+        "T3L_A и t3l_b.py с печатью T3L_B. Выполни каждый через интерпретатор и покажи вывод. "
+        "Потом открой t3l_a.py и убедись, что он печатает T3L_A. В конце выведи T3L_DONE и "
+        "перечисли созданные файлы.",
+        900,
+        expected_tools=("write_file", "run_python"),
+        markers=("T3L_DONE",),
+        stdout_markers=("T3L_A", "T3L_B"),
+        budget_seconds=480,
+        notes="The window is killed and relaunched after the first completed model tool; the "
+        "task must park as INTERRUPTED, keep its files, and finish through Resume.",
+    ),
+    Scenario(
+        "T4L",
+        "stress",
+        "Computer host пропадает во время задачи",
+        "В папке " + P("T4L") + " открой t4l.txt, сохрани его содержимое в t4l_out.txt, "
+        "затем открой t4l_out.txt и подтверди содержимое. В конце выведи T4L_DONE.",
+        900,
+        setup="t4l_file",
+        expected_tools=("read_file", "write_file"),
+        markers=("T4L_DONE",),
+        budget_seconds=420,
+        notes="The app process (which owns the native host loop) is suspended after the first "
+        "completed tool and resumed later: a real host transport disconnect, one device.",
+    ),
+]
+SCENARIOS.extend(LIVE_RESTART)
+
 
 def by_id(scenario_id: str) -> Scenario:
     for scenario in SCENARIOS:
@@ -565,6 +604,7 @@ PACKAGES: dict[str, tuple[str, ...]] = {
     "hard-c": ("H5", "H6"),
     "stress": ("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"),
     "long": ("LA",),
+    "live-restart": ("T3L", "T4L"),
 }
 
 
