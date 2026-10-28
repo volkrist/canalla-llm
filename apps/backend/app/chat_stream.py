@@ -171,7 +171,14 @@ async def stream_response(
         facts: dict = {}
         queue = asyncio.Queue(maxsize=64)
         from .tools.local.plan import looks_like_autonomous, looks_like_computer
-        from .tools.local.public_text import public_assistant_text
+        from .tools.local.public_text import (
+            FINAL_PROSE_PROMPT,
+            carries_tool_protocol,
+            failure_summary,
+            final_answer_problem,
+            public_assistant_text,
+            strip_tool_protocol,
+        )
         from .tools.local.workspace import looks_like_coding
 
         async def emit(event, value):
@@ -501,7 +508,13 @@ async def stream_response(
                         # and the model may still explain what it did or did not receive.
                         yield sse("web_status", {"state": "failed", "code": "browser_no_page_result"})
                     iterator = request.app.state.provider.stream_with_usage(enriched_history, tokens)
+                    # A tool turn may end with the model writing its tool protocol instead of prose.
+                    # Streaming that would publish the prefix ("Процесс запущен, pid=…") as a
+                    # finished answer, and a delta cannot be taken back, so a tool turn buffers
+                    # its final answer before anything reaches the chat.
+                    buffer_answer = bool(tool_task)
                     answer_failed = False
+                    final_locked = False
                     try:
                         async for token in iterator:
                             if await request.is_disconnected():
@@ -514,9 +527,10 @@ async def stream_response(
                             if first_token_at is None:
                                 first_token_at = now()
                             parts.append(token)
-                            visible = public_assistant_text(token)
-                            if visible:
-                                yield sse("delta", {"content": visible})
+                            if not buffer_answer:
+                                visible = public_assistant_text(token)
+                                if visible:
+                                    yield sse("delta", {"content": visible})
                         else:
                             status = "complete"
                     except LLMError as error:
@@ -535,6 +549,53 @@ async def stream_response(
                         yield sse("task_status", {"state": "WAITING_LLM", "code": error.code})
                         status = "complete"
                         answer_failed = True
+                    if status == "complete" and buffer_answer and not answer_failed:
+                        raw_answer = "".join(parts)
+                        if carries_tool_protocol(raw_answer):
+                            # The model answered with a tool call after the tool phase was over.
+                            # The prefix before it is not a finished answer, and the call must not
+                            # be executed here: approvals and the sandbox live in the orchestrator.
+                            final_locked = True
+                            prefix = strip_tool_protocol(raw_answer)
+                            raw_retry = ""
+                            try:
+                                raw_retry = await request.app.state.provider.chat(
+                                    [
+                                        *enriched_history,
+                                        {
+                                            "role": "assistant",
+                                            "content": prefix[-4000:] or "(без текста)",
+                                        },
+                                        {"role": "user", "content": FINAL_PROSE_PROMPT},
+                                    ]
+                                )
+                            except Exception:
+                                raw_retry = ""
+                            retry_text = public_assistant_text(raw_retry)
+                            # The retry is judged on its raw completion: stripping first would make
+                            # a second protocol block look like a clean prefix.
+                            if retry_text.strip() and final_answer_problem(raw_retry) is None:
+                                parts = [retry_text]
+                                yield sse("delta", {"content": retry_text})
+                            else:
+                                code = None
+                                with SessionLocal() as state_db:
+                                    state_row = LocalTaskController()._row(state_db, tool_context)
+                                    if state_row is not None:
+                                        code = state_row.last_error
+                                summary = (
+                                    failure_summary(grounded, code, missing_answer=True)
+                                    if code
+                                    else public_assistant_text(
+                                        "", "tool_call_in_final_answer", grounded
+                                    )
+                                )
+                                parts = [summary]
+                                yield sse("delta", {"content": summary})
+                        else:
+                            visible = public_assistant_text(raw_answer)
+                            if visible:
+                                yield sse("delta", {"content": visible})
                     if status == "complete" and getattr(tool_context, "final_after_halt", False):
                         # The answer exists, so the task may conclude now (it was left parked only
                         # because its prose was missing). A failed answer stays parked instead.
@@ -549,7 +610,11 @@ async def stream_response(
                             yield sse("task", payload)
                     joined = public_assistant_text("".join(parts))
                     issue = issue_for(joined, grounded, prompt)
-                    if not answer_failed and (not joined.strip() or (issue and status == "complete")):
+                    if (
+                        not answer_failed
+                        and not final_locked
+                        and (not joined.strip() or (issue and status == "complete"))
+                    ):
                         repaired = ""
                         if joined.strip() and issue:
                             try:
@@ -576,7 +641,16 @@ async def stream_response(
                         if not (final or "").strip():
                             # A turn that ends with tools but no prose must still say what happened:
                             # an empty assistant bubble is indistinguishable from a lost answer.
-                            final = public_assistant_text("", "empty_model_answer", grounded)
+                            code = None
+                            with SessionLocal() as state_db:
+                                state_row = LocalTaskController()._row(state_db, tool_context)
+                                if state_row is not None:
+                                    code = state_row.last_error
+                            final = (
+                                failure_summary(grounded, code, missing_answer=True)
+                                if code
+                                else public_assistant_text("", "empty_model_answer", grounded)
+                            )
                         parts = [final]
                         if final != joined:
                             yield sse("delta", {"content": "\n" + final})
