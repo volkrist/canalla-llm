@@ -26,7 +26,8 @@
 | | |
 |---|---|
 | Исходный SHA | `851ddd6` (= `origin/release/canalla-1.2.4`, тег `v1.2.5` на `8829df9`) |
-| Итоговый SHA | `3ed7279` |
+| Итоговый SHA кода | `3ed7279` (CI 7/7) |
+| Финальный коммит | `76692f3` — только этот отчёт |
 | Коммиты цикла | `a3f0e56` D2 finalization · `81ba299` forced re-test · `f97ca0d` controller completion + failed annotation · `3cb23c1` T3/T4 harness · `a18b09e` tool-echo report · `e7ca675` log level · `76e8faa` Linux-safe regression · `3ed7279` buffer only after real tools |
 | Push | обычный fast-forward, без force |
 | Теги `v1.2.3`/`v1.2.4`/`v1.2.5` | не изменялись |
