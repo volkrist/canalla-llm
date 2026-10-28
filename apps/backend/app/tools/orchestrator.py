@@ -545,7 +545,7 @@ class ToolOrchestrator:
                 and context.limits.remaining > 0
             ):
                 forced_name, forced_arguments = controller_forced
-                logger.info(
+                logger.debug(
                     "planner_forced_completion reason=%s tool=%s calls=%s chat_id=%s",
                     exit_reason,
                     forced_name,
@@ -559,7 +559,7 @@ class ToolOrchestrator:
                     notes,
                     origin="server_policy",
                 )
-            logger.info(
+            logger.debug(
                 "planner_loop_exit reason=%s calls=%s completed=%s chat_id=%s",
                 exit_reason,
                 context.limits.calls,
