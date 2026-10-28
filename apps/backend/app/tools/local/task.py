@@ -944,7 +944,14 @@ class LocalTaskController:
                 if last_tool in {"run_python", "run_process"}:
                     return None
                 tested = any(item.get("tool") in {"run_python", "run_process"} for item in commands)
-                if tested and last_tool not in write_tools:
+                # A write after the last test makes the verification stale even when the model
+                # then only lists or reads files. Deciding this on `last_tool` alone ended a live
+                # LA run right after its final edit: the plan still had a re-test step, nothing
+                # forced it, and the controller closed the task as `verification_required`.
+                stale = bool(facts.get("verification_stale")) or (row.verification or {}).get(
+                    "tests"
+                ) == "stale"
+                if tested and last_tool not in write_tools and not stale:
                     return None
                 if via == "run_python":
                     return (
@@ -960,7 +967,12 @@ class LocalTaskController:
                         "purpose": "Verify project tests",
                     },
                 )
-            if context.coding_task and tests_ok and not facts.get("git_diff_seen"):
+            if (
+                context.coding_task
+                and tests_ok
+                and not facts.get("git_diff_seen")
+                and self._has_git_workspace(row)
+            ):
                 if last_tool != "git_status":
                     return ("git_status", {"cwd": workspace.root, "purpose": "Final git review"})
                 return ("git_diff", {"cwd": workspace.root, "purpose": "Final git review"})
