@@ -263,7 +263,7 @@ def test_a_fragment_gets_the_real_outcome_appended():
 
 def test_a_tool_echo_is_not_a_report():
     assert is_tool_echo("Процесс запущен, pid=13696")
-    assert is_tool_echo("Прочитан файл: C:\Work\app.py")
+    assert is_tool_echo(r"Прочитан файл: C:\Work\app.py")
     assert not is_tool_echo("Готово: создан пакет la_app, тесты прошли, отчёт сохранён.")
     assert not is_tool_echo("Процесс запущен, pid=13696 — но pytest ещё не подтвердил исправление")
 
