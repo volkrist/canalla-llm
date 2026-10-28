@@ -134,6 +134,16 @@ FAILURE_LABELS = {
 }
 
 
+FAILURE_ACKNOWLEDGED = re.compile(
+    r"(?i)ошибк|не заверш|не подтвер|не удалось|не выполнен|не пройд|failed|failure|incomplete"
+)
+
+
+def acknowledges_failure(text: str) -> bool:
+    """Does the answer already tell the user that the task did not complete?"""
+    return bool(FAILURE_ACKNOWLEDGED.search(str(text or "")))
+
+
 def failure_summary(facts: dict, code: str | None, *, missing_answer: bool = False) -> str:
     """The truthful text for a task that did not complete.
 
@@ -148,11 +158,24 @@ def failure_summary(facts: dict, code: str | None, *, missing_answer: bool = Fal
     if not lines:
         return head + " Инструменты не зафиксировали завершённых действий."
     body = "\n".join(f"• {line}" for line in lines)
-    return (
-        f"{head}\n"
-        "Что реально выполнено инструментами (результаты сохранены):\n"
-        f"{body}"
+    return f"{head}\nЧто реально выполнено инструментами (результаты сохранены):\n{body}"
+
+
+def annotate_failed_answer(answer: str, facts: dict, code: str | None) -> str:
+    """Keep a true model sentence but never let it read as a finished task.
+
+    The live LA answer was `Процесс запущен, pid=26724` for a task the controller had just failed.
+    The sentence is kept (the process really started) and the real outcome is appended.
+    """
+    text = str(answer or "").strip()
+    if acknowledges_failure(text):
+        return text
+    summary = (
+        failure_summary(facts, code)
+        if code
+        else public_assistant_text("", "tool_call_in_final_answer", facts)
     )
+    return (text + "\n\n" + summary).strip() if text else summary
 
 
 def progress_summary(facts: dict, halt: str | None) -> str:

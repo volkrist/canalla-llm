@@ -173,6 +173,8 @@ async def stream_response(
         from .tools.local.plan import looks_like_autonomous, looks_like_computer
         from .tools.local.public_text import (
             FINAL_PROSE_PROMPT,
+            acknowledges_failure,
+            annotate_failed_answer,
             carries_tool_protocol,
             failure_summary,
             final_answer_problem,
@@ -586,9 +588,7 @@ async def stream_response(
                                 summary = (
                                     failure_summary(grounded, code, missing_answer=True)
                                     if code
-                                    else public_assistant_text(
-                                        "", "tool_call_in_final_answer", grounded
-                                    )
+                                    else public_assistant_text("", "tool_call_in_final_answer", grounded)
                                 )
                                 parts = [summary]
                                 yield sse("delta", {"content": summary})
@@ -609,6 +609,24 @@ async def stream_response(
                             # The last task event said WAITING_LLM; this one ends the recovery view.
                             yield sse("task", payload)
                     joined = public_assistant_text("".join(parts))
+                    # A task the controller failed must say so. A model answer that is only
+                    # "Процесс запущен, pid=…" is a true fragment, not a completion report, and the
+                    # chat must never present it as one.
+                    task_state: dict = {}
+                    with SessionLocal() as state_db:
+                        state_row = LocalTaskController()._row(state_db, tool_context)
+                        if state_row is not None:
+                            task_state = {
+                                "status": state_row.status,
+                                "code": state_row.last_error,
+                            }
+                    if task_state.get("status") == "FAILED" and not acknowledges_failure(joined):
+                        annotated = annotate_failed_answer(joined, grounded, task_state.get("code"))
+                        addition = annotated[len(joined) :]
+                        parts = [annotated]
+                        if addition.strip():
+                            yield sse("delta", {"content": addition})
+                        joined = annotated
                     issue = issue_for(joined, grounded, prompt)
                     if (
                         not answer_failed

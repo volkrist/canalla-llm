@@ -18,6 +18,8 @@ from sqlalchemy import select
 from app.main import app
 from app.models import Message
 from app.tools.local.public_text import (
+    acknowledges_failure,
+    annotate_failed_answer,
     carries_tool_protocol,
     failure_summary,
     final_answer_problem,
@@ -76,6 +78,14 @@ def test_the_tool_call_halt_message_is_honest():
     text = public_assistant_text("", "tool_call_in_final_answer")
     assert "инструмент" in text
     assert "сохранены" in text
+
+
+def test_a_fragment_does_not_acknowledge_a_failure():
+    """The live LA answer: a true sentence that says nothing about the failed task."""
+    assert not acknowledges_failure("Процесс запущен, pid=26724")
+    assert acknowledges_failure("Задача завершилась с ошибкой: verification_required.")
+    assert acknowledges_failure("Не удалось подтвердить тесты.")
+    assert acknowledges_failure("The task failed verification.")
 
 
 # ------------------------------------------------------------------------ stream integration
@@ -231,3 +241,19 @@ def test_quoted_text_with_a_marker_is_never_executed(tool_turn):
     saved = _last_answer(chat_id)
     assert saved.role == "assistant"
     assert saved.status == "complete"
+
+
+def test_an_answer_that_names_the_failure_is_left_alone():
+    facts = {"verified": [{"kind": "FILE_CREATED", "path": r"C:\Work.py"}]}
+    answer = "Не удалось подтвердить тесты: pytest упал на test_core."
+    assert annotate_failed_answer(answer, facts, "verification_required") == answer
+
+
+def test_a_fragment_gets_the_real_outcome_appended():
+    """The live LA answer for a task the controller had already failed."""
+    facts = {"verified": [{"kind": "FILE_CREATED", "path": r"C:\Work.py"}]}
+    text = annotate_failed_answer("Процесс запущен, pid=26724", facts, "verification_required")
+    assert text.startswith("Процесс запущен, pid=26724")
+    assert "Задача завершилась с ошибкой" in text
+    assert "verification_required" in text
+    assert "успешно" not in text.lower()

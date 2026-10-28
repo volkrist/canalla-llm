@@ -374,6 +374,7 @@ class ToolOrchestrator:
         notes = []
         await context.emit("web_status", {"state": "planning"})
         empty_rounds = 0
+        exit_reason = "loop_condition"
         try:
             await self._maybe_tinyfish_paid(context, notes, prompt, tor_intent, planning)
             await self._maybe_local_intent(context, notes, prompt, planning)
@@ -476,12 +477,15 @@ class ToolOrchestrator:
                         with SessionLocal() as db:
                             LocalTaskController().maybe_revise_plan(db, context)
                         continue
+                    exit_reason = "planner_silent"
                     break
                 empty_rounds = 0
                 if not isinstance(calls, list) or len(calls) > context.limits.max_calls:
                     notes.append("Tool call limit reached.")
+                    exit_reason = "call_limit"
                     break
                 if self._goal_satisfied(context, prompt):
+                    exit_reason = "goal_satisfied"
                     break
                 assistant_calls = []
                 for i, call in enumerate(calls):
@@ -495,6 +499,7 @@ class ToolOrchestrator:
                         }
                     )
                 if not assistant_calls:
+                    exit_reason = "no_valid_calls"
                     break
                 assistant_calls = assistant_calls[:1]
                 planning.append({"role": "assistant", "content": None, "tool_calls": assistant_calls})
@@ -526,7 +531,41 @@ class ToolOrchestrator:
                         LocalTaskController().save_transcript(transcript_db, context, planning)
                 if sum(len(str(m.get("content", ""))) for m in planning[2:]) > context.limits.max_chars * 2:
                     notes.append("Tool context limit reached.")
+                    exit_reason = "context_limit"
                     break
+            # A silent planner is not a finished task. The controller owns the completion
+            # predicate, and `conclude` refuses to close a task whose verification is stale. When
+            # the model simply stops, run the one step the controller still owes instead of
+            # failing the task it already built: the live LA run ended here with 12 calls, a
+            # written project and `verification_required` because nothing asked for the re-test.
+            controller_forced = LocalTaskController().next_forced_action(context)
+            if (
+                controller_forced
+                and context.limits.calls < context.limits.max_calls
+                and context.limits.remaining > 0
+            ):
+                forced_name, forced_arguments = controller_forced
+                logger.info(
+                    "planner_forced_completion reason=%s tool=%s calls=%s chat_id=%s",
+                    exit_reason,
+                    forced_name,
+                    context.limits.calls,
+                    getattr(context, "chat_id", None),
+                )
+                await self._run(
+                    forced_name,
+                    json.dumps(forced_arguments, ensure_ascii=False),
+                    context,
+                    notes,
+                    origin="server_policy",
+                )
+            logger.info(
+                "planner_loop_exit reason=%s calls=%s completed=%s chat_id=%s",
+                exit_reason,
+                context.limits.calls,
+                int(getattr(context, "completed_tool_calls", 0) or 0),
+                getattr(context, "chat_id", None),
+            )
             named_urls = http_urls_from_prompt(prompt)
             # The same single implementation the no-model-tools path uses, so the policy cannot
             # drift into two behaviours.

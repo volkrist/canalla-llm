@@ -9,7 +9,6 @@ instead of on the staleness the controller had already recorded.
 from __future__ import annotations
 
 import asyncio
-import json
 
 import pytest
 
@@ -49,10 +48,7 @@ def setup(client, auth, tmp_path):
         db.commit()
         generation_id = message.id
     events: list[tuple[str, dict]] = []
-    prompt = (
-        "Полностью проверь этот проект, исправь падающие тесты и не завершай, "
-        "пока проверка не пройдёт."
-    )
+    prompt = "Полностью проверь этот проект, исправь падающие тесты и не завершай, пока проверка не пройдёт."
     context = _context(user_id, chat_id, generation_id, str(root), prompt, events)
     host = FakeHost(client, device_headers, root).start()
     yield context, events, root, host
@@ -118,9 +114,9 @@ def test_a_write_after_the_test_run_forces_verification(setup):
             (index for index, name in enumerate(tools) if name in {"write_file", "patch_file"}),
             default=-1,
         )
-        assert any(
-            name in {"run_python", "run_process"} for name in tools[last_write + 1 :]
-        ), f"no verification after the final write: {tools}"
+        assert any(name in {"run_python", "run_process"} for name in tools[last_write + 1 :]), (
+            f"no verification after the final write: {tools}"
+        )
 
 
 def test_a_plain_folder_does_not_force_a_git_review(tmp_path, client, auth):
@@ -155,6 +151,8 @@ def test_a_plain_folder_does_not_force_a_git_review(tmp_path, client, auth):
             autonomous = True
             coding_task = True
             computer_mode = "trusted"
-            workspace = type("W", (), {"root": str(root), "test_command": ["pytest"], "test_via": "run_python"})()
+            workspace = type(
+                "W", (), {"root": str(root), "test_command": ["pytest"], "test_via": "run_python"}
+            )()
 
         assert LocalTaskController().next_forced_action(_Context()) is None
