@@ -107,28 +107,64 @@ def _answer_text(response_text: str) -> str:
 
 @pytest.fixture
 def tool_turn(client, auth, tmp_path):
-    """An authenticated chat whose preferences make this a tool turn (so the answer is buffered)."""
+    """An authenticated chat with a paired device, so a real tool can run first.
+
+    The D2 rules apply to a turn that actually ran tools: a plain chat keeps streaming, because
+    the window's own Stop control depends on the first delta.
+    """
+    from tests.fake_host import FakeHost
+
     headers = auth()
     chat_id = client.post("/chats", headers=headers, json={}).json()["id"]
+    root = tmp_path / "workspace"
+    root.mkdir()
+    (root / "app.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
     client.put(
         "/tools/preferences",
         headers=headers,
-        json={"computer_mode": "trusted", "workspace_roots": [str(tmp_path)]},
+        json={"computer_mode": "trusted", "workspace_roots": [str(root)]},
     )
-    return client, headers, chat_id
+    paired = client.post("/tools/devices/pair", headers=headers, json={"platform": "windows"}).json()
+    device_headers = {
+        **headers,
+        "X-Alex-Device-Id": paired["device_id"],
+        "X-Alex-Device-Credential": paired["credential"],
+    }
+    client.post("/tools/devices/heartbeat", headers=device_headers)
+    host = FakeHost(client, device_headers, root).start()
+    try:
+        yield client, headers, chat_id, root
+    finally:
+        host.close()
 
 
 class _Provider:
-    """A model whose planner is inert and whose prose is scripted."""
+    """A model that reads one file, then answers with scripted prose."""
 
     supports_tools = True
 
-    def __init__(self, *, answer: str, retry: str | None = None):
+    def __init__(self, *, answer: str, retry: str | None = None, read: str | None = None):
         self.answer = answer
         self.retry = retry
+        self.read = read
         self.prompts: list[str] = []
+        self.plans = 0
 
     async def plan_tools(self, messages, tools, usage):
+        self.plans += 1
+        if self.read and self.plans == 1:
+            return {
+                "tool_calls": [
+                    {
+                        "id": "d2-read",
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "arguments": json.dumps({"path": self.read, "purpose": "read"}),
+                        },
+                    }
+                ]
+            }
         return {"tool_calls": []}
 
     async def stream_with_usage(self, messages, usage):
@@ -169,8 +205,8 @@ def _last_answer(chat_id):
 
 
 def test_a_clean_answer_is_published_unchanged(tool_turn):
-    client, headers, chat_id = tool_turn
-    provider = _Provider(answer="Готово: файл создан и проверен.")
+    client, headers, chat_id, root = tool_turn
+    provider = _Provider(answer="Готово: файл создан и проверен.", read=str(root / "app.py"))
     response = _run(client, headers, chat_id, provider)
 
     assert response.status_code == 200
@@ -181,10 +217,11 @@ def test_a_clean_answer_is_published_unchanged(tool_turn):
 
 def test_a_tool_call_instead_of_prose_is_not_published_as_a_prefix(tool_turn):
     """The D2 regression: the prefix must never reach the chat."""
-    client, headers, chat_id = tool_turn
+    client, headers, chat_id, root = tool_turn
     provider = _Provider(
         answer="Процесс запущен, pid=26724" + TOOL_BLOCK,
         retry="Проверка не завершена: pytest не подтвердил изменения.",
+        read=str(root / "app.py"),
     )
     response = _run(client, headers, chat_id, provider)
 
@@ -200,10 +237,11 @@ def test_a_tool_call_instead_of_prose_is_not_published_as_a_prefix(tool_turn):
 
 def test_a_malformed_tool_block_falls_back_to_the_honest_summary(tool_turn):
     """When the retry also emits a protocol block, the user gets the truthful state."""
-    client, headers, chat_id = tool_turn
+    client, headers, chat_id, root = tool_turn
     provider = _Provider(
         answer="Процесс запущен, pid=26724" + TOOL_BLOCK,
         retry="Вот вызов: <tool_call>{broken",
+        read=str(root / "app.py"),
     )
     response = _run(client, headers, chat_id, provider)
 
@@ -217,8 +255,8 @@ def test_a_malformed_tool_block_falls_back_to_the_honest_summary(tool_turn):
 
 
 def test_a_tool_block_alone_never_becomes_an_empty_bubble(tool_turn):
-    client, headers, chat_id = tool_turn
-    provider = _Provider(answer=TOOL_BLOCK, retry="")
+    client, headers, chat_id, root = tool_turn
+    provider = _Provider(answer=TOOL_BLOCK, retry="", read=str(root / "app.py"))
     response = _run(client, headers, chat_id, provider)
 
     assert response.status_code == 200
@@ -230,10 +268,11 @@ def test_a_tool_block_alone_never_becomes_an_empty_bubble(tool_turn):
 
 def test_quoted_text_with_a_marker_is_never_executed(tool_turn):
     """A tool block in prose is not a call: nothing is executed, and the user still gets text."""
-    client, headers, chat_id = tool_turn
+    client, headers, chat_id, root = tool_turn
     provider = _Provider(
         answer="Модель иногда печатает <tool_call> в тексте — это не вызов.",
         retry="Это цитата, а не вызов инструмента.",
+        read=str(root / "app.py"),
     )
     response = _run(client, headers, chat_id, provider)
 

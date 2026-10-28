@@ -514,9 +514,12 @@ async def stream_response(
                     iterator = request.app.state.provider.stream_with_usage(enriched_history, tokens)
                     # A tool turn may end with the model writing its tool protocol instead of prose.
                     # Streaming that would publish the prefix ("Процесс запущен, pid=…") as a
-                    # finished answer, and a delta cannot be taken back, so a tool turn buffers
-                    # its final answer before anything reaches the chat.
-                    buffer_answer = bool(tool_task)
+                    # finished answer, and a delta cannot be taken back, so a turn that really ran
+                    # tools buffers its final answer before anything reaches the chat. A plain chat
+                    # keeps streaming token by token: the UI's own Stop control depends on it.
+                    buffer_answer = bool(tool_task) and (
+                        int(getattr(tool_context, "completed_tool_calls", 0) or 0) > 0
+                    )
                     answer_failed = False
                     final_locked = False
                     try:
