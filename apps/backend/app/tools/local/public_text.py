@@ -138,6 +138,25 @@ FAILURE_ACKNOWLEDGED = re.compile(
     r"(?i)ошибк|не заверш|не подтвер|не удалось|не выполнен|не пройд|failed|failure|incomplete"
 )
 
+# A final answer that only repeats a tool result is not a report. The live LA run ended with
+# `Процесс запущен, pid=13696` while the controller had completed the whole project.
+TOOL_ECHO = re.compile(
+    r"(?i)^\s*(процесс запущен|запущен процесс|прочитан файл|создан файл|изменён файл|"
+    r"выполнено|process started|file (created|read|written)|path=|sha256=|exit_code=)"
+)
+
+
+def is_tool_echo(text: str, limit: int = 240) -> bool:
+    """Does the answer merely repeat one tool result instead of reporting the work?
+
+    A single short clause that starts with a tool-result phrase is an echo. As soon as the model
+    adds an explanation, a caveat or a second sentence it is prose and is kept as it is.
+    """
+    value = str(text or "").strip()
+    if not TOOL_ECHO.match(value) or len(value) > limit:
+        return False
+    return not re.search(r"[.!?;]\s|\s[—–]\s", value)
+
 
 def acknowledges_failure(text: str) -> bool:
     """Does the answer already tell the user that the task did not complete?"""
@@ -159,6 +178,18 @@ def failure_summary(facts: dict, code: str | None, *, missing_answer: bool = Fal
         return head + " Инструменты не зафиксировали завершённых действий."
     body = "\n".join(f"• {line}" for line in lines)
     return f"{head}\nЧто реально выполнено инструментами (результаты сохранены):\n{body}"
+
+
+def completion_summary(facts: dict, detail: str | None = None) -> str:
+    """A short report the controller can stand behind when the model wrote only an echo."""
+    lines = _verified_lines(facts, limit=8)
+    head = "Задача завершена."
+    if detail:
+        head = f"Задача завершена: {detail}."
+    if not lines:
+        return head
+    body = "\n".join(f"• {line}" for line in lines)
+    return f"{head}\nЧто выполнено инструментами:\n{body}"
 
 
 def annotate_failed_answer(answer: str, facts: dict, code: str | None) -> str:

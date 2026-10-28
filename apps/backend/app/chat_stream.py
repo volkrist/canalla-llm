@@ -176,8 +176,10 @@ async def stream_response(
             acknowledges_failure,
             annotate_failed_answer,
             carries_tool_protocol,
+            completion_summary,
             failure_summary,
             final_answer_problem,
+            is_tool_echo,
             public_assistant_text,
             strip_tool_protocol,
         )
@@ -619,6 +621,7 @@ async def stream_response(
                             task_state = {
                                 "status": state_row.status,
                                 "code": state_row.last_error,
+                                "summary": state_row.completion_summary,
                             }
                     if task_state.get("status") == "FAILED" and not acknowledges_failure(joined):
                         annotated = annotate_failed_answer(joined, grounded, task_state.get("code"))
@@ -627,6 +630,18 @@ async def stream_response(
                         if addition.strip():
                             yield sse("delta", {"content": addition})
                         joined = annotated
+                    elif task_state.get("status") == "COMPLETED" and (
+                        not joined.strip() or is_tool_echo(joined)
+                    ):
+                        # The controller finished the work and the model answered with one tool
+                        # result. Its own report is the honest answer.
+                        report = completion_summary(grounded, task_state.get("summary") or None)
+                        parts = [report]
+                        if joined.strip():
+                            yield sse("delta", {"content": "\n\n" + report})
+                        else:
+                            yield sse("delta", {"content": report})
+                        joined = report
                     issue = issue_for(joined, grounded, prompt)
                     if (
                         not answer_failed

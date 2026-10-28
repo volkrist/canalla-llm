@@ -21,8 +21,10 @@ from app.tools.local.public_text import (
     acknowledges_failure,
     annotate_failed_answer,
     carries_tool_protocol,
+    completion_summary,
     failure_summary,
     final_answer_problem,
+    is_tool_echo,
     public_assistant_text,
     strip_tool_protocol,
 )
@@ -257,3 +259,23 @@ def test_a_fragment_gets_the_real_outcome_appended():
     assert "Задача завершилась с ошибкой" in text
     assert "verification_required" in text
     assert "успешно" not in text.lower()
+
+
+def test_a_tool_echo_is_not_a_report():
+    assert is_tool_echo("Процесс запущен, pid=13696")
+    assert is_tool_echo("Прочитан файл: C:\Work\app.py")
+    assert not is_tool_echo("Готово: создан пакет la_app, тесты прошли, отчёт сохранён.")
+    assert not is_tool_echo("Процесс запущен, pid=13696 — но pytest ещё не подтвердил исправление")
+
+
+def test_a_completed_task_can_report_its_own_work():
+    facts = {
+        "verified": [
+            {"kind": "FILE_CREATED", "path": r"C:\Work\la_app\core.py"},
+            {"kind": "PROCESS_STARTED", "pid": 13696},
+        ]
+    }
+    text = completion_summary(facts, "Original request is addressed")
+    assert text.startswith("Задача завершена")
+    assert "core.py" in text
+    assert "pid=13696" in text
