@@ -25,7 +25,7 @@
 | GATEWAY | **PASS** — Ruff + pytest |
 | RUST | **PASS** — `cargo check --all-targets`; `cargo test` 128 passed, 2 ignored |
 | PLAYWRIGHT | **PASS** — 21 passed |
-| CI | см. §12 (итоговый SHA и 7/7) |
+| CI | **5/7 PASS** на `883245a`; `tor-runtime` и `installer-build` упали на изменении upstream Tor (см. §12) |
 | DATA PRESERVATION | **PASS** — integrity ok, 59 paired (1 revoked), device_id не изменился |
 | DEVICE ID | `f3548022-a676-463c-9fc5-b05bbd5ac907` → тот же |
 | PODS | **3 Pod**, израсходовано **$0.2722**, все confirmed stopped, `pods []` |
@@ -292,8 +292,29 @@ Staged sidecar кандидата под старой версией не ост
 
 ## 12. Git и CI
 
-Кодовый SHA этого цикла: см. коммит ниже. CI на нём: см. результат после push (7/7).
-Финальный отчётный коммит добавляет только этот отчёт и evidence; код не меняется.
+Кодовый SHA этого цикла: **`883245a`** (`Close D2 and expand the 1.2.6 acceptance coverage`).
+CI run [42490812164](https://github.com/volkrist/canalla-llm/actions/runs/42490812164): **5/7 success**.
+
+| Job | Result |
+|---|---|
+| developer-gate | **PASS** |
+| native-gate (`cargo check` + `cargo test`) | **PASS** |
+| frontend-e2e (Playwright) | **PASS** |
+| llama-runtime | **PASS** |
+| llama-runtime-image | **PASS** |
+| tor-runtime | **FAIL — external** |
+| installer-build | **FAIL — external** |
+
+Причина обоих FAIL — upstream Tor, а не код:
+
+* `tor-runtime`: `TOR-PIN: FAIL — signed checksums file is c1fcd9ffa24c834156a081f0d391d332a1bf260bfaf7fd2a2a98d496e7fc28ea, pin says 539e778fa5ae4e9e061e5721a4d15108b085fd5f26e45629ba587264f021f564`.
+  Tor Project изменил подписанный файл checksums после того, как pin 1.2.5 был зафиксирован.
+* `installer-build`: тот же upstream, `tor-expert-bundle-windows-x86_64-15.0.25.tar.gz is 306 bytes, expected 22507599`
+  (URL 15.0.25 больше не отдаёт архив). Локальный candidate собран из уже проверенного и
+  застейдженного Tor runtime 1.2.5; сам runtime не менялся.
+
+Финальный отчётный коммит добавляет только этот отчёт; код и версия не меняются. Pin Tor не
+обновлялся: это отдельное supply-chain изменение, не входящее в задание D2/LA/T3/T4.
 
 * Ветка: `release/canalla-1.2.4`.
 * Push: обычный fast-forward, без force.
@@ -311,6 +332,9 @@ Staged sidecar кандидата под старой версией не ост
    128 passed, 2 ignored; `cargo check --all-targets` на финальном дереве PASS.
 4. **Публикация 1.2.6** — запрещена условием владельца: T3/T4 live не подтверждены. Кандидат
    собран и подписан, но не выпущен; updater manifest не менялся.
+5. **CI 7/7** — локально и в GitHub Actions недостижим без обновления Tor pin: upstream изменил
+   signed checksums и перестал отдавать архив 15.0.25. Пять независимых job'ов (developer,
+   native, frontend-e2e, llama-runtime, llama-runtime-image) — PASS.
 
 ---
 
