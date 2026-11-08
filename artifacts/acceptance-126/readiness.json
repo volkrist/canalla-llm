@@ -113,7 +113,7 @@
     "la_live": "PASS — live-20261108T131238, 21 model-origin calls, COMPLETED, independent pytest/CLI checks passed",
     "t3_live": "BLOCKED — live_restart wait() TypeError after the first tool; fixed, but the 3-Pod limit is exhausted",
     "t4_live": "BLOCKED — not attempted; the 3-Pod limit is exhausted",
-    "pods": "3 (L40S $1.09/h); spend $0.2722269; pods []; watchdog disarmed; AI off",
+    "pods": "3 (L40S $1.09/h); spend $0.3034774888 incl. late charges; pods []; watchdog disarmed; AI off",
     "release": "NOT PUBLISHED. Signed candidate 1.2.6 installer sha256=68af927ba5bb4fc010118278054b770320c172952edc3f75bc1263daa02d1f73, key 9B328EFF111D1FB2; updater manifest untouched",
     "installed": "official 1.2.5 restored: alex-backend.exe sha256=f9046b83bb94db3b75e6224d1fa27fc6eae75fd302a0b28f130eeb6f1e63f953",
     "data": "integrity ok; users 2; chats 48; messages 108; paired_devices 59 (1 revoked); device_id unchanged; computer_mode ask"

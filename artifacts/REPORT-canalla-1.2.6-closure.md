@@ -28,7 +28,7 @@
 | CI | **5/7 PASS** на `883245a`; `tor-runtime` и `installer-build` упали на изменении upstream Tor (см. §12) |
 | DATA PRESERVATION | **PASS** — integrity ok, 59 paired (1 revoked), device_id не изменился |
 | DEVICE ID | `f3548022-a676-463c-9fc5-b05bbd5ac907` → тот же |
-| PODS | **3 Pod**, израсходовано **$0.2722**, все confirmed stopped, `pods []` |
+| PODS | **3 Pod**, израсходовано **$0.3035** (с поздними начислениями), все confirmed stopped, `pods []` |
 | RELEASE 1.2.6 | **NOT PUBLISHED** — обязательные T3/T4 live не подтверждены; подписанный release candidate подготовлен |
 
 ---
@@ -216,8 +216,8 @@ candidate gate места всё равно не хватило; отдельн�
 | 2 | NVIDIA L40S | 1.09 | LA (повтор) | 12 вызовов, `invalid_arguments` на write + `llm_unavailable`; честный FAILED; stop подтверждён |
 | 3 | NVIDIA L40S | 1.09 | LA + T3 + T4 | **LA PASS, 21 вызов**; T3 harness TypeError; T4 не стартовал; stop подтверждён |
 
-* Баланс на старте (фактический): **$10.8718949**; после: **$10.5996680417**;
-  израсходовано **$0.2722269** (лимит $1.20).
+* Баланс на старте (фактический): **$10.8718949**; финальный: **$10.5684174112**
+  (с поздними начислениями после stop); израсходовано **$0.3034774888** (лимит $1.20).
 * `pods []`, `current_spend_per_hr 0.01`, watchdog **disarmed**, AI **off**, reconnect не выполнялся.
 * Compute Preferences владельца не менялись (`max_hourly_price=2`, `session_budget=2` —
   унаследованные настройки; они не увеличивались и не уменьшались).
