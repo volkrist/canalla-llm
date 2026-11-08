@@ -140,9 +140,12 @@ FAILURE_ACKNOWLEDGED = re.compile(
 
 # A final answer that only repeats a tool result is not a report. The live LA run ended with
 # `Процесс запущен, pid=13696` while the controller had completed the whole project.
+# `Процесс завершён, exit_code=0` is the same defect one step later: the tool finished, and the
+# model echoed that instead of reporting what the task achieved.
 TOOL_ECHO = re.compile(
-    r"(?i)^\s*(процесс запущен|запущен процесс|прочитан файл|создан файл|изменён файл|"
-    r"выполнено|process started|file (created|read|written)|path=|sha256=|exit_code=)"
+    r"(?i)^\s*(процесс запущен|запущен процесс|процесс заверш|завершён процесс|команда выполнена|"
+    r"прочитан файл|создан файл|изменён файл|выполнено|process (started|finished|exited)|"
+    r"file (created|read|written)|path=|sha256=|exit[_ ]code\s*[=:])"
 )
 
 
@@ -190,6 +193,22 @@ def completion_summary(facts: dict, detail: str | None = None) -> str:
         return head
     body = "\n".join(f"• {line}" for line in lines)
     return f"{head}\nЧто выполнено инструментами:\n{body}"
+
+
+def final_summary_for_task(
+    status: str | None, facts: dict, code: str | None, detail: str | None = None
+) -> str:
+    """The truthful answer when the model left no usable prose.
+
+    The controller already decided whether the task completed. The answer must carry that
+    decision, not a generic "tool call instead of text" note: a completed task gets its verified
+    report, a failed one gets the typed reason, and neither is allowed to claim the other.
+    """
+    if status == "COMPLETED":
+        return completion_summary(facts, detail)
+    if status == "FAILED":
+        return failure_summary(facts, code, missing_answer=True)
+    return public_assistant_text("", "tool_call_in_final_answer", facts)
 
 
 def annotate_failed_answer(answer: str, facts: dict, code: str | None) -> str:

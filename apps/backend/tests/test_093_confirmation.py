@@ -20,7 +20,9 @@ from app.tools.confirmation import (
 )
 from app.tools.contracts import RiskLevel, ToolDefinition, ToolError, ToolRegistry
 from app.tools.executor import ExecutionContext, ToolExecutor
-from app.tools.models import ToolRun
+from app.tools.local import machine
+from app.tools.local.task import LocalTaskController, recover_interrupted
+from app.tools.models import LocalTask, ToolRun
 from app.tools.policy import ToolLimits
 from tests.db_helpers import require_row
 from tests.test_tools_core import FakeProvider, public_dns
@@ -69,6 +71,37 @@ def _run(registry, context, arguments=None):
     return asyncio.run(
         ToolExecutor(registry).execute("test_sensitive", arguments or {"path": "notes.txt"}, context)
     )
+
+
+def test_an_approved_tool_leaves_the_confirmation_state(setup):
+    """A confirmed tool is EXECUTING, not still waiting for the click.
+
+    Leaving the task in WAITING_CONFIRMATION while the host ran made a restart during a long
+    tool look like a parked task: recovery kept it parked instead of marking it INTERRUPTED.
+    """
+    headers, context, client, user_id = setup
+    with SessionLocal() as db:
+        task = LocalTask(
+            user_id=user_id,
+            chat_id=context.chat_id,
+            title="confirmed tool",
+            status=machine.WAITING_CONFIRMATION,
+            original_user_request="run a confirmed tool",
+            tool_budget=40,
+            file_change_budget=20,
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+        context.task_id = task.id
+        LocalTaskController().checkpoint(db, context, machine.EXECUTING)
+        db.refresh(task)
+        assert task.status == machine.EXECUTING
+
+        # The restart recovery is the half that turns an in-flight run into INTERRUPTED.
+        recover_interrupted()
+        db.refresh(task)
+        assert task.status == machine.INTERRUPTED
 
 
 def test_canonical_payload_is_order_independent():

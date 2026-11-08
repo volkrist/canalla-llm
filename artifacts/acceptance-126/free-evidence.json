@@ -1,0 +1,99 @@
+{
+  "t4": {
+    "verdict": "PASS",
+    "reasons": [],
+    "checks": {
+      "first_tool": true,
+      "executing_at_disconnect": true,
+      "heartbeat_returned": true,
+      "typed_offline": true,
+      "offline_not_success": true,
+      "same_task": true,
+      "terminal": true,
+      "answer_saved": true,
+      "no_duplicate_payloads": true,
+      "device_stable": true,
+      "confirmation_observed": true
+    },
+    "first_tool": "list_directory",
+    "status_at_disconnect": "EXECUTING",
+    "confirmation_observed": [
+      "f53af952-511d-4a25-b124-308f22722176",
+      "d3d3b159-94ce-4ddf-95b9-e3ee2b154ddd",
+      "9b915060-6077-4e3e-9225-baec1811c4cd"
+    ],
+    "confirmations": [
+      {
+        "run_id": "f53af952-511d-4a25-b124-308f22722176",
+        "tool": "list_directory",
+        "allow": true,
+        "http": 200,
+        "body": "{\"status\":\"approved\"}"
+      },
+      {
+        "run_id": "d3d3b159-94ce-4ddf-95b9-e3ee2b154ddd",
+        "tool": "git_status",
+        "allow": true,
+        "http": 200,
+        "body": "{\"status\":\"approved\"}"
+      },
+      {
+        "run_id": "9b915060-6077-4e3e-9225-baec1811c4cd",
+        "tool": "run_python",
+        "allow": true,
+        "http": 200,
+        "body": "{\"status\":\"approved\"}"
+      }
+    ],
+    "computer_mode": "ask",
+    "device_before": "f5c2b45b-7515-4c35-8bd8-2d76437fe197",
+    "task_before": {
+      "id": "517b39d7-acbf-4955-92d7-6b4d36091655",
+      "status": "EXECUTING",
+      "tool_calls_used": 3
+    },
+    "files_before": {
+      "app.py": "828092436119a2bb1f39a167f274196a96fd68a3f31b75e3a54feb776c4a266d",
+      "pyproject.toml": "90bb5277b3c5d828d13e10883a85146cb2fb8a0c2c000f0c54cc96ba0df70059",
+      "test_app.py": "0bdf7c6a0329a762beda5af91cdcca2bf6939615ed51751ba9a0074527434d73"
+    },
+    "payloads_before": [
+      "042b7b1c421e867773d2083d8cf60c3bc0a7344a764d630eb4ce16da7524442a",
+      "89dc2a9a393e7f82148a9de6cd51d87dfb94106c4ded62e8875720ed14e43051"
+    ],
+    "tool_ids_before": [
+      "9b915060-6077-4e3e-9225-baec1811c4cd",
+      "d3d3b159-94ce-4ddf-95b9-e3ee2b154ddd",
+      "f53af952-511d-4a25-b124-308f22722176"
+    ],
+    "suspend": {
+      "exit": 0,
+      "output": "suspended=6664 watchdog=150\r\n"
+    },
+    "offline_status": "WAITING_DEVICE",
+    "online_during_offline": false,
+    "answer_while_offline": "",
+    "resume": {
+      "exit": 0,
+      "output": "resumed=6664\r\n"
+    },
+    "final_task": {
+      "id": "517b39d7-acbf-4955-92d7-6b4d36091655",
+      "status": "FAILED",
+      "tool_calls_used": 3,
+      "completion_summary": "Incomplete: tests_not_verified",
+      "last_error": "tests_not_verified"
+    },
+    "final_answer": "Это **Canalla LLM**, демонстрационный ответ mock-провайдера.\n\nВы написали: Полностью проверь проект в папке C:\\Users\\Volkr\\Canalla Acceptance\\free-126\\t4\\workspace, запусти pytest и исправь падающие тесты. Работай до конца.\n\nАвторизация, история и потоковая передача уже работают без GPU. Этот ответ генерируется локальным шаблоном, а не языковой моделью.\n\nПример кода:\n\n```python\ndef greet(name: str) -> str:\n    return f\"Hello, {name}!\"\n\nprint(greet(\"Canalla LLM\"))\n```\n\nЗадача завершилась с ошибкой: тесты не подтвердили изменение (tests_not_verified).\nЧто реально выполнено инструментами (результаты сохранены):\n• запущен процесс: pid=15216",
+    "files_after": {
+      "__pycache__\\app.cpython-312.pyc": "28f260ed4e3fd164ede05d5836885fa1ba53dffe93e688cb7d44b910f53af6c1",
+      "__pycache__\\test_app.cpython-312-pytest-9.1.1.pyc": "17ae432d5d50cba34cf04b69b5dcd08a726c130d794b51d0d8ad2245a2e23163",
+      "app.py": "828092436119a2bb1f39a167f274196a96fd68a3f31b75e3a54feb776c4a266d",
+      "pyproject.toml": "90bb5277b3c5d828d13e10883a85146cb2fb8a0c2c000f0c54cc96ba0df70059",
+      "test_app.py": "0bdf7c6a0329a762beda5af91cdcca2bf6939615ed51751ba9a0074527434d73"
+    },
+    "files_lost": [],
+    "repeated_payloads": [],
+    "device_after": "f5c2b45b-7515-4c35-8bd8-2d76437fe197"
+  }
+}

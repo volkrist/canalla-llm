@@ -1,0 +1,121 @@
+{
+  "generated_at": "2026-11-08T12:45:00+00:00",
+  "cycle": "canalla-1.2.6",
+  "verdict": "READY",
+  "git": {
+    "branch": "release/canalla-1.2.4",
+    "head": "b374bdda7230f7a5ae6ede8478d844535bfa69e2",
+    "upstream": "origin/release/canalla-1.2.4",
+    "ancestor_3ed7279": true,
+    "dirty": true,
+    "changed_product_files": [
+      "apps/backend/app/chat_stream.py",
+      "apps/backend/app/tools/executor.py",
+      "apps/backend/app/tools/local/public_text.py",
+      "apps/desktop/ui-task.mjs",
+      "artifacts/acceptance-123/catalog.py",
+      "artifacts/acceptance-123/common.py",
+      "artifacts/acceptance-123/live_restart.py",
+      "artifacts/acceptance-123/runner.py",
+      "artifacts/suspend-app.ps1"
+    ]
+  },
+  "backend": {
+    "product_version": "1.2.5",
+    "sidecar_build_source_digest": "49f8f4277a68e208bcc47f874322d9e27cf657035e1d9549c57464ab3dc821c4",
+    "sidecar_exe_sha256": "3bc7af4cb5e58a318cc87bc279ce1a7d812b28eeb8dbe024f61f3c311a044840",
+    "published_1_2_5_sidecar_sha256": "f9046b83bb94db3b75e6224d1fa27fc6eae75fd302a0b28f130eeb6f1e63f953",
+    "installed_sidecar_sha256": "3bc7af4cb5e58a318cc87bc279ce1a7d812b28eeb8dbe024f61f3c311a044840",
+    "installed_is_the_new_build": true,
+    "note": "A staged candidate sidecar (same product version 1.2.5, new source digest) is installed for the live gates. It is backed up in artifacts/pre-sidecar-replace-20261108T214156Z and must be replaced by the official 1.2.6 build or restored at the end."
+  },
+  "free_gates": {
+    "developer_gate": {
+      "result": "PASS 9/9",
+      "backend_pytest": "1022 passed, 1 skipped",
+      "evidence": "release-gate developer run 2026-11-08"
+    },
+    "d2_free": {
+      "result": "PASS",
+      "tests": "24 passed in tests/test_d2_final_answer.py (real /chats/{id}/stream route)",
+      "covers": [
+        "clean final text",
+        "raw tool protocol",
+        "human prefix + protocol",
+        "malformed tool block",
+        "quoted protocol in prose",
+        "tool echo (pid / exit code)",
+        "COMPLETED report",
+        "FAILED verification_required / tests_not_verified",
+        "empty completion",
+        "lost final stream (no first token)",
+        "DB message equals SSE text",
+        "no protocol leakage"
+      ]
+    },
+    "la_free": {
+      "result": "PASS",
+      "fixture_self_test": "artifacts/acceptance-126/la_fixture_selftest.py — SELF-TEST PASS",
+      "reference_solution": "pytest 4 passed, CLI total USD 431.89, independent payload match",
+      "twenty_call_integration": "apps/backend/tests/test_long_autonomy.py::test_a_twenty_step_mixed_cycle_is_not_stopped_early — PASS",
+      "max_calls": 40,
+      "hard_max_calls": 100
+    },
+    "t3_free": {
+      "result": "PASS",
+      "evidence": "C:\\Users\\Volkr\\Canalla Acceptance\\free-126\\last-result.json",
+      "checks": "waiting_confirmation observed and approved, real tool executed, window closed while EXECUTING, backend down/up, INTERRUPTED, Resume button visible and clicked, same task id, no repeated completed payload, final answer saved with honest failure annotation, device stable"
+    },
+    "t4_free": {
+      "result": "PASS",
+      "evidence": "C:\\Users\\Volkr\\Canalla Acceptance\\free-126\\last-result.json",
+      "checks": "first tool completed, native run in flight, host suspended, WAITING_DEVICE, device offline, heartbeat returned, same task, terminal, answer saved, no duplicate payload, device stable"
+    },
+    "watchdog_free": {
+      "result": "PASS",
+      "evidence": "artifacts/acceptance-126/watchdog_selftest.py",
+      "checks": "suspended process heartbeat stopped; independent watchdog resumed it without the harness; missing/unknown PID refused"
+    }
+  },
+  "approvals": {
+    "computer_mode": "ask",
+    "owner_compute_preferences_changed": false,
+    "sandbox": "C:\\Users\\Volkr\\Canalla Acceptance",
+    "historical_paired_devices": 59,
+    "device_id": "f3548022-a676-463c-9fc5-b05bbd5ac907",
+    "cloud": "connected",
+    "ai": "off"
+  },
+  "runpod": {
+    "pods": [],
+    "watcher": "disarmed",
+    "balance_usd": 10.8718949,
+    "current_spend_per_hr": 0.01
+  },
+  "allowed_gpu": {
+    "max_pods": 3,
+    "max_new_spend_usd": 1.2,
+    "max_hourly_usd": 1.79,
+    "min_vram_gb": 48,
+    "max_seconds_per_pod": 600,
+    "stop_reserve_seconds": 90,
+    "concurrent_pods": 1,
+    "paid_capacity_wait": false,
+    "capacity_timeout_seconds": 60
+  },
+  "live_plan": [
+    "Pod 1: LA (D2 final answer + 15+ model-origin calls)",
+    "Pod 2: T3L",
+    "Pod 3: T4L"
+  ],
+  "not_ready_reasons": [],
+  "post_run": {
+    "la_live": "PASS — live-20261108T131238, 21 model-origin calls, COMPLETED, independent pytest/CLI checks passed",
+    "t3_live": "BLOCKED — live_restart wait() TypeError after the first tool; fixed, but the 3-Pod limit is exhausted",
+    "t4_live": "BLOCKED — not attempted; the 3-Pod limit is exhausted",
+    "pods": "3 (L40S $1.09/h); spend $0.2722269; pods []; watchdog disarmed; AI off",
+    "release": "NOT PUBLISHED. Signed candidate 1.2.6 installer sha256=68af927ba5bb4fc010118278054b770320c172952edc3f75bc1263daa02d1f73, key 9B328EFF111D1FB2; updater manifest untouched",
+    "installed": "official 1.2.5 restored: alex-backend.exe sha256=f9046b83bb94db3b75e6224d1fa27fc6eae75fd302a0b28f130eeb6f1e63f953",
+    "data": "integrity ok; users 2; chats 48; messages 108; paired_devices 59 (1 revoked); device_id unchanged; computer_mode ask"
+  }
+}

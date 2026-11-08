@@ -119,6 +119,133 @@ def test_a_write_after_the_test_run_forces_verification(setup):
         )
 
 
+def test_a_twenty_step_mixed_cycle_is_not_stopped_early(setup):
+    """A realistic build/fix/verify cycle: no hidden ceiling anywhere below the hard limit.
+
+    The challenge is the shape of the work, not a counter: several writes, reads, a patch, a
+    failing test run, a fix, a passing test run and a final verification. The controller must
+    execute all of them and only then answer.
+    """
+    import hashlib as _hash
+    from decimal import Decimal  # noqa: F401  (kept local; the test only needs a stable script)
+
+    context, _events, root, host = setup
+    app = root / "app.py"
+    notes = root / "notes.md"
+    helper = root / "helper.py"
+
+    def sha(path):
+        return _hash.sha256(path.read_bytes()).hexdigest()
+
+    def patch_notes():
+        return _call(
+            "patch_file",
+            {
+                "path": str(notes),
+                "old_text": "note one",
+                "new_text": "note one\nnote two",
+                "expected_before_sha256": sha(notes),
+                "purpose": "extend notes",
+            },
+            "p7",
+        )
+
+    def patch_helper():
+        return _call(
+            "patch_file",
+            {
+                "path": str(helper),
+                "old_text": "value = 1",
+                "new_text": "value = 2",
+                "expected_before_sha256": sha(helper),
+                "purpose": "fix helper value",
+            },
+            "p10",
+        )
+
+    scripts = [
+        _call("list_directory", {"path": str(root), "purpose": "inspect"}, "s1"),
+        _call("read_file", {"path": str(app), "purpose": "read source"}, "s2"),
+        _call(
+            "run_python",
+            {"argv": ["-m", "pytest", "-q"], "cwd": str(root), "purpose": "baseline tests"},
+            "s3",
+        ),
+        _call(
+            "write_file",
+            {"path": str(notes), "content": "note one\n", "purpose": "write notes"},
+            "s4",
+        ),
+        _call("read_file", {"path": str(notes), "purpose": "read notes"}, "s5"),
+        patch_notes,
+        _call("read_file", {"path": str(notes), "purpose": "re-read notes"}, "s8"),
+        _call(
+            "write_file",
+            {"path": str(helper), "content": "value = 1\n", "purpose": "write helper"},
+            "s9",
+        ),
+        _call("read_file", {"path": str(helper), "purpose": "read helper"}, "s11"),
+        patch_helper,
+        _call("read_file", {"path": str(helper), "purpose": "re-read helper"}, "s12"),
+        _call(
+            "run_python",
+            {"argv": ["-m", "pytest", "-q"], "cwd": str(root), "purpose": "tests after docs"},
+            "s13",
+        ),
+        _call(
+            "write_file",
+            {
+                "path": str(app),
+                "content": "def add(a, b):\n    return a + b\n",
+                "purpose": "fix the failing source",
+            },
+            "s14",
+        ),
+        _call("read_file", {"path": str(app), "purpose": "verify fix"}, "s15"),
+        _call(
+            "run_python",
+            {"argv": ["-m", "pytest", "-q"], "cwd": str(root), "purpose": "tests after fix"},
+            "s16",
+        ),
+        _call(
+            "run_python",
+            {"argv": ["-c", "import app; print(app.add(2, 2))"], "cwd": str(root), "purpose": "smoke"},
+            "s17",
+        ),
+        _call("read_file", {"path": str(notes), "purpose": "final read"}, "s18"),
+        _call("search_code", {"root": str(root), "query": "def add", "purpose": "find source"}, "s19"),
+        _call("list_directory", {"path": str(root), "purpose": "final listing"}, "s20"),
+        _call(
+            "run_python",
+            {"argv": ["-m", "pytest", "-q"], "cwd": str(root), "purpose": "final tests"},
+            "s21",
+        ),
+    ]
+    orchestrator = ToolOrchestrator(make_registry(), ToolExecutor(make_registry()))
+    asyncio.run(
+        orchestrator.prepare(
+            ScriptedPlanner(scripts), [{"role": "user", "content": context.user_prompt}], 0, context, {}
+        )
+    )
+
+    assert len(host.handled) >= 20, host.handled
+    assert context.limits.calls >= 20
+    with SessionLocal() as db:
+        row = require_row(db, LocalTask, context.task_id)
+        assert row.tool_calls_used >= 18, row.tool_calls_used
+        assert row.status in {"COMPLETED", "FAILED"}
+        commands = (row.checkpoint or {}).get("commands") or []
+        tools = [item.get("tool") for item in commands]
+        assert tools.count("run_python") >= 4, tools
+        # The final test run follows the final write: the controller did not stop on the first
+        # green suite and did not leave the last edit unverified.
+        last_write = max(
+            (index for index, name in enumerate(tools) if name in {"write_file", "patch_file"}),
+            default=-1,
+        )
+        assert "run_python" in tools[last_write + 1 :], tools
+
+
 def test_a_plain_folder_does_not_force_a_git_review(tmp_path, client, auth):
     """A build into a non-repository folder must not be sent to `git_status` forever."""
     from app.tools.local.task import LocalTaskController

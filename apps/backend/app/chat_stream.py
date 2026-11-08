@@ -177,8 +177,8 @@ async def stream_response(
             annotate_failed_answer,
             carries_tool_protocol,
             completion_summary,
-            failure_summary,
             final_answer_problem,
+            final_summary_for_task,
             is_tool_echo,
             public_assistant_text,
             strip_tool_protocol,
@@ -522,6 +522,7 @@ async def stream_response(
                     )
                     answer_failed = False
                     final_locked = False
+                    answer_emitted = False
                     try:
                         async for token in iterator:
                             if await request.is_disconnected():
@@ -584,23 +585,30 @@ async def stream_response(
                             if retry_text.strip() and final_answer_problem(raw_retry) is None:
                                 parts = [retry_text]
                                 yield sse("delta", {"content": retry_text})
+                                answer_emitted = True
                             else:
-                                code = None
+                                # The retry also emitted a protocol block (or nothing). The
+                                # controller's decision is the only honest answer: a COMPLETED
+                                # task reports its verified work, a FAILED one names the reason.
+                                # A generic "tool call instead of text" note would hide both.
+                                state_status, state_code, state_summary = None, None, None
                                 with SessionLocal() as state_db:
                                     state_row = LocalTaskController()._row(state_db, tool_context)
                                     if state_row is not None:
-                                        code = state_row.last_error
-                                summary = (
-                                    failure_summary(grounded, code, missing_answer=True)
-                                    if code
-                                    else public_assistant_text("", "tool_call_in_final_answer", grounded)
+                                        state_status = state_row.status
+                                        state_code = state_row.last_error
+                                        state_summary = state_row.completion_summary
+                                summary = final_summary_for_task(
+                                    state_status, grounded, state_code, state_summary
                                 )
                                 parts = [summary]
                                 yield sse("delta", {"content": summary})
+                                answer_emitted = True
                         else:
-                            visible = public_assistant_text(raw_answer)
-                            if visible:
-                                yield sse("delta", {"content": visible})
+                            # A tool turn's clean answer is held back with the rest: the controller
+                            # may still replace it (a tool echo is not a report), and an answer
+                            # already on screen cannot be taken back.
+                            pass
                     if status == "complete" and getattr(tool_context, "final_after_halt", False):
                         # The answer exists, so the task may conclude now (it was left parked only
                         # because its prose was missing). A failed answer stays parked instead.
@@ -630,7 +638,7 @@ async def stream_response(
                         annotated = annotate_failed_answer(joined, grounded, task_state.get("code"))
                         addition = annotated[len(joined) :]
                         parts = [annotated]
-                        if addition.strip():
+                        if addition.strip() and answer_emitted:
                             yield sse("delta", {"content": addition})
                         joined = annotated
                     elif task_state.get("status") == "COMPLETED" and (
@@ -640,10 +648,11 @@ async def stream_response(
                         # result. Its own report is the honest answer.
                         report = completion_summary(grounded, task_state.get("summary") or None)
                         parts = [report]
-                        if joined.strip():
+                        if joined.strip() and answer_emitted:
                             yield sse("delta", {"content": "\n\n" + report})
-                        else:
+                        elif not answer_emitted:
                             yield sse("delta", {"content": report})
+                            answer_emitted = True
                         joined = report
                     issue = issue_for(joined, grounded, prompt)
                     if (
@@ -665,10 +674,22 @@ async def stream_response(
                                 )
                             except Exception:
                                 repaired = ""
+                        # A completed coding task has a controller report the user can act on:
+                        # real files, the verification result and the task status. Quoting one
+                        # file's content (the generic factual fallback) is not a summary of the
+                        # work and hid the tests/status in the first 1.2.6 LA run.
+                        controller_report = None
+                        if (
+                            task_state.get("status") == "COMPLETED"
+                            and int(getattr(tool_context, "completed_tool_calls", 0) or 0) > 0
+                        ):
+                            controller_report = completion_summary(
+                                grounded, task_state.get("summary") or None
+                            )
                         final = (
                             repaired
                             if repaired and not issue_for(repaired, grounded, prompt)
-                            else fallback_answer(grounded, prompt)
+                            else controller_report or fallback_answer(grounded, prompt)
                         )
                         if looks_like_browser_task(prompt) and not (final or "").strip():
                             # A server-owned typed failure, never a fabricated page result.
@@ -677,24 +698,36 @@ async def stream_response(
                         if not (final or "").strip():
                             # A turn that ends with tools but no prose must still say what happened:
                             # an empty assistant bubble is indistinguishable from a lost answer.
-                            code = None
+                            state_status, state_code, state_summary = None, None, None
                             with SessionLocal() as state_db:
                                 state_row = LocalTaskController()._row(state_db, tool_context)
                                 if state_row is not None:
-                                    code = state_row.last_error
-                            final = (
-                                failure_summary(grounded, code, missing_answer=True)
-                                if code
-                                else public_assistant_text("", "empty_model_answer", grounded)
-                            )
+                                    state_status = state_row.status
+                                    state_code = state_row.last_error
+                                    state_summary = state_row.completion_summary
+                            final = final_summary_for_task(state_status, grounded, state_code, state_summary)
                         parts = [final]
                         if final != joined:
-                            yield sse("delta", {"content": "\n" + final})
+                            # The newline separates a replacement from text already on screen. There
+                            # is nothing to separate when the turn produced no visible text, and an
+                            # empty delta prefix would make the chat and the database disagree.
+                            yield sse(
+                                "delta",
+                                {"content": ("\n" + final) if (joined.strip() and answer_emitted) else final},
+                            )
+                        answer_emitted = True
                         with SessionLocal() as metric_db:
                             row = LocalTaskController()._row(metric_db, tool_context)
                             if row:
                                 row.facts = bump_metric(row.facts, "final_answer_repairs")
                                 metric_db.commit()
+                    if buffer_answer and status == "complete" and not answer_emitted:
+                        # Every controller check has run. The buffered answer is published once,
+                        # after it can no longer be contradicted by the task state.
+                        final_text = public_assistant_text("".join(parts))
+                        if final_text:
+                            yield sse("delta", {"content": final_text})
+                            answer_emitted = True
         except asyncio.CancelledError:
             cancellation["cancel_requested_at"] = now().isoformat()
             cancellation["client_stream_closed_at"] = now().isoformat()

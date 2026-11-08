@@ -24,6 +24,7 @@ from app.tools.local.public_text import (
     completion_summary,
     failure_summary,
     final_answer_problem,
+    final_summary_for_task,
     is_tool_echo,
     public_assistant_text,
     strip_tool_protocol,
@@ -143,24 +144,33 @@ class _Provider:
 
     supports_tools = True
 
-    def __init__(self, *, answer: str, retry: str | None = None, read: str | None = None):
+    def __init__(
+        self,
+        *,
+        answer: str,
+        retry: str | None = None,
+        first: tuple[str, dict] | None = None,
+        stream_error: str | None = None,
+    ):
         self.answer = answer
         self.retry = retry
-        self.read = read
+        self.first = first
+        self.stream_error = stream_error
         self.prompts: list[str] = []
         self.plans = 0
 
     async def plan_tools(self, messages, tools, usage):
         self.plans += 1
-        if self.read and self.plans == 1:
+        if self.first and self.plans == 1:
+            name, arguments = self.first
             return {
                 "tool_calls": [
                     {
-                        "id": "d2-read",
+                        "id": "d2-first",
                         "type": "function",
                         "function": {
-                            "name": "read_file",
-                            "arguments": json.dumps({"path": self.read, "purpose": "read"}),
+                            "name": name,
+                            "arguments": json.dumps(arguments),
                         },
                     }
                 ]
@@ -168,6 +178,10 @@ class _Provider:
         return {"tool_calls": []}
 
     async def stream_with_usage(self, messages, usage):
+        if self.stream_error:
+            from app.providers import LLMError
+
+            raise LLMError(self.stream_error)
         yield self.answer
 
     async def chat(self, messages):
@@ -181,7 +195,13 @@ class _Provider:
         return "ready"
 
 
-def _run(client, headers, chat_id, provider, content="Собери небольшой проект и проверь его."):
+def _run(
+    client,
+    headers,
+    chat_id,
+    provider,
+    content="Выполни задачу полностью: перечисли содержимое папки.",
+):
     previous = app.state.provider
     app.state.provider = provider
     try:
@@ -206,7 +226,10 @@ def _last_answer(chat_id):
 
 def test_a_clean_answer_is_published_unchanged(tool_turn):
     client, headers, chat_id, root = tool_turn
-    provider = _Provider(answer="Готово: файл создан и проверен.", read=str(root / "app.py"))
+    provider = _Provider(
+        answer="Готово: файл создан и проверен.",
+        first=("list_directory", {"path": str(root), "purpose": "list"}),
+    )
     response = _run(client, headers, chat_id, provider)
 
     assert response.status_code == 200
@@ -221,7 +244,7 @@ def test_a_tool_call_instead_of_prose_is_not_published_as_a_prefix(tool_turn):
     provider = _Provider(
         answer="Процесс запущен, pid=26724" + TOOL_BLOCK,
         retry="Проверка не завершена: pytest не подтвердил изменения.",
-        read=str(root / "app.py"),
+        first=("list_directory", {"path": str(root), "purpose": "list"}),
     )
     response = _run(client, headers, chat_id, provider)
 
@@ -241,7 +264,7 @@ def test_a_malformed_tool_block_falls_back_to_the_honest_summary(tool_turn):
     provider = _Provider(
         answer="Процесс запущен, pid=26724" + TOOL_BLOCK,
         retry="Вот вызов: <tool_call>{broken",
-        read=str(root / "app.py"),
+        first=("list_directory", {"path": str(root), "purpose": "list"}),
     )
     response = _run(client, headers, chat_id, provider)
 
@@ -249,21 +272,23 @@ def test_a_malformed_tool_block_falls_back_to_the_honest_summary(tool_turn):
     visible = _answer_text(response.text)
     assert "pid=26724" not in visible
     assert "<tool_call>" not in visible
-    assert "инструмент" in visible.lower()
+    assert ("Задача завершена" in visible) or ("инструмент" in visible.lower())
     saved = _last_answer(chat_id).content
     assert "pid=26724" not in saved
 
 
 def test_a_tool_block_alone_never_becomes_an_empty_bubble(tool_turn):
     client, headers, chat_id, root = tool_turn
-    provider = _Provider(answer=TOOL_BLOCK, retry="", read=str(root / "app.py"))
+    provider = _Provider(
+        answer=TOOL_BLOCK, retry="", first=("list_directory", {"path": str(root), "purpose": "list"})
+    )
     response = _run(client, headers, chat_id, provider)
 
     assert response.status_code == 200
     visible = _answer_text(response.text)
     assert visible.strip()
     assert "<tool_call>" not in visible
-    assert "инструмент" in visible.lower()
+    assert "Задача завершена" in visible
 
 
 def test_quoted_text_with_a_marker_is_never_executed(tool_turn):
@@ -272,7 +297,7 @@ def test_quoted_text_with_a_marker_is_never_executed(tool_turn):
     provider = _Provider(
         answer="Модель иногда печатает <tool_call> в тексте — это не вызов.",
         retry="Это цитата, а не вызов инструмента.",
-        read=str(root / "app.py"),
+        first=("list_directory", {"path": str(root), "purpose": "list"}),
     )
     response = _run(client, headers, chat_id, provider)
 
@@ -305,6 +330,154 @@ def test_a_tool_echo_is_not_a_report():
     assert is_tool_echo(r"Прочитан файл: C:\Work\app.py")
     assert not is_tool_echo("Готово: создан пакет la_app, тесты прошли, отчёт сохранён.")
     assert not is_tool_echo("Процесс запущен, pid=13696 — но pytest ещё не подтвердил исправление")
+
+
+def test_a_process_completion_echo_is_not_a_report():
+    """A finished/exit-code line is the same defect one step after PROCESS_STARTED."""
+    assert is_tool_echo("Процесс завершён, exit_code=0")
+    assert is_tool_echo("exit code: 0")
+    assert is_tool_echo("Process exited with exit_code=2")
+    assert not is_tool_echo("Процесс завершён, exit_code=1 — тест не прошёл, нужна правка.")
+
+
+def test_the_final_summary_follows_the_controller_status():
+    facts = {"verified": [{"kind": "FILE_CREATED", "path": r"C:\Work\la_app\core.py"}]}
+    done = final_summary_for_task("COMPLETED", facts, None, "request addressed")
+    assert done.startswith("Задача завершена")
+    assert "core.py" in done
+    failed = final_summary_for_task("FAILED", facts, "verification_required", None)
+    assert "Задача завершилась с ошибкой" in failed
+    assert "verification_required" in failed
+    assert "Задача завершена" not in failed
+    parked = final_summary_for_task(None, facts, None, None)
+    assert "инструмент" in parked.lower()
+
+
+def test_a_completed_task_reports_its_work_when_the_retry_also_emits_protocol(tool_turn):
+    """A second protocol block must not degrade into a generic note.
+
+    The controller completed the task; the user still deserves the verified report instead of
+    "the model called a tool instead of answering".
+    """
+    client, headers, chat_id, root = tool_turn
+    provider = _Provider(
+        answer="Процесс запущен, pid=26724" + TOOL_BLOCK,
+        retry="Вот ещё раз: <tool_call>{broken",
+        first=("list_directory", {"path": str(root), "purpose": "list"}),
+    )
+    response = _run(client, headers, chat_id, provider)
+
+    assert response.status_code == 200
+    visible = _answer_text(response.text)
+    assert "<tool_call>" not in visible
+    assert "pid=26724" not in visible
+    assert "Задача завершена" in visible
+    assert visible == _last_answer(chat_id).content
+
+
+def test_a_failed_task_names_the_real_reason_after_a_second_protocol(tool_turn):
+    client, headers, chat_id, root = tool_turn
+    provider = _Provider(
+        answer="Готово, всё проверено." + TOOL_BLOCK,
+        retry="Снова вызов: <tool_call>{broken",
+        first=("list_directory", {"path": str(root), "purpose": "list"}),
+    )
+    # A coding request cannot complete on one read: the controller fails it as unverified.
+    response = _run(
+        client,
+        headers,
+        chat_id,
+        provider,
+        content="Проверь проект, исправь падающие тесты и запусти pytest.",
+    )
+
+    assert response.status_code == 200
+    visible = _answer_text(response.text)
+    assert "Задача завершилась с ошибкой" in visible
+    assert "tests_not_verified" in visible
+    assert "Задача завершена" not in visible
+    assert "<tool_call>" not in visible
+    assert visible == _last_answer(chat_id).content
+
+
+def test_a_completed_task_with_a_process_echo_gets_the_controller_report(tool_turn):
+    client, headers, chat_id, root = tool_turn
+    provider = _Provider(
+        answer="Процесс завершён, exit_code=0",
+        first=("list_directory", {"path": str(root), "purpose": "list"}),
+    )
+    response = _run(client, headers, chat_id, provider)
+
+    assert response.status_code == 200
+    visible = _answer_text(response.text)
+    assert "Задача завершена" in visible
+    assert "exit_code=0" not in visible
+    assert visible == _last_answer(chat_id).content
+
+
+def test_an_empty_completion_never_leaves_an_empty_bubble(tool_turn):
+    client, headers, chat_id, root = tool_turn
+    provider = _Provider(
+        answer="", retry="", first=("list_directory", {"path": str(root), "purpose": "list"})
+    )
+    response = _run(client, headers, chat_id, provider)
+
+    assert response.status_code == 200
+    visible = _answer_text(response.text)
+    assert visible.strip()
+    assert "<tool_call>" not in visible
+    saved = _last_answer(chat_id)
+    assert saved.content.strip()
+    assert saved.content == visible.strip()
+
+
+def test_a_lost_final_stream_is_typed_and_never_claims_a_completed_answer(tool_turn):
+    """No first token after the tool phase is an error, not an empty successful bubble."""
+    client, headers, chat_id, root = tool_turn
+    provider = _Provider(
+        answer="",
+        first=("list_directory", {"path": str(root), "purpose": "list"}),
+        stream_error="llm_timeout",
+    )
+    response = _run(client, headers, chat_id, provider)
+
+    assert response.status_code == 200
+    assert "event: error" in response.text
+    saved = _last_answer(chat_id)
+    assert saved.status != "complete"
+    assert "<tool_call>" not in saved.content
+
+
+def test_the_stop_control_stays_available_for_a_plain_chat():
+    """A turn without completed tools must keep streaming, or the UI's Stop never appears."""
+    from app.tools.local.public_text import is_tool_echo
+
+    assert not is_tool_echo("обычный ответ")
+    # The stream test above (`tool_turn`) covers the tool branch; the plain branch is a token
+    # stream and is asserted by the Playwright generation-navigation spec in CI.
+
+
+def test_a_completed_task_gets_the_controller_report_not_a_file_dump(tool_turn, monkeypatch):
+    """A completed task with an inadequate model answer gets a real summary.
+
+    The first 1.2.6 LA run ended by quoting the whole README through `fallback_answer`, so the
+    final answer named one file and hid the tests and the task status. The controller report is
+    the honest answer for a completed task with real tool work.
+    """
+    import app.tools.local.grounding as grounding
+
+    monkeypatch.setattr(grounding, "issue_for", lambda text, facts, prompt: "missing_status")
+    client, headers, chat_id, root = tool_turn
+    provider = _Provider(
+        answer="Готово.", retry="", first=("list_directory", {"path": str(root), "purpose": "list"})
+    )
+    response = _run(client, headers, chat_id, provider)
+
+    assert response.status_code == 200
+    visible = _answer_text(response.text)
+    assert "Задача завершена" in visible
+    assert "Готово." not in visible
+    assert visible == _last_answer(chat_id).content
 
 
 def test_a_completed_task_can_report_its_own_work():

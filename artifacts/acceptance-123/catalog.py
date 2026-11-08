@@ -32,6 +32,299 @@ def P(scenario_id: str, name: str = "") -> str:
     return str(root / name) if name else str(root)
 
 
+# ------------------------------------------------------------------- LA mini project seed
+#
+# The first 1.2.6 LA challenge ("build la_app") was finished by the model in 12-14 useful calls.
+# That is a real task, but it does not exercise the 15+ call regime the release gate asks for.
+# This seed is a real, coherent order-processing project with a spec, two data files, a package
+# that is deliberately broken in two places and fixed tests that describe the contract. Reading
+# the data, reading the four modules, running the failing suite, fixing the parser and the rules,
+# creating report/cli/README, re-running the suite, running the CLI, reading its output and
+# verifying it is naturally more than fifteen model-origin calls. No call is requested merely to
+# raise a counter.
+
+LA_SPEC = """# Mini order pipeline (acceptance)
+
+Read this spec before writing code. Do not modify `data/orders.csv` or `data/rates.csv`.
+
+## Inputs
+
+* `data/orders.csv` — header `id,customer,quantity,unit_price,currency`
+* `data/rates.csv` — header `currency,rate_to_usd`
+
+The orders file is UTF-8 with BOM, may contain quoted commas, blank lines and malformed rows.
+
+## Package `shop`
+
+### parser.py
+
+* `read_rates(path) -> dict[str, Decimal]` — keys uppercase (`USD`, `EUR`, ...).
+* `read_orders(path, rates) -> tuple[list[dict], list[dict]]`.
+  * A valid order is `{id, customer, quantity (int), unit_price (Decimal), currency (uppercase)}`.
+  * Use the `csv` module. Strip whitespace from every field; the currency is case-insensitive.
+  * Skip, without crashing: blank lines, rows with the wrong column count (`malformed_row`),
+    an empty customer (`empty_customer`), a duplicate id, keeping the first (`duplicate_id`),
+    quantity <= 0 (`invalid_quantity`), unit_price < 0 (`invalid_quantity`), and a currency that
+    is not in the rates (`unknown_currency`).
+  * Each skipped item is `{line, id, reason}` where `line` is the 1-based file line.
+
+### rules.py
+
+* `discount_for(subtotal) -> Decimal` — fraction: `>= 200` → `0.10`, `>= 100` → `0.05`, else `0`.
+* `convert(amount, currency, rates) -> Decimal` — amount multiplied by the rate, rounded HALF_UP
+  to 2 places.
+* `price_order(order, rates) -> dict` with `subtotal_usd`, `discount_usd`, `total_usd` (Decimal).
+  Round each money value HALF_UP to 2 places.
+
+### report.py
+
+* `build_payload(orders, skipped, rates) -> dict`
+* `render_report(payload) -> str` — Markdown that contains these three lines (with the real values):
+  `- Valid orders: <n>`, `- Skipped rows: <n>`, `- Total USD: <amount>`.
+
+### cli.py
+
+```
+python -m shop.cli --input data/orders.csv --rates data/rates.csv \\
+  --output out/orders.json --report out/report.md
+```
+
+It writes both files and exits 0. `out/orders.json` is:
+
+```json
+{"orders": [{"id", "customer", "quantity", "unit_price", "currency",
+             "subtotal_usd", "discount_usd", "total_usd"}],
+ "summary": {"valid": 0, "skipped": 0, "total_usd": "0.00"}}
+```
+
+Every money value is a string with exactly two decimals. Orders are sorted by id.
+The CLI prints a short summary that ends with `LA2_DONE`.
+
+### README.md
+
+How to run the CLI and the tests, and what the pipeline does.
+
+## Verification order (do all of it)
+
+1. `python -m pytest -q` — it fails on the seeded defects; fix the source, not the tests.
+2. `python -m shop.cli --input data/orders.csv --rates data/rates.csv --output out/orders.json --report out/report.md`
+3. `python -m pytest -q`
+
+Do not modify `data/*.csv`, `tests/test_parser.py` or `tests/test_rules.py`, and do not delete a
+failing test to make the suite pass. Finish with a short report and the token `LA2_DONE`.
+"""
+
+LA_RATES = "currency,rate_to_usd\nUSD,1.00\nEUR,1.10\nGBP,1.25\n"
+
+LA_ORDERS = (
+    "\ufeffid,customer,quantity,unit_price,currency\n"
+    "A-1001,Acme,2,49.50,USD\n"
+    "A-1002,Acme,2,60.00,USD\n"
+    'A-1003,"Smith, Jones",1,120.00,EUR\n'
+    "A-1004,Beta,3,10.00,GBP\n"
+    "A-1005,,1,5.00,USD\n"
+    "A-1001,Duplicate,1,1.00,USD\n"
+    "A-1007,Zero,0,10.00,USD\n"
+    "A-1008,Negative,-1,10.00,USD\n"
+    "A-1009,Free,1,0.00,USD\n"
+    "A-1010,Unknown,1,10.00,JPY\n"
+    "A-1011,Spaced, 2 , 15.50 , usd\n"
+    "A-1012,Quote,1,19.99,GBP\n"
+    "A-1013,Missing,columns\n"
+)
+
+LA_PARSER = '''"""Read the order CSVs. Seeded with two real defects on purpose."""
+
+from decimal import Decimal
+
+
+def read_rates(path):
+    rates = {}
+    with open(path, encoding="utf-8") as handle:
+        next(handle, None)
+        for line in handle:
+            currency, rate = line.strip().split(",")
+            rates[currency.upper()] = Decimal(rate)
+    return rates
+
+
+def read_orders(path, rates):
+    orders, skipped = [], []
+    with open(path, encoding="utf-8") as handle:
+        next(handle, None)
+        for line in handle:
+            if not line.strip():
+                continue
+            order_id, customer, quantity, price, currency = line.strip().split(",")
+            orders.append(
+                {
+                    "id": order_id,
+                    "customer": customer,
+                    "quantity": int(quantity),
+                    "unit_price": Decimal(price),
+                    "currency": currency.upper(),
+                }
+            )
+    return orders, skipped
+'''
+
+LA_RULES = '''"""Business rules. The two stubs below are the second seeded defect."""
+
+from decimal import Decimal
+
+
+def discount_for(subtotal):
+    return Decimal("0")
+
+
+def convert(amount, currency, rates):
+    return Decimal(amount)
+
+
+def price_order(order, rates):
+    subtotal = Decimal(order["quantity"]) * Decimal(order["unit_price"])
+    discount = subtotal * discount_for(subtotal)
+    return {
+        "subtotal_usd": subtotal,
+        "discount_usd": discount,
+        "total_usd": subtotal - discount,
+    }
+'''
+
+LA_TEST_PARSER = '''from decimal import Decimal
+
+from shop.parser import read_orders, read_rates
+
+
+def test_rates_are_normalized():
+    rates = read_rates("data/rates.csv")
+    assert rates["USD"] == Decimal("1.00")
+    assert rates["EUR"] == Decimal("1.10")
+    assert rates["GBP"] == Decimal("1.25")
+
+
+def test_orders_order_and_edge_cases():
+    rates = read_rates("data/rates.csv")
+    orders, skipped = read_orders("data/orders.csv", rates)
+    assert [order["id"] for order in orders] == [
+        "A-1001",
+        "A-1002",
+        "A-1003",
+        "A-1004",
+        "A-1009",
+        "A-1011",
+        "A-1012",
+    ]
+    by_id = {order["id"]: order for order in orders}
+    assert by_id["A-1003"]["customer"] == "Smith, Jones"
+    assert by_id["A-1011"]["currency"] == "USD"
+    assert by_id["A-1011"]["quantity"] == 2
+    assert by_id["A-1011"]["unit_price"] == Decimal("15.50")
+    assert len(skipped) == 6
+    reasons = {item["id"]: item["reason"] for item in skipped}
+    assert reasons["A-1005"] == "empty_customer"
+    assert reasons["A-1001"] == "duplicate_id"
+    assert reasons["A-1007"] == "invalid_quantity"
+    assert reasons["A-1008"] == "invalid_quantity"
+    assert reasons["A-1010"] == "unknown_currency"
+    assert reasons["A-1013"] == "malformed_row"
+'''
+
+LA_TEST_RULES = '''from decimal import Decimal
+
+from shop.rules import convert, discount_for, price_order
+
+
+def test_discount_bands():
+    assert discount_for(Decimal("99.99")) == Decimal("0")
+    assert discount_for(Decimal("100")) == Decimal("0.05")
+    assert discount_for(Decimal("199.99")) == Decimal("0.05")
+    assert discount_for(Decimal("200")) == Decimal("0.10")
+
+
+def test_convert_and_price_order():
+    rates = {"EUR": Decimal("1.10"), "USD": Decimal("1.00")}
+    assert convert(Decimal("100"), "EUR", rates) == Decimal("110.00")
+    order = {
+        "id": "A-1",
+        "customer": "x",
+        "quantity": 2,
+        "unit_price": Decimal("60.00"),
+        "currency": "USD",
+    }
+    priced = price_order(order, rates)
+    assert priced["subtotal_usd"] == Decimal("120.00")
+    assert priced["discount_usd"] == Decimal("6.00")
+    assert priced["total_usd"] == Decimal("114.00")
+'''
+
+LA_SEED_FILES = {
+    "SPEC.md": LA_SPEC,
+    "data/rates.csv": LA_RATES,
+    "data/orders.csv": LA_ORDERS,
+    "shop/__init__.py": "",
+    "shop/parser.py": LA_PARSER,
+    "shop/rules.py": LA_RULES,
+    "tests/test_parser.py": LA_TEST_PARSER,
+    "tests/test_rules.py": LA_TEST_RULES,
+}
+
+
+def _seed_la_project(root: Path) -> None:
+    for relative, content in LA_SEED_FILES.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8", newline="\n")
+
+
+def _money(value) -> str:
+    from decimal import ROUND_HALF_UP, Decimal
+
+    return str(Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def la_expected() -> dict:
+    """The independent answer, computed without importing the model's code."""
+    from decimal import ROUND_HALF_UP, Decimal
+
+    rates = {"USD": Decimal("1.00"), "EUR": Decimal("1.10"), "GBP": Decimal("1.25")}
+    source = [
+        ("A-1001", "Acme", 2, "49.50", "USD"),
+        ("A-1002", "Acme", 2, "60.00", "USD"),
+        ("A-1003", "Smith, Jones", 1, "120.00", "EUR"),
+        ("A-1004", "Beta", 3, "10.00", "GBP"),
+        ("A-1009", "Free", 1, "0.00", "USD"),
+        ("A-1011", "Spaced", 2, "15.50", "USD"),
+        ("A-1012", "Quote", 1, "19.99", "GBP"),
+    ]
+    orders = []
+    total = Decimal("0")
+    for order_id, customer, quantity, price, currency in source:
+        subtotal = (Decimal(quantity) * Decimal(price) * rates[currency]).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        fraction = Decimal("0.10") if subtotal >= 200 else Decimal("0.05") if subtotal >= 100 else Decimal("0")
+        discount = (subtotal * fraction).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        amount = (subtotal - discount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        total += amount
+        orders.append(
+            {
+                "id": order_id,
+                "customer": customer,
+                "quantity": quantity,
+                "unit_price": _money(price),
+                "currency": currency,
+                "subtotal_usd": _money(subtotal),
+                "discount_usd": _money(discount),
+                "total_usd": _money(amount),
+            }
+        )
+    return {
+        "orders": sorted(orders, key=lambda item: item["id"]),
+        "summary": {"valid": len(orders), "skipped": 6, "total_usd": _money(total)},
+    }
+
+
 @dataclass(frozen=True)
 class Scenario:
     id: str
@@ -40,6 +333,10 @@ class Scenario:
     prompt: str
     timeout: int
     expected_tools: tuple[str, ...] = ()
+    # Groups of equivalent tools. A real task may use `write_file` or `patch_file`, and
+    # `run_python` or `run_process`: the requirement is that the model did the work, not which
+    # of two valid tools it chose.
+    expected_tools_any: tuple[tuple[str, ...], ...] = ()
     require_model: bool = True
     markers: tuple[str, ...] = ()
     files: tuple[tuple[str, str | None], ...] = ()
@@ -99,6 +396,8 @@ def setup_fixture(name: str, root: Path) -> None:
         (root / "t4.txt").write_text("T4_HOST_FILE_OK\n", encoding="utf-8", newline="\n")
     elif name == "t4l_file":
         (root / "t4l.txt").write_text("T4L_HOST_VALUE_417\n", encoding="utf-8", newline="\n")
+    elif name == "la_project":
+        _seed_la_project(root)
 
 
 def seed_check(name: str, root: Path) -> tuple[bool, str]:
@@ -153,7 +452,93 @@ def post_check(name: str, root: Path) -> tuple[bool, str]:
         numbers = ["200", "9", "20", "120"]
         missing = [value for value in numbers if value not in text]
         return (not missing and bool(report_text.strip()), "missing=" + ",".join(missing))
+    if name == "la_project":
+        return _check_la_project(root)
     return True, "no post check"
+
+
+def _check_la_project(root: Path) -> tuple[bool, str]:
+    """Independent verification of the LA mini project.
+
+    Nothing here imports `shop`: the expected payload is computed in `la_expected`, the seeded
+    tests and data are hash-checked, and the CLI the model wrote is executed in a fresh output
+    directory. A model that deletes or rewrites a test cannot turn this into a pass.
+    """
+    problems: list[str] = []
+    for relative in (
+        "shop/parser.py",
+        "shop/rules.py",
+        "shop/report.py",
+        "shop/cli.py",
+        "README.md",
+        "out/orders.json",
+        "out/report.md",
+    ):
+        if not (root / relative).is_file():
+            problems.append("missing " + relative)
+    for relative in ("data/orders.csv", "data/rates.csv", "tests/test_parser.py", "tests/test_rules.py"):
+        expected = LA_SEED_FILES[relative]
+        actual = (root / relative).read_text(encoding="utf-8") if (root / relative).is_file() else ""
+        if hashlib.sha256(actual.encode("utf-8")).hexdigest() != hashlib.sha256(
+            expected.encode("utf-8")
+        ).hexdigest():
+            problems.append("seeded file was modified: " + relative)
+    tests = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=240,
+    )
+    if tests.returncode != 0:
+        problems.append("pytest failed: " + (tests.stdout[-300:] + tests.stderr[-200:]))
+    verify_json = root / "out" / "verify_orders.json"
+    verify_md = root / "out" / "verify_report.md"
+    verify_json.parent.mkdir(parents=True, exist_ok=True)
+    cli = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "shop.cli",
+            "--input",
+            "data/orders.csv",
+            "--rates",
+            "data/rates.csv",
+            "--output",
+            str(verify_json),
+            "--report",
+            str(verify_md),
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=240,
+    )
+    if cli.returncode != 0:
+        problems.append("cli failed: " + (cli.stdout[-200:] + cli.stderr[-200:]))
+    expected_payload = la_expected()
+    for relative in ("out/orders.json", str(verify_json.relative_to(root))):
+        path = root / relative
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError as error:
+            problems.append(relative + " is not JSON: " + str(error)[:120])
+            continue
+        if payload != expected_payload:
+            problems.append(relative + " does not match the independent result")
+    report_text = (root / "out" / "report.md").read_text(encoding="utf-8") if (root / "out" / "report.md").is_file() else ""
+    for line in (
+        "- Valid orders: 7",
+        "- Skipped rows: 6",
+        "- Total USD: 431.89",
+    ):
+        if line not in report_text:
+            problems.append("report misses: " + line)
+    if "LA2_DONE" not in cli.stdout and "LA2_DONE" not in cli.stderr:
+        problems.append("cli did not print LA2_DONE")
+    return (not problems, "; ".join(problems)[:600] or "ok")
 
 
 # --------------------------------------------------------------------------------- prompts
@@ -529,21 +914,34 @@ SCENARIOS: list[Scenario] = [
         "LA",
         "stress",
         "Длинная автономная цепочка",
-        "В папке " + P("LA") + " собери небольшой Python-проект целиком самостоятельно. "
-        "Нужны пакет la_app с __init__.py, core.py (функции normalize, summarize, validate), "
-        "cli.py и tests/test_core.py; README.md с описанием. Затем запусти pytest -q. "
-        "Если тесты падают — найди причину, исправь исходный код и повторяй до PASS. "
-        "После зелёных тестов запусти python -m la_app.cli и сохрани его stdout в la_report.txt. "
-        "Не останавливайся на первом успехе: проверь каждый модуль отдельно. "
-        "В конце выведи LA_DONE и коротко перечисли, что создано и что проверено.",
-        900,
-        expected_tools=("write_file", "read_file", "run_python"),
-        markers=("LA_DONE",),
-        files=(("la_report.txt", None),),
-        stdout_markers=("LA_DONE",),
-        budget_seconds=520,
-        notes="The model-origin tool call count is reported separately; the 15-call threshold is "
-        "a PASS only when it is actually reached.",
+        "В папке " + P("LA") + " находится небольшой Python-проект с двумя намеренно "
+        "сломанными модулями и файлом SPEC.md с точной спецификацией. Начни со спецификации, "
+        "изучи data/orders.csv и data/rates.csv, разберись в тестах tests/test_parser.py и "
+        "tests/test_rules.py, исправь shop/parser.py и shop/rules.py, создай shop/report.py, "
+        "shop/cli.py и README.md строго по спецификации. Затем выполни ровно такой порядок: "
+        "(1) python -m pytest -q; (2) python -m shop.cli --input data/orders.csv --rates "
+        "data/rates.csv --output out/orders.json --report out/report.md; (3) python -m pytest -q. "
+        "Если проверки падают — найди настоящую причину, исправь исходный код и повторяй до PASS. "
+        "Не меняй data/*.csv и не удаляй и не переписывай данные тесты. Перед финальным ответом "
+        "убедись, что созданные JSON и Markdown соответствуют значениям из спецификации. "
+        "В конце выведи LA2_DONE и коротко перечисли, какие файлы созданы и какие проверки прошли.",
+        1200,
+        expected_tools=(),
+        expected_tools_any=(
+            ("list_directory",),
+            ("read_file",),
+            ("write_file", "patch_file"),
+            ("run_python", "run_process"),
+        ),
+        markers=(),
+        files=(("out/orders.json", None), ("out/report.md", None)),
+        stdout_markers=("LA2_DONE",),
+        setup="la_project",
+        post_check="la_project",
+        budget_seconds=480,
+        notes="The model-origin tool call count is reported separately. The seeded project needs "
+        "both modules fixed, report.py and cli.py created, the failing suite run twice and the "
+        "CLI output verified; 18-25 useful calls are expected naturally, never requested.",
     ),
 ]
 
@@ -557,14 +955,17 @@ LIVE_RESTART: list[Scenario] = [
         "Перезапуск окна во время живой задачи",
         "В папке " + P("T3L") + " собери два небольших скрипта: t3l_a.py с печатью "
         "T3L_A и t3l_b.py с печатью T3L_B. Выполни каждый через интерпретатор и покажи вывод. "
-        "Потом открой t3l_a.py и убедись, что он печатает T3L_A. В конце выведи T3L_DONE и "
-        "перечисли созданные файлы.",
-        900,
-        expected_tools=("write_file", "run_python"),
+        "Потом открой t3l_a.py и убедись, что он печатает T3L_A. Затем запусти интерпретатором "
+        "Python с рабочим каталогом этой папки команду -c \"import time; time.sleep(10); "
+        "print('T3L_SLOW_OK')\" и дождись её завершения: это проверка, что длинный процесс "
+        "переживает перезапуск окна. В конце выведи T3L_DONE и перечисли созданные файлы.",
+        1200,
+        expected_tools=(),
+        expected_tools_any=(("write_file", "patch_file"), ("run_python", "run_process")),
         markers=("T3L_DONE",),
-        stdout_markers=("T3L_A", "T3L_B"),
+        stdout_markers=("T3L_A", "T3L_B", "T3L_SLOW_OK"),
         budget_seconds=480,
-        notes="The window is killed and relaunched after the first completed model tool; the "
+        notes="The window is killed while a native run is in flight (the 10 s sleep), so the "
         "task must park as INTERRUPTED, keep its files, and finish through Resume.",
     ),
     Scenario(
@@ -682,6 +1083,43 @@ def tool_runs(evidence: dict) -> list[dict]:
     return list((evidence.get("session") or {}).get("tool_runs") or [])
 
 
+def origin_counts(evidence: dict) -> dict:
+    """Model-origin calls are the only ones the long-autonomy gate counts.
+    `server_policy` is the controller's own decision, and a harness confirmation is not a model
+    call at all. Reporting them separately keeps an efficient model from looking like a broken
+    one and keeps a chatty server from looking like an autonomous one.
+    """
+    runs = tool_runs(evidence)
+    counts = {
+        "MODEL_ORIGIN_CALLS": 0,
+        "INTERNAL_CALLS": 0,
+        "HARNESS_CALLS": 0,
+        "RETRIES": 0,
+        "DENIED_CALLS": 0,
+    }
+    for run in runs:
+        origin = str(run.get("origin") or "")
+        status = str(run.get("status") or "")
+        if origin == "model":
+            counts["MODEL_ORIGIN_CALLS"] += 1
+        elif origin in {"server_policy", "internal"}:
+            counts["INTERNAL_CALLS"] += 1
+        else:
+            counts["HARNESS_CALLS"] += 1
+        if status in {"stopped", "waiting_confirmation", "failed"} and origin != "model":
+            continue
+        if status in {"failed"}:
+            counts["RETRIES"] += 1
+        if status in {"stopped"}:
+            counts["DENIED_CALLS"] += 1
+    counts["COMPLETED_MODEL_CALLS"] = sum(
+        1
+        for run in runs
+        if run.get("origin") == "model" and run.get("status") in {"completed", "acknowledged"}
+    )
+    return counts
+
+
 def final_text(evidence: dict) -> str:
     # A scenario whose client stream ended before the answer (a detached turn or a recovered
     # outage) is judged by the answer that was actually persisted in the chat.
@@ -745,7 +1183,33 @@ def evaluate(scenario: Scenario, evidence: dict) -> tuple[str, list[str]]:
                     f"{tool} ran as server_policy, not as a model tool_call"
                 ]
             reasons.append(f"no completed model-origin {tool}")
+    for group in scenario.expected_tools_any:
+        allowed = {"completed", "acknowledged"}
+        if scenario.expect_denied or scenario.allow_failed_tool:
+            allowed |= {"stopped", "failed"}
+        if any(run.get("tool_name") in group and run.get("status") in allowed for run in model_runs):
+            continue
+        reasons.append("no completed model-origin tool from " + "|".join(group))
     text = final_text(evidence)
+    # D2 applies to every answer: raw protocol, a tool echo or an empty bubble is never a PASS.
+    if "<tool_call>" in text:
+        reasons.append("tool protocol leaked into the final answer")
+    if scenario.id == "LA":
+        stripped = text.strip()
+        if len(stripped) < 40:
+            reasons.append("final answer is missing or too short")
+        if not any(
+            marker in stripped
+            for marker in (
+                "Задача завершена",
+                "Задача завершилась с ошибкой",
+                "тест",
+                "pytest",
+                "файл",
+                "out/orders.json",
+            )
+        ):
+            reasons.append("final answer does not report the work or the controller status")
     if scenario.markers:
         lowered = text.casefold()
         if not any(marker.casefold() in lowered for marker in scenario.markers):

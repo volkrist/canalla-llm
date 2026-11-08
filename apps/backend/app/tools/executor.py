@@ -712,6 +712,14 @@ class ToolExecutor:
                         if reserved > fresh.agent_daily_budget + 1e-9:
                             raise ToolError("daily_budget")
                     context.settings = fresh
+                    if waiting:
+                        # The human approval is over; the tool is now really running. Leaving the
+                        # task in WAITING_CONFIRMATION made a restart during a long tool look like
+                        # "waiting for a click" and recovery kept the parked state instead of
+                        # marking the in-flight run INTERRUPTED.
+                        from .local.task import LocalTaskController as _ConfirmController
+
+                        _ConfirmController().checkpoint(db, context, "EXECUTING")
                     row.status = (
                         "waiting_host"
                         if definition.provider == "local_device"

@@ -501,6 +501,7 @@ def run_scenario(scenario: catalog.Scenario, token: str, timeout: float | None =
         "scenario_root": str(root),
         "stream": stream,
         "session": session,
+        "origin_counts": catalog.origin_counts({"session": session}),
         "confirmations": confirmations,
         "stale_tasks_stopped": stale,
         "files_before": before,
@@ -516,6 +517,7 @@ def run_scenario(scenario: catalog.Scenario, token: str, timeout: float | None =
     verdict, reasons = catalog.evaluate(scenario, evidence)
     evidence["verdict"] = verdict
     evidence["reasons"] = reasons
+    print("origin_counts", json.dumps(evidence["origin_counts"], ensure_ascii=False))
     return evidence
 
 

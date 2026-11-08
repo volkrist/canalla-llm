@@ -300,6 +300,16 @@ def safe_run(run: dict, sandbox: Path) -> bool:
         "patch_file",
         "create_directory",
         "run_python",
+        # Read-only inspection the product legitimately asks for in a coding task. These never
+        # widen the sandbox: the same path check below still applies to `cwd`/`root`.
+        "git_status",
+        "git_diff",
+        "git_log",
+        "search_code",
+        "search_files",
+        "hash_file",
+        "process_status",
+        "stop_process",
     }:
         return False
     for key in ("path", "cwd", "root"):

@@ -18,8 +18,8 @@ function Test-Cdp {
 }
 
 function Stop-App {
-  Get-Process -Name 'alex-llm' -ErrorAction SilentlyContinue | ForEach-Object { $_.CloseMainWindow() | Out-Null }
-  Start-Sleep -Seconds 3
+  # Force stop: Tauri's graceful exit stops a managed Pod by design. The acceptance window is
+  # restarted for CDP only, so the compute session must survive.
   Get-Process -Name 'alex-llm' -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.Id -Force }
   for ($i = 0; $i -lt 30; $i++) {
     if (-not (Get-Process -Name 'alex-backend' -ErrorAction SilentlyContinue)) { break }
@@ -28,7 +28,14 @@ function Stop-App {
 }
 
 if ($Stop) {
-  Stop-App
+  # Force stop: a graceful window close runs Tauri's on_desktop_exit, which stops a managed Pod
+  # by design. The T3 scenario is a real window loss with the compute session preserved, so the
+  # acceptance window is terminated without the graceful exit path.
+  Get-Process -Name 'alex-llm' -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.Id -Force }
+  for ($i = 0; $i -lt 30; $i++) {
+    if (-not (Get-Process -Name 'alex-backend' -ErrorAction SilentlyContinue)) { break }
+    Start-Sleep -Milliseconds 500
+  }
   Write-Output 'app=stopped'
   exit 0
 }
