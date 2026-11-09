@@ -1,0 +1,47 @@
+{
+  "target": "C:\\Users\\Volkr\\AppData\\Local\\Programs\\Canalla LLM\\sidecar\\alex-backend\\alex-backend.exe",
+  "mode": "sidecar",
+  "health": {
+    "status": "ok",
+    "provider": "llamacpp",
+    "llm_ready": false,
+    "product": "alex-llm",
+    "version": "1.2.5",
+    "runtime_protocol_version": 1,
+    "instance": null
+  },
+  "backup": {
+    "id": "20261109T113316Z-manual",
+    "path": "C:\\Users\\Volkr\\AppData\\Local\\Alex LLM\\backups\\20261109T113316Z-manual",
+    "verified": true,
+    "verified_at": "2026-11-09T11:33:16.911293+00:00",
+    "backup_format_version": 1,
+    "app_version": "1.2.5",
+    "schema_revision": "0016",
+    "created_at": "2026-11-09T11:33:16.678393+00:00",
+    "files": 2,
+    "bytes": 5218551,
+    "documents": 0,
+    "kind": "manual",
+    "label": "pre-1.2.6-install",
+    "pruned": [
+      "20261021T110024Z-manual"
+    ]
+  },
+  "verify": {
+    "id": "20261109T113316Z-manual",
+    "path": "C:\\Users\\Volkr\\AppData\\Local\\Alex LLM\\backups\\20261109T113316Z-manual",
+    "verified": true,
+    "verified_at": "2026-11-09T11:33:17.370988+00:00",
+    "backup_format_version": 1,
+    "app_version": "1.2.5",
+    "schema_revision": "0016",
+    "created_at": "2026-11-09T11:33:16.678393+00:00",
+    "files": 2,
+    "bytes": 5218551,
+    "documents": 0,
+    "kind": "manual",
+    "label": "pre-1.2.6-install"
+  },
+  "status": "PASS"
+}
