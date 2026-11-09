@@ -60,6 +60,53 @@ function webLine(task: AutonomousTask) {
   return `Веб: ${parts.join(" · ")}${honest}`;
 }
 
+function securitySummary(task: AutonomousTask) {
+  const result = task.security;
+  if (!result) return "";
+  const risk = result.ok
+    ? "проблем высокого риска нет"
+    : `${result.blocking} проблем высокого риска`;
+  return `Безопасность: ${risk} · файлов ${result.files_scanned} · пакетов ${result.packages_checked} · advisories: ${result.advisories}`;
+}
+
+function SecurityDetails({ task }: { task: AutonomousTask }) {
+  const result = task.security;
+  if (!result) return null;
+  const scope = task.security_scope;
+  const fresh = result.fresh !== false;
+  return (
+    <div className="task-security">
+      <p>{securitySummary(task)}</p>
+      {scope && (
+        <p className="muted">
+          Scope: {scope.targets.join(", ")} · {scope.environment}
+        </p>
+      )}
+      {result.findings.length > 0 && (
+        <ol className="security-findings">
+          {result.findings.slice(0, 12).map((finding, index) => (
+            <li
+              key={`${finding.rule}-${index}`}
+              data-severity={finding.severity}
+            >
+              <strong>{finding.severity}</strong> · {finding.rule}
+              {finding.file ? ` · ${finding.file}` : ""}
+              {finding.line ? `:${finding.line}` : ""}
+              {finding.advisory ? ` · ${finding.advisory}` : ""}
+              {finding.advice ? <span> — {finding.advice}</span> : null}
+            </li>
+          ))}
+        </ol>
+      )}
+      <p className={fresh ? "muted" : "task-limit"}>
+        {fresh
+          ? "Проверка выполнена после последних изменений."
+          : "Нужна повторная проверка: после оценки файлы менялись."}
+      </p>
+    </div>
+  );
+}
+
 function budgetsLine(task: AutonomousTask) {
   const budgets = task.budgets;
   const tools = budgets
@@ -174,6 +221,11 @@ export default function TaskPanel({
           {limitLine(task)}
         </p>
       )}
+      {securitySummary(task) && (
+        <p className="task-security-line" role="status">
+          {securitySummary(task)}
+        </p>
+      )}
       <div className="task-actions">
         {task.status !== "PAUSED" && !line.terminal && (
           <button type="button" disabled={busy} onClick={onPause}>
@@ -206,6 +258,7 @@ export default function TaskPanel({
           </p>
           <p>{budgetsLine(task)}</p>
           {webLine(task) && <p>{webLine(task)}</p>}
+          <SecurityDetails task={task} />
           <p>
             План: {done} из {total} шагов
             {typeof idle === "number"

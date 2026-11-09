@@ -94,24 +94,32 @@ class LocalTaskController:
         context.task_commands = getattr(context, "task_commands", [])
         prompt = getattr(context, "user_prompt", "") or ""
         context.coding_task = looks_like_coding(prompt)
+        from ...security_assessment.scope import looks_like_security
+
+        context.security_task = looks_like_security(prompt)
         git_task = looks_like_commit_request(prompt) or looks_like_push_request(prompt)
         context.autonomous = bool(
             getattr(context, "autonomous", False)
             or looks_like_autonomous(prompt)
             or looks_like_computer(prompt)
             or context.coding_task
+            or context.security_task
             or git_task
         )
         return workspace
 
     def open(self, db, context):
         prompt = getattr(context, "user_prompt", "") or ""
+        from ...security_assessment.scope import looks_like_security
+
+        security = looks_like_security(prompt)
         git_task = looks_like_commit_request(prompt) or looks_like_push_request(prompt)
         autonomous = bool(
             getattr(context, "autonomous", False)
             or looks_like_autonomous(prompt)
             or looks_like_computer(prompt)
             or getattr(context, "coding_task", False)
+            or security
             or git_task
         )
         computer = getattr(context, "computer_mode", "off") != "off"
@@ -236,8 +244,20 @@ class LocalTaskController:
             coding=bool(context.coding_task),
             research=needs_research(prompt),
             tor=getattr(context, "tor_mode", "off") != "off" and ("tor" in lowered or ".onion" in lowered),
+            security=security,
         )
         self._store_plan(db, row, steps)
+        if security:
+            row.success_criteria = {
+                **(row.success_criteria or {}),
+                "security": [
+                    "Scope is authorized and limited to the allowed workspace",
+                    "Dependency advisories were checked for the exact versions",
+                    "Every finding records file, line and evidence",
+                    "The assessment was re-run after the last change",
+                    "No high-risk finding remains open",
+                ],
+            }
         if queued:
             machine.transition(row, machine.WAITING_WORKSPACE)
         else:
@@ -704,6 +724,9 @@ class LocalTaskController:
             append_event(
                 db, row.id, "FILE_CHANGED", {"tool": name, "path": str(meta.get("path") or "")[:200]}, secrets
             )
+            from .security_flow import mark_dirty_row
+
+            mark_dirty_row(row)
         if error == "conflict":
             facts = dict(row.facts or {})
             retries = int(facts.get("conflict_retries") or 0) + 1
@@ -1319,28 +1342,40 @@ class LocalTaskController:
     def final_review(self, row) -> dict:
         facts = row.facts or {}
         verification = row.verification or {}
+        # A security assessment is its own workflow. "Проверь и исправь" matches the coding
+        # heuristics, but a project without a test suite is not a failed security review: the
+        # security verdict (fresh assessment, advisories checked, no open high-risk finding) is
+        # the gate that matters here.
+        security_task = bool(facts.get("security_scope") or facts.get("security_scope_error"))
+        coding = looks_like_coding(row.original_user_request) and not security_task
         missing = []
         if row.original_user_request and not (row.tool_calls_used or facts):
             missing.append("no_actions")
-        if looks_like_coding(row.original_user_request) and verification.get("tests") != "passed":
+        if coding and verification.get("tests") != "passed":
             missing.append(
                 "verification_required"
                 if (facts.get("verification_stale") or verification.get("tests") == "stale")
                 else "tests_not_verified"
             )
-        if looks_like_coding(row.original_user_request) and facts.get("verification_stale"):
+        if coding and facts.get("verification_stale"):
             if "verification_required" not in missing:
                 missing.append("verification_required")
-        if looks_like_coding(row.original_user_request):
+        if coding:
             commands = (row.checkpoint or {}).get("commands") or []
             changed = any(item.get("tool") in WRITE_TOOLS for item in commands) or bool(
                 facts.get("file_hashes")
             )
             if facts.get("baseline_tests") is False and not changed:
                 missing.append("no_effective_change")
-        if looks_like_coding(row.original_user_request) and self._has_git_workspace(row):
+        if coding and self._has_git_workspace(row):
             if not verification.get("git_reviewed"):
                 missing.append("git_not_reviewed")
+        if facts.get("security_scope") or facts.get("security_scope_error"):
+            from .security_flow import SecurityAssessment
+
+            verdict = SecurityAssessment(None).verdict(row)
+            if not verdict["ok"]:
+                missing.append(verdict["reason"] or "security_assessment_required")
         if needs_research(row.original_user_request) and not (
             facts.get("source_count")
             or any(item.get("kind") == "RESEARCH_SOURCE" for item in facts.get("verified") or [])
@@ -1420,6 +1455,8 @@ class LocalTaskController:
             "message": status_message(row),
             **described,
             "web": task_status.web_accounting(db, row.id),
+            "security": (row.verification or {}).get("security") or None,
+            "security_scope": (row.facts or {}).get("security_scope") or None,
             "queue_position": waiter_position(db, row.id),
             "promoted_from_queue": bool((row.facts or {}).get("promoted_from_queue")),
             "metrics": (row.facts or {}).get("metrics") or {},

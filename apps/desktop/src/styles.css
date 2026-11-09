@@ -1892,6 +1892,22 @@ p {
   margin: 6px 0 0;
   color: #e0a0a0;
 }
+.task-security-line {
+  margin: 6px 0 0;
+  color: #97a39c;
+}
+.security-findings {
+  margin: 6px 0;
+  padding-left: 18px;
+  font-size: 11px;
+}
+.security-findings li[data-severity="critical"],
+.security-findings li[data-severity="high"] {
+  color: #e0a0a0;
+}
+.security-findings li[data-severity="medium"] {
+  color: #d9c48a;
+}
 .task-timeline {
   margin: 6px 0;
   padding-left: 16px;

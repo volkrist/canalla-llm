@@ -98,7 +98,59 @@ def looks_like_autonomous(prompt: str) -> bool:
     )
 
 
-def default_plan(prompt: str, *, coding: bool, research: bool, tor: bool) -> list[dict]:
+def default_plan(
+    prompt: str, *, coding: bool, research: bool, tor: bool, security: bool = False
+) -> list[dict]:
+    if security:
+        # A security assessment is its own workflow: the scope is decided first, the evidence is
+        # collected, and the task cannot close until a *fresh* assessment is clean. It is not a
+        # repair plan with extra prose.
+        return [
+            _step(
+                "scope",
+                "Confirm the authorized scope",
+                "Record the allowed workspace roots, the checks that may run and what is forbidden.",
+                "plan",
+            ),
+            _step(
+                "inventory",
+                "Inventory the project",
+                "List the project and read its manifests inside the approved scope only.",
+                "local_fs",
+            ),
+            _step(
+                "advisories",
+                "Check dependencies against advisories",
+                "Match the exact installed versions against OSV advisories.",
+                "verify",
+            ),
+            _step(
+                "review",
+                "Review code and configuration",
+                "Apply the static rules and record file, line and evidence for every finding.",
+                "verify",
+            ),
+            _step(
+                "fix",
+                "Fix confirmed findings",
+                "Change only what the evidence proves; do not rewrite the project.",
+                "local_fs",
+            ),
+            _step(
+                "retest",
+                "Re-run the assessment and the tests",
+                "A fix is not done until the assessment is re-run on the changed files.",
+                "local_process",
+                verify=True,
+            ),
+            _step(
+                "report",
+                "Security report",
+                "Report scope, confirmed findings, fixes, retest results and remaining risks.",
+                "verify",
+                verify=True,
+            ),
+        ]
     steps = []
     if coding and looks_like_greenfield(prompt):
         # A build from scratch is not a repair plan. The repair steps ("run baseline tests",

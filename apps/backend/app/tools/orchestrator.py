@@ -383,6 +383,9 @@ class ToolOrchestrator:
         try:
             await self._maybe_tinyfish_paid(context, notes, prompt, tor_intent, planning)
             await self._maybe_local_intent(context, notes, prompt, planning)
+            # A security request is assessed before the planner speaks, so the model starts from
+            # evidence (file, line, advisory) instead of guessing what might be wrong.
+            await self._maybe_security(context, notes, prompt, planning, reason="initial")
             skip_planner = (
                 self._goal_satisfied(context, prompt)
                 or getattr(context, "tinyfish_agent_done", False)
@@ -571,6 +574,12 @@ class ToolOrchestrator:
                     notes.append("Tool context limit reached.")
                     exit_reason = "context_limit"
                     break
+            # The tool loop is over. A change made after the initial assessment means the report no
+            # longer describes the code, so the assessment is re-run once inside the same task
+            # before the answer is written.
+            await self._maybe_security(
+                context, notes, prompt, planning, reason="retest", only_if_dirty=True
+            )
             # A silent planner is not a finished task. The controller owns the completion
             # predicate, and `conclude` refuses to close a task whose verification is stale. When
             # the model simply stops, run the one step the controller still owes instead of
@@ -981,6 +990,41 @@ class ToolOrchestrator:
                     origin="server_policy",
                 )
                 self._append_planning(planning, context, output, "server_web_agent")
+
+    async def _maybe_security(self, context, notes, prompt, planning, *, reason, only_if_dirty=False):
+        """Run one authorized assessment round over files the host already let us read."""
+        from ..security_assessment.scope import looks_like_security
+        from .local.security_flow import SecurityAssessment, summary_for_model
+
+        if not looks_like_security(prompt) or planning is None:
+            return None
+        if getattr(context, "computer_mode", "off") == "off":
+            notes.append("A security assessment needs Computer access to read the project files.")
+            return None
+        if only_if_dirty:
+            from ..database import SessionLocal
+            from .local.task import LocalTaskController
+
+            with SessionLocal() as db:
+                row = LocalTaskController()._row(db, context)
+                if not row or not (row.facts or {}).get("security_dirty"):
+                    return None
+        flow = SecurityAssessment(self)
+        try:
+            result = await flow.assess(context, notes, prompt, reason=reason)
+        except ToolError as error:
+            notes.append(f"SECURITY SCOPE REFUSED: {error.code}")
+            return None
+        summary = summary_for_model(result)
+        notes.append(summary)
+        planning.append(
+            {
+                "role": "tool",
+                "tool_call_id": f"security_{reason}",
+                "content": sanitized(summary, context.secrets, context.limits.max_chars),
+            }
+        )
+        return result
 
     async def _maybe_local_intent(self, context, notes, prompt, planning=None):
         if getattr(context, "computer_mode", "off") == "off":

@@ -19,11 +19,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..", "..", "..");
 const EXE =
   [
-    path.join(process.env.LOCALAPPDATA, "Programs", "Canalla LLM", "alex-llm.exe"),
+    path.join(
+      process.env.LOCALAPPDATA,
+      "Programs",
+      "Canalla LLM",
+      "alex-llm.exe",
+    ),
     path.join(process.env.LOCALAPPDATA, "Programs", "Alex LLM", "alex-llm.exe"),
   ].find((candidate) => fs.existsSync(candidate)) ?? "";
 const CDP_PORT = 9245;
-const PYTHON = path.join(REPO, "apps", "backend", ".venv", "Scripts", "python.exe");
+const PYTHON = path.join(
+  REPO,
+  "apps",
+  "backend",
+  ".venv",
+  "Scripts",
+  "python.exe",
+);
 const DATA_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "canalla-ui-data-"));
 const DEVICE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "canalla-ui-cred-"));
 const SUFFIX = Date.now().toString(36);
@@ -44,7 +56,9 @@ sys.exit(0 if ctypes.get_last_error() == 1168 else 1)
 
 function deleteCredential(target) {
   try {
-    execFileSync(PYTHON, ["-c", CREDENTIAL_DELETER, target], { stdio: "ignore" });
+    execFileSync(PYTHON, ["-c", CREDENTIAL_DELETER, target], {
+      stdio: "ignore",
+    });
   } catch {
     /* nothing of ours is left */
   }
@@ -52,7 +66,9 @@ function deleteCredential(target) {
 
 let failures = 0;
 function check(name, condition, detail = "") {
-  console.log(`  [${condition ? "PASS" : "FAIL"}] ${name}${detail ? ` — ${detail}` : ""}`);
+  console.log(
+    `  [${condition ? "PASS" : "FAIL"}] ${name}${detail ? ` — ${detail}` : ""}`,
+  );
   if (!condition) failures += 1;
 }
 
@@ -81,7 +97,9 @@ async function waitCdp(timeoutMs = 180000) {
         signal: AbortSignal.timeout(2000),
       });
       const targets = await response.json();
-      const page = targets.find((target) => target.type === "page" && target.url);
+      const page = targets.find(
+        (target) => target.type === "page" && target.url,
+      );
       if (page) return page;
     } catch {
       /* not ready yet */
@@ -201,28 +219,44 @@ async function main() {
 
     // A fresh isolated profile opens Canalla's own first-run owner form. (The public login screen
     // appears only when a user already exists, which an isolated data root never has.)
-    const owner = page.getByRole("button", { name: "Создать владельца Canalla" });
-    const register = page.getByRole("button", { name: "Регистрация", exact: true });
+    const owner = page.getByRole("button", {
+      name: "Создать владельца Canalla",
+    });
+    const register = page.getByRole("button", {
+      name: "Регистрация",
+      exact: true,
+    });
     const email = page.getByLabel("Email", { exact: true });
     await email.waitFor({ timeout: 180000 });
     if (await owner.isVisible().catch(() => false)) {
       await page.getByLabel("Имя владельца (необязательно)").fill("UI Smoke");
       await email.fill(`ui-${SUFFIX}@example.com`);
-      await page.getByLabel("Пароль", { exact: true }).fill("test-password-123");
+      await page
+        .getByLabel("Пароль", { exact: true })
+        .fill("test-password-123");
       await owner.click();
     } else if (await register.isVisible().catch(() => false)) {
       await register.click();
       await email.fill(`ui-${SUFFIX}@example.com`);
-      await page.getByLabel("Пароль", { exact: true }).fill("test-password-123");
-      await page.getByRole("button", { name: "Создать аккаунт", exact: true }).click();
+      await page
+        .getByLabel("Пароль", { exact: true })
+        .fill("test-password-123");
+      await page
+        .getByRole("button", { name: "Создать аккаунт", exact: true })
+        .click();
     } else {
       await email.fill(`ui-${SUFFIX}@example.com`);
-      await page.getByLabel("Пароль", { exact: true }).fill("test-password-123");
+      await page
+        .getByLabel("Пароль", { exact: true })
+        .fill("test-password-123");
       await page.getByRole("button", { name: "Войти", exact: true }).click();
     }
     await page.getByTestId("ai-connection").waitFor({ timeout: 180000 });
 
-    const composer = page.getByRole("textbox", { name: "Сообщение", exact: true });
+    const composer = page.getByRole("textbox", {
+      name: "Сообщение",
+      exact: true,
+    });
     await composer.fill("Привет");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await page
@@ -245,14 +279,20 @@ async function main() {
       await page.locator(".chat-select").first().click();
       await page.waitForFunction(
         (needle) =>
-          (document.querySelector(".task-panel")?.textContent || "").includes(needle),
+          (document.querySelector(".task-panel")?.textContent || "").includes(
+            needle,
+          ),
         marker,
         { timeout: 30000 },
       );
       const panel = page.locator(".task-panel");
       for (const [label, fn] of assertions) {
         const text = await panel.innerText();
-        check(`${name}: ${label}`, fn(text), text.replace(/\s+/g, " ").slice(0, 180));
+        check(
+          `${name}: ${label}`,
+          fn(text),
+          text.replace(/\s+/g, " ").slice(0, 180),
+        );
       }
       await page.screenshot({
         path: path.join(OUT, `installed-status-${name}.png`),
@@ -278,7 +318,10 @@ async function main() {
       }),
       "Ждём вычислительные ресурсы",
       [
-        ["says the compute resources are awaited", (text) => text.includes("Ждём вычислительные ресурсы")],
+        [
+          "says the compute resources are awaited",
+          (text) => text.includes("Ждём вычислительные ресурсы"),
+        ],
         ["shows the real reason", (text) => text.includes("offline")],
         ["does not say Работает", (text) => !text.includes("Работает")],
       ],
@@ -300,7 +343,10 @@ async function main() {
       }),
       "Не удалось завершить",
       [
-        ["says it could not finish", (text) => text.includes("Не удалось завершить")],
+        [
+          "says it could not finish",
+          (text) => text.includes("Не удалось завершить"),
+        ],
         ["names the reason", (text) => text.includes("tests_not_verified")],
         ["offers Resume", (text) => text.includes("Resume")],
       ],
@@ -325,8 +371,14 @@ async function main() {
       }),
       "Лимит страниц",
       [
-        ["names the real page limit", (text) => text.includes("10 из 10 страниц")],
-        ["names the fetch counter", (text) => text.includes("3 из 12 загрузок")],
+        [
+          "names the real page limit",
+          (text) => text.includes("10 из 10 страниц"),
+        ],
+        [
+          "names the fetch counter",
+          (text) => text.includes("3 из 12 загрузок"),
+        ],
       ],
     );
 
@@ -358,7 +410,9 @@ async function main() {
     fs.rmSync(DATA_ROOT, { recursive: true, force: true });
     fs.rmSync(DEVICE_DIR, { recursive: true, force: true });
   }
-  console.log(failures === 0 ? "INSTALLED-UI: PASS" : `INSTALLED-UI: FAIL (${failures})`);
+  console.log(
+    failures === 0 ? "INSTALLED-UI: PASS" : `INSTALLED-UI: FAIL (${failures})`,
+  );
   process.exit(failures === 0 ? 0 : 1);
 }
 

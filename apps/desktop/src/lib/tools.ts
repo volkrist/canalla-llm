@@ -70,12 +70,55 @@ export interface AutonomousTask {
     pages_failed: number;
     by_origin: Record<string, number>;
   };
+  security?: SecurityAssessment | null;
+  security_scope?: SecurityScope | null;
   events?: {
     id: string;
     kind: string;
     payload: Record<string, string>;
     created_at: string;
   }[];
+}
+
+export interface SecurityFinding {
+  rule: string;
+  kind?: string;
+  severity: string;
+  confidence?: string;
+  file?: string;
+  line?: number | null;
+  cwe?: string;
+  evidence?: string;
+  advice?: string;
+  advisory?: string;
+  aliases?: string[];
+  fixed?: string[];
+  package?: string;
+  version?: string;
+  summary?: string;
+}
+
+export interface SecurityAssessment {
+  findings: SecurityFinding[];
+  counts: Record<string, number>;
+  blocking: number;
+  ok: boolean;
+  files_scanned: number;
+  packages_checked: number;
+  advisories: string;
+  reason?: string;
+  assessed_at?: string;
+  fresh?: boolean;
+  summary?: string;
+}
+
+export interface SecurityScope {
+  targets: string[];
+  environment: string;
+  checks: string[];
+  forbidden: string[];
+  external_targets: string[];
+  notes: string[];
 }
 export interface ToolRun {
   id: string;

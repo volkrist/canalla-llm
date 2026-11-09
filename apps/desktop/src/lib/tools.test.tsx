@@ -433,4 +433,56 @@ describe("task panel", () => {
     expect(finished).not.toContain("Resume");
     expect(finished).not.toContain("Stop");
   });
+
+  it("reports a security assessment without hiding the findings", () => {
+    const html = renderToStaticMarkup(
+      <TaskPanel
+        task={{
+          ...task,
+          status: "COMPLETED",
+          phase: "completed",
+          terminal: true,
+          security: {
+            findings: [
+              {
+                rule: "shell_true",
+                severity: "high",
+                file: "app.py",
+                line: 4,
+                advice: "уберите shell=True",
+              },
+              {
+                rule: "vulnerable_dependency",
+                severity: "high",
+                package: "flask",
+                version: "2.0.0",
+                advisory: "GHSA-aaaa",
+              },
+            ],
+            counts: { critical: 0, high: 2, medium: 0, low: 0 },
+            blocking: 2,
+            ok: false,
+            files_scanned: 3,
+            packages_checked: 4,
+            advisories: "checked",
+            reason: "retest",
+            fresh: false,
+          },
+          security_scope: {
+            targets: ["C:\\work"],
+            environment: "lab",
+            checks: ["dependencies", "static"],
+            forbidden: ["exploit"],
+            external_targets: [],
+            notes: [],
+          },
+        }}
+        onPause={() => {}}
+        onResume={() => {}}
+        onStop={() => {}}
+      />,
+    );
+    expect(html).toContain("2 проблем высокого риска");
+    expect(html).toContain("advisories: checked");
+  });
 });
