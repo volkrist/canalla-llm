@@ -217,3 +217,18 @@ def test_agent_not_auto_routed():
     assert "delete_file" in all_names
     assert "registry_write" in all_names
     assert "system_shutdown" in all_names
+
+
+def test_a_source_counts_as_used_only_when_the_answer_cites_it():
+    """«Использовано» is the citation, not the download.
+
+    A fetched page that the answer never references informed nothing; counting it as used would
+    repeat the old «1 Search / 0 Fetch» confusion in the other direction.
+    """
+    from app.tools.routes import _label_used
+
+    assert _label_used("Ответ опирается на [W1] и [T2].", "W1")
+    assert _label_used("См. [T2].", "T2")
+    assert not _label_used("Источник W1 упомянут без метки.", "W1")
+    assert not _label_used("[W10] не та метка.", "W1")
+    assert not _label_used(None, "W1")

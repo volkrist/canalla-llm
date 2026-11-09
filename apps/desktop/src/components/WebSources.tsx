@@ -17,6 +17,7 @@ export interface WebSource {
   channel?: "web" | "tor";
   authority?: string | null;
   kind?: string | null;
+  used?: boolean;
 }
 function SourceItems({
   sources,
@@ -35,6 +36,7 @@ function SourceItems({
           <summary>
             [{source.label}] {source.title || source.final_url}
             {source.authority ? ` · ${source.authority}` : ""}
+            {source.used ? " · использован в ответе" : ""}
           </summary>
           <button
             type="button"
@@ -108,7 +110,10 @@ export default function WebSources({
     <>
       {web.length > 0 && (
         <section aria-label="Web sources" className="web-sources">
-          <strong>Интернет W</strong>
+          <strong>
+            Интернет W · использовано в ответе{" "}
+            {web.filter((source) => source.used).length} из {web.length}
+          </strong>
           <SourceItems sources={web} onError={setError} />
         </section>
       )}

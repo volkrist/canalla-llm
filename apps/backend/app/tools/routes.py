@@ -1,4 +1,5 @@
 import asyncio
+import re
 import socket
 from datetime import timedelta
 from typing import Any, cast
@@ -419,13 +420,25 @@ def rotate_device(key: str, user: User = Depends(current_user), db: Session = De
     return payload
 
 
+def _label_used(content: str | None, label: str) -> bool:
+    """Did the answer actually cite this source?
+
+    A source that was fetched but never referenced informed nothing. Detecting the citation the
+    product already asks the model to write (`[W1]`, `[T1]`) is the only honest way to claim
+    «использовано», and it cannot overcount a page that was merely downloaded.
+    """
+    if not content or not label:
+        return False
+    return re.search(r"\[" + re.escape(label) + r"\]", content) is not None
+
+
 @router.get("/messages/{key}/web-sources")
 def sources(key: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     message = db.scalar(select(Message).join(Chat).where(Message.id == key, Chat.user_id == user.id))
     if not message:
         raise HTTPException(404, "Сообщение не найдено")
     return [
-        public_source(row)
+        {**public_source(row), "used": _label_used(message.content, row.label)}
         for row in db.scalars(
             select(WebSourceSnapshot)
             .where(WebSourceSnapshot.generation_id == key, WebSourceSnapshot.user_id == user.id)
