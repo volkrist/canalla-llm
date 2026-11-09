@@ -97,6 +97,7 @@ export interface SecurityFinding {
   package?: string;
   version?: string;
   summary?: string;
+  known_exploited?: boolean;
 }
 
 export interface SecurityAssessment {
@@ -107,6 +108,7 @@ export interface SecurityAssessment {
   files_scanned: number;
   packages_checked: number;
   advisories: string;
+  kev?: string;
   reason?: string;
   assessed_at?: string;
   fresh?: boolean;

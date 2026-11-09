@@ -66,7 +66,13 @@ function securitySummary(task: AutonomousTask) {
   const risk = result.ok
     ? "проблем высокого риска нет"
     : `${result.blocking} проблем высокого риска`;
-  return `Безопасность: ${risk} · файлов ${result.files_scanned} · пакетов ${result.packages_checked} · advisories: ${result.advisories}`;
+  const kev =
+    result.kev === "unavailable"
+      ? " · CISA KEV: недоступно"
+      : result.kev?.startsWith("checked:")
+        ? ` · CISA KEV: эксплуатируется ${result.kev.split(":")[1]}`
+        : "";
+  return `Безопасность: ${risk} · файлов ${result.files_scanned} · пакетов ${result.packages_checked} · advisories: ${result.advisories}${kev}`;
 }
 
 function SecurityDetails({ task }: { task: AutonomousTask }) {
@@ -93,6 +99,7 @@ function SecurityDetails({ task }: { task: AutonomousTask }) {
               {finding.file ? ` · ${finding.file}` : ""}
               {finding.line ? `:${finding.line}` : ""}
               {finding.advisory ? ` · ${finding.advisory}` : ""}
+              {finding.known_exploited ? " · эксплуатируется (CISA KEV)" : ""}
               {finding.advice ? <span> — {finding.advice}</span> : null}
             </li>
           ))}

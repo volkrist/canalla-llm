@@ -194,6 +194,46 @@ def test_an_advisory_is_matched_to_the_exact_version():
     assert calls[0][0] == "POST" and calls[1][0] == "GET"
 
 
+def test_an_exploited_cve_is_marked_by_the_cisa_catalogue():
+    """A CVE CISA lists as exploited in the wild outranks a theoretical one."""
+    findings = [
+        {
+            "kind": "dependency",
+            "rule": "vulnerable_dependency",
+            "severity": "high",
+            "package": "flask",
+            "advisory": "GHSA-aaaa",
+            "aliases": ["CVE-2023-30861"],
+        }
+    ]
+
+    def feed(method, url, body, timeout):
+        assert url.endswith("known_exploited_vulnerabilities.json")
+        return {"vulnerabilities": [{"cveID": "CVE-2023-30861"}, {"cveID": "CVE-2020-0001"}]}
+
+    state = advisories.kev_enrich(findings, transport=feed)
+    assert state == "checked:1"
+    assert findings[0]["known_exploited"] is True
+    assert findings[0]["severity"] == "critical"
+
+
+def test_an_unreachable_kev_feed_does_not_change_the_finding():
+    findings = [{"severity": "high", "advisory": "CVE-2023-30861", "aliases": []}]
+
+    def broken(method, url, body, timeout):
+        raise urllib.error.URLError("offline")
+
+    assert advisories.kev_enrich(findings, transport=broken) == "unavailable"
+    assert findings[0]["severity"] == "high"
+    assert "known_exploited" not in findings[0]
+
+
+def test_without_cve_aliases_the_kev_feed_is_not_queried():
+    assert advisories.kev_enrich([{"severity": "high", "advisory": "GHSA-x", "aliases": []}]) == (
+        "not_needed"
+    )
+
+
 def test_an_unreachable_advisory_service_is_a_typed_failure_not_a_clean_result():
     def broken(method, url, body, timeout):
         raise urllib.error.URLError("offline")

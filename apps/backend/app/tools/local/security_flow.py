@@ -191,6 +191,7 @@ class SecurityAssessment:
 
         transport = getattr(context, "advisory_transport", None)
         dependency_findings, status = advisories.query(packages, transport=transport)
+        kev = advisories.kev_enrich(dependency_findings, transport=getattr(context, "kev_transport", None))
         static_findings = [finding.as_json() for finding in audit.scan_files(files)]
         findings = audit.sort_findings(static_findings + dependency_findings)
         result = audit.report(
@@ -205,6 +206,7 @@ class SecurityAssessment:
                 "reason": reason,
                 "assessed_at": now().isoformat(),
                 "scope": scope.to_json(),
+                "kev": kev,
                 "files": scanned_names[:40],
                 "packages": [
                     {"ecosystem": package.ecosystem, "name": package.name, "version": package.version}
