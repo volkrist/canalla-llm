@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -39,7 +40,9 @@ def test_the_pin_describes_the_platforms_the_product_claims() -> None:
     manifest = pin()
 
     assert manifest["product"] == "tor"
-    assert manifest["version"].count(".") == 2
+    # The Tor Project's release numbering is not fixed-width: 15.0.25 had three components and
+    # 16.0 has two. The pin must name a real dotted release, not a particular number of dots.
+    assert re.fullmatch(r"\d+(?:\.\d+){1,3}", manifest["version"]), manifest["version"]
     assert set(manifest["platforms"]) == set(PLATFORMS)
 
 

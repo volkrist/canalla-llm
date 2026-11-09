@@ -130,6 +130,15 @@ def _run(args: list[str]) -> int:
 
 
 def verify(archive: Path, entry: dict, platform: str) -> None:
+    # A removed release directory answers with an HTML error page, not an archive. Size alone
+    # catches it, but the message then blames a number instead of naming the real cause.
+    with archive.open("rb") as handle:
+        magic = handle.read(2)
+    if magic != b"\x1f\x8b":
+        raise SystemExit(
+            f"{platform}: {archive.name} is not a gzip archive (starts with {magic!r}); "
+            "the host returned an error page or a redirect body, not the pinned bundle"
+        )
     expected_bytes = entry.get("bytes")
     size = archive.stat().st_size
     if expected_bytes and size != expected_bytes:
