@@ -577,9 +577,7 @@ class ToolOrchestrator:
             # The tool loop is over. A change made after the initial assessment means the report no
             # longer describes the code, so the assessment is re-run once inside the same task
             # before the answer is written.
-            await self._maybe_security(
-                context, notes, prompt, planning, reason="retest", only_if_dirty=True
-            )
+            await self._maybe_security(context, notes, prompt, planning, reason="retest", only_if_dirty=True)
             # A silent planner is not a finished task. The controller owns the completion
             # predicate, and `conclude` refuses to close a task whose verification is stale. When
             # the model simply stops, run the one step the controller still owes instead of
