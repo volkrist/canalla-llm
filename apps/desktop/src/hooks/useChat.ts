@@ -283,6 +283,12 @@ export function useChat(api: Api, onExpired: () => void) {
                   ? {
                       ...current,
                       status: String(event.data.state || current.status),
+                      // A partial status event must not keep the previous explicit phase: the
+                      // phase is derived from the new status, not from the old snapshot.
+                      phase: undefined,
+                      error_code: event.data.code
+                        ? String(event.data.code)
+                        : current.error_code,
                       message: String(
                         event.data.code || current.message || current.status,
                       ),

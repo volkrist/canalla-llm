@@ -7,7 +7,12 @@ from ..context_builder import ContextBuilder
 from ..providers import LLMError
 from .contracts import ToolError
 from .local.compact import compact_tool_output
-from .local.plan import looks_like_commit_request, looks_like_computer, looks_like_push_request
+from .local.plan import (
+    looks_like_commit_request,
+    looks_like_computer,
+    looks_like_push_request,
+    needs_research,
+)
 from .local.workspace import looks_like_coding
 from .policy import (
     CODING_PLANNER_TOOLS,
@@ -410,6 +415,39 @@ class ToolOrchestrator:
                             row.last_error = halt
                             LocalTaskController().finish(db, context, "FAILED")
                     break
+                # A search that never opened a page is not research. The model may stop after a
+                # search (as it did in the reported run) and the user then gets snippets sold as
+                # articles. One bounded, free fetch of the collected sources closes that gap; it
+                # is recorded as server_policy so it is never counted as model work.
+                if (
+                    (intent.required or needs_research(prompt))
+                    and context.mode != "off"
+                    and context.web_search_done
+                    and not context.web_fetch_done
+                    and context.settings
+                    and context.settings.fetch_enabled
+                ):
+                    follow = pick_fetch_urls(context.sources)
+                    if follow:
+                        fetched = await self._run(
+                            "web_fetch",
+                            json.dumps({"urls": follow, "fresh": intent.fresh}, ensure_ascii=False),
+                            context,
+                            notes,
+                            origin="server_policy",
+                        )
+                        planning.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": "server_research_fetch",
+                                "content": sanitized(
+                                    json.dumps(fetched, default=str, ensure_ascii=False),
+                                    context.secrets,
+                                    context.limits.max_chars,
+                                ),
+                            }
+                        )
+                        continue
                 try:
                     async with asyncio.timeout(context.limits.remaining):
                         decision = await provider.plan_tools(planning, tools, usage)
@@ -670,7 +708,10 @@ class ToolOrchestrator:
             if (
                 context.mode != "off"
                 and not tor_intent.required
-                and not skip_cheap_web
+                # A computer task skips the *cheap search* so the model can pick its own
+                # research, but once a search really ran and nothing was read, the page text is
+                # still the missing product. `skip_cheap_web` used to suppress that fetch too,
+                # which is how a task ended with «1 Search · 0 Fetch» and no article text.
                 and context.web_search_done
                 and not context.web_fetch_done
                 and context.settings

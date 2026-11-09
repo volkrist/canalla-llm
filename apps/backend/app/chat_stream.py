@@ -324,6 +324,11 @@ async def stream_response(
             )
             max_search = settings.tools_task_max_search if tool_task else settings.tools_max_search
             max_fetch = settings.tools_task_max_fetch if tool_task else settings.tools_max_fetch
+            max_pages = (
+                min(settings.tools_task_max_pages, settings.tools_task_hard_pages)
+                if tool_task
+                else settings.tools_max_pages
+            )
 
             tool_context = ExecutionContext(
                 user.id,
@@ -333,7 +338,7 @@ async def stream_response(
                     max_calls=max_calls,
                     max_search=max_search,
                     max_fetch=max_fetch,
-                    max_pages=settings.tools_max_pages,
+                    max_pages=max_pages,
                     max_chars=settings.tools_max_chars,
                     max_seconds=max_seconds,
                     max_local_calls=max(settings.tools_max_local_calls, max_calls),

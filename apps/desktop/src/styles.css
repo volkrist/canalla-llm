@@ -1859,6 +1859,45 @@ p {
   justify-content: space-between;
   gap: 12px;
 }
+/* One line, one authority: tone is the task outcome, not a tool family. */
+.task-status-line {
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.task-status-detail {
+  flex: 1;
+  min-width: 12ch;
+  color: #97a39c;
+}
+.task-status-clock {
+  font-variant-numeric: tabular-nums;
+  color: #97a39c;
+}
+.task-panel[data-tone="done"] .task-status-line strong {
+  color: #afd5b9;
+}
+.task-panel[data-tone="error"] .task-status-line strong {
+  color: #e0a0a0;
+}
+.task-panel[data-tone="waiting"] .task-status-line strong {
+  color: #d9c48a;
+}
+.task-toggle {
+  margin-left: auto;
+}
+.task-body p {
+  margin: 4px 0;
+}
+.task-limit {
+  margin: 6px 0 0;
+  color: #e0a0a0;
+}
+.task-timeline {
+  margin: 6px 0;
+  padding-left: 16px;
+  font-size: 11px;
+  opacity: 0.85;
+}
 .task-plan {
   margin: 8px 0;
   padding-left: 0;

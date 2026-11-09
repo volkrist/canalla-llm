@@ -42,6 +42,7 @@ import {
   type DeviceStatus,
 } from "../lib/host";
 import { DEVICE_REFRESH_EVENT, publishDevice } from "../lib/device";
+import { taskStatusLine } from "../lib/task-status";
 
 export default function Workspace({
   api,
@@ -61,6 +62,9 @@ export default function Workspace({
   onSettings: () => void;
 }) {
   const chat = useChat(api, onLogout);
+  // The task status line is the single authority while a task runs. When it is active, the
+  // composer and the message placeholder must not claim a separate «model is processing» state.
+  const taskActive = Boolean(chat.task && !taskStatusLine(chat.task).terminal);
   // While the user is waiting for an answer, an update install must not restart the app.
   useEffect(() => {
     if (chat.streaming) markBusy("generation");
@@ -383,6 +387,7 @@ export default function Workspace({
             api={api}
             messages={chat.messages}
             streaming={chat.streaming}
+            taskActive={taskActive}
             fontSize={settings.fontSize}
             settings={settings}
             busy={chat.loading}
@@ -437,6 +442,14 @@ export default function Workspace({
             Backend недоступен. Проверьте адрес в Settings и запустите сервер.
           </p>
         )}
+        <TaskPanel
+          task={chat.task}
+          busy={chat.streaming}
+          api={api}
+          onPause={() => void chat.pauseTask()}
+          onResume={() => void chat.resumeTask()}
+          onStop={() => void chat.stopTask()}
+        />
         <Composer
           webMode={chat.webMode}
           setWebMode={chat.setWebMode}
@@ -449,6 +462,7 @@ export default function Workspace({
           phase={chat.phase}
           busy={chat.loading}
           streaming={chat.streaming}
+          taskActive={taskActive}
           queued={chat.queued}
           connected={!!health}
           onSend={(text, mode) => chat.send(text, undefined, mode)}
@@ -458,13 +472,6 @@ export default function Workspace({
           enterSends={settings.enterSends}
           contextUsage={contextUsage.usage}
           contextFailed={contextUsage.failed}
-        />
-        <TaskPanel
-          task={chat.task}
-          busy={chat.streaming}
-          onPause={() => void chat.pauseTask()}
-          onResume={() => void chat.resumeTask()}
-          onStop={() => void chat.stopTask()}
         />
         <TaskHistory
           tasks={chat.tasks}

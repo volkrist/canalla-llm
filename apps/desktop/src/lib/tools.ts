@@ -33,6 +33,43 @@ export interface AutonomousTask {
   queue_position?: number | null;
   promoted_from_queue?: boolean;
   steps: TaskStep[];
+  // The authoritative status derived by the backend (`app/tools/local/status.py`). Optional so an
+  // older payload still renders; the UI then falls back to the persisted status, never to
+  // "completed".
+  phase?: string;
+  terminal?: boolean;
+  waiting?: boolean;
+  current_action?: string;
+  completed_count?: number;
+  worked_count?: number;
+  remaining_count?: number;
+  last_progress_at?: string | null;
+  idle_seconds?: number;
+  stall_after_seconds?: number | null;
+  stalled?: boolean;
+  stop_reason?: string | null;
+  error_code?: string | null;
+  recoverable?: boolean;
+  resume_available?: boolean;
+  limit?: Record<string, string | number> | null;
+  budgets?: {
+    tools_used: number;
+    tools_max: number;
+    files_changed: number;
+    files_max: number;
+    seconds_used: number;
+    seconds_max: number;
+  };
+  web?: {
+    searches: number;
+    fetches: number;
+    tor_searches: number;
+    tor_fetches: number;
+    pages_requested: number;
+    pages_opened: number;
+    pages_failed: number;
+    by_origin: Record<string, number>;
+  };
   events?: {
     id: string;
     kind: string;
@@ -287,11 +324,23 @@ export function groupStatus(runs: ToolRun[]) {
     return "Завершено";
   return toolStates[runs.at(-1)?.status || ""] || "Выполняется";
 }
-export function summarizeFamily(
+export function familyStatus(
   family: "web" | "tor" | "computer",
   runs: ToolRun[],
 ) {
   const status = groupStatus(runs);
+  if (status !== "Завершено") return status;
+  // «Завершено» under a collapsed family read as «задача завершена». A family can only say
+  // that its own actions are done; the task outcome comes from the task status line.
+  if (family === "web") return "веб-инструменты завершены";
+  if (family === "tor") return "Tor-инструменты завершены";
+  return "инструменты завершены";
+}
+export function summarizeFamily(
+  family: "web" | "tor" | "computer",
+  runs: ToolRun[],
+) {
+  const status = familyStatus(family, runs);
   if (family === "web") {
     const searches = runs.filter(
       (run) => run.tool_name === "web_search",
@@ -324,9 +373,20 @@ export function summarizeFamily(
       (sum, run) => sum + Number(run.result_metadata?.duration_seconds || 0),
       0,
     );
+    const pagesOpened = runs.reduce(
+      (sum, run) =>
+        sum +
+        Number(
+          (run.result_metadata?.web as { opened?: number } | undefined)
+            ?.opened || 0,
+        ),
+      0,
+    );
     const parts = [
-      `Веб · ${runs.length} запросов · ${searches} Search · ${fetches} Fetch · ${status}`,
+      `Веб · ${runs.length} запросов · ${searches} Search · ${fetches} Fetch · страниц открыто ${pagesOpened} · ${status}`,
     ];
+    if (searches > 0 && pagesOpened === 0)
+      parts.push("источники найдены, страницы не прочитаны");
     if (agents.length)
       parts.push(
         `TinyFish Agent · ${agentSteps} steps · ~$${agentCost.toFixed(3)}`,

@@ -121,6 +121,22 @@ def _run_row(db: Session, run_id: str) -> ToolRun:
     return row
 
 
+def _web_accounting(definition, args, result):
+    """What this call asked for and what actually came back.
+
+    The UI needs requested/opened/failed separately: a search that found links has not read a
+    single page, and a fetch that asked for three URLs may have opened one. Counting only the
+    call makes those two states indistinguishable.
+    """
+    if definition.capability not in {"search", "fetch", "tor_search", "tor_fetch"}:
+        return None
+    return {
+        "requested": len(getattr(args, "urls", None) or []),
+        "opened": len(getattr(result, "sources", None) or []),
+        "failed": len(getattr(result, "errors", None) or []),
+    }
+
+
 def reconcile_tools():
     from .host_protocol import PRESERVED_ON_RESTART
     from .local.task import recover_interrupted
@@ -157,6 +173,9 @@ class ExecutionContext:
     secrets: tuple = ()
     resolver: object = None
     run_id: str | None = None
+    # The counters of the last refused call. A refused call is not a broken tool; the numbers
+    # let the task state name the exact budget that ran out.
+    limit_hit: dict = field(default_factory=dict)
     settings: object = None
     source_count: int = 0
     web_source_count: int = 0
@@ -605,7 +624,14 @@ class ToolExecutor:
                     args = args.model_copy(update={"path": new_path})
             _guard_paths(args, prefs.workspace_roots)
             context.settings = prefs
-        context.limits.consume(definition, args)
+        try:
+            context.limits.consume(definition, args)
+        except ToolError as error:
+            if error.code in {"page_limit", "search_limit", "tool_limit", "task_runtime_limit"}:
+                # A limit without its numbers is indistinguishable from a broken tool. Keep the
+                # exact counters so the UI can say what is capped and by how much.
+                context.limit_hit = {"code": error.code, **context.limits.snapshot()}
+            raise
         context.preview, context.action_fingerprint = {}, None
         if definition.capability == "agent":
             from .tinyfish.classify import classify_agent_goal
@@ -778,6 +804,7 @@ class ToolExecutor:
                     context.tor_browser_done = True
                     if getattr(args, "operation", "open") in {"click", "navigate"}:
                         context.tor_browser_navigated = True
+                accounting = _web_accounting(definition, args, result)
                 with SessionLocal() as db:
                     row = _run_row(db, run_id)
                     row.status, row.finished_at = "completed", now()
@@ -792,6 +819,7 @@ class ToolExecutor:
                     row.result_metadata = {
                         **row.result_metadata,
                         **result.metadata,
+                        **({"web": accounting} if accounting else {}),
                         "partial_errors": result.errors[:10],
                     }
                     digest_value = row.input_digest

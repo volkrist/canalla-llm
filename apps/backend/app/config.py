@@ -117,6 +117,11 @@ class Settings(BaseSettings):
     tools_task_hard_files: int = Field(default=100, ge=1, le=100)
     tools_task_max_search: int = Field(default=5, ge=1, le=8)
     tools_task_max_fetch: int = Field(default=12, ge=1, le=20)
+    # A page budget is not a fetch budget: one fetch may ask for up to three URLs, so a task
+    # limited to 10 pages could refuse a legal 12-fetch budget first. The cap now has its own
+    # name, its own value and its own line in the UI.
+    tools_task_max_pages: int = Field(default=36, ge=1, le=60)
+    tools_task_hard_pages: int = Field(default=60, ge=1, le=100)
     tools_task_max_retries: int = Field(default=3, ge=1, le=8)
     tools_task_max_same_payload: int = Field(default=2, ge=1, le=5)
     tools_task_max_plan_revisions: int = Field(default=8, ge=1, le=20)

@@ -108,7 +108,10 @@ describe("tool presentation", () => {
         state="completed"
       />,
     );
-    expect(html).toContain("Веб · 3 запросов · 1 Search · 2 Fetch · Завершено");
+    expect(html).toContain(
+      "Веб · 3 запросов · 1 Search · 2 Fetch · страниц открыто 0 · веб-инструменты завершены",
+    );
+    expect(html).toContain("источники найдены, страницы не прочитаны");
     expect(html).toContain("Разрешить один раз");
     expect(html.indexOf("alertdialog")).toBeLessThan(html.indexOf("Веб ·"));
   });
@@ -150,7 +153,9 @@ describe("tool presentation", () => {
         { ...run, tool_name: "write_file", status: "completed" },
         { ...run, tool_name: "read_file", status: "completed" },
       ]),
-    ).toBe("Компьютер · 2 действий · 1 файлов изменено · Завершено");
+    ).toBe(
+      "Компьютер · 2 действий · 1 файлов изменено · инструменты завершены",
+    );
   });
   it("shows Network Direct or Tor and never Always allow for CRITICAL", () => {
     const html = renderToStaticMarkup(
@@ -208,7 +213,7 @@ describe("tool presentation", () => {
     expect(tor).toContain("Network: Tor");
     expect(tor).toContain("Network: Direct");
     expect(tor).toContain(
-      "Tor · 1 действий · 1 Search · 0 Fetch · 0 Browser · Завершено",
+      "Tor · 1 действий · 1 Search · 0 Fetch · 0 Browser · Tor-инструменты завершены",
     );
   });
   it("shows force-web only in Auto mode", () => {
@@ -267,61 +272,165 @@ describe("public assistant text", () => {
 });
 
 describe("task panel", () => {
-  it("shows plan progress and pause stop", () => {
+  const task = {
+    id: "t1",
+    title: "Fix authentication tests",
+    status: "EXECUTING",
+    chat_id: "c1",
+    workspace: "C:\\work",
+    current_step: "fix",
+    current_phase: "EXECUTING",
+    plan_revision: 1,
+    tool_calls_used: 12,
+    tool_budget: 40,
+    files_changed: 2,
+    file_change_budget: 20,
+    elapsed_runtime: 272,
+    runtime_budget: 1800,
+    last_error: null,
+    completion_summary: null,
+    message: "Working",
+    phase: "executing",
+    terminal: false,
+    current_action: "Fix refresh token handling",
+    completed_count: 1,
+    remaining_count: 1,
+    idle_seconds: 3,
+    stalled: false,
+    resume_available: true,
+    budgets: {
+      tools_used: 12,
+      tools_max: 40,
+      files_changed: 2,
+      files_max: 20,
+      seconds_used: 272,
+      seconds_max: 1800,
+    },
+    steps: [
+      {
+        id: "s1",
+        title: "Inspect project",
+        description: "",
+        status: "COMPLETED",
+        tool_category: "local_fs",
+        verification_required: false,
+        attempts: 1,
+        result_summary: "",
+        key: "inspect",
+      },
+      {
+        id: "s2",
+        title: "Fix refresh token handling",
+        description: "",
+        status: "RUNNING",
+        tool_category: "local_fs",
+        verification_required: false,
+        attempts: 1,
+        result_summary: "",
+        key: "fix",
+      },
+    ],
+  };
+
+  it("shows one honest status line with the real action and idle time", () => {
+    const html = renderToStaticMarkup(
+      <TaskPanel
+        task={task}
+        onPause={() => {}}
+        onResume={() => {}}
+        onStop={() => {}}
+      />,
+    );
+    expect(html).toContain("Работает");
+    expect(html).toContain("Fix refresh token handling");
+    expect(html).toContain("последняя активность только что");
+    // The step counter is plan progress, never the task outcome.
+    expect(html).not.toContain("Завершено");
+    expect(html).toContain("Pause");
+    expect(html).toContain("Stop");
+    expect(html).toContain("04:32");
+  });
+
+  it("never claims completion while verification still runs", () => {
     const html = renderToStaticMarkup(
       <TaskPanel
         task={{
-          id: "t1",
-          title: "Fix authentication tests",
-          status: "EXECUTING",
-          chat_id: "c1",
-          workspace: "C:\\work",
-          current_step: "fix",
-          current_phase: "EXECUTING",
-          plan_revision: 1,
-          tool_calls_used: 12,
-          tool_budget: 40,
-          files_changed: 2,
-          file_change_budget: 20,
-          elapsed_runtime: 272,
-          runtime_budget: 1800,
-          last_error: null,
-          completion_summary: null,
-          message: "Working",
-          steps: [
-            {
-              id: "s1",
-              title: "Inspect project",
-              description: "",
-              status: "COMPLETED",
-              tool_category: "local_fs",
-              verification_required: false,
-              attempts: 1,
-              result_summary: "",
-              key: "inspect",
-            },
-            {
-              id: "s2",
-              title: "Fix refresh token handling",
-              description: "",
-              status: "RUNNING",
-              tool_category: "local_fs",
-              verification_required: false,
-              attempts: 1,
-              result_summary: "",
-              key: "fix",
-            },
-          ],
+          ...task,
+          status: "VERIFYING",
+          phase: "verifying",
+          completed_count: 2,
+          remaining_count: 0,
+          current_action: "Run tests",
+          steps: task.steps.map((step) => ({ ...step, status: "COMPLETED" })),
         }}
         onPause={() => {}}
         onResume={() => {}}
         onStop={() => {}}
       />,
     );
-    expect(html).toContain("Fix authentication tests");
-    expect(html).toContain("Inspect project");
-    expect(html).toContain("Pause");
-    expect(html).toContain("Stop");
-    expect(html).toContain("12 / 40");
+    expect(html).toContain("Работает");
+    expect(html).toContain("Run tests");
+    expect(html).not.toContain("Завершено");
+  });
+
+  it("names the budget that actually ran out", () => {
+    const html = renderToStaticMarkup(
+      <TaskPanel
+        task={{
+          ...task,
+          limit: {
+            code: "page_limit",
+            pages: 10,
+            max_pages: 10,
+            fetches: 3,
+            max_fetch: 12,
+            searches: 1,
+            max_search: 5,
+            calls: 4,
+            max_calls: 40,
+          },
+        }}
+        onPause={() => {}}
+        onResume={() => {}}
+        onStop={() => {}}
+      />,
+    );
+    expect(html).toContain("Лимит страниц: 10 из 10 страниц");
+    expect(html).toContain("3 из 12 загрузок");
+    expect(html).toContain("1 из 5 поисков");
+  });
+
+  it("offers Resume only when the backend says the work is resumable", () => {
+    const resumable = renderToStaticMarkup(
+      <TaskPanel
+        task={{
+          ...task,
+          status: "INTERRUPTED",
+          phase: "interrupted",
+          terminal: true,
+          resume_available: true,
+        }}
+        onPause={() => {}}
+        onResume={() => {}}
+        onStop={() => {}}
+      />,
+    );
+    expect(resumable).toContain("Resume");
+    const finished = renderToStaticMarkup(
+      <TaskPanel
+        task={{
+          ...task,
+          status: "COMPLETED",
+          phase: "completed",
+          terminal: true,
+          resume_available: false,
+        }}
+        onPause={() => {}}
+        onResume={() => {}}
+        onStop={() => {}}
+      />,
+    );
+    expect(finished).not.toContain("Resume");
+    expect(finished).not.toContain("Stop");
   });
 });

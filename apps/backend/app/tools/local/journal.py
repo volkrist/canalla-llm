@@ -1,5 +1,9 @@
 """Persistent task journal. Payloads are bounded and secret-redacted."""
 
+from datetime import timedelta, timezone
+
+from sqlalchemy import func, select
+
 from ...models import now
 from ..models import TaskEvent
 from ..security import sanitized
@@ -63,6 +67,18 @@ def append_event(db, task_id, kind, payload=None, secrets=(), tool_run_id=None):
             continue
         text = sanitized(str(value), secrets, 500 if key != "summary" else 1200)
         data[key] = text
-    row = TaskEvent(task_id=task_id, kind=kind, payload=data, tool_run_id=tool_run_id, created_at=now())
+    # The timeline is shown with exact times, so it must be totally ordered. Two events written in
+    # the same microsecond used to tie, and the read ordered them by a random id: the panel could
+    # show «проверка» before the «файл создан» that produced it. Stamps advance monotonically.
+    stamp = now()
+    last = None
+    if hasattr(db, "scalar"):
+        last = db.scalar(select(func.max(TaskEvent.created_at)).where(TaskEvent.task_id == task_id))
+    if last is not None:
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        if stamp <= last:
+            stamp = last + timedelta(milliseconds=1)
+    row = TaskEvent(task_id=task_id, kind=kind, payload=data, tool_run_id=tool_run_id, created_at=stamp)
     db.add(row)
     return row

@@ -72,6 +72,7 @@ export default function MessageList({
   api,
   messages,
   streaming,
+  taskActive = false,
   fontSize,
   settings,
   busy,
@@ -82,6 +83,7 @@ export default function MessageList({
   api?: Api;
   messages: Message[];
   streaming: boolean;
+  taskActive?: boolean;
   fontSize: number;
   settings: Settings;
   busy: boolean;
@@ -167,7 +169,9 @@ export default function MessageList({
               </ReactMarkdown>
               {!message.content && streaming && (
                 <span className="typing" aria-label="Генерация ответа">
-                  Ожидаем первый ответ модели…
+                  {taskActive
+                    ? "Canalla LLM выполняет задачу — итог появится здесь"
+                    : "Ожидаем первый ответ модели…"}
                 </span>
               )}
               {message.role === "assistant" && api && (

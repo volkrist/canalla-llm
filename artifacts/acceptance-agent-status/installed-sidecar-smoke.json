@@ -1,0 +1,49 @@
+{
+  "exe": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\apps\\desktop\\src-tauri\\sidecar\\alex-backend\\alex-backend.exe",
+  "port": 8013,
+  "data_dir": "C:\\Users\\Volkr\\AppData\\Local\\Temp\\canalla-smoke-wwshy2mw",
+  "health": {
+    "status": "ok",
+    "provider": "mock",
+    "llm_ready": true,
+    "product": "alex-llm",
+    "version": "1.2.6",
+    "runtime_protocol_version": 1,
+    "instance": null
+  },
+  "stream_done": true,
+  "tasks": 1,
+  "task": {
+    "status": "FAILED",
+    "phase": "failed",
+    "terminal": true,
+    "current_action": "",
+    "completed_count": 5,
+    "remaining_count": 0,
+    "last_progress_at": "2026-11-09T10:14:37.678527+00:00",
+    "budgets": {
+      "tools_used": 0,
+      "tools_max": 40,
+      "files_changed": 0,
+      "files_max": 20,
+      "seconds_used": 0,
+      "seconds_max": 1800
+    },
+    "web": {
+      "searches": 0,
+      "fetches": 0,
+      "tor_searches": 0,
+      "tor_fetches": 0,
+      "pages_requested": 0,
+      "pages_opened": 0,
+      "pages_failed": 0,
+      "by_origin": {
+        "model": 0,
+        "server_policy": 0,
+        "other": 0
+      }
+    }
+  },
+  "events": 4,
+  "status": "PASS"
+}

@@ -2,13 +2,14 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from ...config import get_settings
 from ...models import Chat, now
 from ..contracts import ToolError
-from ..models import LocalTask, TaskCheckpoint, TaskStep, ToolRun
+from ..models import LocalTask, TaskCheckpoint, TaskEvent, TaskStep, ToolRun
 from . import machine
+from . import status as task_status
 from .journal import append_event
 from .locks import acquire_write, enqueue_write, owns_write, reconcile_locks, release, waiter_position
 from .plan import (
@@ -42,16 +43,8 @@ LLM_RETRY_WINDOW_SECONDS = 30 * 60
 LLM_RETRY_MAX_DELAY_SECONDS = 60
 # These are compute-readiness states, not model outages: the task waits for the session the user
 # is allowed to start, and resumes as soon as it exists (no time-based retry can expire first).
-COMPUTE_WAIT_CODES = {
-    "offline",
-    "gateway_not_connected",
-    "loading_model",
-    "creating",
-    "starting_pod",
-    "gpu_found",
-    "mounting_storage",
-    "starting",
-}
+# The set lives with the status derivation so the payload and the wait decision cannot drift.
+COMPUTE_WAIT_CODES = task_status.COMPUTE_WAIT_CODES
 
 
 def llm_retry_delay(attempts: int) -> int:
@@ -725,6 +718,10 @@ class LocalTaskController:
             else:
                 machine.transition(row, machine.CONFLICT)
         elif error:
+            if error in {"page_limit", "search_limit", "tool_limit", "task_runtime_limit"}:
+                facts = dict(row.facts or {})
+                facts["last_limit"] = getattr(context, "limit_hit", None) or {"code": error}
+                row.facts = facts
             if name == "web_browser":
                 from .facts import from_tool as facts_from_tool
 
@@ -1391,6 +1388,8 @@ class LocalTaskController:
 
     def public(self, db, row, include_events=False):
         steps = self.steps(db, row.id)
+        last_event_at = db.scalar(select(func.max(TaskEvent.created_at)).where(TaskEvent.task_id == row.id))
+        described = task_status.describe(row, steps, last_event_at=last_event_at)
         payload = {
             "id": row.id,
             "title": row.title,
@@ -1419,6 +1418,8 @@ class LocalTaskController:
             "success_criteria": row.success_criteria,
             "verification": row.verification,
             "message": status_message(row),
+            **described,
+            "web": task_status.web_accounting(db, row.id),
             "queue_position": waiter_position(db, row.id),
             "promoted_from_queue": bool((row.facts or {}).get("promoted_from_queue")),
             "metrics": (row.facts or {}).get("metrics") or {},
@@ -1500,6 +1501,10 @@ def status_message(row: LocalTask) -> str:
             "task_budget": "Budget exhausted",
             "task_runtime_limit": "Budget exhausted",
             "task_file_limit": "Budget exhausted",
+            "page_limit": "Page budget exhausted",
+            "search_limit": "Search budget exhausted",
+            "tool_limit": "Tool call budget exhausted",
+            "verification_required": "Verification required",
             "host_offline": "Device offline",
             "timeout": "Tool timed out",
             "tests_not_verified": "Tests still failing",

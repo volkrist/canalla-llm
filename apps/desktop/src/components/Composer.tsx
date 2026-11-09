@@ -25,6 +25,7 @@ export default function Composer({
   deviceOnline = false,
   contextUsage = null,
   contextFailed = false,
+  taskActive = false,
 }: {
   busy: boolean;
   streaming: boolean;
@@ -46,6 +47,9 @@ export default function Composer({
   deviceOnline?: boolean;
   contextUsage?: ContextUsage | null;
   contextFailed?: boolean;
+  // While an autonomous task owns the turn, its status line is the only authority. The composer
+  // must not add a second, contradicting «Модель обрабатывает запрос…» clock.
+  taskActive?: boolean;
 }) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -79,30 +83,33 @@ export default function Composer({
     setSending(false);
   }
   const showStatus =
-    streaming ||
-    queued ||
-    phase === "stopped" ||
-    phase === "error" ||
-    phase === "completed";
-  const statusText = streaming
-    ? `${
-        phase === "sending"
-          ? "Отправляем запрос…"
-          : phase === "streaming"
-            ? "Ответ поступает…"
-            : elapsed < 8
-              ? "Ожидаем первый ответ модели…"
-              : "Модель обрабатывает запрос…"
-      } ${elapsed} с`
-    : queued
-      ? "Следующее сообщение в очереди"
-      : phase === "stopped"
-        ? "Генерация остановлена"
-        : phase === "error"
-          ? "Ошибка генерации"
-          : phase === "completed"
-            ? "Ответ завершён"
-            : "";
+    !taskActive &&
+    (streaming ||
+      queued ||
+      phase === "stopped" ||
+      phase === "error" ||
+      phase === "completed");
+  const statusText = taskActive
+    ? ""
+    : streaming
+      ? `${
+          phase === "sending"
+            ? "Отправляем запрос…"
+            : phase === "streaming"
+              ? "Ответ поступает…"
+              : elapsed < 8
+                ? "Ожидаем первый ответ модели…"
+                : "Модель обрабатывает запрос…"
+        } ${elapsed} с`
+      : queued
+        ? "Следующее сообщение в очереди"
+        : phase === "stopped"
+          ? "Генерация остановлена"
+          : phase === "error"
+            ? "Ошибка генерации"
+            : phase === "completed"
+              ? "Ответ завершён"
+              : "";
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (
       event.key === "Enter" &&

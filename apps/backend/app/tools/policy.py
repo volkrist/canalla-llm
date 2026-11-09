@@ -204,6 +204,23 @@ class ToolLimits:
     def remaining(self):
         return max(0, self.max_seconds - (time.monotonic() - self.started))
 
+    def snapshot(self):
+        """Non-secret counters for an honest limit message."""
+        return {
+            "calls": self.calls,
+            "max_calls": min(self.max_calls, self.hard_max_calls),
+            "searches": self.searches,
+            "max_search": self.max_search,
+            "fetches": self.fetches,
+            "max_fetch": self.max_fetch,
+            "pages": self.pages,
+            "max_pages": self.max_pages,
+            "tor_fetches": self.tor_fetches,
+            "max_tor_fetch": min(self.max_tor_fetch, self.hard_tor_fetch),
+            "tor_pages": self.tor_pages,
+            "max_tor_pages": self.max_tor_pages,
+        }
+
     def consume(self, definition, args):
         ceiling = min(self.max_calls, self.hard_max_calls)
         # A spent task budget is a task outcome, not a tool outcome. Reporting it as `tool_limit`
@@ -251,7 +268,10 @@ class ToolLimits:
         self.calls += 1
         self.searches += searching
         self.fetches += fetching
-        self.pages += pages
+        # Only a direct fetch spends the direct page budget. A Tor fetch has its own budget and
+        # used to spend both: the user then saw «0 Fetch» next to «Достигнут лимит загруженных
+        # страниц», because the pages had been consumed by a different family entirely.
+        self.pages += pages if fetching else 0
         self.local_calls += local
         self.tor_searches += tor_searching
         self.tor_fetches += tor_fetching
