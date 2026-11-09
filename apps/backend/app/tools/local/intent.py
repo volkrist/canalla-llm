@@ -3,6 +3,7 @@
 import os
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .paths import native_path
 from .plan import looks_like_computer
@@ -233,11 +234,25 @@ def select_local_route(prompt: str, context=None) -> LocalDecision:
             "write_file",
             tuple(extra),
         )
-    if re.search(r"(?i)создай.{0,24}папк|create.{0,24}folder|create_directory", text) and not re.search(
-        r"(?i)файл|\.txt", text
-    ):
-        folder = path or (_join(root, name) if name else target)
-        if folder:
+    # "Создай в этой папке проект" asks to create files *inside* a folder, not to create a folder
+    # named after the first file in the sentence. That ambiguity turned `calc.py` into a directory
+    # before the controller ever wrote it, and the real file write then failed on a path the user
+    # never asked for. The route now needs an explicit folder object and a name that is not a file.
+    folder_request = re.search(
+        r"(?i)(?:создай|создайте|create)\s+(?:новую\s+|a\s+|the\s+)?"
+        r"(?:папку|каталог|директорию|folder|directory)\b",
+        text,
+    )
+    creating_in_folder = re.search(
+        r"(?i)(?:в\s+(?:этой\s+|указанной\s+)?папке|in\s+(?:this\s+|the\s+)?(?:folder|directory))",
+        text,
+    )
+    if folder_request and not creating_in_folder and not re.search(r"(?i)файл|\.txt", text):
+        absolute = extract_absolute_paths(text)
+        folder = path or (_join(root, name) if name else (absolute[0] if absolute else target))
+        # A folder request that resolves to something with a file extension is not a folder. The
+        # user asked to create files inside the folder, not a directory named `calc.py`.
+        if folder and not Path(native_path(folder)).suffix:
             return LocalDecision(
                 "create_directory", {"path": folder, "purpose": "create folder"}, "create_directory"
             )

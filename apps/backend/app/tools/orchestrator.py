@@ -31,9 +31,13 @@ from .tor.router import (
     pick_follow_urls,
     pick_tor_fetch_urls,
 )
-from .web_router import classify_web, pick_fetch_urls
+from .web_router import canonical_url, classify_web, pick_fetch_urls
 
 logger = logging.getLogger(__name__)
+
+# How far the controller reads on its own: two batches of three pages, then the model thinks.
+RESEARCH_MAX_BATCHES = 2
+RESEARCH_BATCH_SIZE = 3
 
 
 class ToolOrchestrator:
@@ -426,11 +430,14 @@ class ToolOrchestrator:
                     (intent.required or needs_research(prompt))
                     and context.mode != "off"
                     and context.web_search_done
-                    and not context.web_fetch_done
                     and context.settings
                     and context.settings.fetch_enabled
+                    and not context.web_fetch_done
                 ):
-                    follow = pick_fetch_urls(context.sources)
+                    follow = pick_fetch_urls(
+                        context.sources,
+                        exclude=getattr(context, "research_fetched", ()),
+                    )
                     if follow:
                         fetched = await self._run(
                             "web_fetch",
@@ -439,6 +446,10 @@ class ToolOrchestrator:
                             notes,
                             origin="server_policy",
                         )
+                        context.research_fetched = set(getattr(context, "research_fetched", set())) | {
+                            canonical_url(url) for url in follow
+                        }
+                        context.research_batches = int(getattr(context, "research_batches", 0) or 0) + 1
                         planning.append(
                             {
                                 "role": "tool",
@@ -715,24 +726,15 @@ class ToolOrchestrator:
             if (
                 context.mode != "off"
                 and not tor_intent.required
-                # A computer task skips the *cheap search* so the model can pick its own
-                # research, but once a search really ran and nothing was read, the page text is
-                # still the missing product. `skip_cheap_web` used to suppress that fetch too,
-                # which is how a task ended with «1 Search · 0 Fetch» and no article text.
                 and context.web_search_done
-                and not context.web_fetch_done
                 and context.settings
                 and context.settings.fetch_enabled
             ):
-                urls = pick_fetch_urls(context.sources)
-                if urls:
-                    await self._run(
-                        "web_fetch",
-                        json.dumps({"urls": urls, "fresh": intent.fresh}, ensure_ascii=False),
-                        context,
-                        notes,
-                        origin="server_policy",
-                    )
+                # A single fetch of three URLs is a reading, not research. The controller keeps
+                # reading the next-best unread sources for a bounded number of batches; official
+                # documentation is ranked first, and the hard page/fetch budgets still decide how
+                # far it may go.
+                await self._bounded_research_reads(context, notes, intent, planning)
             await self._maybe_tinyfish_paid(context, notes, prompt, tor_intent, planning)
         finally:
             await self._close_tor_browser()
@@ -988,6 +990,35 @@ class ToolOrchestrator:
                     origin="server_policy",
                 )
                 self._append_planning(planning, context, output, "server_web_agent")
+
+    async def _bounded_research_reads(self, context, notes, intent, planning=None):
+        """Read the next-best unread sources, a bounded number of batches at a time.
+
+        This is the continuation the product was missing: after a search, three pages are a
+        reading, not research. Each batch excludes what was already requested, ranks official
+        documentation first, and stops at the same hard page/fetch budgets the rest of the turn
+        obeys. It never loops: two batches, then the model decides with the text in hand.
+        """
+        while int(getattr(context, "research_batches", 0) or 0) < RESEARCH_MAX_BATCHES:
+            exclude = getattr(context, "research_fetched", set()) or set()
+            urls = pick_fetch_urls(context.sources, limit=RESEARCH_BATCH_SIZE, exclude=exclude)
+            if not urls:
+                return
+            try:
+                await self._run(
+                    "web_fetch",
+                    json.dumps({"urls": urls, "fresh": intent.fresh}, ensure_ascii=False),
+                    context,
+                    notes,
+                    origin="server_policy",
+                )
+            except ToolError as error:
+                # The page budget is the page budget: report it and let the task continue with
+                # what was already read instead of turning it into a failed tool.
+                notes.append(f"Research reading stopped: {error.code}.")
+                return
+            context.research_fetched = set(exclude) | {canonical_url(url) for url in urls}
+            context.research_batches = int(getattr(context, "research_batches", 0) or 0) + 1
 
     async def _maybe_security(self, context, notes, prompt, planning, *, reason, only_if_dirty=False):
         """Run one authorized assessment round over files the host already let us read."""

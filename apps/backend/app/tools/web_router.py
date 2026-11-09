@@ -84,9 +84,76 @@ def canonical_url(value: str) -> str:
     return urlunsplit((parsed.scheme.lower(), netloc, path, query, ""))
 
 
-def pick_fetch_urls(sources, limit=3):
-    seen, urls = set(), []
-    for source in sources:
+OFFICIAL_HOSTS = (
+    "python.org",
+    "docs.python.org",
+    "developer.mozilla.org",
+    "nodejs.org",
+    "npmjs.com",
+    "github.com",
+    "raw.githubusercontent.com",
+    "gitlab.com",
+    "rust-lang.org",
+    "docs.rs",
+    "go.dev",
+    "pkg.go.dev",
+    "readthedocs.io",
+    "docs.docker.com",
+    "kubernetes.io",
+    "microsoft.com",
+    "learn.microsoft.com",
+    "torproject.org",
+    "nvd.nist.gov",
+    "cisa.gov",
+    "osv.dev",
+)
+SECONDARY_HOSTS = (
+    "stackoverflow.com",
+    "stackexchange.com",
+    "reddit.com",
+    "medium.com",
+    "dev.to",
+    "quora.com",
+    "youtube.com",
+    "pinterest.com",
+    "facebook.com",
+    "x.com",
+    "twitter.com",
+)
+DOC_PATH = re.compile(
+    r"(?i)/(docs?|documentation|reference|manual|guide|api|releases?|changelog|security|advis|wiki)/"
+)
+
+
+def source_priority(source: dict) -> int:
+    """Higher is better. Official documentation first, aggregators last.
+
+    The order is what makes a bounded multi-page read useful: spending one of three fetch slots on
+    a social post while the vendor's own documentation sits unread is the failure this prevents.
+    """
+    url = str(source.get("final_url") or source.get("url") or "")
+    parsed = urlsplit(url)
+    host = (parsed.hostname or "").rstrip(".").lower()
+    score = 0
+    if any(host == item or host.endswith("." + item) for item in OFFICIAL_HOSTS):
+        score += 40
+    if any(host == item or host.endswith("." + item) for item in SECONDARY_HOSTS):
+        score -= 20
+    if DOC_PATH.search(parsed.path or ""):
+        score += 10
+    if source.get("published_at") or source.get("last_modified"):
+        score += 3
+    if source.get("retrieval") == "fetch" or source.get("kind") == "fetch":
+        score -= 100
+    return score
+
+
+def pick_fetch_urls(sources, limit=3, exclude=()):
+    """The next pages to read: deduplicated, official first, already-read never repeated."""
+    seen = {canonical_url(url) for url in (exclude or ()) if url}
+    ranked = sorted(enumerate(sources or []), key=lambda item: (-source_priority(item[1]), item[0]))
+    urls = []
+    for _index, source in ranked:
         url = source.get("final_url") or source.get("url") or ""
         key = canonical_url(url)
         if not key or source.get("kind") == "fetch" or key in seen:

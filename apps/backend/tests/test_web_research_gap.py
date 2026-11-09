@@ -25,6 +25,7 @@ from app.tools.executor import ExecutionContext, ToolExecutor
 from app.tools.models import LocalTask, ToolRun
 from app.tools.orchestrator import ToolOrchestrator
 from app.tools.policy import ToolLimits, WebSettings
+from app.tools.web_router import canonical_url, pick_fetch_urls
 from tests.fakes_web import fake_registry
 
 RESEARCH_AND_BUILD = "Изучи актуальную документацию Python и создай в папке CLI-проект с тестами."
@@ -55,6 +56,89 @@ class SearchOnly:
                 ]
             }
         return {"tool_calls": []}
+
+
+def test_official_documentation_is_read_before_secondary_sources():
+    sources = [
+        {"url": "https://www.reddit.com/r/python/comments/x", "retrieval": "search"},
+        {"url": "https://example.com/blog/post", "retrieval": "search"},
+        {"url": "https://docs.python.org/3/library/asyncio.html", "retrieval": "search"},
+        {"url": "https://github.com/org/project/releases", "retrieval": "search"},
+    ]
+    picked = pick_fetch_urls(sources, limit=2)
+    assert picked[0] == "https://docs.python.org/3/library/asyncio.html"
+    assert picked[1] == "https://github.com/org/project/releases"
+
+
+def test_a_page_already_read_is_never_requested_again():
+    sources = [
+        {"url": "https://docs.python.org/3/a.html", "retrieval": "search"},
+        {"url": "https://docs.python.org/3/b.html", "retrieval": "search"},
+    ]
+    exclude = {canonical_url("https://docs.python.org/3/a.html")}
+    assert pick_fetch_urls(sources, exclude=exclude) == ["https://docs.python.org/3/b.html"]
+
+
+def test_the_controller_reads_two_batches_and_stops():
+    """Six sources, two batches of three pages, no repeats, then it stops."""
+    from app.tools.contracts import ToolRegistry
+    from app.tools.registry import make_registry
+    from app.tools.web_router import classify_web
+
+    base = make_registry()
+    registry = ToolRegistry()
+    for definition in base.definitions(auto_only=False):
+        registry.register(definition, base.get(definition.name)[1])
+    orchestrator = ToolOrchestrator(registry, ToolExecutor(registry))
+    context = ExecutionContext(
+        "user-1",
+        "chat-1",
+        None,
+        ToolLimits(max_calls=24, hard_max_calls=40, max_fetch=12, max_pages=36),
+        _noop,
+        mode="on",
+        computer_mode="off",
+        settings=WebSettings(computer_mode="off", default_mode="on"),
+        user_prompt="Изучи документацию",
+    )
+    context.sources = [
+        {
+            "url": f"https://example.com/doc{i}",
+            "final_url": f"https://example.com/doc{i}",
+            "title": f"Page {i}",
+            "excerpt": f"page {i} text",
+            "retrieval": "search",
+        }
+        for i in range(6)
+    ]
+    context.web_search_done = True
+    notes: list[str] = []
+    requested: list[list[str]] = []
+
+    async def fake_run(name, arguments, ctx, note_list, origin):
+        payload = json.loads(arguments) if isinstance(arguments, str) else arguments
+        requested.append(list(payload.get("urls") or []))
+        return {"text": "read", "sources": []}
+
+    orchestrator._run = fake_run
+    asyncio.run(
+        orchestrator._bounded_research_reads(context, notes, classify_web("Изучи документацию", "on"))
+    )
+
+    assert context.research_batches == 2
+    assert len(requested) == 2
+    flat = [url for batch in requested for url in batch]
+    assert len(flat) == 6
+    assert len(set(flat)) == 6
+    # A third call would need a third batch, which the controller must not take.
+    asyncio.run(
+        orchestrator._bounded_research_reads(context, notes, classify_web("Изучи документацию", "on"))
+    )
+    assert len(requested) == 2
+
+
+async def _noop(event, value):
+    return None
 
 
 def test_a_search_only_turn_still_reads_one_page(client, auth, tmp_path):

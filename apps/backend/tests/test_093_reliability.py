@@ -135,6 +135,22 @@ def test_deterministic_local_routes():
     assert read.action == "read_file"
 
 
+def test_create_in_this_folder_does_not_create_a_folder_named_like_a_file():
+    """Regression: «Создай в этой папке calc.py» created a *directory* called calc.py.
+
+    The folder route matched «создай … папке» and took the first resolved path, so the real file
+    write then landed inside that directory. A folder request must name a folder and its path must
+    not look like a file.
+    """
+    root = r"C:\Users\Volkr\Desktop\Alex-LLM-E2E"
+    context = SimpleNamespace(
+        task_scope=SimpleNamespace(primary_root=root), settings=WebSettings(workspace_roots=[root])
+    )
+    decision = select_local_route(f"Создай в этой папке {root}\\calc.py с функцией add и тестами", context)
+    assert decision.action != "create_directory", decision
+    assert select_local_route(f"Создай папку {root}\\reports", context).action == "create_directory"
+
+
 def test_no_progress_and_duplicate_suppression():
     facts = {"action_signatures": [{"tool": "search_code", "digest": "x", "novelty": False}] * 2}
     from app.tools.local.progress import signature

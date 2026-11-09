@@ -197,6 +197,10 @@ class ExecutionContext:
     tor_visited_hosts: set = field(default_factory=set)
     tor_candidates: list = field(default_factory=list)
     tor_queries: list = field(default_factory=list)
+    # The pages this turn has already asked for, and how many bounded research batches it spent.
+    # A continuation reads the *next* sources instead of re-fetching the same three URLs.
+    research_fetched: set = field(default_factory=set)
+    research_batches: int = 0
     user_prompt: str = ""
     network_route: str = ""
     workspace: object = None
