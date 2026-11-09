@@ -168,8 +168,35 @@ export function idleSeconds(
   return Math.max(0, Math.round((now - at) / 1000));
 }
 
+const ACTION_LABEL: Record<string, string> = {
+  clarify: "Уточняет задачу",
+  inspect: "Изучает проект",
+  inventory: "Просматривает проект",
+  scaffold: "Создаёт структуру проекта",
+  implement: "Пишет код",
+  tests: "Пишет тесты",
+  readme: "Пишет README",
+  run_cli: "Запускает программу",
+  run_tests: "Запускает тесты",
+  report: "Готовит отчёт",
+  git: "Проверяет git",
+  discover: "Ищет команды сборки",
+  baseline: "Запускает базовые тесты",
+  research: "Исследует вопрос",
+  search: "Ищет источники",
+  read: "Читает документацию",
+  check: "Сверяет источники",
+  scope: "Определяет разрешённый scope",
+  advisories: "Проверяет advisories",
+  review: "Анализирует код",
+  fix: "Исправляет найденное",
+  retest: "Повторно проверяет",
+  investigate: "Разбирает ошибку",
+};
+
 function actionSuffix(task: AutonomousTask): string {
-  const action = String(task.current_action || "").trim();
+  const key = String(task.current_action_key || "");
+  const action = ACTION_LABEL[key] || String(task.current_action || "").trim();
   return action ? ` · ${action}` : "";
 }
 

@@ -40,6 +40,7 @@ export interface AutonomousTask {
   terminal?: boolean;
   waiting?: boolean;
   current_action?: string;
+  current_action_key?: string;
   completed_count?: number;
   worked_count?: number;
   remaining_count?: number;

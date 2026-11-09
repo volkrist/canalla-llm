@@ -168,6 +168,16 @@ def test_waiting_for_permission_is_never_stalled():
     assert described["resume_available"] is True
 
 
+def test_the_current_action_carries_its_plan_key_for_localization():
+    described = task_status.describe(
+        row(machine.RESEARCHING),
+        [SimpleNamespace(title="Read selected sources", status="RUNNING", key="read")],
+        reference=NOW,
+    )
+    assert described["current_action_key"] == "read"
+    assert described["current_action"] == "Read selected sources"
+
+
 def test_activity_comes_from_the_journal_not_the_page_timer():
     last_event = NOW - timedelta(seconds=3)
     described = task_status.describe(

@@ -122,6 +122,19 @@ describe("the task status line", () => {
     expect(line.detail).toContain("llm_timeout");
   });
 
+  it("names the action in Russian instead of echoing the English plan title", () => {
+    const line = taskStatusLine(
+      task({
+        phase: "researching",
+        current_action: "Read selected sources",
+        current_action_key: "read",
+      }),
+      NOW,
+    );
+    expect(line.detail).toContain("Читает документацию");
+    expect(line.detail).not.toContain("Read selected sources");
+  });
+
   it("Test D: found but not read is stated honestly", () => {
     const line = taskStatusLine(
       task({

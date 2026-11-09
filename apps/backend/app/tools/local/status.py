@@ -135,12 +135,16 @@ def describe(row, steps, last_event_at: datetime | None = None, reference: datet
 
     if running is not None:
         action = running.title
+        action_key = getattr(running, "key", "") or ""
     elif pending:
         action = pending[0].title
+        action_key = getattr(pending[0], "key", "") or ""
     elif getattr(row, "current_step", ""):
         action = str(row.current_step)
+        action_key = ""
     else:
         action = ""
+        action_key = ""
 
     stall_after = STALL_AFTER_SECONDS.get(phase)
     stopped = bool(getattr(row, "stop_requested", False))
@@ -162,6 +166,9 @@ def describe(row, steps, last_event_at: datetime | None = None, reference: datet
         "terminal": terminal,
         "waiting": phase in WAITING_PHASES,
         "current_action": action,
+        # The plan key, so the UI can say «Читает документацию» in the user's language instead of
+        # echoing the English plan title into a Russian status line.
+        "current_action_key": action_key,
         "completed_actions": [step.title for step in done][:20],
         "remaining_actions": [step.title for step in pending][:20],
         "completed_count": len(done),
