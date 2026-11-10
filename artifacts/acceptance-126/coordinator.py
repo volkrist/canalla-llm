@@ -208,12 +208,13 @@ def plan(snapshot: dict, state: dict, cfg: Config) -> dict:
                     "reason": "only optional work is left and no session is affordable",
                     "optional_outstanding": optional_todo}
 
-    if int(state.get("checks", 0)) >= cfg.max_checks:
+    max_checks = int(state.get("max_checks") or cfg.max_checks)
+    if int(state.get("checks", 0)) >= max_checks:
         # The permitted check budget *is* the permitted window: 192 checks at 15 minutes is 48
         # hours. Reporting it as a capacity outcome keeps the report honest instead of implying
         # that a limit was hit while there was still time left to look.
         return {"action": "finish", "outcome": "EXPIRED_NO_CAPACITY",
-                "reason": f"{cfg.max_checks} free availability checks used; "
+                "reason": f"{max_checks} free availability checks used; "
                           f"no placeable card appeared in the window"}
 
     watchdog = snapshot.get("watchdog") or {}
@@ -264,6 +265,18 @@ def plan(snapshot: dict, state: dict, cfg: Config) -> dict:
 
 
 # ------------------------------------------------------------------------------------------ state IO
+
+
+def _checkpoint(name: str, **fields) -> None:
+    """Record a named checkpoint. Never let bookkeeping break the monitor."""
+    if QUIET:
+        return
+    try:
+        import checkpoints
+
+        checkpoints.record(name, **fields)
+    except BaseException as error:  # noqa: BLE001 - a checkpoint must not stop the run
+        print(f"checkpoint {name} not written: {type(error).__name__}")
 
 
 def atomic_write(path: Path, payload: dict) -> None:
@@ -790,6 +803,12 @@ def run_session(world: RealWorld, cfg: Config, state: dict, decision: dict) -> N
         watchdog_seconds=decision["watchdog_seconds"],
     )
 
+    _checkpoint("GPU_ACQUIRED", status="ACQUIRED",
+                evidence=f"{candidate['id']} in {candidate['datacenter']}",
+                next_step="+".join(scenarios),
+                extra={"gpu": candidate["id"], "datacenter": candidate["datacenter"],
+                       "volume_id": candidate["volume_id"],
+                       "hourly_catalogue_usd": candidate["selected_hourly_usd"]})
     result = world.run_scenario(
         scenarios,
         max_session_seconds=decision["max_session_seconds"],
@@ -833,6 +852,25 @@ def run_session(world: RealWorld, cfg: Config, state: dict, decision: dict) -> N
         world.sleep(15)
     attempt["stop_confirmed"] = confirmed
     state["in_session"] = False
+    _checkpoint(
+        "GPU_CLEANUP",
+        status="CONFIRMED" if confirmed else "UNCONFIRMED",
+        evidence=result.get("evidence") or "",
+        next_step="continue monitoring" if confirmed else "fail closed",
+        blocker="" if confirmed else "the Pod stop was not confirmed",
+        extra={"pod_seconds": result["pod_seconds"], "cost_usd": result["cost_usd"]},
+    )
+    for name, item in result["results"].items():
+        target = ("T4_LIVE_VERDICT" if name == "T4L"
+                  else "OPTIONAL_AUTONOMY_LIVE_VERDICT" if name == "LA" else None)
+        if target:
+            _checkpoint(target, status=str(item.get("verdict") or "UNKNOWN"),
+                        evidence=result.get("evidence") or "",
+                        next_step="release preflight" if item.get("verdict") == "PASS"
+                        else "fix before another paid attempt",
+                        blocker="" if item.get("verdict") == "PASS"
+                        else "; ".join(item.get("reasons") or [])[:300],
+                        extra={"scenario": name})
 
     if result["pod_created"] and not confirmed:
         world.stop_compute()
@@ -895,6 +933,9 @@ def run_release(world: RealWorld, cfg: Config, state: dict, decision: dict) -> N
 
     state["current_step"] = "release"
     save_state(state)
+    _checkpoint("RELEASE_READINESS", status="READY",
+                evidence="artifacts/acceptance-126/coordinator/state.json",
+                next_step="release_coordinator --execute")
     log_event(state, "live gates passed; running the release coordinator",
               optional_outstanding=decision.get("optional_outstanding"))
     result = world.release()
@@ -1230,6 +1271,12 @@ def _monitor_locked(cfg: Config, readiness: dict, dry_run: bool = False) -> int:
     save_state(state)
     log_event(state, "monitor started", expires_at=state["expires_at"],
               interval_seconds=cfg.interval_seconds, dry_run=dry_run)
+    _checkpoint("CURRENT_MONITOR_STATE", status="MONITORING",
+                evidence="artifacts/acceptance-126/coordinator/state.json",
+                next_step=state.get("next_step") or "T4L")
+    if (state.get("scenario_verdicts") or {}).get("T3L") == "PASS":
+        _checkpoint("T3_LIVE_PASS_PRESERVED", status="PASS",
+                    evidence="artifacts/acceptance-123/runs/live-20261110T113250/T3L.json")
     return run_loop(world, cfg, state, dry_run=dry_run)
 
 

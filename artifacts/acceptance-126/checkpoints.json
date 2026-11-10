@@ -1,0 +1,143 @@
+{
+  "schema": 1,
+  "checkpoints": {
+    "BASELINE": {
+      "at": "2026-11-10T22:38:52.551820+00:00",
+      "git_sha": "0dc7f88",
+      "status": "PASS",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 2,
+      "spent_usd": 0.3181,
+      "evidence": "artifacts/acceptance-126/coordinator/state-baseline-20261110T2237Z.json",
+      "next_step": "continue the free monitor",
+      "blocker": "",
+      "detail": {
+        "users": 2,
+        "chats": 49,
+        "messages": 111,
+        "paired_devices": 59,
+        "device_id": "f3548022-a676-463c-9fc0-b05bbd5ac907",
+        "computer_mode": "ask"
+      }
+    },
+    "CURRENT_MONITOR_STATE": {
+      "at": "2026-11-10T22:38:52.624548+00:00",
+      "git_sha": "0dc7f88",
+      "status": "MONITORING",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 2,
+      "spent_usd": 0.3181,
+      "evidence": "artifacts/acceptance-126/coordinator/state.json",
+      "next_step": "T4L on the next placeable card",
+      "blocker": "",
+      "detail": {
+        "ttl_extension_to": "2026-11-17T22:37:00+00:00",
+        "max_checks": 672
+      }
+    },
+    "T3_LIVE_PASS_PRESERVED": {
+      "at": "2026-11-10T22:38:52.711385+00:00",
+      "git_sha": "0dc7f88",
+      "status": "PASS",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 2,
+      "spent_usd": 0.3181,
+      "evidence": "artifacts/acceptance-123/runs/live-20261110T113250/T3L.json",
+      "next_step": "",
+      "blocker": "",
+      "detail": {}
+    },
+    "T4_FREE_READY": {
+      "at": "2026-11-10T22:38:52.842098+00:00",
+      "git_sha": "0dc7f88",
+      "status": "PASS",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 2,
+      "spent_usd": 0.3181,
+      "evidence": "artifacts/acceptance-126/free_restart_selftest.py t4 -> verdict PASS",
+      "next_step": "",
+      "blocker": "",
+      "detail": {}
+    },
+    "GPU_CAPACITY_MONITORING": {
+      "at": "2026-11-10T22:38:52.986732+00:00",
+      "git_sha": "0dc7f88",
+      "status": "ACTIVE",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 2,
+      "spent_usd": 0.3181,
+      "evidence": "artifacts/acceptance-126/gpu-availability.json",
+      "next_step": "free availability read every 15 minutes",
+      "blocker": "no placeable card in US-TX-3 / US-MO-1 at the last check",
+      "detail": {}
+    },
+    "GPU_CLEANUP": {
+      "at": "2026-11-10T22:38:53.085808+00:00",
+      "git_sha": "0dc7f88",
+      "status": "CONFIRMED",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 2,
+      "spent_usd": 0.3181,
+      "evidence": "pods [] after every attempt",
+      "next_step": "",
+      "blocker": "",
+      "detail": {
+        "pods_created": 2,
+        "spent_usd": 0.3181
+      }
+    },
+    "T4_LIVE_VERDICT": {
+      "at": "2026-11-10T22:38:53.168742+00:00",
+      "git_sha": "0dc7f88",
+      "status": "RETRY",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 2,
+      "spent_usd": 0.3181,
+      "evidence": "artifacts/acceptance-123/runs/live-20261110T133533/T4L.json",
+      "next_step": "T4L on the next placeable card with the fixed resolver",
+      "blocker": "the first attempt failed on a harness defect (task resolved in another chat); the product mechanics were never exercised",
+      "detail": {}
+    },
+    "RELEASE_READINESS": {
+      "at": "2026-11-10T22:38:53.249218+00:00",
+      "git_sha": "0dc7f88",
+      "status": "BLOCKED",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 2,
+      "spent_usd": 0.3181,
+      "evidence": "artifacts/acceptance-126/release-evidence.json",
+      "next_step": "T4 LIVE PASS",
+      "blocker": "t4_live is not PASS",
+      "detail": {}
+    }
+  },
+  "updated_at": "2026-11-10T22:38:53.249218+00:00",
+  "order": [
+    "BASELINE",
+    "CURRENT_MONITOR_STATE",
+    "T3_LIVE_PASS_PRESERVED",
+    "T4_FREE_READY",
+    "GPU_CAPACITY_MONITORING",
+    "GPU_ACQUIRED",
+    "T4_LIVE_RUNNING",
+    "T4_LIVE_VERDICT",
+    "OPTIONAL_AUTONOMY_LIVE_VERDICT",
+    "GPU_CLEANUP",
+    "RELEASE_READINESS",
+    "FINAL_CI",
+    "SIGNATURE",
+    "INSTALLED_SMOKE",
+    "GITHUB_RELEASE",
+    "UPDATER",
+    "POST_RELEASE_VERIFY",
+    "NEXT_AUTONOMY_DEVELOPMENT"
+  ]
+}

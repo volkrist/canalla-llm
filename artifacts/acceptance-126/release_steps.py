@@ -578,6 +578,32 @@ STEPS = (
 
 PROGRESS = REPO / "artifacts" / "acceptance-126" / "release-progress.json"
 
+# The steps that *are* a named checkpoint. Recorded as they run, so a resumed release, or a
+# post-mortem, can see the same truth the transcript has.
+CHECKPOINT_FOR = {
+    "04_verify_artifact": "SIGNATURE",
+    "05_ci": "FINAL_CI",
+    "08_installed_smoke": "INSTALLED_SMOKE",
+    "10_release": "GITHUB_RELEASE",
+    "14_manifest": "UPDATER",
+    "16_health": "POST_RELEASE_VERIFY",
+}
+
+
+def _checkpoint(step: str, entry: dict) -> None:
+    name = CHECKPOINT_FOR.get(step)
+    if not name:
+        return
+    try:
+        import checkpoints
+
+        checkpoints.record(name, status=entry["status"], evidence=entry.get("detail") or "",
+                           next_step="", blocker="" if entry["status"] in {"PASS", "SKIP"}
+                           else (entry.get("detail") or "")[:300],
+                           extra={"step": step})
+    except BaseException:
+        pass
+
 
 def load_progress() -> dict:
     if not PROGRESS.exists():
@@ -607,6 +633,7 @@ def run_steps(ctx: Context, *, resume_from: str = "", only: str = "") -> int:
         if only and name != only:
             continue
         entry = function(ctx)
+        _checkpoint(name, entry)
         if entry["status"] in {"FAIL", "BLOCKED"}:
             failures += 1
             print(f"--- {name} did not pass; later steps are not executed")

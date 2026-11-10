@@ -219,8 +219,22 @@ def _pods() -> list[dict]:
         return [{"error": f"{type(error).__name__}: {error}"}]
 
 
+def _remote_head() -> str:
+    """The commit the public branch actually points at."""
+    branch = git("rev-parse", "--abbrev-ref", "HEAD")
+    if not branch or branch == "HEAD":
+        return ""
+    out = _text(_run(["git", "ls-remote", "origin", f"refs/heads/{branch}"])).strip()
+    return out.split()[0] if out else ""
+
+
 def _ci_evidence(head: str) -> dict:
     """The CI run for exactly this SHA, counted by job — the workflow has seven of them."""
+    remote = _remote_head()
+    if remote and remote != head:
+        # CI only runs what was pushed: a local-only commit has no verdict to trust.
+        return {"passed": 0, "total": 0, "sha": head,
+                "reason": f"HEAD {head[:10]} is not on origin ({remote[:10]}); push before publishing"}
     result = _run(
         ["gh", "run", "list", "--workflow", "CI", "--commit", head, "--limit", "5",
          "--json", "databaseId,headSha,conclusion"],

@@ -314,6 +314,65 @@ def test_source_has_no_unsafe_flags() -> None:
           and ".read_text()" not in source.split("KEY = Path.home()")[1][:200])
 
 
+def test_a_changed_installer_is_refused(tmp: Path) -> None:
+    """The byte the signature covers must still be the byte on disk when we install or publish."""
+    installer = tmp / release_steps.INSTALLER_NAME
+    signature = tmp / (release_steps.INSTALLER_NAME + ".sig")
+    installer.write_bytes(b"installer")
+    signature.write_bytes(b"signature")
+    original = (release_steps.INSTALLER, release_steps.SIGNATURE)
+    release_steps.INSTALLER, release_steps.SIGNATURE = installer, signature
+    try:
+        ctx = FakeContext()
+        ctx.evidence = {"installer": {"sha256": "00" * 32}}
+        entry = release_steps.install(ctx)
+        check("an installer that changed after verification is refused",
+              entry["status"] == "FAIL", entry["detail"])
+    finally:
+        release_steps.INSTALLER, release_steps.SIGNATURE = original
+
+
+def test_a_partially_uploaded_release_resumes(tmp: Path) -> None:
+    installer = tmp / release_steps.INSTALLER_NAME
+    signature = tmp / (release_steps.INSTALLER_NAME + ".sig")
+    sums = tmp / f"SHA256SUMS-{release_steps.VERSION}.txt"
+    installer.write_bytes(b"installer")
+    signature.write_bytes(b"signature")
+    sums.write_bytes(b"sums")
+    original = (release_steps.INSTALLER, release_steps.SIGNATURE, release_steps.SUMS)
+    release_steps.INSTALLER, release_steps.SIGNATURE, release_steps.SUMS = installer, signature, sums
+    try:
+        digest = "sha256:" + hashlib.sha256(b"installer").hexdigest()
+        ctx = FakeContext(release={
+            "tagName": "v1.2.6",
+            "assets": [{"name": release_steps.ASSET_NAMES["installer"], "digest": digest}],
+        })
+        entry = release_steps.release(ctx)
+        uploads = [
+            " ".join(cmd) for cmd in ctx.commands if "upload" in cmd
+        ]
+        check("a partially uploaded release is completed, not recreated",
+              entry["status"] == "PASS", entry["detail"])
+        check("only the missing assets are uploaded", len(uploads) == 1, str(uploads))
+        check("no second release is created",
+              not any("release" in " ".join(cmd) and "create" in cmd for cmd in ctx.commands))
+    finally:
+        release_steps.INSTALLER, release_steps.SIGNATURE, release_steps.SUMS = original
+
+
+def test_a_manifest_failure_is_reported_and_backed_up(tmp: Path) -> None:
+    url = ("https://gateway.12testers.store/updates/latest"
+           "?target=windows&arch=x86_64&current_version=1.2.5")
+    ctx = FakeContext(http={url: (200, json.dumps({"version": "1.2.5"}).encode(), {})})
+    ctx.answers["manifest_exit"] = 1
+    entry = release_steps.manifest_backup(ctx)
+    check("the previous manifest is backed up before the change",
+          entry["status"] == "PASS" and "cp -p" in " ".join(ctx.remotes), entry["detail"])
+    entry = release_steps.manifest(ctx)
+    check("a manifest that cannot be built is a FAIL, never a silent success",
+          entry["status"] == "FAIL", entry["detail"])
+
+
 def test_prepublication_gates_can_be_produced_but_live_gates_cannot() -> None:
     for gate in ("developer_gate", "candidate_gate", "suites", "verify_artifact",
                  "installed_smoke"):
@@ -352,6 +411,9 @@ def main() -> int:
         test_a_failure_aborts_the_sequence,
         test_source_has_no_unsafe_flags,
         test_prepublication_gates_can_be_produced_but_live_gates_cannot,
+        test_a_changed_installer_is_refused,
+        test_a_partially_uploaded_release_resumes,
+        test_a_manifest_failure_is_reported_and_backed_up,
     ]
     for test in tests:
         print(f"--- {test.__name__}")
