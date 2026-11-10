@@ -233,11 +233,11 @@ and without any technical setup.
 | Fact | Value |
 |---|---|
 | Source | The Tor Project's official **expert bundle** (the daemon only — no browser, no pluggable transports, no control port) |
-| Release | Tor Browser release `15.0.23`, daemon `0.4.9.12` |
-| Archive (Windows x86_64) | `https://dist.torproject.org/torbrowser/15.0.23/tor-expert-bundle-windows-x86_64-15.0.23.tar.gz` — SHA256 `231dad6b9cb401a54c260db7046965ef04e4f72ff071b140d423fb5da281ab1e`, 22 432 027 bytes |
-| Archive (Linux x86_64) | `https://dist.torproject.org/torbrowser/15.0.23/tor-expert-bundle-linux-x86_64-15.0.23.tar.gz` — SHA256 `08d49de27f542b8f73e2014e064d8320562b5d20019c03d4725c5a5249d97985`, 32 339 495 bytes |
+| Release | Tor Browser release `16.0.1`, daemon `0.4.9.16` |
+| Archive (Windows x86_64) | `https://dist.torproject.org/torbrowser/16.0.1/tor-expert-bundle-windows-x86_64-16.0.1.tar.gz` — SHA256 `9eed3c3ff1fe43df034ce360196c9ec95472560d77ff55614d0cd5120edea27b`, 23 767 908 bytes |
+| Archive (Linux x86_64) | `https://dist.torproject.org/torbrowser/16.0.1/tor-expert-bundle-linux-x86_64-16.0.1.tar.gz` — SHA256 `7039cb16060ab22e669852e55774d894b55f25ea8bd0ab7194d3478429a58725`, 33 731 966 bytes |
 | License | **GPL-3.0**. The Tor Project builds released binaries with `--enable-gpl`; Tor's own code is BSD-3-Clause, and `docs/tor.txt` from the bundle lists the components |
-| Corresponding source | `https://dist.torproject.org/tor-0.4.9.12.tar.gz` (build scripts: `tor-browser-build`) |
+| Corresponding source | `https://dist.torproject.org/tor-0.4.9.16.tar.gz` (build scripts: `tor-browser-build`) |
 | Pin | `scripts/tor-runtime.json` (version, url, bytes, SHA256, licence, licence texts and the exact file list) |
 | Fetch and verify | `python scripts/fetch-tor-runtime.py` (optionally `--archive`, `--platform`, `--verify-only`, `--clean`) |
 | Windows path | `<install>\runtime\tor\tor.exe` (+ `geoip`, `geoip6`, the licence texts and `runtime.json`) |

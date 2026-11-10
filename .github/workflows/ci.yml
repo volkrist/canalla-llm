@@ -117,7 +117,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.tor-runtime-cache
-          key: tor-runtime-16.0
+          key: tor-runtime-16.0.1
 
       - name: Fetch, verify and stage the pinned runtime
         run: python scripts/fetch-tor-runtime.py --print --cache "${{ github.workspace }}/.tor-runtime-cache"
@@ -130,7 +130,7 @@ jobs:
           $output = (& $exe --version 2>&1 | Out-String)
           Write-Host $output
           if ($LASTEXITCODE -ne 0) { throw "tor --version exited $LASTEXITCODE" }
-          if ($output -notmatch "0\.4\.9\.15") { throw "the staged daemon is not the pinned version" }
+          if ($output -notmatch "0\.4\.9\.16") { throw "the staged daemon is not the pinned version" }
 
       - name: Install backend dependencies
         run: |
@@ -325,7 +325,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.tor-runtime-cache
-          key: tor-runtime-16.0
+          key: tor-runtime-16.0.1
 
       - name: Create the backend venv the sidecar build uses
         run: |

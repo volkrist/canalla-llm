@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-11-10T10:34:51.525416+00:00",
-  "git_sha": "288e933",
+  "generated_at": "2026-11-10T11:17:11.273724+00:00",
+  "git_sha": "9f3e7ca",
   "installed_version": "1.2.6",
   "flags": {
     "t3_free_ready": true,
@@ -21,9 +21,9 @@
     "candidate_verified": "RELEASE GATE: PASS",
     "data_safe": "integrity ok, users 2, chats 48, messages 108, devices 59",
     "device_stable": "device_id f3548022-a676-463c-9fc5-b05bbd5ac907",
-    "tor_ready": "state ready, chain True, runtime 0.4.9.15, source bundled",
+    "tor_ready": "state ready, chain True, runtime 0.4.9.16, source bundled",
     "gpu_watchdog_ready": "\": \"NVIDIA\",   \"allowed_max_hourly\": 2.0,   \"session_id\": null,   \"pod_id\": null,   \"pod_created_at\": null,   \"status\": \"disarmed\",   \"post_stop_until\": null } ",
-    "budget_available": "pods 0, balance $10.1406396344",
+    "budget_available": "pods 0, balance $10.1309174122",
     "release_pipeline_ready": "release_coordinator.py present"
   },
   "required_flags": [
@@ -38,11 +38,11 @@
   ],
   "ok": true,
   "device_id": "f3548022-a676-463c-9fc5-b05bbd5ac907",
-  "balance_usd": 10.1406396344,
+  "balance_usd": 10.1309174122,
   "pods": [],
   "availability": {
     "verdict": "NOT_PLACEABLE",
-    "tested_at": "2026-11-10T10:34:48Z",
+    "tested_at": "2026-11-10T11:17:07Z",
     "candidates": [],
     "scanned": [
       {
