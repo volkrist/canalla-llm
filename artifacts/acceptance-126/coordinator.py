@@ -300,11 +300,14 @@ class Lock:
         if pid <= 0:
             return False
         if os.name == "nt":
+            # A localised Windows answers in cp866/cp1251; `text=True` then raises inside the
+            # pipe reader thread and the stale-lock check dies on a byte it cannot decode.
             result = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, timeout=30,
             )
-            return str(pid) in (result.stdout or "")
+            output = (result.stdout or b"").decode("utf-8", "replace")
+            return str(pid) in output
         try:
             os.kill(pid, 0)
             return True
@@ -952,8 +955,8 @@ def run_preflight(cfg: Config) -> dict:
         "generated_at": _now().isoformat(),
         "git_sha": subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"], cwd=str(REPO),
-            capture_output=True, text=True, timeout=60,
-        ).stdout.strip(),
+            capture_output=True, timeout=60,
+        ).stdout.decode("utf-8", "replace").strip(),
         "installed_version": installed_version(),
         "flags": flags,
         "detail": detail,
