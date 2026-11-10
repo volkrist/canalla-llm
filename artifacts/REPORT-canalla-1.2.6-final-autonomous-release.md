@@ -224,8 +224,9 @@ llama-runtime, llama-runtime-image, frontend-e2e, installer-build). Release gate
 ## 7. Автономный процесс, запущенный сейчас
 
 ```
-процесс:  apps/backend/.venv/Scripts/python.exe artifacts/acceptance-126/coordinator.py monitor
-PID:      16548 (обычный пользовательский процесс, без службы и без планировщика)
+процесс:  powershell -File artifacts/acceptance-126/run-monitor.ps1
+          (он держит apps/backend/.venv/Scripts/python.exe …/coordinator.py monitor)
+PID:      17472 (обычный пользовательский процесс, без службы и без планировщика)
 окно:     2026-11-10T11:17:30Z → 2026-11-12T11:17:30Z (48 ч)
 состояние: monitoring, checks=6, pods_created=1, spent≈$0.074, T3L=PASS, next=T4L
 лог:      artifacts/acceptance-126/coordinator/monitor.out.log (+ monitor-run1.*)
@@ -236,6 +237,12 @@ PID:      16548 (обычный пользовательский процесс,
 apps/backend/.venv/Scripts/python.exe artifacts/acceptance-126/coordinator.py status
 apps/backend/.venv/Scripts/python.exe artifacts/acceptance-126/coordinator.py cancel
 ```
+
+Почему появилась обёртка: один раз дочерний python исчез во время `sleep` — без traceback и без
+записи в stderr. Состояние на диске при этом цело, поэтому `run-monitor.ps1` просто перезапускает
+координатор (раз в 30 с) и выходит, когда тот завершился или когда выставлен `cancel`. Это не
+служба и не планировщик, а тот же пользовательский процесс; дублей он не создаёт, потому что
+state machine идемпотентна.
 
 На следующем окне capacity координатор выполнит T4L, затем LA — в пределах того же бюджета и
 капа 600 с на Pod — и оставит `READY_FOR_RELEASE`. Публикацию выполнит
