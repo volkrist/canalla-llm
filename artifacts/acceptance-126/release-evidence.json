@@ -1,19 +1,39 @@
 {
   "evidence": {
-    "collected_at": "2026-11-10T10:38:23.512772+00:00",
+    "collected_at": "2026-11-10T11:33:50.512552+00:00",
     "version": "1.2.6",
-    "head": "288e93361dae86ce198f7384d1776d3ddeb4159f",
-    "pods": [],
+    "head": "5cbe56f9ae5e00be30aec1b2a235508a55f28ab8",
+    "pods": [
+      {
+        "id": "alwlautwj4nb3y",
+        "status": "RUNNING",
+        "dataCenterId": "US-TX-3",
+        "cloud": "SECURE",
+        "mounts": {
+          "network": [
+            {
+              "path": "/workspace",
+              "volumeId": "uwgeaie5b0"
+            }
+          ]
+        },
+        "cost": 1.09,
+        "createdAt": "2026-11-10T11:32:54.994Z"
+      }
+    ],
     "branch": "release/canalla-1.2.4",
     "dirty": true,
     "product_version": "1.2.6",
     "installer": {
       "path": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\apps\\desktop\\src-tauri\\target\\release\\bundle\\nsis\\Canalla LLM_1.2.6_x64-setup.exe",
       "present": true,
-      "sha256": "2ab90829d44824174bc391c4b366fafa78b02b477d4c3291400789831506d99b",
+      "sha256": "5c3df5ddd3d534a72adf5edfd37b37cb63880954c180f79045a477d24cfa9e66",
       "signature_present": true
     },
-    "installer_sha_recorded": {},
+    "installer_sha_recorded": {
+      "file": "artifacts/SHA256SUMS-1.2.6.txt",
+      "sha256": "5c3df5ddd3d534a72adf5edfd37b37cb63880954c180f79045a477d24cfa9e66"
+    },
     "installed": {
       "product_version": null,
       "db": null
@@ -22,7 +42,7 @@
       "outcome": null,
       "scenario_verdicts": {},
       "pods_created": 0,
-      "spent_usd": 0
+      "spent_usd": 0.0
     },
     "prior_live": {
       "run": "live-20261108T131238",
@@ -30,18 +50,18 @@
       "verdict": "PASS"
     },
     "ci": {
-      "sha": "288e93361dae86ce198f7384d1776d3ddeb4159f",
-      "run_id": 42715300176,
+      "sha": "5cbe56f9ae5e00be30aec1b2a235508a55f28ab8",
+      "run_id": 42806353293,
       "total": 7,
       "passed": 7,
       "jobs": {
         "frontend-e2e": "success",
-        "native-gate": "success",
-        "llama-runtime": "success",
-        "developer-gate": "success",
-        "tor-runtime": "success",
         "llama-runtime-image": "success",
-        "installer-build": "success"
+        "installer-build": "success",
+        "developer-gate": "success",
+        "native-gate": "success",
+        "tor-runtime": "success",
+        "llama-runtime": "success"
       }
     },
     "readiness": {
@@ -58,7 +78,7 @@
         "budget_available": true,
         "release_pipeline_ready": true
       },
-      "generated_at": "2026-11-10T10:34:51.525416+00:00"
+      "generated_at": "2026-11-10T11:17:11.273724+00:00"
     }
   },
   "plan": {
@@ -100,15 +120,15 @@
       },
       "ci": {
         "ok": true,
-        "detail": "7/7 on 288e93361d"
+        "detail": "7/7 on 5cbe56f9ae"
       },
       "suites": {
         "ok": false,
         "detail": "backend/frontend/Rust/Gateway/Playwright are inside the developer gate"
       },
       "signature": {
-        "ok": false,
-        "detail": "installer 2ab90829d44824174bc391c4b366fafa78b02b477d4c3291400789831506d99b, recorded None"
+        "ok": true,
+        "detail": "installer 5c3df5ddd3d534a72adf5edfd37b37cb63880954c180f79045a477d24cfa9e66, recorded 5c3df5ddd3d534a72adf5edfd37b37cb63880954c180f79045a477d24cfa9e66"
       },
       "installed_smoke": {
         "ok": false,
@@ -123,7 +143,7 @@
         "detail": "the device_id did not change across the live runs"
       },
       "pods_empty": {
-        "ok": true,
+        "ok": false,
         "detail": "the provider account has no running Pod"
       }
     },
@@ -134,7 +154,7 @@
       "candidate_gate",
       "suites",
       "installed_smoke",
-      "signature"
+      "pods_empty"
     ],
     "steps": [
       [

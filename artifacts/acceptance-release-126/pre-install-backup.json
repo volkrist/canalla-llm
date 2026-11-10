@@ -11,32 +11,32 @@
     "instance": null
   },
   "backup": {
-    "id": "20261109T222154Z-manual",
-    "path": "C:\\Users\\Volkr\\AppData\\Local\\Alex LLM\\backups\\20261109T222154Z-manual",
+    "id": "20261110T100006Z-manual",
+    "path": "C:\\Users\\Volkr\\AppData\\Local\\Alex LLM\\backups\\20261110T100006Z-manual",
     "verified": true,
-    "verified_at": "2026-11-09T22:21:54.286452+00:00",
+    "verified_at": "2026-11-10T10:00:06.418592+00:00",
     "backup_format_version": 1,
     "app_version": "1.2.5",
     "schema_revision": "0016",
-    "created_at": "2026-11-09T22:21:54.131541+00:00",
+    "created_at": "2026-11-10T10:00:06.269656+00:00",
     "files": 2,
     "bytes": 5230839,
     "documents": 0,
     "kind": "manual",
     "label": "pre-1.2.6-install",
     "pruned": [
-      "20261021T115230Z-manual"
+      "20261021T131015Z-manual"
     ]
   },
   "verify": {
-    "id": "20261109T222154Z-manual",
-    "path": "C:\\Users\\Volkr\\AppData\\Local\\Alex LLM\\backups\\20261109T222154Z-manual",
+    "id": "20261110T100006Z-manual",
+    "path": "C:\\Users\\Volkr\\AppData\\Local\\Alex LLM\\backups\\20261110T100006Z-manual",
     "verified": true,
-    "verified_at": "2026-11-09T22:21:54.604088+00:00",
+    "verified_at": "2026-11-10T10:00:06.671553+00:00",
     "backup_format_version": 1,
     "app_version": "1.2.5",
     "schema_revision": "0016",
-    "created_at": "2026-11-09T22:21:54.131541+00:00",
+    "created_at": "2026-11-10T10:00:06.269656+00:00",
     "files": 2,
     "bytes": 5230839,
     "documents": 0,
