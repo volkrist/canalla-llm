@@ -1,0 +1,44 @@
+{
+  "ok": true,
+  "checked_at": "2026-11-10T09:48:41Z",
+  "datacenters_checked": 52,
+  "datacenters_with_a_48gb_card_under_cap": [
+    "EUR-IS-2",
+    "US-NC-1",
+    "US-WA-1"
+  ],
+  "by_datacenter": {
+    "EUR-IS-2": [
+      {
+        "id": "NVIDIA L40S",
+        "vram_gb": 48,
+        "secure_hourly_usd": 0.79,
+        "community_hourly_usd": null
+      }
+    ],
+    "US-NC-1": [
+      {
+        "id": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+        "vram_gb": 96,
+        "secure_hourly_usd": 1.69,
+        "community_hourly_usd": null
+      }
+    ],
+    "US-WA-1": [
+      {
+        "id": "NVIDIA RTX 6000 Ada Generation",
+        "vram_gb": 48,
+        "secure_hourly_usd": 0.74,
+        "community_hourly_usd": null
+      }
+    ]
+  },
+  "configured_placements": {
+    "US-TX-3": "uwgeaie5b0",
+    "US-MO-1": "y92bt25ru8"
+  },
+  "configured_placements_availability": {
+    "US-TX-3": [],
+    "US-MO-1": []
+  }
+}

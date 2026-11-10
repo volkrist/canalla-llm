@@ -1,0 +1,67 @@
+{
+  "generated_at": "2026-11-10T10:34:51.525416+00:00",
+  "git_sha": "288e933",
+  "installed_version": "1.2.6",
+  "flags": {
+    "t3_free_ready": true,
+    "t4_free_ready": true,
+    "app_running": true,
+    "candidate_verified": true,
+    "data_safe": true,
+    "device_stable": true,
+    "tor_ready": true,
+    "gpu_watchdog_ready": true,
+    "budget_available": true,
+    "release_pipeline_ready": true
+  },
+  "detail": {
+    "t3_free_ready": "}",
+    "t4_free_ready": "}",
+    "app_running": "200 {\"status\":\"ok\",\"provider\":\"llamacpp\",\"llm_ready\":false,\"product\":\"alex-llm\",\"version\":\"1.2.6\",\"runtime_protocol_version\"",
+    "candidate_verified": "RELEASE GATE: PASS",
+    "data_safe": "integrity ok, users 2, chats 48, messages 108, devices 59",
+    "device_stable": "device_id f3548022-a676-463c-9fc5-b05bbd5ac907",
+    "tor_ready": "state ready, chain True, runtime 0.4.9.15, source bundled",
+    "gpu_watchdog_ready": "\": \"NVIDIA\",   \"allowed_max_hourly\": 2.0,   \"session_id\": null,   \"pod_id\": null,   \"pod_created_at\": null,   \"status\": \"disarmed\",   \"post_stop_until\": null } ",
+    "budget_available": "pods 0, balance $10.1406396344",
+    "release_pipeline_ready": "release_coordinator.py present"
+  },
+  "required_flags": [
+    "t3_free_ready",
+    "t4_free_ready",
+    "candidate_verified",
+    "data_safe",
+    "device_stable",
+    "gpu_watchdog_ready",
+    "release_pipeline_ready",
+    "budget_available"
+  ],
+  "ok": true,
+  "device_id": "f3548022-a676-463c-9fc5-b05bbd5ac907",
+  "balance_usd": 10.1406396344,
+  "pods": [],
+  "availability": {
+    "verdict": "NOT_PLACEABLE",
+    "tested_at": "2026-11-10T10:34:48Z",
+    "candidates": [],
+    "scanned": [
+      {
+        "volume_id": "uwgeaie5b0",
+        "datacenter": "US-TX-3",
+        "gpus_at_least_48gb": []
+      },
+      {
+        "volume_id": "y92bt25ru8",
+        "datacenter": "US-MO-1",
+        "gpus_at_least_48gb": [
+          {
+            "id": "NVIDIA H100 80GB HBM3",
+            "vram_gb": 80,
+            "secure_hourly_usd": 2.69,
+            "community_hourly_usd": null
+          }
+        ]
+      }
+    ]
+  }
+}

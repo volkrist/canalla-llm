@@ -1,0 +1,13 @@
+{
+ "version": "1.2.5",
+ "pub_date": "2026-10-27T14:58:55Z",
+ "channel": "stable",
+ "notes": "Canalla LLM 1.2.5 — стабильный идентификатор устройства, patch_file без скрытого удаления кода, непустой финальный ответ, устойчивый холодный prefill. H2 forced-error: PASS.",
+ "platforms": {
+  "windows-x86_64": {
+   "url": "https://gateway.12testers.store/downloads/Canalla%20LLM_1.2.5_x64-setup.exe",
+   "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTeUh4MFIvNDR5bTJmbzBFbW1BY3FyNmdZdWRGdzdUVGU4MkR2bTlneWVaTllJU3o4MWxXUVdCRlJrNzZZSkpvRkhZRUlQRStpUWoyR2xZS1MwWVQ4V0s4Mk5NU3hPR3dFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMTExODExCWZpbGU6Q2FuYWxsYSBMTE1fMS4yLjVfeDY0LXNldHVwLmV4ZQpNODhEU1lNQmFvYms1NGdiTFlpbHc0WkhWMFV5bWNtZ0R0TkR1c3RYSlJZQzVzMjVOUHNER1pHNzQ4dk5WaFlMRjRwZU0rNVNiZyt5d2piZU54aTJCdz09Cg==",
+   "sha256": "b90a6ee23ecac9922514830cb2b832e11697353c7b7a130de05bb16f46d8426b"
+  }
+ }
+}

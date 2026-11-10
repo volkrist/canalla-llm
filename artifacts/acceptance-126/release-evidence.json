@@ -1,0 +1,206 @@
+{
+  "evidence": {
+    "collected_at": "2026-11-10T10:38:23.512772+00:00",
+    "version": "1.2.6",
+    "head": "288e93361dae86ce198f7384d1776d3ddeb4159f",
+    "pods": [],
+    "branch": "release/canalla-1.2.4",
+    "dirty": true,
+    "product_version": "1.2.6",
+    "installer": {
+      "path": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\apps\\desktop\\src-tauri\\target\\release\\bundle\\nsis\\Canalla LLM_1.2.6_x64-setup.exe",
+      "present": true,
+      "sha256": "2ab90829d44824174bc391c4b366fafa78b02b477d4c3291400789831506d99b",
+      "signature_present": true
+    },
+    "installer_sha_recorded": {},
+    "installed": {
+      "product_version": null,
+      "db": null
+    },
+    "coordinator": {
+      "outcome": null,
+      "scenario_verdicts": {},
+      "pods_created": 0,
+      "spent_usd": 0
+    },
+    "prior_live": {
+      "run": "live-20261108T131238",
+      "scenario": "LA",
+      "verdict": "PASS"
+    },
+    "ci": {
+      "sha": "288e93361dae86ce198f7384d1776d3ddeb4159f",
+      "run_id": 42715300176,
+      "total": 7,
+      "passed": 7,
+      "jobs": {
+        "frontend-e2e": "success",
+        "native-gate": "success",
+        "llama-runtime": "success",
+        "developer-gate": "success",
+        "tor-runtime": "success",
+        "llama-runtime-image": "success",
+        "installer-build": "success"
+      }
+    },
+    "readiness": {
+      "ok": true,
+      "flags": {
+        "t3_free_ready": true,
+        "t4_free_ready": true,
+        "app_running": true,
+        "candidate_verified": true,
+        "data_safe": true,
+        "device_stable": true,
+        "tor_ready": true,
+        "gpu_watchdog_ready": true,
+        "budget_available": true,
+        "release_pipeline_ready": true
+      },
+      "generated_at": "2026-11-10T10:34:51.525416+00:00"
+    }
+  },
+  "plan": {
+    "version": "1.2.6",
+    "tag": "v1.2.6",
+    "publish": false,
+    "gates": {
+      "t3_live": {
+        "ok": false,
+        "detail": "T3L verdict None"
+      },
+      "t4_live": {
+        "ok": false,
+        "detail": "T4L verdict None"
+      },
+      "d2_live": {
+        "ok": true,
+        "detail": "live-20261108T131238: LA PASS"
+      },
+      "long_autonomy_live": {
+        "ok": true,
+        "detail": "the same certified run carried 21 model-origin calls"
+      },
+      "tor": {
+        "ok": true,
+        "detail": "Tor readiness is reported by the readiness file"
+      },
+      "developer_gate": {
+        "ok": false,
+        "detail": "release-gate.py developer"
+      },
+      "candidate_gate": {
+        "ok": false,
+        "detail": "release-gate.py candidate"
+      },
+      "verify_artifact": {
+        "ok": true,
+        "detail": "release-gate.py verify-artifact"
+      },
+      "ci": {
+        "ok": true,
+        "detail": "7/7 on 288e93361d"
+      },
+      "suites": {
+        "ok": false,
+        "detail": "backend/frontend/Rust/Gateway/Playwright are inside the developer gate"
+      },
+      "signature": {
+        "ok": false,
+        "detail": "installer 2ab90829d44824174bc391c4b366fafa78b02b477d4c3291400789831506d99b, recorded None"
+      },
+      "installed_smoke": {
+        "ok": false,
+        "detail": "the installed 1.2.6 window answered the smoke suite"
+      },
+      "data_preserved": {
+        "ok": true,
+        "detail": "integrity, users, chats, messages, device records"
+      },
+      "device_stable": {
+        "ok": true,
+        "detail": "the device_id did not change across the live runs"
+      },
+      "pods_empty": {
+        "ok": true,
+        "detail": "the provider account has no running Pod"
+      }
+    },
+    "blocked_by": [
+      "t3_live",
+      "t4_live",
+      "developer_gate",
+      "candidate_gate",
+      "suites",
+      "installed_smoke",
+      "signature"
+    ],
+    "steps": [
+      [
+        "01_source",
+        "product version 1.2.6, clean tree, no secrets in the diff"
+      ],
+      [
+        "02_developer",
+        "release-gate.py developer"
+      ],
+      [
+        "03_candidate",
+        "release-gate.py candidate on the signed installer"
+      ],
+      [
+        "04_verify_artifact",
+        "release-gate.py verify-artifact (production public key)"
+      ],
+      [
+        "05_ci",
+        "GitHub CI 7/7 on the final SHA"
+      ],
+      [
+        "06_backup",
+        "verified pre-install backup of the user database"
+      ],
+      [
+        "07_install",
+        "install the signed 1.2.6 over 1.2.5"
+      ],
+      [
+        "08_installed_smoke",
+        "installed window smoke, device_id unchanged"
+      ],
+      [
+        "09_tag",
+        "annotated tag v1.2.6, pushed without force"
+      ],
+      [
+        "10_release",
+        "GitHub Release with installer, .sig and SHA256SUMS"
+      ],
+      [
+        "11_anonymous_download",
+        "anonymous download and SHA-256 match"
+      ],
+      [
+        "12_downloads",
+        "copy installer and .sig into the Gateway download root"
+      ],
+      [
+        "13_manifest_backup",
+        "back up the 1.2.5 updater manifest"
+      ],
+      [
+        "14_manifest",
+        "publish the 1.2.6 manifest atomically"
+      ],
+      [
+        "15_updater_matrix",
+        "1.2.3/1.2.4/1.2.5 -> 1.2.6, 1.2.6 -> no update"
+      ],
+      [
+        "16_health",
+        "Gateway /health, 12Testers untouched, pods []"
+      ]
+    ]
+  }
+}

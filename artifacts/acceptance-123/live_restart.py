@@ -343,6 +343,13 @@ def run_t3(scenario, token: str, *, restore_seconds: float = 240) -> dict:
     tool_ids_before = [row.get("id") for row in model_tools(tool_runs(token, chat_id))]
     payloads_before = completed_payloads(token, chat_id)
 
+    # Stop approving before the window goes away. Otherwise the approver accepts a confirmation
+    # the restarted product re-asks, the task never parks, and the harness would report a correct
+    # product as a failure. A parked task is either `INTERRUPTED` (the in-flight native run died
+    # with the backend) or `WAITING_CONFIRMATION` (the next step needs a fresh approval) — both
+    # prove the product did not pretend the work succeeded.
+    if stop_approver is not None:
+        stop_approver.set()
     stopped = stop_window()
     backend_down = wait(lambda: not health_ok(), seconds=60)
     relaunched = ensure_window()
@@ -350,7 +357,8 @@ def run_t3(scenario, token: str, *, restore_seconds: float = 240) -> dict:
     task_after = wait(
         lambda: (
             task_status(token, chat_id)
-            if (task_status(token, chat_id) or {}).get("status") == "INTERRUPTED"
+            if str((task_status(token, chat_id) or {}).get("status") or "")
+            in {"INTERRUPTED", "WAITING_CONFIRMATION"}
             else None
         ),
         seconds=90,
@@ -371,6 +379,12 @@ def run_t3(scenario, token: str, *, restore_seconds: float = 240) -> dict:
         resume_via = "endpoint"
         resumed = (status or 0, {"resumed": status == 200}, body[:400])
         time.sleep(1)
+    # The task may only continue through the product's own Resume; once it has, approvals are
+    # expected again for every further tool.
+    restart_log: list[dict] = []
+    restart_observed: list[str] = []
+    if chat_id:
+        stop_approver, restart_log, restart_observed = start_approver(token, chat_id)
     finished = wait(
         lambda: (
             str((task_status(token, chat_id) or {}).get("status") or "")
@@ -403,6 +417,11 @@ def run_t3(scenario, token: str, *, restore_seconds: float = 240) -> dict:
             preferences = json.loads(text)
         except ValueError:
             preferences = {}
+
+    approvals = list(approvals) + list(restart_log)
+    confirmation_observed = list(confirmation_observed) + [
+        item for item in restart_observed if item not in confirmation_observed
+    ]
 
     evidence = {
         "scenario": scenario.id,
@@ -467,8 +486,11 @@ def run_t3(scenario, token: str, *, restore_seconds: float = 240) -> dict:
         reasons.append("the owned backend did not stop with the window")
     if not evidence["backend_came_up"]:
         reasons.append("the backend did not come back after the relaunch")
-    if (task_after or {}).get("status") != "INTERRUPTED":
-        reasons.append("the task was not parked as INTERRUPTED (got %r)" % (task_after or {}).get("status"))
+    if str((task_after or {}).get("status") or "") not in {"INTERRUPTED", "WAITING_CONFIRMATION"}:
+        reasons.append(
+            "the task was not parked after the restart (got %r)"
+            % (task_after or {}).get("status")
+        )
     if not evidence["same_task"]:
         reasons.append("the resumed task id changed")
     if evidence["confirmation_failures"]:

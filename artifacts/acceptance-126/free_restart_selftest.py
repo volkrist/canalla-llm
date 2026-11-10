@@ -522,17 +522,28 @@ def run_t3() -> dict:
         ]
         evidence["tool_ids_before"] = [row.get("id") for row in runs(token, chat_id)]
 
+        # Stop approving before the window goes away, so the restarted product really parks the
+        # task instead of being silently continued by this harness. Either a dead in-flight run
+        # (`INTERRUPTED`) or a step that needs a fresh approval (`WAITING_CONFIRMATION`) proves
+        # the product did not pretend the work succeeded.
+        approver.close()
         instance.close_app(force=True)
         instance.stop_backend()
         evidence["checks"]["backend_went_down"] = not health()
         instance.start_backend()
         instance.start_app()
         evidence["checks"]["backend_came_up"] = health()
-        interrupted = wait(
-            lambda: task_status(token, chat_id).get("status") == "INTERRUPTED" or None, 90, 1.0
+        parked = wait(
+            lambda: (
+                task_status(token, chat_id).get("status")
+                in {"INTERRUPTED", "WAITING_CONFIRMATION"}
+            )
+            or None,
+            90,
+            1.0,
         )
         evidence["status_after_restart"] = task_status(token, chat_id).get("status")
-        evidence["checks"]["interrupted"] = bool(interrupted)
+        evidence["checks"]["parked_after_restart"] = bool(parked)
         # The window may reopen on another conversation. Select the task chat first so the
         # product's own Resume control is what is observed, not just the endpoint.
         opened = node("open-chat", "Полностью проверь проект")
@@ -545,6 +556,8 @@ def run_t3() -> dict:
             task_id = str(task_status(token, chat_id).get("id") or "")
             status, body = call("POST", "/tasks/" + task_id + "/resume", token, {})
             evidence["resume"]["endpoint"] = {"http": status, "body": body[:200]}
+        # Approval resumes only after the product's own Resume was asked for.
+        approver = Approver(token, chat_id).start()
         terminal = wait(
             lambda: task_status(token, chat_id).get("status") in {"COMPLETED", "FAILED", "STOPPED"} or None,
             180,
@@ -586,7 +599,7 @@ def run_t3() -> dict:
         "executing_at_close",
         "backend_went_down",
         "backend_came_up",
-        "interrupted",
+        "parked_after_restart",
         "same_task",
         "terminal",
         "answer_saved",
