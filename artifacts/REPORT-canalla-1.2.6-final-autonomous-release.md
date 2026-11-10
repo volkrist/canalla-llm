@@ -14,7 +14,7 @@
 | Git HEAD на момент отчёта | `1fd6d0f` (продуктовые исходники — `40cdf46`, не менялись) |
 | Версия продукта | **1.2.6** |
 | Установленная сборка | **1.2.6** (подписанный кандидат, sidecar `00d9f60c…`, Tor `0.4.9.16`) |
-| CI | **7/7 PASS** на `5cbe56f`; новый прогон на `1fd6d0f` |
+| CI | **7/7 PASS** на `1fd6d0f`; прогон на финальном коммите запускается автоматически |
 | T3 FREE | **PASS** — 3 прогона подряд (после исправления harness) |
 | T4 FREE | **PASS** — 2 прогона подряд |
 | **T3 LIVE** | **PASS** — настоящая Qwen, run `live-20261110T113250` |
@@ -193,9 +193,10 @@ verdict: ok = true
 | `test_tor_bundle.py` + `test_tor_service.py` | **43 passed** |
 | web research + agent build + security + D2 | **52 passed** |
 
-CI: **7/7 PASS** на `5cbe56f` (developer-gate, native-gate, tor-runtime, llama-runtime,
-llama-runtime-image, frontend-e2e, installer-build). Прогон на `1fd6d0f` запущен после
-исправлений T3L.
+CI: **7/7 PASS** на `5cbe56f` и на `1fd6d0f` (developer-gate, native-gate, tor-runtime,
+llama-runtime, llama-runtime-image, frontend-e2e, installer-build). Release gate перечитывает CI
+на текущем HEAD в момент публикации, поэтому прогон после последнего коммита обязан завершиться
+раньше, чем запускается `--execute`.
 
 ---
 
@@ -203,9 +204,9 @@ llama-runtime-image, frontend-e2e, installer-build). Прогон на `1fd6d0f`
 
 ```
 процесс:  apps/backend/.venv/Scripts/python.exe artifacts/acceptance-126/coordinator.py monitor
-PID:      12440 (обычный пользовательский процесс, без службы и без планировщика)
+PID:      16548 (обычный пользовательский процесс, без службы и без планировщика)
 окно:     2026-11-10T11:17:30Z → 2026-11-12T11:17:30Z (48 ч)
-состояние: monitoring, T3L=PASS, pods_created=1, next=T4L
+состояние: monitoring, checks=6, pods_created=1, spent≈$0.074, T3L=PASS, next=T4L
 лог:      artifacts/acceptance-126/coordinator/monitor.out.log (+ monitor-run1.*)
 состояние: artifacts/acceptance-126/coordinator/state.json
 ```
