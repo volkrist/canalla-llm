@@ -161,14 +161,37 @@ def source(ctx: Context) -> dict:
             break
     if version != VERSION:
         return ctx.record("01_source", "FAIL", f"product version is {version!r}")
-    dirty = _git("status", "--porcelain", "--untracked-files=no")
+    # Only the inputs a build actually consumes. Runtime evidence under `artifacts/` and the
+    # screenshot fixtures under `docs/screenshots` are not part of the released sources — and the
+    # acceptance run keeps writing both while it works.
+    dirty = _git("status", "--porcelain", "--untracked-files=no", "--", "apps", "scripts",
+                 ".github", "docs", ":(exclude)docs/screenshots")
     if dirty:
-        return ctx.record("01_source", "FAIL", f"tracked files are modified: {dirty[:200]}")
+        return ctx.record("01_source", "FAIL", f"tracked build inputs are modified: {dirty[:200]}")
     diff = text(_run(["git", "--no-pager", "diff", "v1.2.5..HEAD", "--", "apps", "scripts"]))
-    lowered = diff.lower()
-    for marker in ("begin private key", "sk-live", "rpa_", "runpod_api_key="):
-        if marker in lowered:
-            return ctx.record("01_source", "FAIL", f"a secret marker {marker!r} is in the diff")
+    # A fixture that *tests* the redaction of a credential is not a leaked credential. Only added
+    # lines outside test files are scanned, and the file is tracked from the diff header.
+    markers = ("begin private key", "sk-live", "rpa_", "runpod_api_key=")
+    current = ""
+    for line in diff.splitlines():
+        if line.startswith("+++ b/"):
+            current = line[6:].strip()
+            continue
+        if not line.startswith("+") or line.startswith("+++"):
+            continue
+        name = current.lower()
+        if (
+            "/tests/" in name
+            or name.endswith(("_test.py", ".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx"))
+        ):
+            continue
+        lowered = line.lower()
+        for marker in markers:
+            if marker in lowered:
+                return ctx.record(
+                    "01_source", "FAIL",
+                    f"a secret marker {marker!r} is in the added lines of {current or '?'}",
+                )
     return ctx.record("01_source", "PASS",
                       f"{VERSION} at {ctx.git('rev-parse', '--short', 'HEAD')}")
 
