@@ -14,7 +14,7 @@
 | Git HEAD на момент отчёта | `1fd6d0f` (продуктовые исходники — `40cdf46`, не менялись) |
 | Версия продукта | **1.2.6** |
 | Установленная сборка | **1.2.6** (подписанный кандидат, sidecar `00d9f60c…`, Tor `0.4.9.16`) |
-| CI | **7/7 PASS** на `1fd6d0f`; прогон на финальном коммите запускается автоматически |
+| CI | **7/7 PASS** на `08910f5`; gate перечитывает CI на HEAD в момент публикации |
 | T3 FREE | **PASS** — 3 прогона подряд (после исправления harness) |
 | T4 FREE | **PASS** — 2 прогона подряд |
 | **T3 LIVE** | **PASS** — настоящая Qwen, run `live-20261110T113250` |
@@ -214,7 +214,7 @@ verdict: ok = true
 | `test_tor_bundle.py` + `test_tor_service.py` | **43 passed** |
 | web research + agent build + security + D2 | **52 passed** |
 
-CI: **7/7 PASS** на `5cbe56f` и на `1fd6d0f` (developer-gate, native-gate, tor-runtime,
+CI: **7/7 PASS** на `5cbe56f`, `1fd6d0f` и `08910f5` (developer-gate, native-gate, tor-runtime,
 llama-runtime, llama-runtime-image, frontend-e2e, installer-build). Release gate перечитывает CI
 на текущем HEAD в момент публикации, поэтому прогон после последнего коммита обязан завершиться
 раньше, чем запускается `--execute`.
@@ -273,7 +273,7 @@ state machine идемпотентна.
 T3 LIVE:    PASS   (live-20261110T113250, resume via UI button, no repeated side effects)
 T4 LIVE:    BLOCKED (capacity)
 LA LIVE:    BLOCKED (capacity)
-CI:         PASS (7/7 на 5cbe56f)
+CI:         PASS (7/7 на 08910f5)
 CANDIDATE:  PASS (verify-artifact 8/8, SHA-256 5c3df5dd…)
 SIGNATURE:  VALID (9B328EFF111D1FB2)
 DATA:       PASS
