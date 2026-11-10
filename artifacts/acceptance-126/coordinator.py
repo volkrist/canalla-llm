@@ -868,6 +868,19 @@ REQUIRED_FLAGS = (
 )
 
 
+def installed_sidecar_sha() -> str:
+    """The installed backend binary, not the commit: a docs commit does not change the artifact."""
+    path = (Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Canalla LLM"
+            / "sidecar" / "alex-backend" / "alex-backend.exe")
+    if not path.is_file():
+        return ""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def installed_version() -> str:
     """The backend's own product version, read from the packaged sidecar it is running."""
     try:
@@ -882,8 +895,13 @@ def installed_version() -> str:
         return ""
 
 
-def run_preflight(cfg: Config) -> dict:
-    """Free checks only: no Pod, no paid call. Writes `final-readiness.json`."""
+def run_preflight(cfg: Config, *, reuse_free: bool = False) -> dict:
+    """Free checks only: no Pod, no paid call. Writes `final-readiness.json`.
+
+    `reuse_free` keeps the T3/T4 mechanics verdict recorded for this same artifact (after a reboot,
+    say) and still re-checks everything a reboot can change: data, device identity, Tor, the
+    candidate, the watchdog, the account and the budget. It never skips a check on a new build.
+    """
     flags: dict[str, bool] = {}
     detail: dict[str, str] = {}
 
@@ -896,17 +914,35 @@ def run_preflight(cfg: Config) -> dict:
 
     # The free mechanics harness starts its own window and refuses to share one, so the installed
     # app is closed for it and reopened afterwards. Nothing here touches a Pod or a paid call.
-    app_control(stop=True)
-    for name, target in (("t3_free_ready", "t3"), ("t4_free_ready", "t4")):
-        script = HERE / "free_restart_selftest.py"
-        result = subprocess.run(
-            [sys.executable, str(script), target],
-            capture_output=True, timeout=2400,
-            env=dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1"),
-        )
-        text = ((result.stdout or b"") + (result.stderr or b"")).decode("utf-8", "replace")
-        ok = result.returncode == 0 and '"verdict": "PASS"' in text
-        note(name, ok, (text.strip().splitlines() or ["no output"])[-1][:200])
+    previous = {}
+    if reuse_free and READINESS.is_file():
+        try:
+            previous = json.loads(READINESS.read_text(encoding="utf-8"))
+        except ValueError:
+            previous = {}
+    sidecar_now = installed_sidecar_sha()
+    same_artifact = bool(
+        previous.get("ok")
+        and (previous.get("flags") or {}).get("t3_free_ready")
+        and (previous.get("flags") or {}).get("t4_free_ready")
+        and sidecar_now
+        and previous.get("installed_sidecar_sha") == sidecar_now
+    )
+    if reuse_free and same_artifact:
+        for name in ("t3_free_ready", "t4_free_ready"):
+            note(name, True, "reused: the mechanics passed on this same installed artifact")
+    else:
+        app_control(stop=True)
+        for name, target in (("t3_free_ready", "t3"), ("t4_free_ready", "t4")):
+            script = HERE / "free_restart_selftest.py"
+            result = subprocess.run(
+                [sys.executable, str(script), target],
+                capture_output=True, timeout=2400,
+                env=dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1"),
+            )
+            text = ((result.stdout or b"") + (result.stderr or b"")).decode("utf-8", "replace")
+            ok = result.returncode == 0 and '"verdict": "PASS"' in text
+            note(name, ok, (text.strip().splitlines() or ["no output"])[-1][:200])
     app_control(start=True)
     app_ok, app_detail = wait_app(180)
     note("app_running", app_ok, app_detail)
@@ -985,6 +1021,7 @@ def run_preflight(cfg: Config) -> dict:
             capture_output=True, timeout=60,
         ).stdout.decode("utf-8", "replace").strip(),
         "installed_version": installed_version(),
+        "installed_sidecar_sha": installed_sidecar_sha(),
         "flags": flags,
         "detail": detail,
         "required_flags": list(REQUIRED_FLAGS),
@@ -1197,6 +1234,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--interval-seconds", type=int, default=Config.interval_seconds)
     parser.add_argument("--budget-usd", type=float, default=Config.budget_usd)
     parser.add_argument("--max-pods", type=int, default=Config.max_pods)
+    parser.add_argument("--reuse-free", action="store_true",
+                        help="keep the T3/T4 mechanics verdict of this same artifact "
+                             "(re-checks everything else)")
     args = parser.parse_args(argv)
 
     cfg = Config(
@@ -1206,7 +1246,7 @@ def main(argv: list[str] | None = None) -> int:
         max_pods=args.max_pods,
     )
     if args.command == "preflight":
-        report = run_preflight(cfg)
+        report = run_preflight(cfg, reuse_free=args.reuse_free)
         return 0 if report["ok"] else 1
     if args.command == "inventory":
         return inventory(cfg)
