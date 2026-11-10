@@ -110,11 +110,32 @@ async function waitCdp(timeoutMs = 180000) {
 }
 
 function stopApp(child) {
-  execFileSync("powershell.exe", [
-    "-NoProfile",
-    "-Command",
-    `taskkill /T /F /PID ${child.pid} | Out-Null`,
-  ]);
+  // The launcher can already be gone (it forwards to a single instance, or the supervisor
+  // re-execs it). Cleanup must never decide the verdict, so this is best effort: the launcher
+  // first, then whatever holds the port this smoke chose for itself.
+  try {
+    execFileSync(
+      "powershell.exe",
+      ["-NoProfile", "-Command", `taskkill /T /F /PID ${child.pid} | Out-Null`],
+      { stdio: "ignore" },
+    );
+    return;
+  } catch {
+    /* fall through to the port */
+  }
+  try {
+    execFileSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-Command",
+        `$p = (Get-NetTCPConnection -LocalPort ${CDP_PORT} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess; if ($p) { taskkill /T /F /PID $p | Out-Null }`,
+      ],
+      { stdio: "ignore" },
+    );
+  } catch {
+    /* nothing left to stop */
+  }
 }
 
 const STEPS = [

@@ -261,13 +261,36 @@ def install(ctx: Context) -> dict:
 
 
 def installed_smoke(ctx: Context) -> dict:
-    result = ctx.run(["node", "e2e/installed-status.mjs"], cwd=REPO / "apps" / "desktop",
-                     timeout=900)
-    output = text(result)
+    """The smoke starts its own isolated window, so the running app must be closed for it.
+
+    The installed build is single-instance: with the owner's window open the smoke's launch is
+    forwarded to it, its own CDP port never opens, and the run fails for a reason that has nothing
+    to do with the product. The window is closed through the documented helper and reopened after.
+    """
+    helper = REPO / "artifacts" / "ensure-app-cdp.ps1"
+
+    def app(*, stop: bool = False) -> None:
+        if not helper.is_file():
+            return
+        command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(helper)]
+        if stop:
+            command.append("-Stop")
+        ctx.run(command, timeout=300)
+
+    app(stop=True)
+    try:
+        result = ctx.run(["node", "e2e/installed-status.mjs"],
+                         cwd=REPO / "apps" / "desktop", timeout=1200)
+        output = text(result)
+    finally:
+        app()
+
     if not _ok(result):
         return ctx.record("08_installed_smoke", "FAIL", output[-400:])
-    return ctx.record("08_installed_smoke", "PASS", output.strip().splitlines()[-1][:200]
-                      if output.strip() else "smoke passed")
+    return ctx.record("08_installed_smoke", "PASS",
+                      "INSTALLED-UI: PASS" if "INSTALLED-UI: PASS" in output
+                      else (output.strip().splitlines()[-1][:200] if output.strip()
+                            else "smoke passed"))
 
 
 def tag(ctx: Context) -> dict:
