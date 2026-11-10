@@ -22,6 +22,7 @@ import json
 import os
 import re
 import subprocess
+import time
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -39,6 +40,9 @@ GATEWAY = "https://gateway.12testers.store"
 # Every gate the owner made mandatory. A single missing one forbids publication.
 # Gates that the release steps themselves produce. Anything outside this set (the live gates) can
 # only be earned by a real paid run, never by a step.
+# How long the gate waits for CI on the exact commit to finish before refusing.
+CI_WAIT_SECONDS = 45 * 60
+
 PREPUBLICATION = {
     "developer_gate",
     "candidate_gate",
@@ -229,6 +233,23 @@ def _ci_evidence(head: str) -> dict:
     run = next((row for row in runs if row.get("headSha") == head), None)
     if not run:
         return {"passed": 0, "total": 0, "sha": head, "reason": "no CI run for this SHA"}
+    # A live gate can go green before CI has finished the very same commit. Waiting for that run is
+    # not a relaxation: the verdict still has to be 7/7 on this SHA.
+    deadline = time.monotonic() + CI_WAIT_SECONDS
+    while str(run.get("status") or "") in {"queued", "in_progress", "waiting", "requested",
+                                           "pending"}:
+        if time.monotonic() >= deadline:
+            return {"passed": 0, "total": 0, "sha": head,
+                    "reason": f"CI for {head[:10]} is still {run.get('status')}"}
+        time.sleep(60)
+        listed = _run(["gh", "run", "list", "--workflow", "CI", "--commit", head,
+                       "--limit", "5", "--json", "databaseId,headSha,status,conclusion"],
+                      timeout=180)
+        try:
+            runs = json.loads(_text(listed) or "[]")
+        except ValueError:
+            runs = []
+        run = next((row for row in runs if row.get("headSha") == head), run)
     jobs_result = _run(["gh", "run", "view", str(run["databaseId"]), "--json", "jobs"],
                        timeout=180)
     try:

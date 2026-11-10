@@ -196,25 +196,17 @@ def verify_artifact(ctx: Context) -> dict:
 
 
 def ci_gate(ctx: Context) -> dict:
+    """The same CI reader the plan uses, including its bounded wait for an in-flight run."""
+    import release_coordinator
+
     head = _git("rev-parse", "HEAD")
-    runs = ctx.run(["gh", "run", "list", "--workflow", "CI", "--commit", head, "--limit", "5",
-                    "--json", "databaseId,headSha,conclusion"])
-    try:
-        rows = json.loads(text(runs) or "[]")
-    except ValueError:
-        rows = []
-    run = next((row for row in rows if row.get("headSha") == head), None)
-    if not run:
-        return ctx.record("05_ci", "FAIL", f"no CI run for {head[:10]}")
-    jobs_result = ctx.run(["gh", "run", "view", str(run["databaseId"]), "--json", "jobs"])
-    try:
-        jobs = json.loads(text(jobs_result) or "{}").get("jobs") or []
-    except ValueError:
-        jobs = []
-    passed = sum(1 for job in jobs if job.get("conclusion") == "success")
-    if len(jobs) < 7 or passed != len(jobs):
-        return ctx.record("05_ci", "FAIL", f"{passed}/{len(jobs)} jobs on {head[:10]}")
-    return ctx.record("05_ci", "PASS", f"{passed}/{len(jobs)} jobs on {head[:10]}")
+    evidence = release_coordinator._ci_evidence(head)
+    passed = int(evidence.get("passed") or 0)
+    total = int(evidence.get("total") or 0)
+    detail = evidence.get("reason") or f"{passed}/{total} jobs on {head[:10]}"
+    if total < 7 or passed != total:
+        return ctx.record("05_ci", "FAIL", detail)
+    return ctx.record("05_ci", "PASS", f"{passed}/{total} jobs on {head[:10]}")
 
 
 def backup(ctx: Context) -> dict:
