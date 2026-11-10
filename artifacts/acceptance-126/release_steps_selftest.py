@@ -314,6 +314,33 @@ def test_source_has_no_unsafe_flags() -> None:
           and ".read_text()" not in source.split("KEY = Path.home()")[1][:200])
 
 
+def test_prepublication_gates_can_be_produced_but_live_gates_cannot() -> None:
+    for gate in ("developer_gate", "candidate_gate", "suites", "verify_artifact",
+                 "installed_smoke"):
+        check(f"{gate} is a pre-publication gate", gate in release_coordinator.PREPUBLICATION)
+    for gate in ("t3_live", "t4_live", "d2_live", "long_autonomy_live", "ci", "signature",
+                 "pods_empty"):
+        check(f"{gate} can never be produced by a release step",
+              gate not in release_coordinator.PREPUBLICATION)
+
+    progress = release_coordinator.HERE / "release-progress.json"
+    saved = progress.read_text(encoding="utf-8") if progress.exists() else None
+    try:
+        progress.write_text(json.dumps({
+            "02_developer": "PASS", "03_candidate": "PASS",
+            "04_verify_artifact": "SKIP", "08_installed_smoke": "FAIL",
+        }), encoding="utf-8")
+        flags = release_coordinator._progress_flags()
+        check("a passed step contributes its gate", flags.get("developer_gate") is True)
+        check("a skipped step also counts as done", flags.get("candidate_verified") is True)
+        check("a failed step contributes nothing", "installed_smoke" not in flags)
+    finally:
+        if saved is None:
+            progress.unlink(missing_ok=True)
+        else:
+            progress.write_text(saved, encoding="utf-8")
+
+
 def main() -> int:
     tests = [
         test_full_evidence_publishes,
@@ -324,6 +351,7 @@ def main() -> int:
         test_resume_from_starts_at_the_named_step,
         test_a_failure_aborts_the_sequence,
         test_source_has_no_unsafe_flags,
+        test_prepublication_gates_can_be_produced_but_live_gates_cannot,
     ]
     for test in tests:
         print(f"--- {test.__name__}")

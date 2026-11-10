@@ -529,6 +529,26 @@ STEPS = (
 )
 
 
+PROGRESS = REPO / "artifacts" / "acceptance-126" / "release-progress.json"
+
+
+def load_progress() -> dict:
+    if not PROGRESS.exists():
+        return {}
+    try:
+        return json.loads(PROGRESS.read_text(encoding="utf-8"))
+    except ValueError:
+        return {}
+
+
+def save_progress(ctx: Context) -> None:
+    """The steps that *produce* a gate are recorded so the gate can see them on the next plan."""
+    progress = load_progress()
+    for entry in ctx.log:
+        progress[entry["step"]] = entry["status"]
+    PROGRESS.write_text(json.dumps(progress, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def run_steps(ctx: Context, *, resume_from: str = "", only: str = "") -> int:
     names = [name for name, _ in STEPS]
     if only and only not in names:
@@ -544,4 +564,5 @@ def run_steps(ctx: Context, *, resume_from: str = "", only: str = "") -> int:
             failures += 1
             print(f"--- {name} did not pass; later steps are not executed")
             break
+    save_progress(ctx)
     return 1 if failures else 0

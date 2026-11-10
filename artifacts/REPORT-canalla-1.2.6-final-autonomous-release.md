@@ -1,0 +1,257 @@
+# Canalla LLM 1.2.6 — автономное завершение: T3 LIVE пройден, координатор работает
+
+Итоговый отчёт цикла 1.2.6 · 10 ноября 2026
+Репозиторий: `volkrist/canalla-llm` · ветка `release/canalla-1.2.4`
+Рабочее дерево: существующее. Без нового Worktree, без Windows VM/Sandbox, без Ubuntu,
+без force-push, без изменения production signing key, без изменения Compute Preferences.
+
+---
+
+## 1. Итог
+
+| Гейт | Результат |
+|---|---|
+| Git HEAD на момент отчёта | `1fd6d0f` (продуктовые исходники — `40cdf46`, не менялись) |
+| Версия продукта | **1.2.6** |
+| Установленная сборка | **1.2.6** (подписанный кандидат, sidecar `00d9f60c…`, Tor `0.4.9.16`) |
+| CI | **7/7 PASS** на `5cbe56f`; новый прогон на `1fd6d0f` |
+| T3 FREE | **PASS** — 3 прогона подряд (после исправления harness) |
+| T4 FREE | **PASS** — 2 прогона подряд |
+| **T3 LIVE** | **PASS** — настоящая Qwen, run `live-20261110T113250` |
+| T4 LIVE | **BLOCKED** — окно capacity закрылось сразу после T3L |
+| LA LIVE | **BLOCKED** — то же окно |
+| D2 LIVE / LONG AUTONOMY | **PASS ранее** (`live-20261108T131238`, 21 model-origin вызов) |
+| TOR | **PASS** — pin 16.0.1, демон `0.4.9.16`, подпись GPG, SOCKS5h-цепочка |
+| Автономный координатор | **работает**, 45/45 бесплатных проверок |
+| Release coordinator | **готов**, 52/52 бесплатных проверок |
+| Данные | **PASS** — integrity ok, users 2, chats 48, messages 108, paired 59 |
+| Device ID | `f3548022-a676-463c-9fc0-b05bbd5ac907` (не изменился) |
+| Pod в этом цикле | **1** из 3 разрешённых |
+| Потрачено на GPU | **≈ $0.074** из $0.85 |
+| RELEASE | **NOT PUBLISHED** — T4 LIVE обязателен и ещё не подтверждён |
+
+Главное изменение против прошлого состояния: **T3 LIVE больше не BLOCKED**. Координатор сам
+дождался окна capacity, сам поднял Pod, сам провёл перезапуск окна и Resume, и записал evidence.
+
+---
+
+## 2. T3 LIVE — что именно доказано
+
+Run: `artifacts/acceptance-123/runs/live-20261110T113250/T3L.json` — `verdict: PASS`, `reasons: []`.
+
+| Проверка | Значение |
+|---|---|
+| Первый инструмент модели | `process_status` |
+| Окно закрыто во время работы | `status_at_close = EXECUTING` |
+| Backend остановился вместе с окном | `backend_went_down = true` |
+| Backend вернулся | `backend_came_up = true` |
+| Задача припаркована | `INTERRUPTED` |
+| Тот же task_id | `6c1faffc-5423-4ef5-a4b6-609cf56595e1` |
+| Resume | **через кнопку продукта** (`via: ui_button`), не через endpoint |
+| Финал | `COMPLETED`, 9 model-origin вызовов, `completion_summary` = «Original request is addressed» |
+| Повторные побочные эффекты | `repeated_payloads: []` |
+| Потерянные файлы | `files_lost: []` |
+| Подтверждения | 11, все `approved`, `confirmation_failures: []` |
+| device_id до/после | `f3548022-a676-463c-9fc0-b05bbd5ac907` — тот же |
+
+Pod:
+
+| Поле | Значение |
+|---|---|
+| GPU | NVIDIA L40S 48 GB, US-TX-3, Network Volume `uwgeaie5b0` |
+| Тариф | **$1.09/ч** (фактический, по счёту Gateway; в каталоге было $0.79) |
+| Продолжительность | 244.3 с от создания до остановки (кап 600 с) |
+| Watchdog | 510 с, снят после сессии |
+| Стоимость | ≈ **$0.074** (баланс 10.1309 → 10.0538) |
+| Остановка | подтверждена, `pods []` |
+
+### 2.1. Два дефекта, которые нашёл именно живой прогон
+
+Бесплатные тесты их не видели — и это ровно то, ради чего нужен был LIVE.
+
+1. **Stop харнесса парковал автоматический compute.** Продукт ставит manual-off latch на любой
+   явный Stop, а runner обязан останавливать свою же сессию. Координатор увидел latch и корректно
+   завершился как `MANUAL_OFF` — то есть после T3L не пошёл на T4L. Исправлено: runner снимает
+   снимок latch до старта и восстанавливает только тот latch, который создала его собственная
+   остановка; чужой (владельца) latch не трогается никогда.
+2. **Стоимость Pod записывалась как ноль.** Финальное чтение сессии возвращает пусто, потому что
+   stop уже ответил; бюджетный страж считал $0. Исправлено: биллинговой границей стала
+   продолжительность Pod из собственного summary runner'а, а фактический тариф Gateway ($1.09)
+   заменил каталожный ($0.79), чтобы следующий worst-case не занижался.
+
+Оба исправления покрыты бесплатными тестами (`coordinator_selftest.py` — 45/45) и закоммичены до
+следующего платного старта.
+
+---
+
+## 3. Почему T4 LIVE и LA LIVE ещё не выполнены
+
+Окно capacity было коротким: L40S появился в `US-TX-3` около 11:32Z и исчез к 11:39Z. После
+PASS и подтверждённой остановки координатор сразу проверил каталог — карты снова не было.
+
+Проверен **весь каталог по всем 52 дата-центрам**, а не один тип GPU:
+
+* 48 типов GPU, **19** NVIDIA ≥ 48 GB;
+* в дата-центрах наших Volume (`US-TX-3` → `uwgeaie5b0`, `US-MO-1` → `y92bt25ru8`) на момент
+  проверки: `US-TX-3` — пусто, `US-MO-1` — H100 80 GB за **$2.69/ч** (выше лимита $1.79/ч и выше
+  собственной политики владельца $2/ч);
+* в остальных дата-центрах карты есть (EUR-IS-2 L40S $0.79/ч, US-WA-1 RTX 6000 Ada $0.74/ч), но
+  там **нет нашего Volume**, а третий постоянный Volume задание не разрешает.
+
+Координатор продолжает бесплатный мониторинг до конца 48-часового окна.
+
+---
+
+## 4. Инженерная работа цикла
+
+### 4.1. Автономный координатор — `artifacts/acceptance-126/coordinator.py`
+
+* окно **48 ч**, интервал **15 мин**, максимум **192** бесплатные проверки;
+* lock с восстановлением после убитого процесса, атомарное состояние, `status` / `cancel`, TTL;
+* перед каждым платным стартом: readiness, watchdog, manual-off, отсутствие чужих Pod, бюджет
+  (по фактическому тарифу), лимит Pod, срок окна;
+* один Pod за раз, ≤ 600 с, watchdog за 90 с до предела, ≤ $0.85 и ≤ 3 Pod;
+* осиротевший Pod останавливается, второй не создаётся; сбой посреди сессии сверяется, а не
+  повторяется;
+* `T3L → T4L → LA`; после PASS сценария сессия не завершается — берётся следующее окно capacity.
+
+### 4.2. Размещаемость — `placements.py`
+
+Бесплатный ответ «где модель реально может работать»: Volume → дата-центр → VRAM → цена.
+Именно он превратил прежнее «GPU нет» в точное «единственная размещаемая карта дороже лимита».
+
+### 4.3. Release coordinator — `release_coordinator.py` + `release_steps.py`
+
+15 обязательных гейтов в `release_plan()`, 16 идемпотентных шагов, dry-run по умолчанию,
+`--execute` отдельным действием, `--resume-from`/`--only`, transcript. Опубликованный ассет с
+другим digest не перезаписывается. Ключ подписи нигде не читается и не печатается.
+
+### 4.4. Исправлен дефект harness T3 FREE
+
+Autocapprover продолжал подтверждать инструменты после перезапуска, поэтому корректно
+припаркованная задача (`INTERRUPTED` или `WAITING_CONFIRMATION`) считалась провалом (≈1 из 3
+прогонов). Подтверждения теперь останавливаются перед перезапуском и возобновляются только после
+штатного Resume. После исправления: T3 FREE **3/3 PASS**, T4 FREE **2/2 PASS**.
+
+### 4.5. Tor: вынужденный re-pin 16.0 → 16.0.1
+
+Tor Project **удалил каталог 16.0**; пин-URL стал отдавать 404, и CI справедливо сравнил дайджест
+404-страницы с пином.
+
+1. скачан подписанный `sha256sums-signed-build.txt` для **16.0.1** и `.asc`;
+2. подпись проверена: `Good signature`, primary fingerprint
+   `EF6E286DDA85EA2A4BA7DE684E2C6E8793298290` (тот же ключ, новый signing-субключ);
+3. дайджесты архивов взяты из подписанного файла, размеры — из ответа сервера;
+4. `verify-tor-runtime-pin.py` → **PASS**;
+5. runtime застейджен, `tor --version` → `0.4.9.16`;
+6. `test_tor_bundle.py` + `test_tor_service.py` → **43 passed**;
+7. обновлены CI (cache key, проверка версии) и `docs/tor.md`.
+
+Пин входит в исходники сборки, поэтому кандидат пересобран и переподписан.
+
+---
+
+## 5. Артефакт
+
+| Поле | Значение |
+|---|---|
+| Installer | `Canalla LLM_1.2.6_x64-setup.exe` |
+| SHA-256 | `5c3df5ddd3d534a72adf5edfd37b37cb63880954c180f79045a477d24cfa9e66` |
+| Размер | 95 537 811 байт |
+| Подпись | Ed25519 / minisign, key id **`9B328EFF111D1FB2`**, verified |
+| `verify-artifact` | **8 шагов, 0 FAIL, 0 BLOCKED — PASS** |
+| sidecar | `00d9f60c9f201fc02cf50e5868f7d18c6a91e61b6e93f8edaf30760bc50d1c61` |
+| Tor daemon | `0.4.9.16`, `tor.exe` `da22856f…` |
+| .sig SHA-256 | `e7e117f8a80a36bab09833604f7dd7f48f4b713405f4bd5b61f0be0abff3ce1d` |
+
+Перед установкой — verified backup `20261110T100006Z-manual` (app_version 1.2.5, schema 0016).
+После установки и переустановки: `users 2 · chats 48 · messages 108 · paired_devices 59 ·
+integrity ok`, `device_id` тот же, `computer_mode = ask`.
+
+---
+
+## 6. Проверки
+
+```
+t3_free_ready          PASS       data_safe             PASS
+t4_free_ready          PASS       device_stable         PASS
+app_running            PASS       tor_ready             PASS (0.4.9.16, chain True)
+candidate_verified     PASS       gpu_watchdog_ready    PASS (disarmed)
+budget_available       PASS       release_pipeline_ready PASS
+verdict: ok = true
+```
+
+Приёмочный preflight runner: app 1.2.6, cloud connected, computer mode ask, 1 online device,
+`pods []`, host smoke True, pytest on host True, model-origin rule True, route gate clean,
+`catalog.route_risks(T3L, T4L, LA)` → пусто.
+
+| Набор | Результат |
+|---|---|
+| `coordinator_selftest.py` | **45/45 PASS** |
+| `release_steps_selftest.py` | **52/52 PASS** |
+| `live_restart_selftest.py` | **PASS** |
+| `test_tor_bundle.py` + `test_tor_service.py` | **43 passed** |
+| web research + agent build + security + D2 | **52 passed** |
+
+CI: **7/7 PASS** на `5cbe56f` (developer-gate, native-gate, tor-runtime, llama-runtime,
+llama-runtime-image, frontend-e2e, installer-build). Прогон на `1fd6d0f` запущен после
+исправлений T3L.
+
+---
+
+## 7. Автономный процесс, запущенный сейчас
+
+```
+процесс:  apps/backend/.venv/Scripts/python.exe artifacts/acceptance-126/coordinator.py monitor
+PID:      12440 (обычный пользовательский процесс, без службы и без планировщика)
+окно:     2026-11-10T11:17:30Z → 2026-11-12T11:17:30Z (48 ч)
+состояние: monitoring, T3L=PASS, pods_created=1, next=T4L
+лог:      artifacts/acceptance-126/coordinator/monitor.out.log (+ monitor-run1.*)
+состояние: artifacts/acceptance-126/coordinator/state.json
+```
+
+```bash
+apps/backend/.venv/Scripts/python.exe artifacts/acceptance-126/coordinator.py status
+apps/backend/.venv/Scripts/python.exe artifacts/acceptance-126/coordinator.py cancel
+```
+
+На следующем окне capacity координатор выполнит T4L, затем LA — в пределах того же бюджета и
+капа 600 с на Pod — и оставит `READY_FOR_RELEASE`. Публикацию выполнит
+`release_coordinator.py --execute` после повторной проверки всех 15 гейтов.
+
+Если capacity не появится до 11:17Z 12 ноября — итог `EXPIRED_NO_CAPACITY` (BLOCKED) с
+сохранённым T3L PASS и без новых платных стартов.
+
+---
+
+## 8. Остаточные риски
+
+1. **T4 LIVE обязателен и не подтверждён** — публикация заблокирована гейтом.
+2. **Capacity вне нашего контроля** и зависит от привязки Volume к дата-центру.
+3. **Координатор — процесс, не служба:** после перезагрузки его нужно запустить снова; состояние
+   на диске переживёт, дублей не будет.
+4. **Установленная сборка — 1.2.6 (неопубликованный кандидат).** Если окно закроется без
+   публикации, вернуть официальную 1.2.5: её установщик и verified backup на месте.
+5. **CI `installer-build`** намеренно FAIL-ит неподписанный артефакт — это корректно.
+6. **Authenticode отсутствует**; подпись обновлений — `9B328EFF111D1FB2`.
+7. **Tor 0.4.9.16** — следствие re-pin'а; установленная 1.2.6 содержит именно `da22856f…`.
+
+---
+
+## 9. Итоговые значения
+
+```
+T3 LIVE:    PASS   (live-20261110T113250, resume via UI button, no repeated side effects)
+T4 LIVE:    BLOCKED (capacity)
+LA LIVE:    BLOCKED (capacity)
+CI:         PASS (7/7 на 5cbe56f)
+CANDIDATE:  PASS (verify-artifact 8/8, SHA-256 5c3df5dd…)
+SIGNATURE:  VALID (9B328EFF111D1FB2)
+DATA:       PASS
+DEVICE:     f3548022-a676-463c-9fc0-b05bbd5ac907
+PODS:       []  (1 Pod за цикл, остановка подтверждена)
+SPEND:      ≈ $0.074 из $0.85
+BALANCE:    $10.0538
+RELEASE:    NOT PUBLISHED
+UPDATER:    UNCHANGED (production manifest 1.2.5)
+```

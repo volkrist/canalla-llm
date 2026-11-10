@@ -37,6 +37,16 @@ EVIDENCE = HERE / "release-evidence.json"
 GATEWAY = "https://gateway.12testers.store"
 
 # Every gate the owner made mandatory. A single missing one forbids publication.
+# Gates that the release steps themselves produce. Anything outside this set (the live gates) can
+# only be earned by a real paid run, never by a step.
+PREPUBLICATION = {
+    "developer_gate",
+    "candidate_gate",
+    "suites",
+    "verify_artifact",
+    "installed_smoke",
+}
+
 MANDATORY = (
     "d2_live",
     "long_autonomy_live",
@@ -158,10 +168,37 @@ def collect_evidence() -> dict:
         "ci": ci,
         "readiness": {
             "ok": readiness.get("ok"),
-            "flags": readiness.get("flags") or {},
+            "flags": {**(readiness.get("flags") or {}), **_progress_flags()},
             "generated_at": readiness.get("generated_at"),
         },
     }
+
+
+def _progress_flags() -> dict:
+    """Gates that the release steps themselves produce, read from their recorded progress.
+
+    Without this the gate would require evidence only the gated steps can create, and
+    `--execute` could never start. A step that did not pass contributes nothing.
+    """
+    path = HERE / "release-progress.json"
+    if not path.is_file():
+        return {}
+    try:
+        progress = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return {}
+    done = {"PASS", "SKIP"}
+
+    def ok(step: str) -> bool:
+        return progress.get(step) in done
+
+    flags = {
+        "developer_gate": ok("02_developer"),
+        "candidate_gate": ok("03_candidate"),
+        "candidate_verified": ok("04_verify_artifact"),
+        "installed_smoke": ok("08_installed_smoke"),
+    }
+    return {name: value for name, value in flags.items() if value}
 
 
 def _pods() -> list[dict]:
@@ -370,12 +407,35 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"evidence written to {EVIDENCE}")
     print_plan(plan)
+
+    if not args.execute:
+        if not plan["publish"]:
+            print("\nPUBLICATION REFUSED: a mandatory gate is not PASS")
+            return 2
+        print("\ndry run: nothing was tagged, published or deployed")
+        return 0
+
+    # Phase A: the gates only the release steps themselves can prove. This is not a bypass — the
+    # plan is re-derived from the evidence they leave behind, and no step can produce a live gate.
+    if plan["blocked_by"] and set(plan["blocked_by"]) <= PREPUBLICATION:
+        print("\nphase A: producing the pre-publication gates")
+        context_a = release_steps.Context(evidence=evidence)
+        for step in ("01_source", "02_developer", "03_candidate", "04_verify_artifact",
+                     "05_ci", "08_installed_smoke"):
+            if step in plan["blocked_by"] or step in {"02_developer", "03_candidate",
+                                                      "04_verify_artifact"}:
+                context_a.log.clear()
+                release_steps.run_steps(context_a, only=step)
+                if context_a.log and context_a.log[-1]["status"] in {"FAIL", "BLOCKED"}:
+                    print(f"\n{step} failed; publication refused")
+                    return 1
+        evidence = collect_evidence()
+        plan = release_plan(evidence)
+        print_plan(plan)
+
     if not plan["publish"]:
         print("\nPUBLICATION REFUSED: a mandatory gate is not PASS")
         return 2
-    if not args.execute:
-        print("\ndry run: nothing was tagged, published or deployed")
-        return 0
 
     # The gate stays the authority even with --execute: no step may widen it.
     context = release_steps.Context(evidence=evidence)

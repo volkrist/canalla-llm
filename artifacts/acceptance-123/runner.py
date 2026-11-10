@@ -569,6 +569,7 @@ def run_live(args) -> int:
         return 3
     token = common.token()
     latch_before = latch_path().exists()
+    restored = False
     health_status, health_text = common.call("GET", "/health", token=token, timeout=10)
     if health_status != 200:
         print("ABORT app health", health_status, health_text[:200])
