@@ -124,6 +124,25 @@ def stop_ai(token: str) -> dict:
     return {"http": status, "body": text[:400]}
 
 
+def latch_path() -> Path:
+    """The product's manual-off latch: an explicit Stop parks automatic compute."""
+    return Path(common.ROOT) / "runtime" / "compute.manual_off"
+
+
+def latch_restore(present_before: bool) -> bool:
+    """Undo only the latch this run's own cleanup created.
+
+    The product latches on any explicit Stop, and this runner has to stop the session it paid for.
+    Without this, every acceptance run would look to a later start like the owner had forbidden
+    compute. A latch that was already there before the run is never touched.
+    """
+    path = latch_path()
+    if present_before or not path.exists():
+        return False
+    path.unlink(missing_ok=True)
+    return True
+
+
 def as_float(value) -> float | None:
     try:
         return float(value)
@@ -549,6 +568,7 @@ def run_live(args) -> int:
         print(json.dumps(risks, ensure_ascii=False)[:1500])
         return 3
     token = common.token()
+    latch_before = latch_path().exists()
     health_status, health_text = common.call("GET", "/health", token=token, timeout=10)
     if health_status != 200:
         print("ABORT app health", health_status, health_text[:200])
@@ -672,6 +692,9 @@ def run_live(args) -> int:
         print("watchdog_disarm", watchdog("--disarm")[1])
         stopped = stop_ai(token)
         print("stop", stopped)
+        restored = latch_restore(latch_before)
+        if restored:
+            print("manual_off_restored", "the run's own Stop had parked automatic compute")
         time.sleep(20)
         after, _ = pods()
         spend = session_spend(token)
@@ -682,6 +705,7 @@ def run_live(args) -> int:
             "pods": after,
             "watchdog": watchdog("--status")[1],
             "stop": stopped,
+            "manual_off_restored": restored,
             "session_start": session_start,
             "session_end": spend,
             "elapsed_seconds": elapsed_total,

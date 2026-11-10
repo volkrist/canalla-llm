@@ -113,6 +113,10 @@ class FakeWorld:
     def manual_off(self):
         return self._manual_off
 
+    def clear_manual_off(self):
+        cleared, self._manual_off = self._manual_off, False
+        return cleared
+
     def app_healthy(self):
         return self.healthy
 

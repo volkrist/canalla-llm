@@ -211,7 +211,8 @@ def plan(snapshot: dict, state: dict, cfg: Config) -> dict:
     scenario = todo[0]
     cheapest = min(found, key=lambda item: item["selected_hourly_usd"])
     spent = budget_used(state)
-    worst = cfg.worst_case_pod_usd(cheapest["selected_hourly_usd"])
+    rate = max(cheapest["selected_hourly_usd"], float(state.get("last_rate_usd") or 0))
+    worst = cfg.worst_case_pod_usd(rate)
     if spent + worst > cfg.budget_usd + 1e-9:
         return {"action": "finish", "outcome": "BUDGET_LIMIT",
                 "reason": f"${spent:.4f} spent, worst case ${worst:.4f}, "
@@ -430,6 +431,17 @@ class RealWorld:
         root = Path(os.environ.get("LOCALAPPDATA", "")) / "Alex LLM" / "runtime"
         return (root / "compute.manual_off").is_file()
 
+    def clear_manual_off(self) -> bool:
+        """Only ever called for a latch this coordinator's own stop created."""
+        import os
+
+        root = Path(os.environ.get("LOCALAPPDATA", "")) / "Alex LLM" / "runtime"
+        path = root / "compute.manual_off"
+        if not path.exists():
+            return False
+        path.unlink(missing_ok=True)
+        return True
+
     def app_healthy(self) -> bool:
         try:
             import common
@@ -488,7 +500,12 @@ class RealWorld:
                 verdict = "FAIL"
             end = summary.get("session_end") or {}
             start = summary.get("session_start") or {}
-            pod_seconds = float(end.get("billable_seconds") or 0)
+            elapsed = float(summary.get("elapsed_seconds") or 0)
+            # The final session read can come back empty (the stop already answered), so the Pod
+            # lifetime is the conservative billable bound: startup and stop are inside it.
+            pod_seconds = float(
+                end.get("billable_seconds") or start.get("billable_seconds") or elapsed or 0
+            )
             cost = float(end.get("estimated_usd") or 0)
             rate = float(end.get("hourly_rate_usd") or start.get("hourly_rate_usd") or 0)
             pod_created = bool(pod_seconds) or start.get("state") in {"ready", "generating"}
@@ -503,6 +520,8 @@ class RealWorld:
             "pod_created": pod_created,
             "pod_seconds": round(pod_seconds, 1),
             "cost_usd": round(cost, 4),
+            "rate_usd": rate,
+            "elapsed_seconds": round(elapsed, 1),
             "evidence": str(summary_path) if summary_path else None,
             "runner_exit": code,
             "output_tail": output[-1200:],
@@ -624,6 +643,10 @@ def reconcile(world: RealWorld, state: dict, decision: dict) -> None:
     log_event(state, "reconciling a session the previous process did not finish",
               pods=len(decision.get("pods") or []))
     world.stop_compute()
+    attempts = state.get("attempts") or []
+    if attempts and attempts[-1].get("latch_before") is False and world.manual_off():
+        world.clear_manual_off()
+        log_event(state, "cleared the latch this session's own stop created")
     live = decision.get("pods") or []
     for _ in range(6):
         world.sleep(15)
@@ -678,6 +701,7 @@ def run_one_session(world: RealWorld, cfg: Config, state: dict, decision: dict) 
         "max_session_seconds": decision["max_session_seconds"],
         "verdict": "RUNNING",
     }
+    attempt["latch_before"] = world.manual_off()
     state.setdefault("attempts", []).append(attempt)
     state["in_session"] = True
     state["current_step"] = f"{scenario}_live"
@@ -711,6 +735,9 @@ def run_one_session(world: RealWorld, cfg: Config, state: dict, decision: dict) 
     )
     if result["pod_created"]:
         state["pods_created"] = int(state.get("pods_created", 0)) + 1
+    if result.get("rate_usd"):
+        # The provider charged more than the catalogue row promised before; keep the guard honest.
+        state["last_rate_usd"] = result["rate_usd"]
 
     # The Pod's stop must be seen, not assumed. The independent watchdog bounds the worst case.
     confirmed = False
