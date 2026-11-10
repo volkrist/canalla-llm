@@ -58,6 +58,13 @@ if str(REPO / "scripts") not in sys.path:
     sys.path.insert(0, str(REPO / "scripts"))
 
 SCENARIO_ORDER = ("T3L", "T4L", "LA")
+# T3 and T4 are release gates. LA is the full research -> build -> run -> verify task: it is worth
+# a session when one is already paid for, but its absence must not block a release whose gates are
+# all green.
+MANDATORY_SCENARIOS = ("T3L", "T4L")
+OPTIONAL_SCENARIOS = ("LA",)
+# A scenario failure only stops the paid phase when it invalidates a release gate.
+FATAL_SCENARIOS = set(MANDATORY_SCENARIOS)
 SCENARIO_LABEL = {
     "T3L": "restart the installed window during a live task",
     "T4L": "lose and restore the Computer host transport",
@@ -89,6 +96,9 @@ class Config:
     )
     # A stop has to be confirmed before the Pod's 600 s cap, so the watchdog is armed below it.
     stop_margin_seconds: int = 20
+    # Publication is the point of the whole run: gate it only by the plan, and allow a deliberate
+    # opt-out for a run that must not publish.
+    publish: bool = True
 
     def watchdog_seconds(self) -> int:
         return self.max_pod_seconds - self.watchdog_reserve_seconds
@@ -122,8 +132,8 @@ def outstanding(state: dict) -> list[str]:
 def plan(snapshot: dict, state: dict, cfg: Config) -> dict:
     """The whole decision, as a pure function of what the world says and what was recorded.
 
-    Every branch returns `{"action": …}`. Only `create`, `reconcile_session`, `stop_orphans` and
-    `finish` have side effects; the caller decides whether to perform them.
+    Every branch returns `{"action": …}`. Only `create`, `reconcile_session`, `stop_orphans`,
+    `finish` and `publish` have side effects; the caller decides whether to perform them.
     """
     if state.get("finished"):
         return {"action": "noop", "reason": "finished", "outcome": state.get("outcome")}
@@ -147,20 +157,21 @@ def plan(snapshot: dict, state: dict, cfg: Config) -> dict:
             "reason": "a previous live session has no recorded verdict",
         }
 
-    orphan = [pod for pod in live_pods]
-    if orphan:
+    if live_pods:
         # Outside a session nothing of ours may be running. Fail closed and stop it.
         return {
             "action": "stop_orphans",
-            "pods": [pod.get("id") for pod in orphan],
+            "pods": [pod.get("id") for pod in live_pods],
             "outcome": "ORPHAN_POD_STOPPED_REVIEW",
             "reason": "a running Pod has no attempt in this coordinator's state",
         }
 
-    todo = outstanding(state)
-    if not todo:
-        return {"action": "finish", "outcome": "READY_FOR_RELEASE",
-                "reason": "every live scenario recorded PASS"}
+    verdicts = state.get("scenario_verdicts") or {}
+    mandatory_todo = [name for name in MANDATORY_SCENARIOS if verdicts.get(name) != "PASS"]
+    optional_todo = [name for name in OPTIONAL_SCENARIOS if verdicts.get(name) != "PASS"]
+
+    if not mandatory_todo and not optional_todo:
+        return {"action": "publish", "reason": "every live gate recorded PASS"}
 
     readiness = state.get("readiness") or {}
     missing = [flag for flag in readiness.get("required_flags", [])
@@ -179,7 +190,24 @@ def plan(snapshot: dict, state: dict, cfg: Config) -> dict:
 
     if int(state.get("pods_created", 0)) >= cfg.max_pods:
         return {"action": "finish", "outcome": "POD_LIMIT",
-                "reason": f"{cfg.max_pods} Pods were already created in this task"}
+                "reason": f"{cfg.max_pods} Pods were already created in this task",
+                "release_allowed": not mandatory_todo}
+
+    found = snapshot.get("candidates") or []
+
+    if not mandatory_todo:
+        # Only optional work is left. It is worth doing when a session still fits inside the Pod
+        # and money caps; otherwise the gates are green and the release must not wait for it.
+        spent = budget_used(state)
+        remaining_pods = cfg.max_pods - int(state.get("pods_created", 0))
+        affordable = found and (
+            spent + cfg.worst_case_pod_usd(found[0]["selected_hourly_usd"]) <= cfg.budget_usd
+        )
+        if remaining_pods < 1 or not affordable:
+            return {"action": "publish",
+                    "reason": "only optional work is left and no session is affordable",
+                    "optional_outstanding": optional_todo}
+
     if int(state.get("checks", 0)) >= cfg.max_checks:
         # The permitted check budget *is* the permitted window: 192 checks at 15 minutes is 48
         # hours. Reporting it as a capacity outcome keeps the report honest instead of implying
@@ -197,18 +225,19 @@ def plan(snapshot: dict, state: dict, cfg: Config) -> dict:
         return {"action": "wait", "reason": "the local backend is not healthy",
                 "next_check_in": 120}
 
-    found = snapshot.get("candidates") or []
     if not found:
-        remaining = [item for item in state.get("attempts", []) if item.get("verdict") != "PASS"]
         return {
             "action": "wait",
             "reason": "no compatible card is placeable on an existing volume right now",
             "next_check_in": cfg.interval_seconds,
             "checked_datacenters": snapshot.get("checked_datacenters", []),
-            "failed_attempts": len(remaining),
+            "failed_attempts": sum(1 for a in state.get("attempts", [])
+                                   if a.get("verdict") not in {"PASS", "NO_CAPACITY"}),
         }
 
-    scenario = todo[0]
+    # One paid session carries as much of the remaining work as the hard 600 s Pod cap allows.
+    scenarios = mandatory_todo + optional_todo
+    scenarios = scenarios[:2]
     cheapest = min(found, key=lambda item: item["selected_hourly_usd"])
     spent = budget_used(state)
     rate = max(cheapest["selected_hourly_usd"], float(state.get("last_rate_usd") or 0))
@@ -216,14 +245,18 @@ def plan(snapshot: dict, state: dict, cfg: Config) -> dict:
     if spent + worst > cfg.budget_usd + 1e-9:
         return {"action": "finish", "outcome": "BUDGET_LIMIT",
                 "reason": f"${spent:.4f} spent, worst case ${worst:.4f}, "
-                          f"cap ${cfg.budget_usd:.2f}"}
+                          f"cap ${cfg.budget_usd:.2f}",
+                "release_allowed": not mandatory_todo}
 
     return {
         "action": "create",
-        "scenario": scenario,
+        "scenarios": scenarios,
+        "scenario": scenarios[0],
         "candidate": cheapest,
-        "max_session_seconds": min(cfg.session_seconds.get(scenario, 480),
-                                   cfg.max_pod_seconds - cfg.watchdog_reserve_seconds - 10),
+        "max_session_seconds": min(
+            max(cfg.session_seconds.get(name, 300) for name in scenarios),
+            cfg.max_pod_seconds - cfg.watchdog_reserve_seconds - 10,
+        ),
         "watchdog_seconds": cfg.watchdog_seconds(),
         "budget_usd": round(cfg.budget_usd - spent, 4),
         "planned_seconds": cfg.max_pod_seconds,
@@ -452,16 +485,17 @@ class RealWorld:
             return False
 
     # -- writes ------------------------------------------------------------------------------
-    def run_scenario(self, scenario: str, *, max_session_seconds: int,
+    def run_scenario(self, scenarios, *, max_session_seconds: int,
                      watchdog_seconds: int, budget_usd: float) -> dict:
-        """Run exactly one bounded live scenario through the existing acceptance runner."""
+        """Run the selected scenarios back to back in one Pod, through the acceptance runner."""
+        names = list(scenarios)
         started = time.time()
         command = [
             str(REPO / "apps" / "backend" / ".venv" / "Scripts" / "python.exe"),
             str(ACC / "runner.py"),
             "--live",
             "--confirm-paid",
-            "--scenario", scenario,
+            "--scenario", *names,
             "--max-session-seconds", str(max_session_seconds),
             "--watchdog-seconds", str(watchdog_seconds),
             "--budget-usd", f"{budget_usd:.4f}",
@@ -470,7 +504,7 @@ class RealWorld:
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
         try:
             result = subprocess.run(
-                command, cwd=str(ACC), capture_output=True, timeout=max_session_seconds + 420,
+                command, cwd=str(ACC), capture_output=True, timeout=max_session_seconds + 480,
                 env=env,
             )
             output = ((result.stdout or b"") + (result.stderr or b"")).decode("utf-8", "replace")
@@ -481,42 +515,56 @@ class RealWorld:
             output += "\n[coordinator] the runner exceeded its own timeout"
 
         summary_path, summary = self._latest_summary(started)
-        verdict = "ERROR"
-        reasons = []
+        per_scenario: dict[str, dict] = {}
         pod_created = False
         cost = 0.0
         pod_seconds = 0.0
+        rate = 0.0
+        elapsed = 0.0
         if summary:
-            entry = next(
-                (item for item in summary.get("results", [])
-                 if item.get("scenario") == scenario), None
-            )
-            if entry:
-                verdict = str(entry.get("verdict") or "ERROR")
-                reasons = list(entry.get("reasons") or [])[:3]
-            elif "capacity" in output or "waiting_capacity" in output or "not ready" in output:
-                verdict = "NO_CAPACITY"
-            else:
-                verdict = "FAIL"
+            entries = {
+                str(item.get("scenario")): item for item in summary.get("results", [])
+            }
+            for name in names:
+                entry = entries.get(name)
+                if entry:
+                    per_scenario[name] = {
+                        "verdict": str(entry.get("verdict") or "ERROR"),
+                        "reasons": list(entry.get("reasons") or [])[:3],
+                    }
+                else:
+                    per_scenario[name] = {"verdict": "BLOCKED", "reasons": ["not run"]}
             end = summary.get("session_end") or {}
-            start = summary.get("session_start") or {}
+            start_block = summary.get("session_start") or {}
             elapsed = float(summary.get("elapsed_seconds") or 0)
-            # The final session read can come back empty (the stop already answered), so the Pod
-            # lifetime is the conservative billable bound: startup and stop are inside it.
-            pod_seconds = float(
-                end.get("billable_seconds") or start.get("billable_seconds") or elapsed or 0
+            watchdog = summary.get("watchdog") or {}
+            if isinstance(watchdog, str):
+                try:
+                    watchdog = json.loads(watchdog)
+                except ValueError:
+                    watchdog = {}
+            # The independent watchdog knows the Pod's real lifetime even when the final session
+            # read came back empty because the stop had already answered.
+            confirmed = float(watchdog.get("confirmed_elapsed_seconds") or 0)
+            pod_seconds = max(
+                float(end.get("billable_seconds") or 0),
+                float(start_block.get("billable_seconds") or 0),
+                confirmed,
             )
             cost = float(end.get("estimated_usd") or 0)
-            rate = float(end.get("hourly_rate_usd") or start.get("hourly_rate_usd") or 0)
-            pod_created = bool(pod_seconds) or start.get("state") in {"ready", "generating"}
+            rate = float(end.get("hourly_rate_usd") or start_block.get("hourly_rate_usd") or 0)
+            pod_created = bool(pod_seconds) or start_block.get("state") in {"ready", "generating"}
             if not cost and pod_seconds and rate:
                 cost = round(pod_seconds / 3600.0 * rate, 4)
-        elif code == 5:
-            verdict = "NO_CAPACITY"
+        elif code == 5 or "waiting_capacity" in output or "not ready" in output:
+            per_scenario = {name: {"verdict": "NO_CAPACITY", "reasons": ["no capacity"]}
+                            for name in names}
+        else:
+            per_scenario = {name: {"verdict": "ERROR", "reasons": ["no summary was written"]}
+                            for name in names}
         return {
-            "scenario": scenario,
-            "verdict": verdict,
-            "reasons": reasons,
+            "scenarios": names,
+            "results": per_scenario,
             "pod_created": pod_created,
             "pod_seconds": round(pod_seconds, 1),
             "cost_usd": round(cost, 4),
@@ -524,7 +572,7 @@ class RealWorld:
             "elapsed_seconds": round(elapsed, 1),
             "evidence": str(summary_path) if summary_path else None,
             "runner_exit": code,
-            "output_tail": output[-1200:],
+            "output_tail": output[-1500:],
         }
 
     @staticmethod
@@ -569,6 +617,28 @@ class RealWorld:
         except (subprocess.SubprocessError, OSError) as error:
             return {"exit": -1, "detail": str(error)[:200]}
 
+    def release(self) -> dict:
+        """The existing release coordinator, with its own gate as the final authority."""
+        command = [sys.executable, str(HERE / "release_coordinator.py"), "--execute"]
+        env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+        try:
+            result = subprocess.run(
+                command, cwd=str(REPO), capture_output=True, timeout=6 * 3600, env=env
+            )
+            output = ((result.stdout or b"") + (result.stderr or b"")).decode("utf-8", "replace")
+            code = result.returncode
+        except subprocess.TimeoutExpired as error:
+            output = ((error.stdout or b"") + (error.stderr or b"")).decode("utf-8", "replace")
+            code = -1
+            output += "\n[coordinator] the release coordinator exceeded its timeout"
+        ok = code == 0 and "PUBLICATION REFUSED" not in output
+        summary = ""
+        for line in reversed(output.splitlines()):
+            if line.strip():
+                summary = line.strip()[:200]
+                break
+        return {"ok": ok, "exit": code, "summary": summary, "output_tail": output[-4000:]}
+
     def terminate_pod(self, pod_id: str) -> dict:
         import runpod_api_tools
 
@@ -602,7 +672,10 @@ def refresh_snapshot(world: RealWorld, cfg: Config, *, with_availability: bool) 
 def execute(world: RealWorld, cfg: Config, state: dict, decision: dict) -> None:
     action = decision["action"]
     if action == "create":
-        run_one_session(world, cfg, state, decision)
+        run_session(world, cfg, state, decision)
+        return
+    if action == "publish":
+        run_release(world, cfg, state, decision)
         return
     if action == "reconcile_session":
         reconcile(world, state, decision)
@@ -686,12 +759,14 @@ def reconcile(world: RealWorld, state: dict, decision: dict) -> None:
     log_event(state, "the account is clean again; monitoring continues")
 
 
-def run_one_session(world: RealWorld, cfg: Config, state: dict, decision: dict) -> None:
-    scenario = decision["scenario"]
+def run_session(world: RealWorld, cfg: Config, state: dict, decision: dict) -> None:
+    """One Pod, every remaining scenario that fits inside the 600 s cap."""
+    scenarios = list(decision["scenarios"])
     candidate = decision["candidate"]
     attempt = {
         "index": int(state.get("pods_created", 0)) + 1,
-        "scenario": scenario,
+        "scenario": "+".join(scenarios),
+        "scenarios": scenarios,
         "gpu": candidate["id"],
         "datacenter": candidate["datacenter"],
         "volume_id": candidate["volume_id"],
@@ -704,11 +779,11 @@ def run_one_session(world: RealWorld, cfg: Config, state: dict, decision: dict) 
     attempt["latch_before"] = world.manual_off()
     state.setdefault("attempts", []).append(attempt)
     state["in_session"] = True
-    state["current_step"] = f"{scenario}_live"
+    state["current_step"] = "live:" + "+".join(scenarios)
     save_state(state)
     log_event(
         state,
-        f"{scenario}: starting one Pod on {candidate['id']} "
+        f"{'+'.join(scenarios)}: starting one Pod on {candidate['id']} "
         f"({candidate['vram_gb']} GB, ${candidate['selected_hourly_usd']}/h, "
         f"{candidate['datacenter']})",
         session_seconds=decision["max_session_seconds"],
@@ -716,7 +791,7 @@ def run_one_session(world: RealWorld, cfg: Config, state: dict, decision: dict) 
     )
 
     result = world.run_scenario(
-        scenario,
+        scenarios,
         max_session_seconds=decision["max_session_seconds"],
         watchdog_seconds=decision["watchdog_seconds"],
         budget_usd=decision["budget_usd"],
@@ -725,8 +800,12 @@ def run_one_session(world: RealWorld, cfg: Config, state: dict, decision: dict) 
     attempt.update(
         {
             "finished_at": world.now().isoformat(),
-            "verdict": result["verdict"],
-            "reasons": result["reasons"],
+            "results": result["results"],
+            "verdict": "PASS" if all(
+                item["verdict"] == "PASS" for item in result["results"].values()
+            ) else "MIXED",
+            "reasons": [reason for item in result["results"].values()
+                        for reason in item.get("reasons", [])][:4],
             "pod_created": result["pod_created"],
             "pod_seconds": result["pod_seconds"],
             "cost_usd": result["cost_usd"],
@@ -757,34 +836,80 @@ def run_one_session(world: RealWorld, cfg: Config, state: dict, decision: dict) 
 
     if result["pod_created"] and not confirmed:
         world.stop_compute()
-        log_event(state, f"{scenario}: the Pod stop is not confirmed; no new Pod will be created")
+        log_event(state, f"{'+'.join(scenarios)}: the Pod stop is not confirmed; "
+                         f"no new Pod will be created")
         state["finished"] = True
         state["outcome"] = "POD_STOP_UNCONFIRMED"
         state["current_step"] = "fail_closed"
         save_state(state)
         return
 
-    if result["verdict"] == "PASS":
-        state.setdefault("scenario_verdicts", {})[scenario] = "PASS"
-        log_event(state, f"{scenario}: PASS", cost_usd=result["cost_usd"],
-                  pod_seconds=result["pod_seconds"])
-    elif result["verdict"] == "NO_CAPACITY":
-        log_event(state, f"{scenario}: no capacity for the product's own ensure; "
-                         f"no Pod, no spend")
-    else:
-        state.setdefault("scenario_verdicts", {})[scenario] = result["verdict"]
-        log_event(state, f"{scenario}: {result['verdict']}", reasons=result["reasons"])
-        if result["verdict"] in {"FAIL", "ERROR"}:
-            # A product or harness failure needs a fix, not a second identical paid attempt.
-            state["finished"] = True
-            state["outcome"] = "LIVE_FAILED_" + scenario
-            state["current_step"] = "awaiting_fix"
-            save_state(state)
-            return
+    fatal = False
+    for name in scenarios:
+        verdict = str((result["results"].get(name) or {}).get("verdict") or "BLOCKED")
+        reasons = (result["results"].get(name) or {}).get("reasons") or []
+        if verdict == "PASS":
+            state.setdefault("scenario_verdicts", {})[name] = "PASS"
+            log_event(state, f"{name}: PASS", cost_usd=result["cost_usd"],
+                      pod_seconds=result["pod_seconds"])
+        elif verdict in {"BLOCKED", "BLOCKED_SESSION_LIMIT", "BLOCKED_BUDGET", "NO_CAPACITY"}:
+            # No verdict on the product: the scenario simply did not run. It stays outstanding.
+            log_event(state, f"{name}: {verdict} (not a product verdict)", reasons=reasons)
+        else:
+            state.setdefault("scenario_verdicts", {})[name] = verdict
+            log_event(state, f"{name}: {verdict}", reasons=reasons)
+            if name in FATAL_SCENARIOS:
+                fatal = True
+
+    if fatal:
+        # A failed release gate needs a fix, not a second identical paid attempt.
+        state["finished"] = True
+        state["outcome"] = "LIVE_FAILED_" + "+".join(
+            name for name in scenarios
+            if (result["results"].get(name) or {}).get("verdict") not in
+            {None, "PASS", "BLOCKED", "BLOCKED_SESSION_LIMIT", "BLOCKED_BUDGET", "NO_CAPACITY"}
+        )
+        state["current_step"] = "awaiting_fix"
+        save_state(state)
+        return
 
     world.disarm_watchdog()
     state["current_step"] = "idle"
     save_state(state)
+
+
+def run_release(world: RealWorld, cfg: Config, state: dict, decision: dict) -> None:
+    """All imposed live gates are PASS: hand over to the release coordinator.
+
+    The release coordinator is the authority again — it re-collects every gate itself and refuses
+    on anything that is not PASS. This is a handoff, not a bypass.
+    """
+    if not cfg.publish:
+        state["finished"] = True
+        state["outcome"] = "READY_FOR_RELEASE"
+        state["current_step"] = "release_disabled"
+        state["reason"] = "publication was disabled for this run"
+        save_state(state)
+        log_event(state, "live gates passed; publication disabled by configuration")
+        return
+
+    state["current_step"] = "release"
+    save_state(state)
+    log_event(state, "live gates passed; running the release coordinator",
+              optional_outstanding=decision.get("optional_outstanding"))
+    result = world.release()
+    state["release"] = result
+    state["finished"] = True
+    state["current_step"] = "finished"
+    if result.get("ok"):
+        state["outcome"] = "PUBLISHED"
+        state["next_step"] = "verify the GitHub release and the updater manifest"
+    else:
+        state["outcome"] = "PUBLISH_REFUSED"
+        state["next_step"] = "read the release transcript; no publication happened"
+    save_state(state)
+    log_event(state, f"release: {result.get('summary') or result.get('exit')}",
+              ok=result.get("ok"))
 
 
 # ----------------------------------------------------------------------------------- preflight
@@ -1234,6 +1359,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--interval-seconds", type=int, default=Config.interval_seconds)
     parser.add_argument("--budget-usd", type=float, default=Config.budget_usd)
     parser.add_argument("--max-pods", type=int, default=Config.max_pods)
+    parser.add_argument("--no-publish", action="store_true",
+                        help="prove the live gates but do not hand over to the release")
     parser.add_argument("--reuse-free", action="store_true",
                         help="keep the T3/T4 mechanics verdict of this same artifact "
                              "(re-checks everything else)")
@@ -1244,6 +1371,7 @@ def main(argv: list[str] | None = None) -> int:
         interval_seconds=args.interval_seconds,
         budget_usd=args.budget_usd,
         max_pods=args.max_pods,
+        publish=not args.no_publish,
     )
     if args.command == "preflight":
         report = run_preflight(cfg, reuse_free=args.reuse_free)

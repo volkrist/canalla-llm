@@ -201,6 +201,47 @@ def wait(predicate, *, seconds: float, interval: float = 2.0):
     return None
 
 
+def tasks(token: str, chat_id: str) -> list[dict]:
+    status, text = common.call("GET", "/tasks?chat_id=" + chat_id, token=token, timeout=30)
+    if status != 200:
+        return []
+    try:
+        rows = json.loads(text)
+    except ValueError:
+        return []
+    return rows if isinstance(rows, list) else []
+
+
+def _parse_ts(value) -> "object":
+    from datetime import datetime, timezone
+
+    text = str(value or "").replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def resolve_task_since(token: str, since, *, chats_probe: int = 8) -> tuple[str, dict]:
+    """The task this send created, wherever it landed.
+
+    "The newest new chat" is not a reliable key: after a window has been open for a while the
+    composer can end up in the already-open chat, so the task is created in an existing chat and
+    the harness would watch an empty one. The newest task created after the send is a fact.
+    """
+    best_chat, best_task, best_at = "", {}, None
+    for chat in chats(token)[:chats_probe]:
+        chat_id = str(chat.get("id") or "")
+        if not chat_id:
+            continue
+        for task in tasks(token, chat_id):
+            created = _parse_ts(task.get("created_at"))
+            if created and created >= since and (best_at is None or created > best_at):
+                best_chat, best_task, best_at = chat_id, task, created
+    return best_chat, best_task
+
+
 def newest_chat_id(token: str, *, exclude: set[str]) -> str:
     rows = chats(token)
     for row in rows or []:
@@ -315,25 +356,61 @@ def run_t3(scenario, token: str, *, restore_seconds: float = 240) -> dict:
 
     common.stop_stale_tasks(token, common.SANDBOX)
     before_chats = {str(row.get("id")) for row in chats(token)}
+    # A window that has been open for a while can be showing another chat, a stale auth prompt or
+    # a task from an earlier run. T4 starts from a known window so the only new task is ours.
+    stop_window()
+    time.sleep(3)
     window = ensure_window()
+    wait(lambda: cdp_ready() or None, seconds=90) or None
     sent = node("send", _prompt_file(root, scenario.prompt))
-    chat_id = wait(
-        lambda: newest_chat_id(token, exclude=before_chats) or None,
-        seconds=90,
-    ) or ""
+    from datetime import datetime, timedelta, timezone
+
+    sent_since = datetime.now(timezone.utc) - timedelta(seconds=5)
+    resolved = wait(
+        lambda: (lambda pair: pair if pair[0] else None)(resolve_task_since(token, sent_since))
+        or None,
+        seconds=120,
+        interval=2.0,
+    )
+    chat_id = resolved[0] if resolved else ""
+    task_at_start = resolved[1] if resolved else {}
     stop_approver, approvals, confirmation_observed = (
         start_approver(token, chat_id) if chat_id else (None, [], [])
     )
+
+    if not chat_id:
+        # Nothing was created for this prompt. Suspending now would only destroy a task that never
+        # started, so the scenario reports BLOCKED and leaves the Pod to the next scenario.
+        return {
+            "scenario": scenario.id,
+            "verdict": "BLOCKED",
+            "reasons": ["no task was created for the prompt; nothing was suspended"],
+            "window": window,
+            "sent": {"exit": sent[0], "payload": sent[1], "output": sent[2]},
+            "notes_seen": [str(row.get("title") or "")[:60] for row in chats(token)[:3]],
+        }
 
     first_tool = wait(
         lambda: (
             [row for row in model_tools(tool_runs(token, chat_id)) if row.get("status") == "completed"]
             or None
-        )
-        if chat_id
-        else None,
+        ),
         seconds=240,
     )
+    if not first_tool:
+        # The disconnect must interrupt real work. A task that never completed a tool proves
+        # nothing about the transport, and suspending it would only produce a false FAIL.
+        return {
+            "scenario": scenario.id,
+            "verdict": "BLOCKED",
+            "reasons": ["no completed model tool before the scheduled disconnect"],
+            "window": window,
+            "sent": {"exit": sent[0], "payload": sent[1], "output": sent[2]},
+            "chat_id": chat_id,
+            "task_at_start": {
+                key: task_at_start.get(key) for key in ("id", "status", "created_at")
+            },
+        }
     files_before_restart = common.snapshot(root)
     task_before = task_status(token, chat_id)
     # Close while a native run is in flight, not while the task waits for a click. A task parked
@@ -651,6 +728,9 @@ def run_t4(scenario, token: str, *, offline_seconds: float = 90, restore_seconds
         "pid": pid,
         "process_started_at": started,
         "first_tool_at": (first_tool or [{}])[0].get("tool_name") if first_tool else None,
+        "task_at_start": {
+            key: task_at_start.get(key) for key in ("id", "status", "created_at")
+        },
         "suspend": suspended,
         "confirmations": approvals,
         "confirmation_observed": confirmation_observed,

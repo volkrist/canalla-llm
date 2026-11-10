@@ -121,19 +121,38 @@ class FakeWorld:
         return self.healthy
 
     # writes
-    def run_scenario(self, scenario, *, max_session_seconds, watchdog_seconds, budget_usd):
-        self.calls.append(("run_scenario", scenario, max_session_seconds, watchdog_seconds,
-                           budget_usd))
+    def run_scenario(self, scenarios, *, max_session_seconds, watchdog_seconds, budget_usd):
+        self.calls.append(("run_scenario", tuple(scenarios), max_session_seconds,
+                           watchdog_seconds, budget_usd))
         if self._results:
             result = dict(self._results.pop(0))
         else:
             result = {"verdict": "PASS", "pod_created": True, "pod_seconds": 300.0,
                       "cost_usd": 0.09}
-        result.setdefault("scenario", scenario)
-        result.setdefault("reasons", [])
-        result.setdefault("evidence", "fake://summary.json")
-        result.setdefault("runner_exit", 0)
-        return result
+        verdict = result.get("verdict", "PASS")
+        failed = result.get("fail")
+        per_scenario = {}
+        for name in scenarios:
+            per_scenario[name] = {
+                "verdict": "FAIL" if name == failed else verdict,
+                "reasons": result.get("reasons", []) if name == failed else [],
+            }
+        return {
+            "scenarios": list(scenarios),
+            "results": per_scenario,
+            "pod_created": result.get("pod_created", True),
+            "pod_seconds": result.get("pod_seconds", 300.0),
+            "cost_usd": result.get("cost_usd", 0.09),
+            "rate_usd": result.get("rate_usd", 0.79),
+            "elapsed_seconds": result.get("pod_seconds", 300.0),
+            "evidence": result.get("evidence", "fake://summary.json"),
+            "runner_exit": result.get("runner_exit", 0),
+            "output_tail": "",
+        }
+
+    def release(self):
+        self.calls.append(("release",))
+        return {"ok": True, "exit": 0, "summary": "release ok", "output_tail": ""}
 
     def stop_compute(self):
         self.calls.append(("stop_compute",))
@@ -182,9 +201,10 @@ def live_pod(pod_id="clg0l7fcy6542d"):
     return {"id": pod_id, "status": "RUNNING", "name": "alex-gw-test"}
 
 
-def scenario_result(verdict, *, pod=True, cost=0.09, seconds=300.0, reasons=None):
+def scenario_result(verdict, *, pod=True, cost=0.09, seconds=300.0, reasons=None, fail=None):
     return {
         "verdict": verdict,
+        "fail": fail,
         "pod_created": pod,
         "pod_seconds": seconds,
         "cost_usd": cost,
@@ -226,8 +246,11 @@ def test_2_capacity_on_the_sixth_check(tmp: Path) -> None:
     check("2a the first five checks created nothing", state.get("pods_created") == 1,
           str(state.get("pods_created")))
     check("2b the sixth check started the first live scenario",
-          any(call[0] == "run_scenario" and call[1] == "T3L" for call in world.calls),
+          any(call[0] == "run_scenario" and call[1][0] == "T3L" for call in world.calls),
           str(world.calls[-3:]))
+    check("2b2 one session carries both remaining gates when they fit",
+          any(call[0] == "run_scenario" and list(call[1]) == ["T3L", "T4L"]
+              for call in world.calls), str(world.calls[-3:]))
     check("2c the session window keeps a 90 s stop margin",
           state["attempts"][0]["max_session_seconds"] <= cfg.max_pod_seconds
           - cfg.watchdog_reserve_seconds,
@@ -247,9 +270,11 @@ def test_3_both_live_gates_pass_reaches_the_release_gate(tmp: Path) -> None:
     check("3a every live scenario recorded PASS",
           state.get("scenario_verdicts") == {"T3L": "PASS", "T4L": "PASS", "LA": "PASS"},
           str(state.get("scenario_verdicts")))
-    check("3b the monitor stops on READY_FOR_RELEASE",
-          state.get("outcome") == "READY_FOR_RELEASE", str(state.get("outcome")))
-    check("3c no more than three Pods were opened", state.get("pods_created") == 3,
+    check("3b the monitor publishes without a further message",
+          state.get("outcome") == "PUBLISHED", str(state.get("outcome")))
+    check("3b2 it handed over to the release coordinator",
+          any(call[0] == "release" for call in world.calls), str(world.calls[-3:]))
+    check("3c no more than three Pods were opened", state.get("pods_created") <= 3,
           str(state.get("pods_created")))
     check("3d the spend stays inside the new budget",
           coordinator.budget_used(state) <= cfg.budget_usd, str(coordinator.budget_used(state)))
@@ -260,7 +285,8 @@ def test_4_t3_failure_forbids_the_release(tmp: Path) -> None:
     temp_paths(tmp)
     state = fresh_state(cfg)
     world = FakeWorld(availability=[{"candidates": [CARD]}],
-                      results=[scenario_result("FAIL", reasons=["no completed tool"])])
+                      results=[scenario_result("PASS", fail="T3L",
+                                               reasons=["no completed tool"])])
     coordinator.run_loop(world, cfg, state, max_iterations=6)
     check("4a a live FAIL stops the paid phase", state.get("outcome") == "LIVE_FAILED_T3L",
           str(state.get("outcome")))
@@ -280,7 +306,7 @@ def test_5_t4_failure_forbids_the_release(tmp: Path) -> None:
     state = fresh_state(cfg)
     world = FakeWorld(
         availability=[{"candidates": [CARD]} for _ in range(3)],
-        results=[scenario_result("PASS"), scenario_result("FAIL", reasons=["host offline"])],
+        results=[scenario_result("PASS", fail="T4L", reasons=["host offline"])],
     )
     coordinator.run_loop(world, cfg, state, max_iterations=8)
     check("5a a T4 failure stops the run", state.get("outcome") == "LIVE_FAILED_T4L",
@@ -301,6 +327,9 @@ def test_6_budget_guard_refuses_a_new_pod(tmp: Path) -> None:
     coordinator.run_loop(world, cfg, state, max_iterations=3)
     check("6a a Pod that would exceed the cap is not created",
           not any(call[0] == "run_scenario" for call in world.calls), str(world.calls))
+    check("6c the recorded verdict is not rewritten by a budget stop",
+          state.get("scenario_verdicts") == {"T3L": "FAIL"},
+          str(state.get("scenario_verdicts")))
     check("6b the outcome is a budget stop", state.get("outcome") == "BUDGET_LIMIT",
           str(state.get("outcome")))
 

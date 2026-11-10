@@ -245,8 +245,17 @@ def install(ctx: Context) -> dict:
     if INSTALLER.is_file() and expected and sha256(INSTALLER) != expected:
         return ctx.record("07_install", "FAIL", "installer digest changed after verification")
     installed = _installed_version()
-    if installed == VERSION:
-        return ctx.record("07_install", "SKIP", f"the installed build is already {installed}",
+    tree_sidecar = REPO / "apps" / "desktop" / "src-tauri" / "sidecar" / "alex-backend" / "alex-backend.exe"
+    installed_sidecar = (Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Canalla LLM"
+                         / "sidecar" / "alex-backend" / "alex-backend.exe")
+    same_bytes = (
+        tree_sidecar.is_file()
+        and installed_sidecar.is_file()
+        and sha256(tree_sidecar) == sha256(installed_sidecar)
+    )
+    if installed == VERSION and same_bytes:
+        return ctx.record("07_install", "SKIP",
+                          f"the installed build is already {installed} with the packaged sidecar",
                           already=True)
     result = ctx.shell(f'"{INSTALLER}" /S')
     if not _ok(result):
