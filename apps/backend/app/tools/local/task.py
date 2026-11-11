@@ -721,6 +721,32 @@ class LocalTaskController:
                 if verification.get("tests") != "passed" or not verification.get("git_reviewed"):
                     raise ToolError("git_push_unverified")
 
+    def _observe_transition(self, db, row, dest, *, secrets=(), reason=""):
+        """Move the task if the machine allows it; never turn a refusal into a dead turn.
+
+        `observe_tool` runs *after* a tool failed, and the task may be in a state that has no
+        edge to the state a plain failure implies — a retryable timeout arriving while the task
+        waits for a confirmation is exactly that. The refusal used to escape as
+        `invalid_task_transition` and kill the generation (T4 LIVE, 2026-11-11); the honest
+        outcome is to keep the state the task is really in and record why it did not move.
+        """
+        from . import machine
+
+        try:
+            machine.transition(row, dest)
+            return True
+        except ToolError as error:
+            if error.code != "invalid_task_transition":
+                raise
+            append_event(
+                db,
+                row.id,
+                "TRANSITION_REJECTED",
+                {"from": row.status, "to": dest, "error": reason},
+                secrets,
+            )
+            return False
+
     def observe_tool(self, db, context, name, output, error=None, arguments=None):
         row = self._row(db, context)
         if not row:
@@ -745,9 +771,9 @@ class LocalTaskController:
             append_event(db, row.id, "CONFLICT", {"tool": name, "retries": retries}, secrets)
             self._advance_step(db, row, name, failed=True, summary="conflict: re-read before patching")
             if retries <= 3 and facts.get("conflict_path"):
-                machine.transition(row, machine.INSPECTING)
+                self._observe_transition(db, row, machine.INSPECTING, secrets=secrets, reason="conflict")
             else:
-                machine.transition(row, machine.CONFLICT)
+                self._observe_transition(db, row, machine.CONFLICT, secrets=secrets, reason="conflict")
         elif error:
             if error in {"page_limit", "search_limit", "tool_limit", "task_runtime_limit"}:
                 facts = dict(row.facts or {})
@@ -769,12 +795,16 @@ class LocalTaskController:
                 append_event(db, row.id, "RETRY", {"tool": name, "error": error}, secrets)
                 if row.retry_count >= row.retry_budget:
                     row.last_error = error
-                    machine.transition(row, machine.FAILED)
-                    release(db, row.id)
+                    if self._observe_transition(
+                        db, row, machine.FAILED, secrets=secrets, reason=error
+                    ):
+                        release(db, row.id)
                 else:
-                    machine.transition(row, machine.RETRYING)
+                    self._observe_transition(db, row, machine.RETRYING, secrets=secrets, reason=error)
             elif error == "confirmation_required":
-                machine.transition(row, machine.WAITING_CONFIRMATION)
+                self._observe_transition(
+                    db, row, machine.WAITING_CONFIRMATION, secrets=secrets, reason=error
+                )
                 append_event(db, row.id, "CONFIRMATION_REQUESTED", {"tool": name}, secrets)
             elif error == "host_offline":
                 self.waiting_device(db, context)
@@ -803,7 +833,7 @@ class LocalTaskController:
                 machine.WAITING_LLM,
                 machine.WAITING_WORKSPACE,
             }:
-                machine.transition(row, phase)
+                self._observe_transition(db, row, phase, secrets=secrets, reason="success")
         row.updated_at = now()
         db.commit()
 

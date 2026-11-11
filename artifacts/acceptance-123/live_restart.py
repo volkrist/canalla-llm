@@ -633,6 +633,14 @@ def run_t4(scenario, token: str, *, offline_seconds: float = 90, restore_seconds
         else:
             child.unlink(missing_ok=True)
 
+    # The catalogue owns the fixture and the live flow has just cleared the folder: seed it again.
+    # Without this the model opened a directory that held only `_prompt.txt` and spent its window
+    # searching for a file that never existed (live run 2026-11-11T174431).
+    if getattr(scenario, "setup", ""):
+        import catalog
+
+        catalog.setup_fixture(scenario.setup, root)
+
     common.stop_stale_tasks(token, common.SANDBOX)
     before_chats = {str(row.get("id")) for row in chats(token)}
     # A window that has been open for a while can be showing another chat, a stale auth prompt or
@@ -757,8 +765,8 @@ def run_t4(scenario, token: str, *, offline_seconds: float = 90, restore_seconds
     finally:
         if suspended.get("ok"):
             resumed = resume_window(pid, expected_start=started)
-        if stop_approver is not None:
-            stop_approver.set()
+        # The approver stays alive: the first tool after the resume asks for permission again, and
+        # stopping it here left the resumed task parked in WAITING_CONFIRMATION forever.
     online_after_resume = wait(lambda: device_online(token) or None, seconds=60)
     task_now = task_status(token, chat_id)
     if str((task_now or {}).get("status") or "") in {"WAITING_DEVICE", "INTERRUPTED", "PAUSED"}:
@@ -774,6 +782,8 @@ def run_t4(scenario, token: str, *, offline_seconds: float = 90, restore_seconds
     # contract and must exist before the harness tears anything down.
     wait(lambda: answer_text(token, chat_id).strip() or None, seconds=60, interval=1.0)
     final_answer = answer_text(token, chat_id)
+    if stop_approver is not None:
+        stop_approver.set()
     device_after = json.loads(
         (Path(common.ROOT) / "device.json").read_text(encoding="utf-8")
     ).get("device_id")
