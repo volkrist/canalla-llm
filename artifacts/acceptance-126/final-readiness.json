@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-11-11T19:01:05.137219+00:00",
-  "git_sha": "7273cda",
+  "generated_at": "2026-11-11T22:23:01.354837+00:00",
+  "git_sha": "b5b24f0",
   "installed_version": "1.2.6",
-  "installed_sidecar_sha": "7c2f465f96d7e186ebf7ac07a8b05a80f9d18d82ee92381f587187f7dffcdfd6",
+  "installed_sidecar_sha": "aec597860fd1d04a5236c06c7e3990473eef018570561ac86213f900731c7f5f",
   "flags": {
     "t3_free_ready": true,
     "t4_free_ready": true,
@@ -17,14 +17,14 @@
   },
   "detail": {
     "t3_free_ready": "}",
-    "t4_free_ready": "}",
+    "t4_free_ready": "    \"error\": nu",
     "app_running": "200 {\"status\":\"ok\",\"provider\":\"llamacpp\",\"llm_ready\":false,\"product\":\"alex-llm\",\"version\":\"1.2.6\",\"runtime_protocol_version\"",
     "candidate_verified": "RELEASE GATE: PASS",
     "data_safe": "integrity ok, users 2, chats 52, messages 116, devices 59",
     "device_stable": "device_id f3548022-a676-463c-9fc5-b05bbd5ac907",
     "tor_ready": "state ready, chain True, runtime 0.4.9.16, source bundled",
     "gpu_watchdog_ready": "0:00\",   \"stopped_at\": \"2026-11-11T17:52:50.025429+00:00\",   \"confirmed_elapsed_seconds\": 494.3,   \"within_cap\": true,   \"confirmed_pod_id\": \"cm55qewg3cx9wm\" } ",
-    "budget_available": "pods 0, balance $9.1250622573",
+    "budget_available": "pods 0, balance $9.0861733685",
     "release_pipeline_ready": "release_coordinator.py present"
   },
   "required_flags": [
@@ -39,11 +39,11 @@
   ],
   "ok": true,
   "device_id": "f3548022-a676-463c-9fc5-b05bbd5ac907",
-  "balance_usd": 9.1250622573,
+  "balance_usd": 9.0861733685,
   "pods": [],
   "availability": {
     "verdict": "NOT_PLACEABLE",
-    "tested_at": "2026-11-11T19:01:02Z",
+    "tested_at": "2026-11-11T22:22:58Z",
     "candidates": [],
     "scanned": [
       {
@@ -54,7 +54,14 @@
       {
         "volume_id": "y92bt25ru8",
         "datacenter": "US-MO-1",
-        "gpus_at_least_48gb": []
+        "gpus_at_least_48gb": [
+          {
+            "id": "NVIDIA H100 80GB HBM3",
+            "vram_gb": 80,
+            "secure_hourly_usd": 2.69,
+            "community_hourly_usd": null
+          }
+        ]
       }
     ]
   }

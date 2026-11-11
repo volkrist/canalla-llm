@@ -62,10 +62,7 @@ def _task(db, user_id, chat_id, status):
 
 
 def _events(db, task_id):
-    return [
-        item.kind
-        for item in db.scalars(select(TaskEvent).where(TaskEvent.task_id == task_id)).all()
-    ]
+    return [item.kind for item in db.scalars(select(TaskEvent).where(TaskEvent.task_id == task_id)).all()]
 
 
 def test_a_retryable_timeout_while_waiting_for_confirmation_returns_to_executing(client, auth):

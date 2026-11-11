@@ -21,7 +21,6 @@ import threading
 import time
 from pathlib import Path
 
-import pytest
 from sqlalchemy import select
 
 from app.database import SessionLocal
@@ -96,9 +95,7 @@ class Approver:
 
     def _loop(self) -> None:
         while not self.stop.wait(0.05):
-            rows = self.client.get(
-                f"/tools/runs?chat_id={self.chat_id}", headers=self.headers
-            ).json()
+            rows = self.client.get(f"/tools/runs?chat_id={self.chat_id}", headers=self.headers).json()
             for row in rows:
                 run_id = str(row.get("id") or "")
                 if row.get("status") != "waiting_confirmation" or not run_id or run_id in self.seen:
@@ -134,9 +131,7 @@ def _context(user_id, chat_id, generation_id, root, prompt):
         computer_mode="ask",
         tor_enabled=False,
         tor_mode="off",
-        settings=WebSettings(
-            computer_mode="ask", workspace_roots=[str(root)], default_mode="auto"
-        ),
+        settings=WebSettings(computer_mode="ask", workspace_roots=[str(root)], default_mode="auto"),
         user_prompt=prompt,
         host_online=True,
     )
@@ -209,9 +204,7 @@ def test_the_t4l_shape_completes_on_a_real_device(client, auth):
         assert host.handled.count("read_file") == 2
 
         with SessionLocal() as db:
-            runs = db.scalars(
-                select(ToolRun).where(ToolRun.chat_id == context.chat_id)
-            ).all()
+            runs = db.scalars(select(ToolRun).where(ToolRun.chat_id == context.chat_id)).all()
             model_runs = [run for run in runs if run.origin == "model"]
             assert [run.tool_name for run in model_runs] == [
                 "read_file",
@@ -234,9 +227,7 @@ def test_the_t4l_shape_completes_on_a_real_device(client, auth):
                 task.last_error,
                 [
                     (item.kind, item.payload)
-                    for item in db.scalars(
-                        select(TaskEvent).where(TaskEvent.task_id == task_id)
-                    ).all()
+                    for item in db.scalars(select(TaskEvent).where(TaskEvent.task_id == task_id)).all()
                 ],
             )
             assert task.tool_calls_used >= 3
