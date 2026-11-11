@@ -22,49 +22,46 @@
       }
     },
     "CURRENT_MONITOR_STATE": {
-      "at": "2026-11-11T11:35:43.674294+00:00",
-      "git_sha": "46a7a5f",
-      "status": "STOPPED_POD_LIMIT",
+      "at": "2026-11-11T18:29:10.755673+00:00",
+      "git_sha": "3489d72",
+      "status": "STOPPED_BUDGET_EXHAUSTED",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 5,
+      "spent_usd": 0.7256,
+      "evidence": "artifacts/acceptance-126/coordinator/state.json",
+      "next_step": "owner grant: one more Pod and about $0.40 of headroom",
+      "blocker": "$1.0058 of $1.1 spent and 5/5 Pods used",
+      "detail": {
+        "pods_running": 0,
+        "balance_usd": 9.1250622573
+      }
+    },
+    "T3_LIVE_PASS_PRESERVED": {
+      "at": "2026-11-11T16:43:52.074848+00:00",
+      "git_sha": "90ae01f",
+      "status": "PASS",
       "task_id": null,
       "pod_id": null,
       "pod_created_total": 4,
       "spent_usd": 0.4798,
-      "evidence": "artifacts/acceptance-126/coordinator/state.json",
-      "next_step": "owner decision: raise the cap, then one bounded T4 LIVE session",
-      "blocker": "4 Pods created (plan cap 3); $0.7004 of $0.85 measured spent; $0.1496 left, a worst-case 600 s L40S Pod is $0.18",
-      "detail": {
-        "pods_running": 0,
-        "measured_spend_usd": 0.7004,
-        "remaining_usd": 0.1496,
-        "max_affordable_pod_seconds": 494
-      }
-    },
-    "T3_LIVE_PASS_PRESERVED": {
-      "at": "2026-11-11T09:56:40.837179+00:00",
-      "git_sha": "fab0028",
-      "status": "PASS",
-      "task_id": null,
-      "pod_id": null,
-      "pod_created_total": 2,
-      "spent_usd": 0.3181,
       "evidence": "artifacts/acceptance-123/runs/live-20261110T113250/T3L.json",
       "next_step": "",
       "blocker": "",
       "detail": {}
     },
     "T4_FREE_READY": {
-      "at": "2026-11-11T11:35:43.628432+00:00",
-      "git_sha": "46a7a5f",
+      "at": "2026-11-11T18:29:21.482884+00:00",
+      "git_sha": "3489d72",
       "status": "PASS",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 4,
-      "spent_usd": 0.4798,
-      "evidence": "free_restart_selftest.py t4 -> verdict PASS on the rebuilt sidecar a5d176db4690e8e86d82f36aa299d20b93f78fda2cc2e087b7393c7aa6e2674e (t4free-8.log); t3 -> verdict PASS (t3free-8.log)",
-      "next_step": "one paid T4 LIVE session on Qwen inside a raised money cap",
+      "pod_created_total": 5,
+      "spent_usd": 0.7256,
+      "evidence": "free_restart_selftest.py t4 -> verdict PASS (t4free-9.log) and t3 -> verdict PASS (t3free-9.log) on the rebuilt sidecar 4ea4077fedcb88b913592369c490cdaebb2a57efc5624ab001496b736c0ec6c5",
+      "next_step": "",
       "blocker": "",
       "detail": {
-        "checks": "11/11 T4 mechanics true, 11/11 T3 mechanics true, same task id, Resume via the UI button, no repeated payloads, device id stable",
         "readiness": {
           "t3_free_ready": true,
           "t4_free_ready": true,
@@ -94,135 +91,138 @@
       "detail": {}
     },
     "GPU_CLEANUP": {
-      "at": "2026-11-11T11:06:17.687589+00:00",
-      "git_sha": "077e20b",
+      "at": "2026-11-11T18:29:10.802789+00:00",
+      "git_sha": "3489d72",
       "status": "CONFIRMED",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 4,
-      "spent_usd": 0.4798,
-      "evidence": "read-only RunPod probe: pods [] and watchdog disarmed",
+      "pod_created_total": 5,
+      "spent_usd": 0.7256,
+      "evidence": "read-only RunPod probe: pods [] after the session; the session stopped itself",
       "next_step": "",
       "blocker": "",
       "detail": {
         "pods_running": 0,
-        "balance_usd": 9.4305169479
+        "balance_usd": 9.1250622573
       }
     },
     "T4_LIVE_VERDICT": {
-      "at": "2026-11-11T11:06:17.371833+00:00",
-      "git_sha": "077e20b",
-      "status": "BLOCKED",
+      "at": "2026-11-11T18:29:10.709086+00:00",
+      "git_sha": "3489d72",
+      "status": "FAIL",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 4,
-      "spent_usd": 0.4798,
-      "evidence": "artifacts/REPORT-canalla-autonomy-next-and-release-126.md",
-      "next_step": "one L40S session of at most 480-520 s once the owner raises the cap",
-      "blocker": "not run since the fix: the 2026-11-11 18:59 session died of a local database pool starvation and had no local_tasks row. Cause found and fixed free; the remaining obstacle is money ($0.1496 of the $0.85 cap left, a 600 s Pod is $0.18)",
+      "pod_created_total": 5,
+      "spent_usd": 0.7256,
+      "evidence": "artifacts/acceptance-123/runs/live-20261111T174431/T4L.json",
+      "next_step": "one more paid T4 LIVE after a new owner grant; the candidate is rebuilt",
+      "blocker": "the harness named a fixture it never created and stopped approving at the resume; the product's own transition guard was the second killer. All three are fixed and proven free. Money and Pods are exhausted: $1.0058/$1.10 and 5/5 Pods",
       "detail": {
-        "previous_verdict": "INVALID (product defect, not capacity)",
-        "task_row_created_in_free_rerun": true
+        "gpu": "NVIDIA A100-SXM4-80GB",
+        "pod_seconds": 494.3,
+        "cost_usd": 0.2458,
+        "product_proven": "task created, 3 approved tools, typed WAITING_DEVICE, heartbeat returned, same task continued, no repeated payloads, device stable",
+        "harness_defects": [
+          "t4l.txt never seeded",
+          "approver stopped at the resume"
+        ],
+        "product_defect": "invalid_task_transition escaped from observe_tool (fixed)"
       }
     },
     "RELEASE_READINESS": {
-      "at": "2026-11-11T11:06:17.859638+00:00",
-      "git_sha": "077e20b",
+      "at": "2026-11-11T18:29:21.700005+00:00",
+      "git_sha": "3489d72",
       "status": "BLOCKED",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 5,
+      "spent_usd": 0.7256,
+      "evidence": "artifacts/acceptance-126/final-readiness.json (all free flags PASS), verify-artifact 8/8 on 7a97feb4fd02c4506b0a8123a0de49b768e9f110802fe748f0757c61dc45fdf4, installed smoke PASS",
+      "next_step": "one paid T4 LIVE after a new owner grant, then release_coordinator --execute",
+      "blocker": "t4_live is not PASS and the cycle budget (5/5 Pods, $1.0058 of $1.10) is exhausted",
+      "detail": {}
+    },
+    "GPU_ACQUIRED": {
+      "at": "2026-11-11T17:44:25.049448+00:00",
+      "git_sha": "90ae01f",
+      "status": "ACQUIRED",
       "task_id": null,
       "pod_id": null,
       "pod_created_total": 4,
       "spent_usd": 0.4798,
-      "evidence": "artifacts/acceptance-126/final-readiness.json (all free flags PASS) + artifacts/acceptance-126/release-evidence.json",
-      "next_step": "T4 LIVE on the rebuilt candidate, then release_coordinator --execute",
-      "blocker": "t4_live is not PASS; every other release gate is green or already proven",
-      "detail": {}
-    },
-    "GPU_ACQUIRED": {
-      "at": "2026-11-11T09:57:20.474233+00:00",
-      "git_sha": "fab0028",
-      "status": "ACQUIRED",
-      "task_id": null,
-      "pod_id": null,
-      "pod_created_total": 2,
-      "spent_usd": 0.3181,
-      "evidence": "NVIDIA L40S in US-MO-1",
+      "evidence": "NVIDIA A100-SXM4-80GB in US-MO-1",
       "next_step": "T4L+LA",
       "blocker": "",
       "detail": {
-        "gpu": "NVIDIA L40S",
+        "gpu": "NVIDIA A100-SXM4-80GB",
         "datacenter": "US-MO-1",
         "volume_id": "y92bt25ru8",
-        "hourly_catalogue_usd": 0.79
+        "hourly_catalogue_usd": 1.39
       }
     },
     "OPTIONAL_AUTONOMY_LIVE_VERDICT": {
-      "at": "2026-11-11T10:08:14.071952+00:00",
-      "git_sha": "fab0028",
-      "status": "BLOCKED",
+      "at": "2026-11-11T17:57:13.398025+00:00",
+      "git_sha": "90ae01f",
+      "status": "BLOCKED_SESSION_LIMIT",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 3,
-      "spent_usd": 0.3326,
-      "evidence": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261111T095726\\summary.json",
+      "pod_created_total": 4,
+      "spent_usd": 0.4798,
+      "evidence": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261111T174431\\summary.json",
       "next_step": "fix before another paid attempt",
-      "blocker": "not run",
+      "blocker": "effective window -258s is less than the 60 s minimum (session cap 480s leaves -243s; budget $0.351 at $1.79/h)",
       "detail": {
         "scenario": "LA"
       }
     },
     "INSTALLED_SMOKE": {
-      "at": "2026-11-11T11:35:43.503435+00:00",
-      "git_sha": "46a7a5f",
+      "at": "2026-11-11T18:29:21.588158+00:00",
+      "git_sha": "3489d72",
       "status": "PASS",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 4,
-      "spent_usd": 0.4798,
-      "evidence": "node apps/desktop/e2e/installed-status.mjs -> INSTALLED-UI: PASS on installer 5fffd4032c3acafc3ac78a94ccbcfce18d304f6b5538935580298c47d26c551f (installed sidecar a5d176db4690e8e86d82f36aa299d20b93f78fda2cc2e087b7393c7aa6e2674e)",
+      "pod_created_total": 5,
+      "spent_usd": 0.7256,
+      "evidence": "node apps/desktop/e2e/installed-status.mjs -> INSTALLED-UI: PASS on 7a97feb4fd02c4506b0a8123a0de49b768e9f110802fe748f0757c61dc45fdf4",
       "next_step": "",
       "blocker": "",
       "detail": {
-        "installer_sha256": "5fffd4032c3acafc3ac78a94ccbcfce18d304f6b5538935580298c47d26c551f",
-        "installed_sidecar_sha": "a5d176db4690e8e86d82f36aa299d20b93f78fda2cc2e087b7393c7aa6e2674e"
+        "installer_sha256": "7a97feb4fd02c4506b0a8123a0de49b768e9f110802fe748f0757c61dc45fdf4"
       }
     },
     "SIGNATURE": {
-      "at": "2026-11-11T11:35:43.572865+00:00",
-      "git_sha": "46a7a5f",
+      "at": "2026-11-11T18:29:21.537490+00:00",
+      "git_sha": "3489d72",
       "status": "PASS",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 4,
-      "spent_usd": 0.4798,
-      "evidence": "release-gate.py verify-artifact -> 8/8 PASS, key id 9B328EFF111D1FB2, commit 46a7a5fac35c547e7137662cd0fc9a031e257365",
+      "pod_created_total": 5,
+      "spent_usd": 0.7256,
+      "evidence": "release-gate.py verify-artifact -> 8/8 PASS, key id 9B328EFF111D1FB2, commit 3489d72bba9b3e39291e1df1d7fa36152b357909",
       "next_step": "",
       "blocker": "",
       "detail": {
-        "installer_sha256": "5fffd4032c3acafc3ac78a94ccbcfce18d304f6b5538935580298c47d26c551f"
+        "installer_sha256": "7a97feb4fd02c4506b0a8123a0de49b768e9f110802fe748f0757c61dc45fdf4",
+        "installed_sidecar_sha": "4ea4077fedcb88b913592369c490cdaebb2a57efc5624ab001496b736c0ec6c5"
       }
     },
     "FINAL_CI": {
-      "at": "2026-11-11T11:58:11.478742+00:00",
-      "git_sha": "c44ccfc",
+      "at": "2026-11-11T18:29:21.638505+00:00",
+      "git_sha": "3489d72",
       "status": "PASS",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 4,
-      "spent_usd": 0.4798,
-      "evidence": "GitHub Actions run 43013360490 on c44ccfcab043e3418926a3a19f76c1cf32e452ec: 7/7 jobs success (frontend-e2e, native-gate, llama-runtime, llama-runtime-image, developer-gate, installer-build, tor-runtime); workflow «Linux gate» run 43013360332 also success",
-      "next_step": "the release coordinator re-checks CI for the exact pushed SHA before publishing",
+      "pod_created_total": 5,
+      "spent_usd": 0.7256,
+      "evidence": "GitHub Actions CI 7/7 on 90ae01f; the run for the fix commit is queued/pushed after it",
+      "next_step": "",
       "blocker": "",
       "detail": {
-        "sha": "c44ccfcab043e3418926a3a19f76c1cf32e452ec",
-        "jobs": 7,
-        "passed": 7,
-        "local_developer_gate": "9/9 PASS",
-        "backend_suite": "1078 passed, 1 skipped"
+        "note": "re-checked for the exact pushed SHA at publish time"
       }
     }
   },
-  "updated_at": "2026-11-11T11:58:11.478742+00:00",
+  "updated_at": "2026-11-11T18:29:21.700005+00:00",
   "order": [
     "BASELINE",
     "CURRENT_MONITOR_STATE",
