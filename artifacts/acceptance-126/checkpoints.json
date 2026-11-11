@@ -22,24 +22,21 @@
       }
     },
     "CURRENT_MONITOR_STATE": {
-      "at": "2026-11-10T22:38:52.624548+00:00",
-      "git_sha": "0dc7f88",
+      "at": "2026-11-11T09:48:29.848700+00:00",
+      "git_sha": "65564ea",
       "status": "MONITORING",
       "task_id": null,
       "pod_id": null,
       "pod_created_total": 2,
       "spent_usd": 0.3181,
       "evidence": "artifacts/acceptance-126/coordinator/state.json",
-      "next_step": "T4L on the next placeable card",
+      "next_step": "T4L",
       "blocker": "",
-      "detail": {
-        "ttl_extension_to": "2026-11-17T22:37:00+00:00",
-        "max_checks": 672
-      }
+      "detail": {}
     },
     "T3_LIVE_PASS_PRESERVED": {
-      "at": "2026-11-10T22:38:52.711385+00:00",
-      "git_sha": "0dc7f88",
+      "at": "2026-11-11T09:48:29.927555+00:00",
+      "git_sha": "65564ea",
       "status": "PASS",
       "task_id": null,
       "pod_id": null,
@@ -119,7 +116,7 @@
       "detail": {}
     }
   },
-  "updated_at": "2026-11-10T22:38:53.249218+00:00",
+  "updated_at": "2026-11-11T09:48:29.927555+00:00",
   "order": [
     "BASELINE",
     "CURRENT_MONITOR_STATE",

@@ -674,11 +674,15 @@ def refresh_snapshot(world: RealWorld, cfg: Config, *, with_availability: bool) 
         "candidates": [],
         "checked_datacenters": [],
     }
-    if with_availability:
+    # A catalogue read is only worth a check when a paid start could actually follow it. While the
+    # app is unauthenticated or the owner's latch is set, polling availability would burn the
+    # permitted check budget without ever being able to act on the answer.
+    if with_availability and snapshot["app_healthy"] and not snapshot["manual_off"]:
         availability = world.availability()
         snapshot["candidates"] = availability.get("candidates", [])
         snapshot["checked_datacenters"] = availability.get("checked_datacenters", [])
         snapshot["availability"] = availability
+        snapshot["checked"] = True
     return snapshot
 
 
@@ -1290,7 +1294,8 @@ def run_loop(world: RealWorld, cfg: Config, state: dict, *, dry_run: bool = Fals
                 return 0
             iterations += 1
             snapshot = refresh_snapshot(world, cfg, with_availability=True)
-            state["checks"] = int(state.get("checks", 0)) + 1
+            if snapshot.get("checked"):
+                state["checks"] = int(state.get("checks", 0)) + 1
             decision = plan(snapshot, state, cfg)
             state["last_decision"] = {key: value for key, value in decision.items()
                                       if key != "candidate"}
