@@ -117,6 +117,7 @@ timeout 30.00
 | `free_restart_selftest.py t4` | **PASS** (`t4free-8.log`, 11/11 механик, task id есть, Resume кнопкой, без дублей) |
 | `free_restart_selftest.py t3` | **PASS** (`t3free-8.log`, 11/11 механик) |
 | `release-gate.py developer` | ruff/pytest/gateway/frontend/vite — PASS (ruff замечания исправлены) |
+| GitHub CI на `c44ccfc` | **7/7 PASS** (frontend-e2e, native-gate, llama-runtime, llama-runtime-image, developer-gate, installer-build, tor-runtime) + workflow «Linux gate» — success |
 
 Главное: свободный T4 теперь **находит задачу** — то, чего не было в платном прогоне.
 
@@ -186,7 +187,7 @@ timeout 30.00
 | T4 FREE (новый артефакт) | PASS |
 | **T4 LIVE** | **BLOCKED — деньги, не продукт и не capacity** |
 | TOR | PASS (0.4.9.16, цепочка, runtime 16.0.1) |
-| CI | PASS на предыдущих коммитах; финальный прогон — на текущем HEAD |
+| CI | **7/7 PASS на `c44ccfc`** (финальный коммит с продуктовым кодом; последующие коммиты — только evidence) |
 | WEB RESEARCH | PASS (ранее, free) |
 | AUTONOMOUS BUILD | PASS (ранее, free) |
 | GUI AUTONOMY | PARTIAL (нужен дополнительный LIVE после T4) |

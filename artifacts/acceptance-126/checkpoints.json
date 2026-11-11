@@ -201,9 +201,28 @@
       "detail": {
         "installer_sha256": "5fffd4032c3acafc3ac78a94ccbcfce18d304f6b5538935580298c47d26c551f"
       }
+    },
+    "FINAL_CI": {
+      "at": "2026-11-11T11:58:11.478742+00:00",
+      "git_sha": "c44ccfc",
+      "status": "PASS",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 4,
+      "spent_usd": 0.4798,
+      "evidence": "GitHub Actions run 43013360490 on c44ccfcab043e3418926a3a19f76c1cf32e452ec: 7/7 jobs success (frontend-e2e, native-gate, llama-runtime, llama-runtime-image, developer-gate, installer-build, tor-runtime); workflow «Linux gate» run 43013360332 also success",
+      "next_step": "the release coordinator re-checks CI for the exact pushed SHA before publishing",
+      "blocker": "",
+      "detail": {
+        "sha": "c44ccfcab043e3418926a3a19f76c1cf32e452ec",
+        "jobs": 7,
+        "passed": 7,
+        "local_developer_gate": "9/9 PASS",
+        "backend_suite": "1078 passed, 1 skipped"
+      }
     }
   },
-  "updated_at": "2026-11-11T11:35:43.674294+00:00",
+  "updated_at": "2026-11-11T11:58:11.478742+00:00",
   "order": [
     "BASELINE",
     "CURRENT_MONITOR_STATE",
