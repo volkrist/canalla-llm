@@ -115,7 +115,25 @@ def call(
         return None, str(error)
 
 
-def token() -> str:
+_TOKEN: dict = {"value": "", "until": 0.0}
+# The desktop and these tools share one rotating refresh secret. Refreshing on every call made
+# them race: one client rotates, the other replays the consumed secret and its own copy is lost.
+# An access token lives for an hour, so caching it removes almost all of that traffic.
+TOKEN_TTL_SECONDS = 45 * 60
+
+
+def _refresh(session_id: str, secret: str, install_id: str) -> tuple:
+    return call(
+        "POST",
+        "/auth/refresh",
+        body={"session_id": session_id, "refresh_secret": secret},
+        headers={"X-Alex-Device-Id": install_id},
+    )
+
+
+def token(force: bool = False) -> str:
+    if not force and _TOKEN["value"] and time.monotonic() < _TOKEN["until"]:
+        return _TOKEN["value"]
     session_id = (
         open(os.path.join(ROOT, "runtime", "session.id"), encoding="utf-8").read().strip()
     )
@@ -123,23 +141,20 @@ def token() -> str:
         open(os.path.join(ROOT, "runtime", "install.id"), encoding="utf-8").read().strip()
     )
     target = "Alex LLM/session/" + session_id
-    status, text = call(
-        "POST",
-        "/auth/refresh",
-        body={"session_id": session_id, "refresh_secret": read_secret(target)},
-        headers={"X-Alex-Device-Id": install_id},
-    )
+    secret = read_secret(target)
+    status, text = _refresh(session_id, secret, install_id)
     if status != 200:
-        status, text = call(
-            "POST",
-            "/auth/refresh",
-            body={"session_id": session_id, "refresh_secret": read_secret(target)},
-            headers={"X-Alex-Device-Id": install_id},
-        )
+        # A refresh is terminal: retrying the same secret is a replay. The only useful retry reads
+        # the store again, because the other client may have rotated and published a new secret.
+        fresh = read_secret(target)
+        if fresh and fresh != secret:
+            status, text = _refresh(session_id, fresh, install_id)
     if status != 200:
         raise SystemExit("refresh failed " + text[:200])
     payload = json.loads(text)
     write_secret(target, payload["refresh_secret"])
+    _TOKEN["value"] = payload["access_token"]
+    _TOKEN["until"] = time.monotonic() + TOKEN_TTL_SECONDS
     return payload["access_token"]
 
 

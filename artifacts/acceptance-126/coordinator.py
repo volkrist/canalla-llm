@@ -188,9 +188,11 @@ def plan(snapshot: dict, state: dict, cfg: Config) -> dict:
         return {"action": "wait", "reason": "the Pod list could not be read; not starting blind",
                 "next_check_in": cfg.interval_seconds}
 
-    if int(state.get("pods_created", 0)) >= cfg.max_pods:
+    cycle_pods = int(state.get("cycle_pods_created", state.get("pods_created", 0)))
+    if cycle_pods >= cfg.max_pods:
         return {"action": "finish", "outcome": "POD_LIMIT",
-                "reason": f"{cfg.max_pods} Pods were already created in this task",
+                "reason": f"{cfg.max_pods} Pods were already created in this cycle "
+                          f"({state.get('pods_created', 0)} in total)",
                 "release_allowed": not mandatory_todo}
 
     found = snapshot.get("candidates") or []
@@ -767,6 +769,12 @@ def reconcile(world: RealWorld, state: dict, decision: dict) -> None:
                 "stop_confirmed": True,
             }
         )
+        # The Pod that the crashed session created was real and billable, so the two counters and
+        # the budget must say so — otherwise a restart would silently buy an extra Pod.
+        if not attempts[-1].get("counted"):
+            attempts[-1]["counted"] = True
+            state["pods_created"] = int(state.get("pods_created", 0)) + 1
+            state["cycle_pods_created"] = int(state.get("cycle_pods_created", 0)) + 1
     world.disarm_watchdog()
     state["in_session"] = False
     state["checks"] = int(state.get("checks", 0)) + 1
@@ -833,10 +841,15 @@ def run_session(world: RealWorld, cfg: Config, state: dict, decision: dict) -> N
             "pod_seconds": result["pod_seconds"],
             "cost_usd": result["cost_usd"],
             "evidence": result["evidence"],
+            "runner_exit": result.get("runner_exit"),
+            # The runner's own words are the only way to explain a scenario that produced no
+            # verdict; without them the next failure is unreadable.
+            "output_tail": (result.get("output_tail") or "")[-2000:],
         }
     )
     if result["pod_created"]:
         state["pods_created"] = int(state.get("pods_created", 0)) + 1
+        state["cycle_pods_created"] = int(state.get("cycle_pods_created", 0)) + 1
     if result.get("rate_usd"):
         # The provider charged more than the catalogue row promised before; keep the guard honest.
         state["last_rate_usd"] = result["rate_usd"]

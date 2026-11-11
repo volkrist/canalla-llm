@@ -22,21 +22,21 @@
       }
     },
     "CURRENT_MONITOR_STATE": {
-      "at": "2026-11-11T09:48:29.848700+00:00",
-      "git_sha": "65564ea",
-      "status": "MONITORING",
+      "at": "2026-11-11T10:11:58.476568+00:00",
+      "git_sha": "fab0028",
+      "status": "STOPPED_POD_LIMIT",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 2,
-      "spent_usd": 0.3181,
+      "pod_created_total": 3,
+      "spent_usd": 0.4653,
       "evidence": "artifacts/acceptance-126/coordinator/state.json",
-      "next_step": "T4L",
-      "blocker": "",
+      "next_step": "needs one more Pod inside a raised money cap",
+      "blocker": "4 Pods created in total; $0.69 of $0.85 spent; a 600 s L40S Pod costs ~$0.18",
       "detail": {}
     },
     "T3_LIVE_PASS_PRESERVED": {
-      "at": "2026-11-11T09:48:29.927555+00:00",
-      "git_sha": "65564ea",
+      "at": "2026-11-11T09:56:40.837179+00:00",
+      "git_sha": "fab0028",
       "status": "PASS",
       "task_id": null,
       "pod_id": null,
@@ -74,32 +74,32 @@
       "detail": {}
     },
     "GPU_CLEANUP": {
-      "at": "2026-11-10T22:38:53.085808+00:00",
-      "git_sha": "0dc7f88",
+      "at": "2026-11-11T10:11:58.429158+00:00",
+      "git_sha": "fab0028",
       "status": "CONFIRMED",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 2,
-      "spent_usd": 0.3181,
+      "pod_created_total": 3,
+      "spent_usd": 0.4653,
       "evidence": "pods [] after every attempt",
       "next_step": "",
       "blocker": "",
       "detail": {
-        "pods_created": 2,
-        "spent_usd": 0.3181
+        "pods_created_total": 4,
+        "spent_usd": 0.69
       }
     },
     "T4_LIVE_VERDICT": {
-      "at": "2026-11-10T22:38:53.168742+00:00",
-      "git_sha": "0dc7f88",
-      "status": "RETRY",
+      "at": "2026-11-11T10:11:58.381754+00:00",
+      "git_sha": "fab0028",
+      "status": "BLOCKED",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 2,
-      "spent_usd": 0.3181,
-      "evidence": "artifacts/acceptance-123/runs/live-20261110T133533/T4L.json",
-      "next_step": "T4L on the next placeable card with the fixed resolver",
-      "blocker": "the first attempt failed on a harness defect (task resolved in another chat); the product mechanics were never exercised",
+      "pod_created_total": 3,
+      "spent_usd": 0.4653,
+      "evidence": "artifacts/acceptance-123/runs/live-20261111T095726/summary.json",
+      "next_step": "one more paid session inside a raised cap, with the runner tail now persisted",
+      "blocker": "three sessions produced no T4 verdict: capacity refusal, a harness resolver defect (fixed), one Pod lost to an operator restart, and one where the model planned with tool calls but the harness wrote no scenario evidence",
       "detail": {}
     },
     "RELEASE_READINESS": {
@@ -114,9 +114,42 @@
       "next_step": "T4 LIVE PASS",
       "blocker": "t4_live is not PASS",
       "detail": {}
+    },
+    "GPU_ACQUIRED": {
+      "at": "2026-11-11T09:57:20.474233+00:00",
+      "git_sha": "fab0028",
+      "status": "ACQUIRED",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 2,
+      "spent_usd": 0.3181,
+      "evidence": "NVIDIA L40S in US-MO-1",
+      "next_step": "T4L+LA",
+      "blocker": "",
+      "detail": {
+        "gpu": "NVIDIA L40S",
+        "datacenter": "US-MO-1",
+        "volume_id": "y92bt25ru8",
+        "hourly_catalogue_usd": 0.79
+      }
+    },
+    "OPTIONAL_AUTONOMY_LIVE_VERDICT": {
+      "at": "2026-11-11T10:08:14.071952+00:00",
+      "git_sha": "fab0028",
+      "status": "BLOCKED",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 3,
+      "spent_usd": 0.3326,
+      "evidence": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261111T095726\\summary.json",
+      "next_step": "fix before another paid attempt",
+      "blocker": "not run",
+      "detail": {
+        "scenario": "LA"
+      }
     }
   },
-  "updated_at": "2026-11-11T09:48:29.927555+00:00",
+  "updated_at": "2026-11-11T10:11:58.476568+00:00",
   "order": [
     "BASELINE",
     "CURRENT_MONITOR_STATE",
