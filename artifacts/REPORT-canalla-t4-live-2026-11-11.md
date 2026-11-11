@@ -2,7 +2,7 @@
 
 **Дата:** 2026-11-11 (вечер) — 2026-11-12
 **Ветка / worktree:** `release/canalla-1.2.4`, существующее рабочее дерево (новый worktree не создавался)
-**HEAD:** `3489d72` (плюс evidence-коммит после него)
+**HEAD:** `7273cda`
 **Версия:** 1.2.6, **не опубликована**
 
 ---
@@ -103,9 +103,9 @@ app.chat_stream generation_failed type=ToolError
 | `harness-check.py` | PASS (8 файлов, undefined-имён нет) |
 | `coordinator_selftest` | 51/51 |
 | `release_steps_selftest` | 73/73 |
-| Пересобранный sidecar | `4ea4077fedcb88b913592369c490cdaebb2a57efc5624ab001496b736c0ec6c5`, digest источников обновлён |
-| Новый installer | `7a97feb4fd02c4506b0a8123a0de49b768e9f110802fe748f0757c61dc45fdf4` |
-| Подпись | production key **9B328EFF111D1FB2**, `verify-artifact` **8/8 PASS** на коммите `3489d72` |
+| Пересобранный sidecar | `7c2f465f96d7e186ebf7ac07a8b05a80f9d18d82ee92381f587187f7dffcdfd6` |
+| Новый installer | `b859f2a20e35e56ea14f789857a914a068c8bc2c8cec02b299ed28791669fcdd` |
+| Подпись | production key **9B328EFF111D1FB2**, `verify-artifact` **8/8 PASS** на коммите `7273cda` |
 | Установка + installed smoke | `INSTALLED-UI: PASS` |
 | T4 FREE / T3 FREE на новом артефакте | **PASS** / **PASS** |
 | Preflight (10 флагов) | все PASS, `pods []` |
@@ -145,7 +145,7 @@ app.chat_stream generation_failed type=ToolError
 | T4 FREE / T3 FREE на новом артефакте | PASS / PASS |
 | **T4 LIVE** | **FAIL** — дефекты harness и один дефект продукта, все исправлены и доказаны бесплатно |
 | TOR | PASS (0.4.9.16, цепочка, runtime 16.0.1) |
-| CI | PASS 7/7 (`90ae01f`), новый коммит поставлен в очередь |
+| CI | **PASS 7/7 на `7273cda`** (+ Linux gate) |
 | WEB RESEARCH / AUTONOMOUS BUILD / SECURITY | PASS (free, ранее) |
 | GUI AUTONOMY | PARTIAL (нужен LIVE после T4) |
 | DATA | PASS (users 2, chats 51+1, messages 114+2, devices 59, integrity ok) |

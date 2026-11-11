@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-11-11T18:28:49.408930+00:00",
-  "git_sha": "3489d72",
+  "generated_at": "2026-11-11T19:01:05.137219+00:00",
+  "git_sha": "7273cda",
   "installed_version": "1.2.6",
-  "installed_sidecar_sha": "4ea4077fedcb88b913592369c490cdaebb2a57efc5624ab001496b736c0ec6c5",
+  "installed_sidecar_sha": "7c2f465f96d7e186ebf7ac07a8b05a80f9d18d82ee92381f587187f7dffcdfd6",
   "flags": {
     "t3_free_ready": true,
     "t4_free_ready": true,
@@ -43,7 +43,7 @@
   "pods": [],
   "availability": {
     "verdict": "NOT_PLACEABLE",
-    "tested_at": "2026-11-11T18:28:46Z",
+    "tested_at": "2026-11-11T19:01:02Z",
     "candidates": [],
     "scanned": [
       {

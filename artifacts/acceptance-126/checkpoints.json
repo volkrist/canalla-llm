@@ -51,14 +51,14 @@
       "detail": {}
     },
     "T4_FREE_READY": {
-      "at": "2026-11-11T18:29:21.482884+00:00",
-      "git_sha": "3489d72",
+      "at": "2026-11-11T19:03:29.599999+00:00",
+      "git_sha": "7273cda",
       "status": "PASS",
       "task_id": null,
       "pod_id": null,
       "pod_created_total": 5,
       "spent_usd": 0.7256,
-      "evidence": "free_restart_selftest.py t4 -> verdict PASS (t4free-9.log) and t3 -> verdict PASS (t3free-9.log) on the rebuilt sidecar 4ea4077fedcb88b913592369c490cdaebb2a57efc5624ab001496b736c0ec6c5",
+      "evidence": "preflight on sidecar 7c2f465f96d7e186ebf7ac07a8b05a80f9d18d82ee92381f587187f7dffcdfd6: t3_free_ready and t4_free_ready PASS",
       "next_step": "",
       "blocker": "",
       "detail": {
@@ -130,16 +130,16 @@
       }
     },
     "RELEASE_READINESS": {
-      "at": "2026-11-11T18:29:21.700005+00:00",
-      "git_sha": "3489d72",
+      "at": "2026-11-11T19:03:29.778544+00:00",
+      "git_sha": "7273cda",
       "status": "BLOCKED",
       "task_id": null,
       "pod_id": null,
       "pod_created_total": 5,
       "spent_usd": 0.7256,
-      "evidence": "artifacts/acceptance-126/final-readiness.json (all free flags PASS), verify-artifact 8/8 on 7a97feb4fd02c4506b0a8123a0de49b768e9f110802fe748f0757c61dc45fdf4, installed smoke PASS",
+      "evidence": "final-readiness.json (10/10 free flags), verify-artifact 8/8 on b859f2a20e35e56ea14f789857a914a068c8bc2c8cec02b299ed28791669fcdd, installed smoke PASS, CI 7/7 — T4 LIVE remains",
       "next_step": "one paid T4 LIVE after a new owner grant, then release_coordinator --execute",
-      "blocker": "t4_live is not PASS and the cycle budget (5/5 Pods, $1.0058 of $1.10) is exhausted",
+      "blocker": "t4_live is not PASS; the cycle budget (5/5 Pods, $1.0058 of $1.10) is exhausted",
       "detail": {}
     },
     "GPU_ACQUIRED": {
@@ -176,53 +176,57 @@
       }
     },
     "INSTALLED_SMOKE": {
-      "at": "2026-11-11T18:29:21.588158+00:00",
-      "git_sha": "3489d72",
+      "at": "2026-11-11T19:03:29.694059+00:00",
+      "git_sha": "7273cda",
       "status": "PASS",
       "task_id": null,
       "pod_id": null,
       "pod_created_total": 5,
       "spent_usd": 0.7256,
-      "evidence": "node apps/desktop/e2e/installed-status.mjs -> INSTALLED-UI: PASS on 7a97feb4fd02c4506b0a8123a0de49b768e9f110802fe748f0757c61dc45fdf4",
+      "evidence": "installed-status.mjs -> INSTALLED-UI: PASS on b859f2a20e35e56ea14f789857a914a068c8bc2c8cec02b299ed28791669fcdd",
       "next_step": "",
       "blocker": "",
       "detail": {
-        "installer_sha256": "7a97feb4fd02c4506b0a8123a0de49b768e9f110802fe748f0757c61dc45fdf4"
+        "installer_sha256": "b859f2a20e35e56ea14f789857a914a068c8bc2c8cec02b299ed28791669fcdd"
       }
     },
     "SIGNATURE": {
-      "at": "2026-11-11T18:29:21.537490+00:00",
-      "git_sha": "3489d72",
+      "at": "2026-11-11T19:03:29.652372+00:00",
+      "git_sha": "7273cda",
       "status": "PASS",
       "task_id": null,
       "pod_id": null,
       "pod_created_total": 5,
       "spent_usd": 0.7256,
-      "evidence": "release-gate.py verify-artifact -> 8/8 PASS, key id 9B328EFF111D1FB2, commit 3489d72bba9b3e39291e1df1d7fa36152b357909",
+      "evidence": "verify-artifact 8/8 PASS, key 9B328EFF111D1FB2, commit 7273cda5f4b463fd7d11c4b21af1a1a0dd7310f0",
       "next_step": "",
       "blocker": "",
       "detail": {
-        "installer_sha256": "7a97feb4fd02c4506b0a8123a0de49b768e9f110802fe748f0757c61dc45fdf4",
-        "installed_sidecar_sha": "4ea4077fedcb88b913592369c490cdaebb2a57efc5624ab001496b736c0ec6c5"
+        "installer_sha256": "b859f2a20e35e56ea14f789857a914a068c8bc2c8cec02b299ed28791669fcdd",
+        "installed_sidecar_sha": "7c2f465f96d7e186ebf7ac07a8b05a80f9d18d82ee92381f587187f7dffcdfd6"
       }
     },
     "FINAL_CI": {
-      "at": "2026-11-11T18:29:21.638505+00:00",
-      "git_sha": "3489d72",
+      "at": "2026-11-11T19:03:29.734564+00:00",
+      "git_sha": "7273cda",
       "status": "PASS",
       "task_id": null,
       "pod_id": null,
       "pod_created_total": 5,
       "spent_usd": 0.7256,
-      "evidence": "GitHub Actions CI 7/7 on 90ae01f; the run for the fix commit is queued/pushed after it",
+      "evidence": "GitHub Actions CI 7/7 on 7273cda (developer gate included) + Linux gate",
       "next_step": "",
       "blocker": "",
       "detail": {
+        "sha": "7273cda5f4b463fd7d11c4b21af1a1a0dd7310f0",
+        "jobs": 7,
+        "passed": 7,
+        "backend_suite": "1081 passed, 1 skipped",
         "note": "re-checked for the exact pushed SHA at publish time"
       }
     }
   },
-  "updated_at": "2026-11-11T18:29:21.700005+00:00",
+  "updated_at": "2026-11-11T19:03:29.778544+00:00",
   "order": [
     "BASELINE",
     "CURRENT_MONITOR_STATE",
