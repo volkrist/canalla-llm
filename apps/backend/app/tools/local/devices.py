@@ -15,6 +15,14 @@ def hash_credential(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+# A device poll is a read. Refreshing `last_seen` on every request made it a write, and the host
+# loop polls the job queue a few times a second: idle polling became a continuous writer stream
+# that serialised on SQLite's single writer and starved the chat turn's own query (T4 LIVE,
+# 2026-11-11). Online is a 45 s window, so a five-second refresh keeps the device visibly alive
+# while turning a burst of ten polls into at most one write.
+LAST_SEEN_WRITE_SECONDS = 5
+
+
 def issue_credential() -> str:
     # token_urlsafe(32) is 256 bits of cryptographic randomness.
     return secrets.token_urlsafe(32)
@@ -87,8 +95,10 @@ def require_device(db: Session, user: User, device_id: str | None, credential: s
     )
     if not row or row.credential_hash != hash_credential(credential):
         raise HTTPException(401, "device_auth")
-    row.last_seen = now()
-    db.commit()
+    seen = _aware(row.last_seen)
+    if seen is None or (now() - seen).total_seconds() >= LAST_SEEN_WRITE_SECONDS:
+        row.last_seen = now()
+        db.commit()
     return row
 
 

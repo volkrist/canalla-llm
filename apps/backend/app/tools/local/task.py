@@ -17,6 +17,7 @@ from .plan import (
     looks_like_autonomous,
     looks_like_commit_request,
     looks_like_computer,
+    looks_like_file_task,
     looks_like_push_request,
     looks_like_write,
     needs_research,
@@ -29,6 +30,7 @@ WRITE_TOOLS = {"write_file", "patch_file", "create_directory", "copy_file", "mov
 VERIFY_TOOLS = {"run_python", "run_process", "run_powershell", "git_status", "git_diff"}
 RETRYABLE = {
     "timeout",
+    "database_busy",
     "provider_unavailable",
     "provider_timeout",
     "rate_limited",
@@ -98,10 +100,12 @@ class LocalTaskController:
 
         context.security_task = looks_like_security(prompt)
         git_task = looks_like_commit_request(prompt) or looks_like_push_request(prompt)
+        context.file_task = looks_like_file_task(prompt)
         context.autonomous = bool(
             getattr(context, "autonomous", False)
             or looks_like_autonomous(prompt)
             or looks_like_computer(prompt)
+            or context.file_task
             or context.coding_task
             or context.security_task
             or git_task
@@ -114,10 +118,12 @@ class LocalTaskController:
 
         security = looks_like_security(prompt)
         git_task = looks_like_commit_request(prompt) or looks_like_push_request(prompt)
+        file_task = bool(getattr(context, "file_task", False) or looks_like_file_task(prompt))
         autonomous = bool(
             getattr(context, "autonomous", False)
             or looks_like_autonomous(prompt)
             or looks_like_computer(prompt)
+            or file_task
             or getattr(context, "coding_task", False)
             or security
             or git_task
@@ -148,7 +154,9 @@ class LocalTaskController:
         cfg = get_settings()
         chat = db.get(Chat, context.chat_id) if context.chat_id else None
         write = computer and looks_like_write(prompt)
-        computer_only = looks_like_computer(prompt) and not bool(context.coding_task) and not git_task
+        computer_only = (
+            (looks_like_computer(prompt) or file_task) and not bool(context.coding_task) and not git_task
+        )
         from .scope import build_scope
 
         roots = list(getattr(getattr(context, "settings", None), "workspace_roots", None) or [])

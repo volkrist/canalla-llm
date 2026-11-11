@@ -740,6 +740,12 @@ async def stream_response(
             raise
         except Exception as error:
             status = "error"
+            from sqlalchemy.exc import TimeoutError as _DatabaseBusy
+
+            # The local database being held by other work is a transient, local condition. It is
+            # not an upstream outage and must not be reported as one: the turn is resumable and
+            # the user is told what actually happened.
+            busy = isinstance(error, _DatabaseBusy)
             logger.warning(
                 "generation_failed type=%s request_id=%s",
                 type(error).__name__,
@@ -749,10 +755,16 @@ async def stream_response(
             yield sse(
                 "error",
                 {
-                    "detail": str(error)
+                    "detail": "Локальная база занята другой операцией. Повторите запрос."
+                    if busy
+                    else str(error)
                     if isinstance(error, LLMError)
                     else "Ответ прерван. Нажмите «Повторить».",
-                    "code": error.code if isinstance(error, LLMError) else "stream_interrupted",
+                    "code": "database_busy"
+                    if busy
+                    else error.code
+                    if isinstance(error, LLMError)
+                    else "stream_interrupted",
                     "request_id": usage_id,
                 },
             )

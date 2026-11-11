@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -19,6 +20,8 @@ from .models import ToolRun, WebSourceSnapshot
 from .policy import ToolPolicy, effective_risk, network_channel, preferences
 from .security import digest, input_summary, sanitized, validate_url
 from .web_router import canonical_url
+
+logger = logging.getLogger(__name__)
 
 TERMINAL = {"completed", "stopped", "failed", "denied"}
 STATES = {
@@ -461,6 +464,21 @@ class ToolExecutor:
             return row.id, prefs
 
     async def execute(self, name, arguments, context, origin="model"):
+        """Run one tool, mapping database starvation to a typed, retryable tool error.
+
+        A pool checkout that cannot complete is not a tool failure and must never surface as an
+        untyped `TimeoutError` that kills the whole turn: one busy device poll used to do exactly
+        that. The tool has not run at this point, so the controller may retry the call safely.
+        """
+        from sqlalchemy.exc import TimeoutError as DatabaseBusy
+
+        try:
+            return await self._execute(name, arguments, context, origin)
+        except DatabaseBusy as error:
+            logger.warning("tool_database_busy tool=%s", name)
+            raise ToolError("database_busy") from error
+
+    async def _execute(self, name, arguments, context, origin="model"):
         context.origin = origin
         definition, provider = self.registry.get(name)
         try:

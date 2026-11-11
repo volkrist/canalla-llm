@@ -121,7 +121,16 @@ def _parse(value) -> datetime:
 
 
 def budget_used(state: dict) -> float:
-    return round(sum(float(item.get("cost_usd") or 0.0) for item in state.get("attempts", [])), 4)
+    """Money already spent: never less than the provider's own balance delta.
+
+    The attempt rows are per-Pod and exact, but the account also moves for provider billing
+    granularity and for charges no row covers (one aborted session was recorded as free until
+    2026-11-11). Believing the smaller number would quietly buy an extra Pod with money that is
+    already gone, so the reconciled measurement wins whenever it is larger.
+    """
+    attributed = sum(float(item.get("cost_usd") or 0.0) for item in state.get("attempts", []))
+    measured = float((state.get("billing") or {}).get("measured_spend_usd") or 0.0)
+    return round(max(attributed, measured), 4)
 
 
 def outstanding(state: dict) -> list[str]:

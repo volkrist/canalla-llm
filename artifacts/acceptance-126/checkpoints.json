@@ -22,17 +22,24 @@
       }
     },
     "CURRENT_MONITOR_STATE": {
-      "at": "2026-11-11T10:11:58.476568+00:00",
-      "git_sha": "fab0028",
+      "at": "2026-11-11T11:06:17.300768+00:00",
+      "git_sha": "077e20b",
       "status": "STOPPED_POD_LIMIT",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 3,
-      "spent_usd": 0.4653,
+      "pod_created_total": 4,
+      "spent_usd": 0.4798,
       "evidence": "artifacts/acceptance-126/coordinator/state.json",
-      "next_step": "needs one more Pod inside a raised money cap",
-      "blocker": "4 Pods created in total; $0.69 of $0.85 spent; a 600 s L40S Pod costs ~$0.18",
-      "detail": {}
+      "next_step": "no automatic start: the remaining cycle budget is below one worst-case Pod",
+      "blocker": "4 Pods created (plan cap 3); $0.7004 of $0.85 measured spent, $0.1496 left; a 600 s L40S Pod is $0.18 at the Gateway's real $1.09/h",
+      "detail": {
+        "pods_running": 0,
+        "pods_created": 4,
+        "measured_spend_usd": 0.7004,
+        "attempt_attributed_usd": 0.4798,
+        "remaining_usd": 0.1496,
+        "root_cause_fixed": "T4L prompt classified as an autonomous file task; device polling no longer writes on every request; pool starvation is a typed database_busy"
+      }
     },
     "T3_LIVE_PASS_PRESERVED": {
       "at": "2026-11-11T09:56:40.837179+00:00",
@@ -48,17 +55,21 @@
       "detail": {}
     },
     "T4_FREE_READY": {
-      "at": "2026-11-10T22:38:52.842098+00:00",
-      "git_sha": "0dc7f88",
+      "at": "2026-11-11T11:06:17.235912+00:00",
+      "git_sha": "077e20b",
       "status": "PASS",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 2,
-      "spent_usd": 0.3181,
-      "evidence": "artifacts/acceptance-126/free_restart_selftest.py t4 -> verdict PASS",
-      "next_step": "",
+      "pod_created_total": 4,
+      "spent_usd": 0.4798,
+      "evidence": "python artifacts/acceptance-126/free_restart_selftest.py t4 -> verdict PASS (t4free-7.log, the rebuilt 1.2.6 sidecar a5dd6e9450980562)",
+      "next_step": "one paid T4 LIVE session on Qwen inside a raised money cap",
       "blocker": "",
-      "detail": {}
+      "detail": {
+        "t3": "t3free-7.log verdict PASS",
+        "checks": "11/11 mechanics true, same task id, Resume via the UI button, no repeated payloads, device id stable",
+        "product_fix": "a named-file task now opens a local_tasks row (test_126_autonomy_defects)"
+      }
     },
     "GPU_CAPACITY_MONITORING": {
       "at": "2026-11-10T22:38:52.986732+00:00",
@@ -74,45 +85,48 @@
       "detail": {}
     },
     "GPU_CLEANUP": {
-      "at": "2026-11-11T10:11:58.429158+00:00",
-      "git_sha": "fab0028",
+      "at": "2026-11-11T11:06:17.687589+00:00",
+      "git_sha": "077e20b",
       "status": "CONFIRMED",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 3,
-      "spent_usd": 0.4653,
-      "evidence": "pods [] after every attempt",
+      "pod_created_total": 4,
+      "spent_usd": 0.4798,
+      "evidence": "read-only RunPod probe: pods [] and watchdog disarmed",
       "next_step": "",
       "blocker": "",
       "detail": {
-        "pods_created_total": 4,
-        "spent_usd": 0.69
+        "pods_running": 0,
+        "balance_usd": 9.4305169479
       }
     },
     "T4_LIVE_VERDICT": {
-      "at": "2026-11-11T10:11:58.381754+00:00",
-      "git_sha": "fab0028",
+      "at": "2026-11-11T11:06:17.371833+00:00",
+      "git_sha": "077e20b",
       "status": "BLOCKED",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 3,
-      "spent_usd": 0.4653,
-      "evidence": "artifacts/acceptance-123/runs/live-20261111T095726/summary.json",
-      "next_step": "one more paid session inside a raised cap, with the runner tail now persisted",
-      "blocker": "three sessions produced no T4 verdict: capacity refusal, a harness resolver defect (fixed), one Pod lost to an operator restart, and one where the model planned with tool calls but the harness wrote no scenario evidence",
-      "detail": {}
+      "pod_created_total": 4,
+      "spent_usd": 0.4798,
+      "evidence": "artifacts/REPORT-canalla-autonomy-next-and-release-126.md",
+      "next_step": "one L40S session of at most 480-520 s once the owner raises the cap",
+      "blocker": "not run since the fix: the 2026-11-11 18:59 session died of a local database pool starvation and had no local_tasks row. Cause found and fixed free; the remaining obstacle is money ($0.1496 of the $0.85 cap left, a 600 s Pod is $0.18)",
+      "detail": {
+        "previous_verdict": "INVALID (product defect, not capacity)",
+        "task_row_created_in_free_rerun": true
+      }
     },
     "RELEASE_READINESS": {
-      "at": "2026-11-10T22:38:53.249218+00:00",
-      "git_sha": "0dc7f88",
+      "at": "2026-11-11T11:06:17.859638+00:00",
+      "git_sha": "077e20b",
       "status": "BLOCKED",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 2,
-      "spent_usd": 0.3181,
-      "evidence": "artifacts/acceptance-126/release-evidence.json",
-      "next_step": "T4 LIVE PASS",
-      "blocker": "t4_live is not PASS",
+      "pod_created_total": 4,
+      "spent_usd": 0.4798,
+      "evidence": "artifacts/acceptance-126/final-readiness.json (all free flags PASS) + artifacts/acceptance-126/release-evidence.json",
+      "next_step": "T4 LIVE on the rebuilt candidate, then release_coordinator --execute",
+      "blocker": "t4_live is not PASS; every other release gate is green or already proven",
       "detail": {}
     },
     "GPU_ACQUIRED": {
@@ -147,9 +161,37 @@
       "detail": {
         "scenario": "LA"
       }
+    },
+    "INSTALLED_SMOKE": {
+      "at": "2026-11-11T11:06:17.471888+00:00",
+      "git_sha": "077e20b",
+      "status": "PASS",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 4,
+      "spent_usd": 0.4798,
+      "evidence": "node apps/desktop/e2e/installed-status.mjs -> INSTALLED-UI: PASS on the rebuilt 1.2.6 candidate (sha 12b36e6d2bce59fdabe190f1717fad06d111992e02f7c24578a60f9bc396f99d)",
+      "next_step": "re-run after any further rebuild",
+      "blocker": "",
+      "detail": {}
+    },
+    "SIGNATURE": {
+      "at": "2026-11-11T11:06:17.584603+00:00",
+      "git_sha": "077e20b",
+      "status": "PASS",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 4,
+      "spent_usd": 0.4798,
+      "evidence": "release-gate.py verify-artifact -> 8/8 PASS, key id 9B328EFF111D1FB2, Ed25519 over BLAKE2b-512",
+      "next_step": "sign again only if the sources change again",
+      "blocker": "",
+      "detail": {
+        "installer_sha256": "12b36e6d2bce59fdabe190f1717fad06d111992e02f7c24578a60f9bc396f99d"
+      }
     }
   },
-  "updated_at": "2026-11-11T10:11:58.476568+00:00",
+  "updated_at": "2026-11-11T11:06:17.859638+00:00",
   "order": [
     "BASELINE",
     "CURRENT_MONITOR_STATE",

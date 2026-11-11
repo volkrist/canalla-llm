@@ -442,6 +442,32 @@ def test_13_watchdog_and_orphans_fail_closed(tmp: Path) -> None:
 # -------------------------------------------------------------------------------------- evidence
 
 
+def test_14_the_measured_balance_is_the_budget(tmp: Path) -> None:
+    """A reconciled spend above the attempt rows must block a Pod, not be averaged away."""
+    cfg = coordinator.Config()
+    temp_paths(tmp)
+    state = fresh_state(cfg)
+    # The rows explain $0.48; the provider says $0.69 is gone. The worst case Pod is $0.18.
+    state["attempts"] = [
+        {"scenario": "T3L", "verdict": "PASS", "cost_usd": 0.074, "pod_created": True},
+        {"scenario": "T4L", "verdict": "FAIL", "cost_usd": 0.2441, "pod_created": True},
+    ]
+    state["scenario_verdicts"] = {"T3L": "PASS", "T4L": "FAIL"}
+    state["pods_created"] = 2
+    state["cycle_pods_created"] = 2
+    state["billing"] = {"measured_spend_usd": 0.6907}
+    # The Gateway charged $1.09/h while the catalogue row said $0.79: the guard must use the real one.
+    state["last_rate_usd"] = 1.09
+    world = FakeWorld(availability=[{"candidates": [CARD]}])
+    coordinator.run_loop(world, cfg, state, max_iterations=3)
+    check("14a the measured spend wins over the attempt rows",
+          coordinator.budget_used(state) == 0.6907, str(coordinator.budget_used(state)))
+    check("14b no Pod is bought with money that is already gone",
+          not any(call[0] == "run_scenario" for call in world.calls), str(world.calls))
+    check("14c and the outcome is a budget stop", state.get("outcome") == "BUDGET_LIMIT",
+          str(state.get("outcome")))
+
+
 def evidence_for(state: dict, *, verdicts_all_pass: bool = False) -> dict:
     """The shape `release_coordinator.collect_evidence` produces, built from coordinator state."""
     verdicts = {"T3L": "PASS", "T4L": "PASS", "LA": "PASS"} if verdicts_all_pass else (
@@ -497,6 +523,7 @@ def main() -> int:
         test_11_ttl_expiry_is_a_honest_blocked,
         test_12_restart_after_checkpoint_duplicates_nothing,
         test_13_watchdog_and_orphans_fail_closed,
+        test_14_the_measured_balance_is_the_budget,
     ]
     original = (coordinator.STATE_FILE, coordinator.EVENT_LOG, coordinator.CANCEL_FILE,
                 coordinator.STATE_DIR, coordinator.QUIET)

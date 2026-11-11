@@ -1,5 +1,6 @@
 """Deterministic actionable TaskPlan. Does not invent bug causes."""
 
+from .targets import extract_filename, looks_like_file_path
 from .workspace import looks_like_coding
 
 RESEARCH_HINT = (
@@ -26,7 +27,7 @@ COMPUTER_HINT = (
 )
 WRITE_HINT = (
     r"(?i)("
-    r"создай|запиши|измени|добавь|скопируй|перемест|удал|"
+    r"создай|запиши|сохрани|допиши|измени|добавь|скопируй|перемест|удал|"
     r"исправ|commit|закоммить|install|установи|patch|write|"
     r"checkout|отправ|submit|оформи"
     r")"
@@ -40,6 +41,28 @@ GREENFIELD_HINT = (
     r")"
 )
 REPAIR_HINT = r"(?i)(исправ|fix|refactor|рефактор|debug|найди (причин|ошиб)|failing test|почини)"
+AUTONOMY_HINT = (
+    r"(?i)("
+    r"полностью|пока не|не заверш|дай отч[её]т|"
+    r"найди причин|исправ(ь|ьте).*(проект|тест|код|ошиб)|"
+    r"run until|inspect (the )?project|"
+    r"проверь.*(проект|тест).*(исправ|почини)"
+    r")"
+)
+# A concrete file operation is a task even when the wording matches none of the autonomy
+# phrases. «В папке … открой t4l.txt, сохрани … в t4l_out.txt» used to arrive as a plain chat
+# turn, so no LocalTask row was ever created and T4 LIVE lost the task its resume needs
+# (2026-11-11). The file name is resolved by the same contract the file tools use, so the
+# classifier and the tools cannot disagree about what looks like a file.
+FILE_TASK_ACTION = (
+    r"(?i)(?<![\w-])("
+    r"открой|откройте|прочитай|прочитайте|перечитай|"
+    r"сохрани|сохраните|запиши|запишите|допиши|"
+    r"скопируй|скопируйте|перемести|переместите|переименуй|"
+    r"удали|удалите|"
+    r"read|open|save|write|copy|move|rename|delete|append"
+    r")(?![\w-])"
+)
 
 
 def needs_research(prompt: str) -> bool:
@@ -58,6 +81,21 @@ def looks_like_write(prompt: str) -> bool:
     import re
 
     return bool(re.search(WRITE_HINT, prompt or ""))
+
+
+def looks_like_file_task(prompt: str) -> bool:
+    """A durable operation on a named file: read → write → read, copy, rename, delete.
+
+    A named file plus an imperative verb is a task the controller owns, not a question. It is
+    deliberately narrower than «mentions a file»: a question about a file («как открыть
+    main.py») must still be answered without a task, a plan or a workspace lock.
+    """
+    import re
+
+    text = prompt or ""
+    if not re.search(FILE_TASK_ACTION, text):
+        return False
+    return looks_like_file_path(extract_filename(text))
 
 
 def looks_like_commit_request(prompt: str) -> bool:
@@ -83,19 +121,9 @@ def looks_like_greenfield(prompt: str) -> bool:
 def looks_like_autonomous(prompt: str) -> bool:
     import re
 
-    if looks_like_coding(prompt):
+    if looks_like_coding(prompt) or looks_like_file_task(prompt):
         return True
-    return bool(
-        re.search(
-            r"(?i)("
-            r"полностью|пока не|не заверш|дай отч[её]т|"
-            r"найди причин|исправ(ь|ьте).*(проект|тест|код|ошиб)|"
-            r"run until|inspect (the )?project|"
-            r"проверь.*(проект|тест).*(исправ|почини)"
-            r")",
-            prompt or "",
-        )
-    )
+    return bool(re.search(AUTONOMY_HINT, prompt or ""))
 
 
 def default_plan(
