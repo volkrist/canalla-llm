@@ -418,7 +418,14 @@ class Approver:
                 allow = common.safe_run(row, SANDBOX)
                 status, body = common.confirm(self.token, run_id, allow)
                 self.log.append(
-                    {"run_id": run_id, "tool": row.get("tool_name"), "allow": allow, "http": status, "body": str(body)[:100]}
+                    {
+                        "run_id": run_id,
+                        "tool": row.get("tool_name"),
+                        "allow": allow,
+                        "http": status,
+                        "body": str(body)[:100],
+                        "at": time.time(),
+                    }
                 )
 
     def close(self) -> None:
@@ -721,6 +728,7 @@ def run_t4() -> dict:
         resumed = resume_pid(pid)
         suspended = False
         evidence["resume"] = resumed
+        resumed_at = time.time()
         if not (resumed.get("exit") == 0):
             raise RuntimeError("resume failed: " + str(resumed))
         heartbeat = wait(
@@ -766,6 +774,13 @@ def run_t4() -> dict:
         evidence["checks"]["no_duplicate_payloads"] = not evidence["repeated_payloads"]
         evidence["checks"]["device_stable"] = evidence["device_before"] == evidence["device_after"]
         evidence["checks"]["confirmation_observed"] = bool(evidence["confirmation_observed"])
+        # The live T4 of 2026-11-11 died exactly here: the approval loop had already stopped, so
+        # the first tool after the reconnect was never confirmed. A confirmation *and* a
+        # completed tool after the resume are the proof that this cannot happen again.
+        after_resume = [item for item in (evidence.get("confirmations") or [])
+                        if float(item.get("at") or 0) > resumed_at]
+        evidence["confirmations_after_resume"] = after_resume
+        evidence["checks"]["confirmation_after_resume"] = bool(after_resume)
     except Exception as error:  # noqa: BLE001
         evidence["reasons"].append(f"{type(error).__name__}: {error}")
     finally:
@@ -786,6 +801,7 @@ def run_t4() -> dict:
         "no_duplicate_payloads",
         "device_stable",
         "confirmation_observed",
+        "confirmation_after_resume",
     ))
 
 

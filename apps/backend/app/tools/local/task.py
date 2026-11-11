@@ -49,6 +49,18 @@ LLM_RETRY_MAX_DELAY_SECONDS = 60
 COMPUTE_WAIT_CODES = task_status.COMPUTE_WAIT_CODES
 
 
+# A task parked on something the user or the device owns cannot jump to RETRYING: RETRYING means the
+# same call will be retried automatically, and nothing here is waiting for a retry. The legal,
+# meaningful move after a failed tool from a parked state is back into EXECUTING, where the model
+# owns the next step. The state machine already allows it from all four parked states.
+PARKED_STATES = {
+    machine.WAITING_CONFIRMATION,
+    machine.WAITING_DEVICE,
+    machine.WAITING_LLM,
+    machine.WAITING_WORKSPACE,
+}
+
+
 def llm_retry_delay(attempts: int) -> int:
     return min(LLM_RETRY_MAX_DELAY_SECONDS, 5 * (2 ** min(max(attempts, 0), 4)))
 
@@ -798,7 +810,8 @@ class LocalTaskController:
                     if self._observe_transition(db, row, machine.FAILED, secrets=secrets, reason=error):
                         release(db, row.id)
                 else:
-                    self._observe_transition(db, row, machine.RETRYING, secrets=secrets, reason=error)
+                    target = machine.EXECUTING if row.status in PARKED_STATES else machine.RETRYING
+                    self._observe_transition(db, row, target, secrets=secrets, reason=error)
             elif error == "confirmation_required":
                 self._observe_transition(db, row, machine.WAITING_CONFIRMATION, secrets=secrets, reason=error)
                 append_event(db, row.id, "CONFIRMATION_REQUESTED", {"tool": name}, secrets)

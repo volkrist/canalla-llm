@@ -18,6 +18,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 from pathlib import Path
 
 # The acceptance console is cp1251 on this machine; a scenario title containing `→` crashed the
@@ -670,7 +671,11 @@ def run_live(args) -> int:
                     )
                     continue
             print("scenario", scenario.id, scenario.title, state, "timeout_s", effective_timeout)
-            evidence = run_scenario(scenario, token, timeout=effective_timeout)
+            try:
+                evidence = run_scenario(scenario, token, timeout=effective_timeout)
+            except Exception as error:  # noqa: BLE001 - an evidence failure must not lose the run
+                evidence = scenario_failure(scenario.id, error)
+                print(" ERROR", evidence["reasons"][0][:200])
             (run_dir / (scenario.id + ".json")).write_text(
                 json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8"
             )
@@ -788,6 +793,21 @@ def self_test() -> int:
     print("SELF-TEST PASS: budget guard, package selection and the model-origin route gate")
     print("SELF-TEST PASS: the harness approves package dirs and patches inside the sandbox only")
     return 0
+
+
+def scenario_failure(scenario_id: str, error: BaseException) -> dict:
+    """The evidence a scenario that raised still leaves behind.
+
+    A paid session must never end with "the Pod spent money and the runner tail is gone": the
+    per-scenario file is written from this record even when the scenario itself raised, and the
+    summary in the `finally` block still lands.
+    """
+    return {
+        "scenario": scenario_id,
+        "verdict": "ERROR",
+        "reasons": [f"{type(error).__name__}: {error}"],
+        "traceback": traceback.format_exc()[-6000:],
+    }
 
 
 def main() -> int:

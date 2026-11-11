@@ -614,14 +614,14 @@ def run_t3(scenario, token: str, *, restore_seconds: float = 240) -> dict:
     return evidence
 
 
-def run_t4(scenario, token: str, *, offline_seconds: float = 90, restore_seconds: float = 300) -> dict:
-    """T4: suspend the process that runs the native Computer host during a real task.
+def prepare_t4_root(scenario, root: Path) -> None:
+    """Clear the scenario folder, then seed the catalogue fixture into it.
 
-    The instance is addressed by its own PID (never by image name), the suspension has an
-    independent watchdog, and the resume is in a `finally`: an acceptance failure must not leave
-    a frozen desktop behind.
+    Order matters and is the whole point: `run_t4` used to clear the folder and never seed it, so
+    every paid T4 opened a directory that held only `_prompt.txt` and searched for a file that
+    the harness was supposed to create. The fixture comes from the catalogue, so the prompt and
+    the file cannot drift apart.
     """
-    root = Path(common.SANDBOX) / scenario.id
     root.mkdir(parents=True, exist_ok=True)
     for child in root.iterdir():
         if child.name == "_prompt.txt":
@@ -632,14 +632,21 @@ def run_t4(scenario, token: str, *, offline_seconds: float = 90, restore_seconds
             shutil.rmtree(child, ignore_errors=True)
         else:
             child.unlink(missing_ok=True)
-
-    # The catalogue owns the fixture and the live flow has just cleared the folder: seed it again.
-    # Without this the model opened a directory that held only `_prompt.txt` and spent its window
-    # searching for a file that never existed (live run 2026-11-11T174431).
     if getattr(scenario, "setup", ""):
         import catalog
 
         catalog.setup_fixture(scenario.setup, root)
+
+
+def run_t4(scenario, token: str, *, offline_seconds: float = 90, restore_seconds: float = 300) -> dict:
+    """T4: suspend the process that runs the native Computer host during a real task.
+
+    The instance is addressed by its own PID (never by image name), the suspension has an
+    independent watchdog, and the resume is in a `finally`: an acceptance failure must not leave
+    a frozen desktop behind.
+    """
+    root = Path(common.SANDBOX) / scenario.id
+    prepare_t4_root(scenario, root)
 
     common.stop_stale_tasks(token, common.SANDBOX)
     before_chats = {str(row.get("id")) for row in chats(token)}
