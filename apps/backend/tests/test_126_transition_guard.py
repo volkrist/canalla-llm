@@ -71,8 +71,7 @@ def test_a_retryable_error_while_waiting_for_confirmation_is_recorded_not_raised
         assert stored is not None
         assert stored.status == machine.WAITING_CONFIRMATION, stored.status
         kinds = {
-            item.kind
-            for item in db.scalars(select(TaskEvent).where(TaskEvent.task_id == task_id)).all()
+            item.kind for item in db.scalars(select(TaskEvent).where(TaskEvent.task_id == task_id)).all()
         }
         assert "TOOL_COMPLETED" in kinds
         assert "TRANSITION_REJECTED" in kinds, kinds
@@ -106,6 +105,8 @@ def test_a_tool_timeout_returns_to_the_model_even_when_the_task_is_parked(client
     orchestrator = ToolOrchestrator(registry=None, executor=TimeoutExecutor())
     notes: list[str] = []
     packed = asyncio.run(
-        orchestrator._run("search_files", json.dumps({"root": "C:\\work", "query": "x"}), context, notes, "model")
+        orchestrator._run(
+            "search_files", json.dumps({"root": "C:\\work", "query": "x"}), context, notes, "model"
+        )
     )
     assert packed["status"] == "timeout"

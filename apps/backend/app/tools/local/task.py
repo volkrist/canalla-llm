@@ -795,16 +795,12 @@ class LocalTaskController:
                 append_event(db, row.id, "RETRY", {"tool": name, "error": error}, secrets)
                 if row.retry_count >= row.retry_budget:
                     row.last_error = error
-                    if self._observe_transition(
-                        db, row, machine.FAILED, secrets=secrets, reason=error
-                    ):
+                    if self._observe_transition(db, row, machine.FAILED, secrets=secrets, reason=error):
                         release(db, row.id)
                 else:
                     self._observe_transition(db, row, machine.RETRYING, secrets=secrets, reason=error)
             elif error == "confirmation_required":
-                self._observe_transition(
-                    db, row, machine.WAITING_CONFIRMATION, secrets=secrets, reason=error
-                )
+                self._observe_transition(db, row, machine.WAITING_CONFIRMATION, secrets=secrets, reason=error)
                 append_event(db, row.id, "CONFIRMATION_REQUESTED", {"tool": name}, secrets)
             elif error == "host_offline":
                 self.waiting_device(db, context)

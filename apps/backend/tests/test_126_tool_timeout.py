@@ -11,8 +11,6 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-import pytest
-
 from app.tools.contracts import ToolError
 from app.tools.orchestrator import ToolOrchestrator
 
@@ -31,7 +29,9 @@ def _context():
 
     return SimpleNamespace(
         user_prompt="В папке X найди t4l.txt",
-        limits=SimpleNamespace(calls=0, max_calls=24, max_seconds=600, remaining=600, consume=lambda *a: None),
+        limits=SimpleNamespace(
+            calls=0, max_calls=24, max_seconds=600, remaining=600, consume=lambda *a: None
+        ),
         settings=SimpleNamespace(workspace_roots=["C:\\work"]),
         task_id=None,
         user_id="u",
@@ -47,7 +47,9 @@ def test_a_tool_timeout_is_reported_to_the_model_not_raised():
     orchestrator = ToolOrchestrator(registry=None, executor=ExplodingExecutor("timeout"))
     notes: list[str] = []
     packed = asyncio.run(
-        orchestrator._run("search_files", json.dumps({"root": "C:\\work", "query": "x"}), _context(), notes, "model")
+        orchestrator._run(
+            "search_files", json.dumps({"root": "C:\\work", "query": "x"}), _context(), notes, "model"
+        )
     )
     assert isinstance(packed, dict), "a tool failure must become a result, not an exception"
     assert packed.get("status") == "timeout"
