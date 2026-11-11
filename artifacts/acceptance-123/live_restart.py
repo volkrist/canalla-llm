@@ -291,6 +291,27 @@ def answer_text(token: str, chat_id: str) -> str:
     return ""
 
 
+def assistant_status(token: str, chat_id: str) -> str:
+    """The stored status of the last assistant message: `complete` or `error`.
+
+    A turn that died before answering leaves `error` here. Recording it is what turns a silent
+    "the model ran but nothing happened" into a diagnosable fact.
+    """
+    if not chat_id:
+        return ""
+    status, text = common.call("GET", "/chats/" + chat_id + "/messages", token=token, timeout=30)
+    if status != 200:
+        return ""
+    try:
+        rows = json.loads(text)
+    except ValueError:
+        return ""
+    for row in reversed(rows or []):
+        if str(row.get("role") or "") == "assistant":
+            return str(row.get("status") or "")
+    return ""
+
+
 def _prompt_file(root: Path, text: str) -> str:
     path = root / "_prompt.txt"
     path.write_text(text, encoding="utf-8", newline="\n")
@@ -614,25 +635,75 @@ def run_t4(scenario, token: str, *, offline_seconds: float = 90, restore_seconds
 
     common.stop_stale_tasks(token, common.SANDBOX)
     before_chats = {str(row.get("id")) for row in chats(token)}
+    # A window that has been open for a while can be showing another chat, a stale auth prompt or
+    # a task from an earlier run. T4 starts from a known window so the only new task is ours.
+    stop_window()
+    time.sleep(3)
     window = ensure_window()
+    wait(lambda: cdp_ready() or None, seconds=90) or None
     sent = node("send", _prompt_file(root, scenario.prompt))
-    chat_id = wait(
-        lambda: newest_chat_id(token, exclude=before_chats) or None,
-        seconds=90,
-    ) or ""
+    from datetime import datetime, timedelta, timezone
+
+    sent_since = datetime.now(timezone.utc) - timedelta(seconds=5)
+    # The same resolver T3 uses: "the newest new chat" is not a fact (the composer can end up in
+    # the already-open chat), while "the newest task created after this send" is. T4 used the
+    # weak version and watched an empty chat while the real task ran elsewhere.
+    resolved = wait(
+        lambda: (lambda pair: pair if pair[0] else None)(resolve_task_since(token, sent_since))
+        or None,
+        seconds=120,
+        interval=2.0,
+    )
+    chat_id = resolved[0] if resolved else ""
+    task_at_start = resolved[1] if resolved else {}
     stop_approver, approvals, confirmation_observed = (
         start_approver(token, chat_id) if chat_id else (None, [], [])
     )
+
+    def newest_new_chat() -> str:
+        for row in chats(token):
+            candidate = str(row.get("id") or "")
+            if candidate and candidate not in before_chats:
+                return candidate
+        return ""
+
+    if not chat_id:
+        # No local_tasks row means no progress accounting and no resume target: suspending the
+        # host now would only destroy a turn that never became a task.
+        return {
+            "scenario": scenario.id,
+            "verdict": "BLOCKED",
+            "reasons": ["no local_tasks row was created for the prompt; nothing was suspended"],
+            "window": window,
+            "sent": {"exit": sent[0], "payload": sent[1], "output": sent[2]},
+            "assistant_status": assistant_status(token, newest_new_chat()),
+            "notes_seen": [str(row.get("title") or "")[:60] for row in chats(token)[:3]],
+        }
 
     first_tool = wait(
         lambda: (
             [row for row in model_tools(tool_runs(token, chat_id)) if row.get("status") == "completed"]
             or None
-        )
-        if chat_id
-        else None,
+        ),
         seconds=240,
     )
+    if not first_tool:
+        # The disconnect must interrupt real work. A task that never completed a tool proves
+        # nothing about the transport, and suspending it would only produce a false FAIL.
+        return {
+            "scenario": scenario.id,
+            "verdict": "BLOCKED",
+            "reasons": ["no completed model tool before the scheduled disconnect"],
+            "window": window,
+            "sent": {"exit": sent[0], "payload": sent[1], "output": sent[2]},
+            "chat_id": chat_id,
+            "task_at_start": {
+                key: task_at_start.get(key) for key in ("id", "status", "created_at")
+            },
+            "task_state": task_status(token, chat_id),
+            "assistant_status": assistant_status(token, chat_id),
+            "tool_runs": tool_runs(token, chat_id)[:5],
+        }
     device_before = json.loads(
         (Path(common.ROOT) / "device.json").read_text(encoding="utf-8")
     ).get("device_id")
@@ -746,6 +817,7 @@ def run_t4(scenario, token: str, *, offline_seconds: float = 90, restore_seconds
             for key in ("id", "status", "tool_calls_used", "completion_summary", "last_error")
         },
         "final_answer": final_answer[:1500],
+        "assistant_status": assistant_status(token, chat_id),
         "device_before": device_before,
         "device_after": device_after,
         "tool_ids_before": tool_ids_before,
@@ -798,6 +870,21 @@ def run_t4(scenario, token: str, *, offline_seconds: float = 90, restore_seconds
         reasons.append("the task never reached a terminal state after the reconnect")
     if not final_answer.strip():
         reasons.append("no final answer was persisted")
+    if not (final_task or {}).get("id"):
+        reasons.append("no local_tasks row exists for this chat at the end of the run")
+    if str((final_task or {}).get("status") or "") != "COMPLETED":
+        reasons.append("the task did not complete: %r" % (final_task or {}).get("status"))
+    # The prompt asks for the content of t4l.txt in t4l_out.txt: a model that only *says* it did
+    # the work does not pass. The file is read from disk, trailing whitespace ignored.
+    output_file = root / "t4l_out.txt"
+    written = (
+        output_file.read_text(encoding="utf-8", errors="replace").strip()
+        if output_file.is_file()
+        else ""
+    )
+    evidence["output_file"] = {"path": "t4l_out.txt", "content": written[:200]}
+    if written != "T4L_HOST_VALUE_417":
+        reasons.append("t4l_out.txt does not hold the source file's content: %r" % written[:80])
     evidence["reasons"] = reasons
     evidence["verdict"] = "PASS" if not reasons else "FAIL"
     return evidence

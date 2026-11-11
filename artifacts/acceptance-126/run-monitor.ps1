@@ -24,6 +24,12 @@ function Note([string]$message) {
     Add-Content -LiteralPath $log -Value $line -Encoding utf8
 }
 
+# The owner's 2026-11-11 grant: the cycle cap is $1.10 and at most five Pods in total (four
+# already exist), so exactly one more start is possible. The coordinator takes both from its CLI,
+# so the grant lives here and cannot drift from the state it guards.
+$budget = '1.10'
+$maxPods = '5'
+
 Note 'wrapper started'
 while ($true) {
     if (Test-Path -LiteralPath $cancel) { Note 'cancel flag present; wrapper stops'; break }
@@ -34,7 +40,7 @@ while ($true) {
         } catch { Note 'state.json is not readable yet; continuing' }
     }
     Note 'starting the coordinator'
-    & $python $coordinator monitor
+    & $python $coordinator monitor --budget-usd $budget --max-pods $maxPods
     $code = $LASTEXITCODE
     Note ('coordinator exited with ' + $code)
     Start-Sleep -Seconds 30
