@@ -78,42 +78,34 @@
       "detail": {}
     },
     "GPU_CLEANUP": {
-      "at": "2026-11-11T18:29:10.802789+00:00",
-      "git_sha": "3489d72",
+      "at": "2026-11-12T10:36:20.448160+00:00",
+      "git_sha": "ff45e52",
       "status": "CONFIRMED",
       "task_id": null,
       "pod_id": null,
       "pod_created_total": 5,
       "spent_usd": 0.7256,
-      "evidence": "read-only RunPod probe: pods [] after the session; the session stopped itself",
-      "next_step": "",
+      "evidence": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261112T102739\\summary.json",
+      "next_step": "continue monitoring",
       "blocker": "",
       "detail": {
-        "pods_running": 0,
-        "balance_usd": 9.1250622573
+        "pod_seconds": 89.0,
+        "cost_usd": 0.0269
       }
     },
     "T4_LIVE_VERDICT": {
-      "at": "2026-11-11T18:29:10.709086+00:00",
-      "git_sha": "3489d72",
-      "status": "FAIL",
+      "at": "2026-11-12T10:36:20.488134+00:00",
+      "git_sha": "ff45e52",
+      "status": "PASS",
       "task_id": null,
       "pod_id": null,
       "pod_created_total": 5,
       "spent_usd": 0.7256,
-      "evidence": "artifacts/acceptance-123/runs/live-20261111T174431/T4L.json",
-      "next_step": "one more paid T4 LIVE after a new owner grant; the candidate is rebuilt",
-      "blocker": "the harness named a fixture it never created and stopped approving at the resume; the product's own transition guard was the second killer. All three are fixed and proven free. Money and Pods are exhausted: $1.0058/$1.10 and 5/5 Pods",
+      "evidence": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261112T102739\\summary.json",
+      "next_step": "release preflight",
+      "blocker": "",
       "detail": {
-        "gpu": "NVIDIA A100-SXM4-80GB",
-        "pod_seconds": 494.3,
-        "cost_usd": 0.2458,
-        "product_proven": "task created, 3 approved tools, typed WAITING_DEVICE, heartbeat returned, same task continued, no repeated payloads, device stable",
-        "harness_defects": [
-          "t4l.txt never seeded",
-          "approver stopped at the resume"
-        ],
-        "product_defect": "invalid_task_transition escaped from observe_tool (fixed)"
+        "scenario": "T4L"
       }
     },
     "RELEASE_READINESS": {
@@ -130,34 +122,34 @@
       "detail": {}
     },
     "GPU_ACQUIRED": {
-      "at": "2026-11-11T17:44:25.049448+00:00",
-      "git_sha": "90ae01f",
+      "at": "2026-11-12T10:27:33.309428+00:00",
+      "git_sha": "ff45e52",
       "status": "ACQUIRED",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 4,
-      "spent_usd": 0.4798,
-      "evidence": "NVIDIA A100-SXM4-80GB in US-MO-1",
+      "pod_created_total": 5,
+      "spent_usd": 0.7256,
+      "evidence": "NVIDIA L40S in US-MO-1",
       "next_step": "T4L+LA",
       "blocker": "",
       "detail": {
-        "gpu": "NVIDIA A100-SXM4-80GB",
+        "gpu": "NVIDIA L40S",
         "datacenter": "US-MO-1",
         "volume_id": "y92bt25ru8",
-        "hourly_catalogue_usd": 1.39
+        "hourly_catalogue_usd": 0.79
       }
     },
     "OPTIONAL_AUTONOMY_LIVE_VERDICT": {
-      "at": "2026-11-11T17:57:13.398025+00:00",
-      "git_sha": "90ae01f",
-      "status": "BLOCKED_SESSION_LIMIT",
+      "at": "2026-11-12T10:36:20.544996+00:00",
+      "git_sha": "ff45e52",
+      "status": "FAIL",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 4,
-      "spent_usd": 0.4798,
-      "evidence": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261111T174431\\summary.json",
+      "pod_created_total": 5,
+      "spent_usd": 0.7256,
+      "evidence": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261112T102739\\summary.json",
       "next_step": "fix before another paid attempt",
-      "blocker": "effective window -258s is less than the 60 s minimum (session cap 480s leaves -243s; budget $0.351 at $1.79/h)",
+      "blocker": "final answer is missing or too short; final answer does not report the work or the controller status; missing file out/orders.json",
       "detail": {
         "scenario": "LA"
       }
@@ -213,7 +205,7 @@
       }
     }
   },
-  "updated_at": "2026-11-12T09:56:18.003768+00:00",
+  "updated_at": "2026-11-12T10:36:20.544996+00:00",
   "order": [
     "BASELINE",
     "CURRENT_MONITOR_STATE",

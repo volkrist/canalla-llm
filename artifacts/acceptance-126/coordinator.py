@@ -197,20 +197,16 @@ def plan(snapshot: dict, state: dict, cfg: Config) -> dict:
         return {"action": "wait", "reason": "the Pod list could not be read; not starting blind",
                 "next_check_in": cfg.interval_seconds}
 
-    cycle_pods = int(state.get("cycle_pods_created", state.get("pods_created", 0)))
-    if cycle_pods >= cfg.max_pods:
-        return {"action": "finish", "outcome": "POD_LIMIT",
-                "reason": f"{cfg.max_pods} Pods were already created in this cycle "
-                          f"({state.get('pods_created', 0)} in total)",
-                "release_allowed": not mandatory_todo}
-
     found = snapshot.get("candidates") or []
+    remaining_pods = cfg.max_pods - int(state.get("pods_created", 0))
 
     if not mandatory_todo:
         # Only optional work is left. It is worth doing when a session still fits inside the Pod
-        # and money caps; otherwise the gates are green and the release must not wait for it.
+        # and money caps; otherwise the gates are green and the release must not wait for it —
+        # including when the optional scenario already ran and failed, and when the Pod cap is
+        # reached. This decision comes *before* the Pod-limit stop, because the release, not the
+        # optional scenario, is the point of the run.
         spent = budget_used(state)
-        remaining_pods = cfg.max_pods - int(state.get("pods_created", 0))
         affordable = found and (
             spent + cfg.worst_case_pod_usd(found[0]["selected_hourly_usd"]) <= cfg.budget_usd
         )
@@ -218,6 +214,17 @@ def plan(snapshot: dict, state: dict, cfg: Config) -> dict:
             return {"action": "publish",
                     "reason": "only optional work is left and no session is affordable",
                     "optional_outstanding": optional_todo}
+
+    cycle_pods = int(state.get("cycle_pods_created", state.get("pods_created", 0)))
+    if cycle_pods >= cfg.max_pods:
+        return {"action": "finish", "outcome": "POD_LIMIT",
+                "reason": f"{cfg.max_pods} Pods were already created in this cycle "
+                          f"({state.get('pods_created', 0)} in total)",
+                "release_allowed": not mandatory_todo}
+
+    if not mandatory_todo:
+        # Only optional work is left and a session is affordable: keep looking for it.
+        pass
 
     max_checks = int(state.get("max_checks") or cfg.max_checks)
     if int(state.get("checks", 0)) >= max_checks:
@@ -252,11 +259,16 @@ def plan(snapshot: dict, state: dict, cfg: Config) -> dict:
     scenarios = scenarios[:2]
     cheapest = min(found, key=lambda item: item["selected_hourly_usd"])
     spent = budget_used(state)
-    rate = max(cheapest["selected_hourly_usd"], float(state.get("last_rate_usd") or 0))
+    # The rate that matters is the one this card actually charged, not the highest rate any card
+    # ever charged. `last_rate_usd` stays as the conservative floor for a card never seen before;
+    # the guard is unchanged and still refuses the Pod when its own worst case does not fit.
+    observed = float((state.get("real_rates_usd") or {}).get(cheapest.get("id") or "", 0) or 0)
+    fallback = float(state.get("last_rate_usd") or 0)
+    rate = max(cheapest["selected_hourly_usd"], observed or fallback)
     worst = cfg.worst_case_pod_usd(rate)
     if spent + worst > cfg.budget_usd + 1e-9:
         return {"action": "finish", "outcome": "BUDGET_LIMIT",
-                "reason": f"${spent:.4f} spent, worst case ${worst:.4f}, "
+                "reason": f"${spent:.4f} spent, worst case ${worst:.4f} at ${rate}/h, "
                           f"cap ${cfg.budget_usd:.2f}",
                 "release_allowed": not mandatory_todo}
 
@@ -862,6 +874,11 @@ def run_session(world: RealWorld, cfg: Config, state: dict, decision: dict) -> N
     if result.get("rate_usd"):
         # The provider charged more than the catalogue row promised before; keep the guard honest.
         state["last_rate_usd"] = result["rate_usd"]
+        gpu_id = str(result.get("gpu") or "")
+        if gpu_id:
+            rates = dict(state.get("real_rates_usd") or {})
+            rates[gpu_id] = float(result["rate_usd"])
+            state["real_rates_usd"] = rates
 
     # The Pod's stop must be seen, not assumed. The independent watchdog bounds the worst case.
     confirmed = False

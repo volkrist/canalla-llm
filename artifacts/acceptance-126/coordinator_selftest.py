@@ -468,6 +468,66 @@ def test_14_the_measured_balance_is_the_budget(tmp: Path) -> None:
           str(state.get("outcome")))
 
 
+def test_15_the_guard_uses_the_rate_this_card_charged(tmp: Path) -> None:
+    """A cheap card must not be refused because an expensive one charged more before."""
+    cfg = coordinator.Config(budget_usd=1.45, max_pods=6)
+    temp_paths(tmp)
+    state = fresh_state(cfg)
+    state["attempts"] = [
+        {"scenario": "T4L", "verdict": "MIXED", "cost_usd": 0.2458, "pod_created": True,
+         "gpu": "NVIDIA A100-SXM4-80GB", "rate_usd": 1.79},
+    ]
+    state["scenario_verdicts"] = {"T3L": "PASS", "T4L": "BLOCKED"}
+    state["pods_created"] = 5
+    state["cycle_pods_created"] = 5
+    state["last_rate_usd"] = 1.79
+    state["real_rates_usd"] = {"NVIDIA L40S": 1.09, "NVIDIA A100-SXM4-80GB": 1.79}
+    # $1.15 already spent of $1.45 leaves $0.30: an L40S worst case ($0.18) fits, an A100 does not.
+    state["billing"] = {"measured_spend_usd": 1.1517}
+    world = FakeWorld(availability=[{"candidates": [CARD]}])
+    coordinator.run_loop(world, cfg, state, max_iterations=3)
+    created = [call for call in world.calls if call[0] == "run_scenario"]
+    check("15a a card whose own rate fits is allowed", bool(created), str(world.calls))
+
+    expensive = dict(CARD, id="NVIDIA A100-SXM4-80GB", display_name="A100 SXM",
+                     selected_hourly_usd=1.39, cheapest_hourly_usd=1.39)
+    # $1.45 exactly covers the A100 worst case (1.1517 + 0.2983), so the refusal has to be shown
+    # against a cap that is one cent tighter.
+    tight = coordinator.Config(budget_usd=1.44, max_pods=6)
+    state = fresh_state(tight)
+    state["attempts"] = state.get("attempts") or []
+    state["scenario_verdicts"] = {"T3L": "PASS", "T4L": "BLOCKED"}
+    state["pods_created"] = 5
+    state["cycle_pods_created"] = 5
+    state["last_rate_usd"] = 1.79
+    state["real_rates_usd"] = {"NVIDIA A100-SXM4-80GB": 1.79}
+    state["billing"] = {"measured_spend_usd": 1.1517}
+    world = FakeWorld(availability=[{"candidates": [expensive]}])
+    coordinator.run_loop(world, tight, state, max_iterations=3)
+    check("15b a card whose own worst case does not fit is refused",
+          not any(call[0] == "run_scenario" for call in world.calls), str(world.calls))
+    check("15c and the outcome is a budget stop", state.get("outcome") == "BUDGET_LIMIT",
+          str(state.get("outcome")))
+
+
+def test_16_a_failed_optional_scenario_does_not_block_the_release(tmp: Path) -> None:
+    """T4 LIVE passed, LA is optional and failed, and the Pod cap is reached: publish."""
+    cfg = coordinator.Config(budget_usd=1.45, max_pods=6)
+    temp_paths(tmp)
+    state = fresh_state(cfg)
+    state["scenario_verdicts"] = {"T3L": "PASS", "T4L": "PASS", "LA": "FAIL"}
+    state["pods_created"] = 6
+    state["cycle_pods_created"] = 6
+    state["billing"] = {"measured_spend_usd": 1.1786}
+    world = FakeWorld(availability=[{"candidates": [CARD]}])
+    coordinator.run_loop(world, cfg, state, max_iterations=3)
+    check("16a the plan publishes", state.get("outcome") in {None, "PUBLISHED"}, str(state.get("outcome")))
+    check("16b no extra Pod was created even though a card was placeable",
+          not any(call[0] == "run_scenario" for call in world.calls), str(world.calls))
+    check("16c the release was actually reached", any(call[0] == "release" for call in world.calls),
+          str(world.calls))
+
+
 def evidence_for(state: dict, *, verdicts_all_pass: bool = False) -> dict:
     """The shape `release_coordinator.collect_evidence` produces, built from coordinator state."""
     verdicts = {"T3L": "PASS", "T4L": "PASS", "LA": "PASS"} if verdicts_all_pass else (
@@ -524,6 +584,8 @@ def main() -> int:
         test_12_restart_after_checkpoint_duplicates_nothing,
         test_13_watchdog_and_orphans_fail_closed,
         test_14_the_measured_balance_is_the_budget,
+        test_15_the_guard_uses_the_rate_this_card_charged,
+        test_16_a_failed_optional_scenario_does_not_block_the_release,
     ]
     original = (coordinator.STATE_FILE, coordinator.EVENT_LOG, coordinator.CANCEL_FILE,
                 coordinator.STATE_DIR, coordinator.QUIET)

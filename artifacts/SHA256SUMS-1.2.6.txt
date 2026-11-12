@@ -1,2 +1,2 @@
-5c3df5ddd3d534a72adf5edfd37b37cb63880954c180f79045a477d24cfa9e66  Canalla.LLM_1.2.6_x64-setup.exe
-e7e117f8a80a36bab09833604f7dd7f48f4b713405f4bd5b61f0be0abff3ce1d  Canalla.LLM_1.2.6_x64-setup.exe.sig
+485ee23eb5149b46a23a16595442931a17bbb0fd290d553751095c08d981d1b1  Canalla.LLM_1.2.6_x64-setup.exe
+d2f90538b842af59f936695ea491458aa8c995f7c66ed91821b9506359f45dca  Canalla.LLM_1.2.6_x64-setup.exe.sig
