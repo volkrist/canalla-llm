@@ -1,0 +1,11 @@
+[PASS] windows-x86_64 current=1.2.5 -> 200 (expected 200; cache=DYNAMIC) — older client sees the release
+[PASS] windows-x86_64 current=1.2.6 -> 204 (expected 204; cache=DYNAMIC) — current release sees nothing
+[PASS] windows-x86_64 current=1.2.7 -> 204 (expected 204; cache=DYNAMIC) — no downgrade
+[PASS] linux-x86_64 current=1.2.5 -> 204 (expected 204; cache=DYNAMIC) — no Linux artifact
+[PASS] windows-x86_64 current=1.2.5 -> 200 (expected 200; cache=DYNAMIC) — repeat is stable
+[PASS] served version 1.2.6
+[PASS] served signature is the .sig content
+[PASS] served sha256 is the installer digest
+[PASS] url serves the signed name Canalla LLM_1.2.6_x64-setup.exe
+[PASS] downloaded artifact is 95540283 bytes, sha256 matches
+--- 9 live checks, 0 FAIL ---

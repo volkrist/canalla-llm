@@ -1,0 +1,14 @@
+{
+  "version": "1.2.6",
+  "head": "0b7af14ba8116bf92666360f1a02c2ca5f7af375",
+  "steps": [
+    {
+      "step": "15_updater_matrix",
+      "status": "FAIL",
+      "detail": "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\nOSError: [Errno 22] Invalid argument: 'dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTeUh4MFIvNDR5bXcxeHVzRzFXbkxnQm9HNDhqUzRhT2JPZHp0UlFQaXNFK3dMTm1ZbUd1cnU2KzBLZU01QmR3Qkl6a3RNUnJJM09XQis3c2hWb3dwbWxtajNySTJvMUFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NDM1MDE2CWZpbGU6Q2FuYWxsYSBMTE1fMS4yLjZfeDY0LXNldHVwLmV4ZQpGSWpETmhjdlRwY3oyWDJ2V0JBVHFRcEMyRDFBckxHREhBTG9TejRLNzJ3VkQ5QjViYXJLdEdaeVNCc1I5RVVuM0krM1VKTW9Ub2xyWGRUUk5PempDQT09Cg=='\r\n",
+      "already": false,
+      "exit_code": null,
+      "at": "2026-11-12T16:55:42.833459+00:00"
+    }
+  ]
+}

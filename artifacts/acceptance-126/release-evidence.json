@@ -1,48 +1,35 @@
 {
   "evidence": {
-    "collected_at": "2026-11-10T11:33:50.512552+00:00",
+    "collected_at": "2026-11-12T10:40:04.745173+00:00",
     "version": "1.2.6",
-    "head": "5cbe56f9ae5e00be30aec1b2a235508a55f28ab8",
-    "pods": [
-      {
-        "id": "alwlautwj4nb3y",
-        "status": "RUNNING",
-        "dataCenterId": "US-TX-3",
-        "cloud": "SECURE",
-        "mounts": {
-          "network": [
-            {
-              "path": "/workspace",
-              "volumeId": "uwgeaie5b0"
-            }
-          ]
-        },
-        "cost": 1.09,
-        "createdAt": "2026-11-10T11:32:54.994Z"
-      }
-    ],
+    "head": "ff45e52af1cfd21501be938df0d1721261dbe95e",
+    "pods": [],
     "branch": "release/canalla-1.2.4",
     "dirty": true,
     "product_version": "1.2.6",
     "installer": {
       "path": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\apps\\desktop\\src-tauri\\target\\release\\bundle\\nsis\\Canalla LLM_1.2.6_x64-setup.exe",
       "present": true,
-      "sha256": "5c3df5ddd3d534a72adf5edfd37b37cb63880954c180f79045a477d24cfa9e66",
+      "sha256": "485ee23eb5149b46a23a16595442931a17bbb0fd290d553751095c08d981d1b1",
       "signature_present": true
     },
     "installer_sha_recorded": {
       "file": "artifacts/SHA256SUMS-1.2.6.txt",
-      "sha256": "5c3df5ddd3d534a72adf5edfd37b37cb63880954c180f79045a477d24cfa9e66"
+      "sha256": "485ee23eb5149b46a23a16595442931a17bbb0fd290d553751095c08d981d1b1"
     },
     "installed": {
       "product_version": null,
       "db": null
     },
     "coordinator": {
-      "outcome": null,
-      "scenario_verdicts": {},
-      "pods_created": 0,
-      "spent_usd": 0.0
+      "outcome": "POD_LIMIT",
+      "scenario_verdicts": {
+        "T3L": "PASS",
+        "T4L": "PASS",
+        "LA": "FAIL"
+      },
+      "pods_created": 6,
+      "spent_usd": 0.7525
     },
     "prior_live": {
       "run": "live-20261108T131238",
@@ -50,18 +37,18 @@
       "verdict": "PASS"
     },
     "ci": {
-      "sha": "5cbe56f9ae5e00be30aec1b2a235508a55f28ab8",
-      "run_id": 42806353293,
+      "sha": "ff45e52af1cfd21501be938df0d1721261dbe95e",
+      "run_id": 43196094106,
       "total": 7,
-      "passed": 7,
+      "passed": 6,
       "jobs": {
-        "frontend-e2e": "success",
+        "frontend-e2e": "",
+        "llama-runtime": "success",
+        "native-gate": "success",
+        "developer-gate": "success",
         "llama-runtime-image": "success",
         "installer-build": "success",
-        "developer-gate": "success",
-        "native-gate": "success",
-        "tor-runtime": "success",
-        "llama-runtime": "success"
+        "tor-runtime": "success"
       }
     },
     "readiness": {
@@ -78,7 +65,7 @@
         "budget_available": true,
         "release_pipeline_ready": true
       },
-      "generated_at": "2026-11-10T11:17:11.273724+00:00"
+      "generated_at": "2026-11-11T22:23:01.354837+00:00"
     }
   },
   "plan": {
@@ -87,12 +74,12 @@
     "publish": false,
     "gates": {
       "t3_live": {
-        "ok": false,
-        "detail": "T3L verdict None"
+        "ok": true,
+        "detail": "T3L verdict PASS"
       },
       "t4_live": {
-        "ok": false,
-        "detail": "T4L verdict None"
+        "ok": true,
+        "detail": "T4L verdict PASS"
       },
       "d2_live": {
         "ok": true,
@@ -119,8 +106,8 @@
         "detail": "release-gate.py verify-artifact"
       },
       "ci": {
-        "ok": true,
-        "detail": "7/7 on 5cbe56f9ae"
+        "ok": false,
+        "detail": "6/7 on ff45e52af1"
       },
       "suites": {
         "ok": false,
@@ -128,7 +115,7 @@
       },
       "signature": {
         "ok": true,
-        "detail": "installer 5c3df5ddd3d534a72adf5edfd37b37cb63880954c180f79045a477d24cfa9e66, recorded 5c3df5ddd3d534a72adf5edfd37b37cb63880954c180f79045a477d24cfa9e66"
+        "detail": "installer 485ee23eb5149b46a23a16595442931a17bbb0fd290d553751095c08d981d1b1, recorded 485ee23eb5149b46a23a16595442931a17bbb0fd290d553751095c08d981d1b1"
       },
       "installed_smoke": {
         "ok": false,
@@ -143,18 +130,16 @@
         "detail": "the device_id did not change across the live runs"
       },
       "pods_empty": {
-        "ok": false,
+        "ok": true,
         "detail": "the provider account has no running Pod"
       }
     },
     "blocked_by": [
-      "t3_live",
-      "t4_live",
       "developer_gate",
       "candidate_gate",
+      "ci",
       "suites",
-      "installed_smoke",
-      "pods_empty"
+      "installed_smoke"
     ],
     "steps": [
       [

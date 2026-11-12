@@ -240,7 +240,9 @@ def test_manifest_step_is_idempotent() -> None:
     digest = "ab" * 32
     url = ("https://gateway.12testers.store/updates/latest"
            "?target=windows&arch=x86_64&current_version=1.2.5")
-    live = {"version": "1.2.6", "platforms": {"windows-x86_64": {"sha256": digest}}}
+    live = {"version": "1.2.6",
+            "platforms": {"windows-x86_64": {"sha256": digest,
+                                             "url": release_steps.gateway_url()}}}
     ctx = FakeContext(http={url: (200, json.dumps(live).encode(), {})})
     ctx.evidence = {"installer": {"sha256": digest}}
     original = release_steps.sha256
@@ -260,7 +262,9 @@ def test_resume_from_starts_at_the_named_step() -> None:
     digest = "ab" * 32
     url = ("https://gateway.12testers.store/updates/latest"
            "?target=windows&arch=x86_64&current_version=1.2.5")
-    live = {"version": "1.2.6", "platforms": {"windows-x86_64": {"sha256": digest}}}
+    live = {"version": "1.2.6",
+            "platforms": {"windows-x86_64": {"sha256": digest,
+                                             "url": release_steps.gateway_url()}}}
     ctx = FakeContext(http={url: (200, json.dumps(live).encode(), {})})
     ctx.evidence = {"installer": {"sha256": digest}}
     original = release_steps.sha256
@@ -401,6 +405,9 @@ def test_prepublication_gates_can_be_produced_but_live_gates_cannot() -> None:
 
 
 def main() -> int:
+    # Every fake run_steps call used to persist into the real release-progress.json, so this
+    # self-test wrote steps like `01_a` / `02_b` (and their FAILs) next to the real ones.
+    release_steps.PROGRESS = Path(tempfile.mkdtemp(prefix="canalla-progress-")) / "progress.json"
     tests = [
         test_full_evidence_publishes,
         test_every_mandatory_gate_can_block,

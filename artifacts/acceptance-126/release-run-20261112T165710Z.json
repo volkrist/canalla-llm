@@ -1,0 +1,14 @@
+{
+  "version": "1.2.6",
+  "head": "0b7af14ba8116bf92666360f1a02c2ca5f7af375",
+  "steps": [
+    {
+      "step": "15_updater_matrix",
+      "status": "PASS",
+      "detail": "1.2.3/1.2.4/1.2.5 -> 1.2.6, 1.2.6 -> 204",
+      "already": false,
+      "exit_code": null,
+      "at": "2026-11-12T16:57:10.304903+00:00"
+    }
+  ]
+}

@@ -24,11 +24,11 @@ function Note([string]$message) {
     Add-Content -LiteralPath $log -Value $line -Encoding utf8
 }
 
-# The owner's 2026-11-11 grant: the cycle cap is $1.10 and at most five Pods in total (four
+# The owner's 2026-11-12 grant: the cycle cap is $1.45 and at most six Pods in total (five
 # already exist), so exactly one more start is possible. The coordinator takes both from its CLI,
 # so the grant lives here and cannot drift from the state it guards.
-$budget = '1.10'
-$maxPods = '5'
+$budget = '1.45'
+$maxPods = '6'
 
 Note 'wrapper started'
 while ($true) {

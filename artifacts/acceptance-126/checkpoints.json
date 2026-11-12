@@ -17,22 +17,26 @@
         "chats": 49,
         "messages": 111,
         "paired_devices": 59,
-        "device_id": "f3548022-a676-463c-9fc0-b05bbd5ac907",
+        "device_id": "f3548022-a676-463c-9fc5-b05bbd5ac907",
         "computer_mode": "ask"
       }
     },
     "CURRENT_MONITOR_STATE": {
-      "at": "2026-11-12T09:56:17.939240+00:00",
-      "git_sha": "a7cba67",
-      "status": "MONITORING",
+      "at": "2026-11-12T17:01:58.188142+00:00",
+      "git_sha": "0b7af14",
+      "status": "FINISHED",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 5,
-      "spent_usd": 0.7256,
+      "pod_created_total": 6,
+      "spent_usd": 0.7525,
       "evidence": "artifacts/acceptance-126/coordinator/state.json",
-      "next_step": "wait for a placeable card; one T4 LIVE session is still allowed",
+      "next_step": "no paid run in this cycle; 1.2.7 planning only",
       "blocker": "",
-      "detail": {}
+      "detail": {
+        "pods_running": 0,
+        "cycle": "closed",
+        "reason": "T4 LIVE PASS, 1.2.6 published"
+      }
     },
     "T3_LIVE_PASS_PRESERVED": {
       "at": "2026-11-12T09:56:18.003768+00:00",
@@ -65,60 +69,74 @@
       }
     },
     "GPU_CAPACITY_MONITORING": {
-      "at": "2026-11-10T22:38:52.986732+00:00",
-      "git_sha": "0dc7f88",
-      "status": "ACTIVE",
+      "at": "2026-11-12T17:01:58.555997+00:00",
+      "git_sha": "0b7af14",
+      "status": "CLOSED",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 2,
-      "spent_usd": 0.3181,
-      "evidence": "artifacts/acceptance-126/gpu-availability.json",
-      "next_step": "free availability read every 15 minutes",
-      "blocker": "no placeable card in US-TX-3 / US-MO-1 at the last check",
+      "pod_created_total": 6,
+      "spent_usd": 0.7525,
+      "evidence": "the one granted Pod was created and stopped; pods []",
+      "next_step": "none",
+      "blocker": "",
       "detail": {}
     },
     "GPU_CLEANUP": {
-      "at": "2026-11-12T10:36:20.448160+00:00",
-      "git_sha": "ff45e52",
+      "at": "2026-11-12T17:01:35.100624+00:00",
+      "git_sha": "0b7af14",
       "status": "CONFIRMED",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 5,
-      "spent_usd": 0.7256,
-      "evidence": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261112T102739\\summary.json",
-      "next_step": "continue monitoring",
+      "pod_created_total": 6,
+      "spent_usd": 0.7525,
+      "evidence": "read-only RunPod probe: pods [], balance 8.7672151726",
+      "next_step": "",
       "blocker": "",
       "detail": {
-        "pod_seconds": 89.0,
-        "cost_usd": 0.0269
+        "pods_running": 0,
+        "balance_usd": 8.7672151726
       }
     },
     "T4_LIVE_VERDICT": {
-      "at": "2026-11-12T10:36:20.488134+00:00",
-      "git_sha": "ff45e52",
+      "at": "2026-11-12T17:01:35.036220+00:00",
+      "git_sha": "0b7af14",
       "status": "PASS",
-      "task_id": null,
+      "task_id": "758c3e1b-8116-45ac-a655-1274c55c09fc",
       "pod_id": null,
-      "pod_created_total": 5,
-      "spent_usd": 0.7256,
-      "evidence": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261112T102739\\summary.json",
-      "next_step": "release preflight",
+      "pod_created_total": 6,
+      "spent_usd": 0.7525,
+      "evidence": "artifacts/acceptance-123/runs/live-20261112T102739/T4L.json",
+      "next_step": "",
       "blocker": "",
       "detail": {
-        "scenario": "T4L"
+        "task_id": "758c3e1b-8116-45ac-a655-1274c55c09fc",
+        "gpu": "NVIDIA L40S 48 GB",
+        "datacenter": "US-MO-1",
+        "pod_seconds": 89.0,
+        "cost_usd": 0.0269,
+        "model_origin_tools": 3,
+        "tools": [
+          "read_file",
+          "write_file",
+          "read_file"
+        ],
+        "approvals": 3,
+        "state": "COMPLETED",
+        "file_sha256": "1b88c6e7dbaea1f2cbf74f3a0a906d548c6886f4ed2ecec3b3ddcfd079bc51d8",
+        "device_id": "f3548022-a676-463c-9fc5-b05bbd5ac907"
       }
     },
     "RELEASE_READINESS": {
-      "at": "2026-11-11T22:56:58.034703+00:00",
-      "git_sha": "a7cba67",
-      "status": "BLOCKED",
+      "at": "2026-11-12T17:01:35.157276+00:00",
+      "git_sha": "0b7af14",
+      "status": "PASS",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 5,
-      "spent_usd": 0.7256,
-      "evidence": "ready-for-final-t4.json: 19/19 flags, verify-artifact 8/8, CI green, installed smoke",
-      "next_step": "owner grant -> monitor -> T4 LIVE -> release_coordinator --execute",
-      "blocker": "t4_live is not PASS and the cycle is spent (1.0447 of 1.1 and 5 of 5 Pods)",
+      "pod_created_total": 6,
+      "spent_usd": 0.7525,
+      "evidence": "release_coordinator plan: all 15 mandatory gates PASS, publish=yes",
+      "next_step": "none — published",
+      "blocker": "",
       "detail": {}
     },
     "GPU_ACQUIRED": {
@@ -155,57 +173,216 @@
       }
     },
     "INSTALLED_SMOKE": {
-      "at": "2026-11-11T19:03:29.694059+00:00",
-      "git_sha": "7273cda",
+      "at": "2026-11-12T15:50:22.276235+00:00",
+      "git_sha": "0b7af14",
       "status": "PASS",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 5,
-      "spent_usd": 0.7256,
-      "evidence": "installed-status.mjs -> INSTALLED-UI: PASS on b859f2a20e35e56ea14f789857a914a068c8bc2c8cec02b299ed28791669fcdd",
+      "pod_created_total": 6,
+      "spent_usd": 0.7525,
+      "evidence": "INSTALLED-UI: PASS",
       "next_step": "",
       "blocker": "",
       "detail": {
-        "installer_sha256": "b859f2a20e35e56ea14f789857a914a068c8bc2c8cec02b299ed28791669fcdd"
+        "step": "08_installed_smoke"
       }
     },
     "SIGNATURE": {
-      "at": "2026-11-11T19:03:29.652372+00:00",
-      "git_sha": "7273cda",
+      "at": "2026-11-12T15:49:50.024707+00:00",
+      "git_sha": "0b7af14",
       "status": "PASS",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 5,
-      "spent_usd": 0.7256,
-      "evidence": "verify-artifact 8/8 PASS, key 9B328EFF111D1FB2, commit 7273cda5f4b463fd7d11c4b21af1a1a0dd7310f0",
+      "pod_created_total": 6,
+      "spent_usd": 0.7525,
+      "evidence": "verify-artifact: RELEASE GATE: PASS",
       "next_step": "",
       "blocker": "",
       "detail": {
-        "installer_sha256": "b859f2a20e35e56ea14f789857a914a068c8bc2c8cec02b299ed28791669fcdd",
-        "installed_sidecar_sha": "7c2f465f96d7e186ebf7ac07a8b05a80f9d18d82ee92381f587187f7dffcdfd6"
+        "step": "04_verify_artifact"
       }
     },
     "FINAL_CI": {
-      "at": "2026-11-11T19:03:29.734564+00:00",
-      "git_sha": "7273cda",
+      "at": "2026-11-12T15:49:56.018828+00:00",
+      "git_sha": "0b7af14",
       "status": "PASS",
       "task_id": null,
       "pod_id": null,
-      "pod_created_total": 5,
-      "spent_usd": 0.7256,
-      "evidence": "GitHub Actions CI 7/7 on 7273cda (developer gate included) + Linux gate",
+      "pod_created_total": 6,
+      "spent_usd": 0.7525,
+      "evidence": "7/7 jobs on 0b7af14ba8",
       "next_step": "",
       "blocker": "",
       "detail": {
-        "sha": "7273cda5f4b463fd7d11c4b21af1a1a0dd7310f0",
-        "jobs": 7,
-        "passed": 7,
-        "backend_suite": "1081 passed, 1 skipped",
-        "note": "re-checked for the exact pushed SHA at publish time"
+        "step": "05_ci"
+      }
+    },
+    "GITHUB_RELEASE": {
+      "at": "2026-11-12T17:01:58.908633+00:00",
+      "git_sha": "0b7af14",
+      "status": "PUBLISHED",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 6,
+      "spent_usd": 0.7525,
+      "evidence": "https://github.com/volkrist/canalla-llm/releases/tag/v1.2.6",
+      "next_step": "",
+      "blocker": "",
+      "detail": {
+        "assets": [
+          {
+            "name": "Canalla.LLM_1.2.6_x64-setup.exe",
+            "digest": "sha256:485ee23eb5149b46a23a16595442931a17bbb0fd290d553751095c08d981d1b1",
+            "size": 95540283
+          },
+          {
+            "name": "Canalla.LLM_1.2.6_x64-setup.exe.sig",
+            "digest": "sha256:d2f90538b842af59f936695ea491458aa8c995f7c66ed91821b9506359f45dca",
+            "size": 424
+          },
+          {
+            "name": "SHA256SUMS-1.2.6.txt",
+            "digest": "sha256:c8301d04a51f3d9d38fb2656e908f5ec38db48066380a85b2a21742b9fb0a572",
+            "size": 200
+          }
+        ],
+        "draft": false,
+        "prerelease": false,
+        "published_at": "2026-11-12T14:08:10Z"
+      }
+    },
+    "UPDATER": {
+      "at": "2026-11-12T17:01:35.188719+00:00",
+      "git_sha": "0b7af14",
+      "status": "PASS",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 6,
+      "spent_usd": 0.7525,
+      "evidence": "step 14 (manifest 1.2.6 live, url bound to the signed name) + step 15 (1.2.3/1.2.4/1.2.5 -> 1.2.6, 1.2.6 -> 204)",
+      "next_step": "",
+      "blocker": "",
+      "detail": {
+        "manifest_url": "https://gateway.12testers.store/downloads/Canalla%20LLM_1.2.6_x64-setup.exe?v=1.2.6",
+        "installer_sha256": "485ee23eb5149b46a23a16595442931a17bbb0fd290d553751095c08d981d1b1",
+        "reason_for_query": "Cloudflare had cached a 404 for the clean artifact URL after step 12 published the file under the GitHub-sanitized name; a per-release cache-buster keeps the signed name and makes the published bytes immediately reachable"
+      }
+    },
+    "POST_RELEASE_VERIFY": {
+      "at": "2026-11-12T16:57:21.043445+00:00",
+      "git_sha": "0b7af14",
+      "status": "PASS",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 6,
+      "spent_usd": 0.7525,
+      "evidence": "Gateway ready, 1.2.6 has no update, pods []",
+      "next_step": "",
+      "blocker": "",
+      "detail": {
+        "step": "16_health"
+      }
+    },
+    "BUDGET_RECONCILED": {
+      "at": "2026-11-12T17:01:34.874574+00:00",
+      "git_sha": "0b7af14",
+      "status": "PASS",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 6,
+      "spent_usd": 0.7525,
+      "evidence": "artifacts/acceptance-126/coordinator/state.json (billing block)",
+      "next_step": "no further paid run in this cycle",
+      "blocker": "",
+      "detail": {
+        "balance_start_usd": 10.1309,
+        "balance_now_usd": 8.7672151726,
+        "measured_spend_usd": 1.3637,
+        "budget_usd": 1.45,
+        "remaining_usd": 0.0863,
+        "pods_created": 6,
+        "pod_limit": 6,
+        "attempt_attributed_usd": 0.7525,
+        "unattributed_usd": 0.6112
+      }
+    },
+    "DATA_SAFE": {
+      "at": "2026-11-12T17:01:34.937052+00:00",
+      "git_sha": "0b7af14",
+      "status": "PASS",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 6,
+      "spent_usd": 0.7525,
+      "evidence": "read-only PRAGMA integrity_check + published-table counts on %LOCALAPPDATA%/Alex LLM/data/alex.db",
+      "next_step": "",
+      "blocker": "",
+      "detail": {
+        "integrity": "ok",
+        "users": 2,
+        "chats": 54,
+        "messages": 120,
+        "paired_devices": 59,
+        "computer_mode": "ask",
+        "baseline": {
+          "users": 2,
+          "chats": 52,
+          "messages": 116,
+          "paired_devices": 59
+        },
+        "note": "counts only ever grew; nothing was deleted or rolled back"
+      }
+    },
+    "DEVICE_STABLE": {
+      "at": "2026-11-12T17:01:34.975813+00:00",
+      "git_sha": "0b7af14",
+      "status": "PASS",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 6,
+      "spent_usd": 0.7525,
+      "evidence": "device.json today vs artifacts/acceptance-123/runs/20261027T152437/preflight.json online_devices",
+      "next_step": "",
+      "blocker": "",
+      "detail": {
+        "device_id": "f3548022-a676-463c-9fc5-b05bbd5ac907",
+        "correction": "several reports (and the BASELINE checkpoint detail) carried f3548022-a676-463c-9fc5-b05bbd5ac907; the measured value in every product file and in the 27 Oct preflight is 9fc5. The 9fc0 spelling was a transcription typo in prose, never a stored identity."
+      }
+    },
+    "NEXT_AUTONOMY_DEVELOPMENT": {
+      "at": "2026-11-12T17:01:35.238092+00:00",
+      "git_sha": "0b7af14",
+      "status": "PLANNED",
+      "task_id": null,
+      "pod_id": null,
+      "pod_created_total": 6,
+      "spent_usd": 0.7525,
+      "evidence": "owner brief: RESEARCH -> PLAN -> BUILD -> RUN -> GUI -> TEST -> FIX -> VERIFY",
+      "next_step": "plan 1.2.7 autonomously; publish only with a separate owner approval",
+      "blocker": "",
+      "detail": {}
+    },
+    "T4_LIVE_RUNNING": {
+      "at": "2026-11-12T17:01:58.758668+00:00",
+      "git_sha": "0b7af14",
+      "status": "COMPLETED",
+      "task_id": "758c3e1b-8116-45ac-a655-1274c55c09fc",
+      "pod_id": null,
+      "pod_created_total": 6,
+      "spent_usd": 0.7525,
+      "evidence": "artifacts/acceptance-123/runs/live-20261112T102739/T4L.json",
+      "next_step": "",
+      "blocker": "",
+      "detail": {
+        "task_id": "758c3e1b-8116-45ac-a655-1274c55c09fc",
+        "pod_seconds": 89.0,
+        "cost_usd": 0.0269,
+        "gpu": "NVIDIA L40S 48 GB",
+        "datacenter": "US-MO-1"
       }
     }
   },
-  "updated_at": "2026-11-12T10:36:20.544996+00:00",
+  "updated_at": "2026-11-12T17:01:58.908633+00:00",
   "order": [
     "BASELINE",
     "CURRENT_MONITOR_STATE",
@@ -217,6 +394,9 @@
     "T4_LIVE_VERDICT",
     "OPTIONAL_AUTONOMY_LIVE_VERDICT",
     "GPU_CLEANUP",
+    "BUDGET_RECONCILED",
+    "DATA_SAFE",
+    "DEVICE_STABLE",
     "RELEASE_READINESS",
     "FINAL_CI",
     "SIGNATURE",

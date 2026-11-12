@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import time
@@ -46,6 +47,21 @@ ASSET_NAMES = {
     "signature": f"Canalla.LLM_{VERSION}_x64-setup.exe.sig",
     "sums": f"SHA256SUMS-{VERSION}.txt",
 }
+
+# The Gateway mirrors the artifact under the name the signature names (`file:` in the trusted
+# comment), while GitHub sanitizes spaces into dots. Step 12 used to copy the sanitized name, so
+# the manifest's signed URL 404'd; the two names are now kept apart on purpose.
+GATEWAY_ASSETS = (INSTALLER_NAME, INSTALLER_NAME + ".sig")
+
+
+def gateway_url() -> str:
+    """The public artifact URL, with a per-release cache-buster.
+
+    A CDN happily caches a 404 (Cloudflare did, for four hours, after step 12 published the file
+    under another name). The query string makes each release a distinct cache key, so a corrected
+    publication is immediately visible and no client is pinned to a dead URL.
+    """
+    return f"{GATEWAY}/downloads/{urllib.parse.quote(INSTALLER_NAME)}?v={VERSION}"
 
 
 # ------------------------------------------------------------------------------------------ context
@@ -110,8 +126,13 @@ def _run(command: list[str], *, cwd: Path | None = None, timeout: int = 3600,
 
 def _http(method: str, url: str, *, body: bytes | None = None, headers: dict | None = None,
           timeout: int = 300, auth: bool = False) -> tuple[int, bytes, dict]:
-    request = urllib.request.Request(url, data=body, method=method,
-                                     headers=headers or {"User-Agent": "canalla-release/1.2.6"})
+    # Headers *add* to the default user agent, never replace it. Passing only
+    # `Cache-Control: no-cache` sent a request with no User-Agent at all, which Cloudflare
+    # answers with 403 "error code: 1010" - the manifest probe then reported "no manifest" and
+    # step 14 declared the Gateway still on the previous version while it was already serving
+    # the new one.
+    merged = {"User-Agent": "canalla-release/1.2.6", **(headers or {})}
+    request = urllib.request.Request(url, data=body, method=method, headers=merged)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.status, response.read(), dict(response.headers)
@@ -120,8 +141,11 @@ def _http(method: str, url: str, *, body: bytes | None = None, headers: dict | N
 
 
 def _ssh(command: str, *, timeout: int = 300) -> subprocess.CompletedProcess:
-    return subprocess.run(["ssh", SSH_HOST, "sudo -n " + command], capture_output=True,
-                          timeout=timeout)
+    # `sudo -n` elevates one command, so a compound command left its second half unprivileged:
+    # `test -f … && cp -p …` copied the root-owned updater manifest as the plain SSH user and
+    # failed with EACCES. The whole command now runs inside one elevated shell.
+    wrapped = "sudo -n sh -c " + shlex.quote(command)
+    return subprocess.run(["ssh", SSH_HOST, wrapped], capture_output=True, timeout=timeout)
 
 
 def _scp(local: Path, remote: str, *, timeout: int = 900) -> subprocess.CompletedProcess:
@@ -410,7 +434,7 @@ def _remote_sha(ctx: Context, path: str) -> str | None:
 
 def downloads(ctx: Context) -> dict:
     results = []
-    for name, local in ((ASSET_NAMES["installer"], INSTALLER), (ASSET_NAMES["signature"], SIGNATURE)):
+    for name, local in ((INSTALLER_NAME, INSTALLER), (INSTALLER_NAME + ".sig", SIGNATURE)):
         digest = sha256(local)
         remote_path = f"{DOWNLOADS_DIR}/{name}"
         if _remote_sha(ctx, remote_path) == digest:
@@ -424,31 +448,60 @@ def downloads(ctx: Context) -> dict:
         if not _ok(placed):
             return ctx.record("12_downloads", "FAIL", text(placed)[-300:])
         results.append(f"{name}: copied")
-    status, body, _ = ctx.http("GET", f"{GATEWAY}/downloads/{urllib.parse.quote(ASSET_NAMES['installer'])}")
+    status, body, _ = ctx.http("GET", gateway_url())
     if status != 200 or hashlib.sha256(body).hexdigest() != sha256(INSTALLER):
         return ctx.record("12_downloads", "FAIL", f"the public URL answers {status}")
     return ctx.record("12_downloads", "PASS", "; ".join(results))
 
 
 def _live_manifest(ctx: Context) -> dict:
-    status, body, _ = ctx.http(
-        "GET", f"{GATEWAY}/updates/latest?target=windows&arch=x86_64&current_version=1.2.5",
-        headers={"Cache-Control": "no-cache"},
+    """The manifest the Gateway serves, or {} when it cannot be read.
+
+    A slow TLS handshake used to escape as an unhandled TimeoutError and abort the whole release
+    between the manifest backup and the install. The probe retries briefly and then reports
+    "unknown", which the steps already handle.
+    """
+    for attempt in range(3):
+        try:
+            status, body, _ = ctx.http(
+                "GET", f"{GATEWAY}/updates/latest?target=windows&arch=x86_64&current_version=1.2.5",
+                headers={"Cache-Control": "no-cache"},
+            )
+        except Exception:  # noqa: BLE001 - a probe must never end the release
+            time.sleep(5 * (attempt + 1))
+            continue
+        if status != 200:
+            return {}
+        try:
+            return json.loads(body)
+        except ValueError:
+            return {}
+    return {}
+
+
+def _live_entry(live: dict) -> dict:
+    return (live.get("platforms") or {}).get("windows-x86_64") or {}
+
+
+def _live_is_publishable(live: dict, expected_sha: str) -> bool:
+    """The live manifest is exactly what this release would publish, URL included.
+
+    Version and digest alone were not enough: a manifest pointing at an artifact URL that 404s
+    looked "already correct" and was skipped, which is how step 14 reported success while the
+    updater could not download anything.
+    """
+    entry = _live_entry(live)
+    return (
+        live.get("version") == VERSION
+        and entry.get("sha256") == expected_sha
+        and entry.get("url") == gateway_url()
     )
-    if status != 200:
-        return {}
-    try:
-        return json.loads(body)
-    except ValueError:
-        return {}
 
 
 def manifest_backup(ctx: Context) -> dict:
     live = _live_manifest(ctx)
     expected_sha = sha256(INSTALLER)
-    if live.get("version") == VERSION and (
-        (live.get("platforms") or {}).get("windows-x86_64", {}).get("sha256") == expected_sha
-    ):
+    if _live_is_publishable(live, expected_sha):
         return ctx.record("13_manifest_backup", "SKIP", "the live manifest is already 1.2.6",
                           already=True)
     stamp = ctx.now().strftime("%Y%m%dT%H%MZ")
@@ -462,9 +515,7 @@ def manifest_backup(ctx: Context) -> dict:
 def manifest(ctx: Context) -> dict:
     live = _live_manifest(ctx)
     expected_sha = sha256(INSTALLER)
-    if live.get("version") == VERSION and (
-        (live.get("platforms") or {}).get("windows-x86_64", {}).get("sha256") == expected_sha
-    ):
+    if _live_is_publishable(live, expected_sha):
         return ctx.record("14_manifest", "SKIP", "the live manifest is already correct",
                           already=True)
     pub_date = ctx.now().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -473,6 +524,7 @@ def manifest(ctx: Context) -> dict:
          "--installer", str(INSTALLER), "--signature", str(SIGNATURE),
          "--version", VERSION, "--previous", "1.2.5",
          "--base-url", f"{GATEWAY}/downloads/", "--pub-date", pub_date,
+         "--url-query", f"v={VERSION}",
          "--notes-file", str(NOTES), "--expect-sha256", expected_sha,
          "--out", str(MANIFEST_LOCAL)]
     )
@@ -495,7 +547,7 @@ def manifest(ctx: Context) -> dict:
         return ctx.record("14_manifest", "FAIL", text(installed)[-300:])
     for _ in range(6):
         live = _live_manifest(ctx)
-        if live.get("version") == VERSION:
+        if _live_is_publishable(live, expected_sha):
             return ctx.record("14_manifest", "PASS", f"the Gateway serves {VERSION}")
         time.sleep(10)
     return ctx.record("14_manifest", "FAIL", "the Gateway still serves the previous version")

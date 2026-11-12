@@ -1,0 +1,1401 @@
+{
+ "schema": 2,
+ "started_at": "2026-11-10T11:17:30.723545+00:00",
+ "expires_at": "2026-11-17T22:37:00+00:00",
+ "checks": 58,
+ "pods_created": 5,
+ "attempts": [
+  {
+   "index": 1,
+   "scenario": "T3L",
+   "gpu": "NVIDIA L40S",
+   "datacenter": "US-TX-3",
+   "volume_id": "uwgeaie5b0",
+   "hourly_usd": 0.79,
+   "started_at": "2026-11-10T11:32:45.022553+00:00",
+   "watchdog_seconds": 510,
+   "max_session_seconds": 480,
+   "verdict": "PASS",
+   "finished_at": "2026-11-10T11:37:41.758472+00:00",
+   "reasons": [],
+   "pod_created": true,
+   "pod_seconds": 244.3,
+   "cost_usd": 0.074,
+   "evidence": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261110T113250\\summary.json",
+   "stop_confirmed": true,
+   "rate_usd": 1.09,
+   "note": "the runner's session_end read came back empty after the stop; the cost is the Pod lifetime at the $1.09/h the Gateway charged, not the catalogue row"
+  },
+  {
+   "index": 2,
+   "scenario": "T4L",
+   "gpu": "NVIDIA L40S",
+   "datacenter": "US-TX-3",
+   "volume_id": "uwgeaie5b0",
+   "hourly_usd": 0.79,
+   "started_at": "2026-11-10T12:30:22.874753+00:00",
+   "watchdog_seconds": 510,
+   "max_session_seconds": 450,
+   "verdict": "NO_CAPACITY",
+   "latch_before": false,
+   "finished_at": "2026-11-10T12:31:06.812875+00:00",
+   "reasons": [],
+   "pod_created": false,
+   "pod_seconds": 0.0,
+   "cost_usd": 0.0,
+   "evidence": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261110T123029\\summary.json",
+   "stop_confirmed": true
+  },
+  {
+   "index": 2,
+   "scenario": "T4L",
+   "gpu": "NVIDIA A100 80GB PCIe",
+   "datacenter": "US-MO-1",
+   "volume_id": "y92bt25ru8",
+   "hourly_usd": 1.19,
+   "started_at": "2026-11-10T13:35:27.543843+00:00",
+   "watchdog_seconds": 510,
+   "max_session_seconds": 450,
+   "verdict": "FAIL",
+   "latch_before": false,
+   "finished_at": "2026-11-10T13:46:50.860712+00:00",
+   "reasons": [
+    "no completed model tool before the disconnect",
+    "no typed state while the host was gone: {'status': 'STOPPED', 'last_error': None, 'current_step': ''}",
+    "computer_mode=ask but no waiting_confirmation was observed"
+   ],
+   "pod_created": true,
+   "pod_seconds": 491.0,
+   "cost_usd": 0.2441,
+   "evidence": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261110T133533\\summary.json",
+   "stop_confirmed": true,
+   "rate_usd": 1.79,
+   "note": "fail was a harness defect (task resolved in another chat); the watchdog stopped the Pod at 491 s, within the 600 s cap"
+  },
+  {
+   "index": 3,
+   "scenario": "T4L+LA",
+   "scenarios": [
+    "T4L",
+    "LA"
+   ],
+   "gpu": "NVIDIA L40S",
+   "datacenter": "US-MO-1",
+   "volume_id": "y92bt25ru8",
+   "hourly_usd": 0.79,
+   "started_at": "2026-11-11T09:56:03.163725+00:00",
+   "watchdog_seconds": 510,
+   "max_session_seconds": 480,
+   "verdict": "INTERRUPTED_BY_CRASH",
+   "latch_before": false,
+   "finished_at": "2026-11-11T09:57:09.927024+00:00",
+   "stop_confirmed": true,
+   "pod_created": true,
+   "pod_seconds": 48.0,
+   "cost_usd": 0.0145,
+   "rate_usd": 1.09,
+   "note": "the coordinator was restarted during this session, which killed the runner; the next process reconciled the orphan Pod and stopped it after 48 s at the Gateway's $1.09/h. Counted as a Pod, never as a free attempt."
+  },
+  {
+   "index": 3,
+   "scenario": "T4L+LA",
+   "scenarios": [
+    "T4L",
+    "LA"
+   ],
+   "gpu": "NVIDIA L40S",
+   "datacenter": "US-MO-1",
+   "volume_id": "y92bt25ru8",
+   "hourly_usd": 0.79,
+   "started_at": "2026-11-11T09:57:20.442538+00:00",
+   "watchdog_seconds": 510,
+   "max_session_seconds": 480,
+   "verdict": "MIXED",
+   "latch_before": false,
+   "finished_at": "2026-11-11T10:08:13.560453+00:00",
+   "results": {
+    "T4L": {
+     "verdict": "BLOCKED",
+     "reasons": [
+      "not run"
+     ]
+    },
+    "LA": {
+     "verdict": "BLOCKED",
+     "reasons": [
+      "not run"
+     ]
+    }
+   },
+   "reasons": [
+    "not run",
+    "not run"
+   ],
+   "pod_created": true,
+   "pod_seconds": 486.1,
+   "cost_usd": 0.1472,
+   "evidence": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261111T095726\\summary.json",
+   "stop_confirmed": true
+  },
+  {
+   "index": 5,
+   "scenario": "T4L+LA",
+   "scenarios": [
+    "T4L",
+    "LA"
+   ],
+   "gpu": "NVIDIA A100 80GB PCIe",
+   "datacenter": "US-MO-1",
+   "volume_id": "y92bt25ru8",
+   "hourly_usd": 1.19,
+   "started_at": "2026-11-11T12:51:59.082434+00:00",
+   "watchdog_seconds": 510,
+   "max_session_seconds": 480,
+   "verdict": "MIXED",
+   "latch_before": false,
+   "finished_at": "2026-11-11T12:52:45.858507+00:00",
+   "results": {
+    "T4L": {
+     "verdict": "BLOCKED",
+     "reasons": [
+      "not run"
+     ]
+    },
+    "LA": {
+     "verdict": "BLOCKED",
+     "reasons": [
+      "not run"
+     ]
+    }
+   },
+   "reasons": [
+    "not run",
+    "not run"
+   ],
+   "pod_created": false,
+   "pod_seconds": 0.0,
+   "cost_usd": 0.0,
+   "evidence": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261111T125206\\summary.json",
+   "runner_exit": 5,
+   "output_tail": "enrolled\":true,\"reachable\":true,\"protocol_version\":1,\"balance_source\":\"gateway\",\"recoverable\":false,\"action\":null,\"details\":{\"gateway_version\":null,\"protocol\r\nready False {\"ai\": \"starting\", \"ai_label\": \"AI Starting\", \"provider\": \"alex-cloud\", \"model\": \"orcarouter-qwen38-27b-q5km\", \"diagnostic\": {\"compute_state\": \"waiting_capacity\", \"last_error\": \"gpu_unavailable\", \"managed\": false, \"adopted\": false, \"idle_deadline\": null, \"search_active\": false, \"search_deadline\": null, \"datacenter\": null, \"queue\": {\"depth\": 0, \"active\": 0}, \"session\": null, \"revision\": 602, \"global\": true, \"operation_id\": \"local-21840a45-affa-4936-b1c7-baac9eb40a51\", \"current_stage\": \"waiting\", \r\nABORT not ready; capacity/search is not retried\r\nwatchdog_disarm \r\nstop {'http': 200, 'body': '{\"mode\":\"shared\",\"state\":\"connected\",\"message\":\"Canalla Cloud подключён. AI работает через общий Gateway.\",\"detail_code\":null,\"url\":\"https://gateway.12testers.store\",\"default_url\":null,\"installation_id\":\"bb3de818-c9fd-4a32-911b-f40cab2b754f\",\"enrolled\":true,\"reachable\":true,\"protocol_version\":1,\"balance_source\":\"gateway\",\"recoverable\":false,\"action\":null,\"details\":{\"gateway_version\":null,\"protocol'}\r\nmanual_off_restored the run's own Stop had parked automatic compute\r\nsummary C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261111T125206\\summary.json\r\nspend {\"http\": 200, \"state\": null, \"gpu\": null, \"hourly_rate_usd\": null, \"estimated_usd\": null, \"billable_seconds\": null}\r\n",
+   "stop_confirmed": true
+  },
+  {
+   "index": 5,
+   "scenario": "T4L+LA",
+   "scenarios": [
+    "T4L",
+    "LA"
+   ],
+   "gpu": "NVIDIA A100-SXM4-80GB",
+   "datacenter": "US-MO-1",
+   "volume_id": "y92bt25ru8",
+   "hourly_usd": 1.39,
+   "started_at": "2026-11-11T17:44:25.031983+00:00",
+   "watchdog_seconds": 510,
+   "max_session_seconds": 480,
+   "verdict": "MIXED",
+   "latch_before": false,
+   "finished_at": "2026-11-11T17:57:12.954222+00:00",
+   "results": {
+    "T4L": {
+     "verdict": "FAIL",
+     "reasons": [
+      "the task never reached a terminal state after the reconnect",
+      "no final answer was persisted",
+      "the task did not complete: 'WAITING_CONFIRMATION'"
+     ]
+    },
+    "LA": {
+     "verdict": "BLOCKED_SESSION_LIMIT",
+     "reasons": [
+      "effective window -258s is less than the 60 s minimum (session cap 480s leaves -243s; budget $0.351 at $1.79/h)"
+     ]
+    }
+   },
+   "reasons": [
+    "the task never reached a terminal state after the reconnect",
+    "no final answer was persisted",
+    "the task did not complete: 'WAITING_CONFIRMATION'",
+    "effective window -258s is less than the 60 s minimum (session cap 480s leaves -243s; budget $0.351 at $1.79/h)"
+   ],
+   "pod_created": true,
+   "pod_seconds": 494.3,
+   "cost_usd": 0.2458,
+   "evidence": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261111T174431\\summary.json",
+   "runner_exit": 0,
+   "output_tail": "935f56605f\", \"state\": \"ready\", \"gpu\": \"NVIDIA A100-SXM4-80GB\", \"hourly_rate_usd\": \"1.790000\", \"m\r\nsession {\"http\": 200, \"state\": \"ready\", \"gpu\": \"NVIDIA A100-SXM4-80GB\", \"hourly_rate_usd\": 1.79, \"estimated_usd\": 0.114858, \"billable_seconds\": 231} startup_s 231.0\r\nscenario T4L Computer host пропадает во время задачи {'elapsed_seconds': 231.0, 'rate_usd_per_hour_used': 1.79, 'estimated_usd': 0.1149, 'budget_usd': 0.351, 'remaining_usd': 0.2361, 'rate_source': 'gateway_session'} timeout_s 234\r\n  FAIL ['the task never reached a terminal state after the reconnect', 'no final answer was persisted']\r\n skip LA effective window -258s is less than the 60 s minimum (session cap 480s leaves -243s; budget $0.351 at $1.79/h)\r\nwatchdog_disarm \r\nstop {'http': 200, 'body': '{\"mode\":\"shared\",\"state\":\"connected\",\"message\":\"Canalla Cloud подключён. AI работает через общий Gateway.\",\"detail_code\":null,\"url\":\"https://gateway.12testers.store\",\"default_url\":null,\"installation_id\":\"bb3de818-c9fd-4a32-911b-f40cab2b754f\",\"enrolled\":true,\"reachable\":true,\"protocol_version\":1,\"balance_source\":\"gateway\",\"recoverable\":false,\"action\":null,\"details\":{\"gateway_version\":null,\"protocol'}\r\nmanual_off_restored the run's own Stop had parked automatic compute\r\nsummary C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-123\\runs\\live-20261111T174431\\summary.json\r\nspend {\"http\": 200, \"state\": null, \"gpu\": null, \"hourly_rate_usd\": null, \"estimated_usd\": null, \"billable_seconds\": null}\r\n",
+   "stop_confirmed": true
+  }
+ ],
+ "scenario_verdicts": {
+  "T3L": "PASS",
+  "T4L": "FAIL"
+ },
+ "in_session": false,
+ "finished": true,
+ "cancelled": false,
+ "outcome": "LIVE_FAILED_T4L",
+ "current_step": "awaiting_fix",
+ "next_step": "wait for a placeable card; one T4 LIVE session is still allowed",
+ "budget_usd": 1.1,
+ "max_pods": 5,
+ "readiness": {
+  "ok": true,
+  "flags": {
+   "t3_free_ready": true,
+   "t4_free_ready": true,
+   "app_running": true,
+   "candidate_verified": true,
+   "data_safe": true,
+   "device_stable": true,
+   "tor_ready": true,
+   "gpu_watchdog_ready": true,
+   "budget_available": true,
+   "release_pipeline_ready": true
+  },
+  "required_flags": [
+   "t3_free_ready",
+   "t4_free_ready",
+   "candidate_verified",
+   "data_safe",
+   "device_stable",
+   "gpu_watchdog_ready",
+   "release_pipeline_ready",
+   "budget_available"
+  ],
+  "generated_at": "2026-11-11T12:35:59.207272+00:00",
+  "installed_version": "1.2.6"
+ },
+ "updated_at": "2026-11-11T18:29:10.690741+00:00",
+ "events": [
+  {
+   "at": "2026-11-10T11:17:30.731611+00:00",
+   "message": "monitor started",
+   "detail": {
+    "expires_at": "2026-11-12T11:17:30.723545+00:00",
+    "interval_seconds": 900,
+    "dry_run": false
+   }
+  },
+  {
+   "at": "2026-11-10T11:17:37.432237+00:00",
+   "message": "check #1: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T11:32:45.012654+00:00",
+   "message": "check #2: create",
+   "detail": {
+    "reason": null,
+    "candidates": 1,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T11:32:45.030551+00:00",
+   "message": "T3L: starting one Pod on NVIDIA L40S (48 GB, $0.79/h, US-TX-3)",
+   "detail": {
+    "session_seconds": 480,
+    "watchdog_seconds": 510
+   }
+  },
+  {
+   "at": "2026-11-10T11:37:42.107228+00:00",
+   "message": "T3L: PASS",
+   "detail": {
+    "cost_usd": 0.0,
+    "pod_seconds": 0.0
+   }
+  },
+  {
+   "at": "2026-11-10T11:37:52.215386+00:00",
+   "message": "check #3: finish",
+   "detail": {
+    "reason": "the owner's manual AI-off latch is set; no automatic start",
+    "candidates": 1,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T11:38:53.287985+00:00",
+   "message": "resuming after T3L PASS; the manual-off latch was the runner's own stop",
+   "detail": {
+    "scenario_verdicts": {
+     "T3L": "PASS"
+    }
+   }
+  },
+  {
+   "at": "2026-11-10T11:39:03.684902+00:00",
+   "message": "monitor started",
+   "detail": {
+    "expires_at": "2026-11-12T11:17:30.723545+00:00",
+    "interval_seconds": 900,
+    "dry_run": false
+   }
+  },
+  {
+   "at": "2026-11-10T11:39:11.097723+00:00",
+   "message": "check #4: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T11:54:19.189075+00:00",
+   "message": "check #5: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T11:55:57.135968+00:00",
+   "message": "monitor started",
+   "detail": {
+    "expires_at": "2026-11-12T11:17:30.723545+00:00",
+    "interval_seconds": 900,
+    "dry_run": false
+   }
+  },
+  {
+   "at": "2026-11-10T11:56:04.190073+00:00",
+   "message": "check #6: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T12:11:11.956101+00:00",
+   "message": "check #7: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T12:30:15.109908+00:00",
+   "message": "monitor started",
+   "detail": {
+    "expires_at": "2026-11-12T11:17:30.723545+00:00",
+    "interval_seconds": 900,
+    "dry_run": false
+   }
+  },
+  {
+   "at": "2026-11-10T12:30:22.872744+00:00",
+   "message": "check #8: create",
+   "detail": {
+    "reason": null,
+    "candidates": 2,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T12:30:22.882780+00:00",
+   "message": "T4L: starting one Pod on NVIDIA L40S (48 GB, $0.79/h, US-TX-3)",
+   "detail": {
+    "session_seconds": 450,
+    "watchdog_seconds": 510
+   }
+  },
+  {
+   "at": "2026-11-10T12:31:07.636748+00:00",
+   "message": "T4L: no capacity for the product's own ensure; no Pod, no spend",
+   "detail": {}
+  },
+  {
+   "at": "2026-11-10T12:31:16.272479+00:00",
+   "message": "check #9: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T12:49:56.139426+00:00",
+   "message": "monitor started",
+   "detail": {
+    "expires_at": "2026-11-12T11:17:30.723545+00:00",
+    "interval_seconds": 900,
+    "dry_run": false
+   }
+  },
+  {
+   "at": "2026-11-10T12:50:03.774382+00:00",
+   "message": "check #10: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T13:05:11.044096+00:00",
+   "message": "check #11: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T13:20:19.173269+00:00",
+   "message": "check #12: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T13:35:27.540462+00:00",
+   "message": "check #13: create",
+   "detail": {
+    "reason": null,
+    "candidates": 1,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T13:35:27.543843+00:00",
+   "message": "T4L: starting one Pod on NVIDIA A100 80GB PCIe (80 GB, $1.19/h, US-MO-1)",
+   "detail": {
+    "session_seconds": 450,
+    "watchdog_seconds": 510
+   }
+  },
+  {
+   "at": "2026-11-10T13:46:51.584525+00:00",
+   "message": "T4L: FAIL",
+   "detail": {
+    "reasons": [
+     "no completed model tool before the disconnect",
+     "no typed state while the host was gone: {'status': 'STOPPED', 'last_error': None, 'current_step': ''}",
+     "computer_mode=ask but no waiting_confirmation was observed"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T21:50:10.881800+00:00",
+   "message": "resuming after a harness-only T4L failure; the resolver and the BLOCKED guard are fixed",
+   "detail": {
+    "spent_usd": 0.3181,
+    "pods_created": 2
+   }
+  },
+  {
+   "at": "2026-11-10T21:50:14.593353+00:00",
+   "message": "monitor started",
+   "detail": {
+    "expires_at": "2026-11-12T11:17:30.723545+00:00",
+    "interval_seconds": 900,
+    "dry_run": true
+   }
+  },
+  {
+   "at": "2026-11-10T21:50:22.112649+00:00",
+   "message": "check #14: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T21:50:33.168319+00:00",
+   "message": "monitor started",
+   "detail": {
+    "expires_at": "2026-11-12T11:17:30.723545+00:00",
+    "interval_seconds": 900,
+    "dry_run": false
+   }
+  },
+  {
+   "at": "2026-11-10T21:50:39.683063+00:00",
+   "message": "check #15: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T22:05:46.368998+00:00",
+   "message": "check #16: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T22:20:52.558391+00:00",
+   "message": "check #17: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T22:35:59.245829+00:00",
+   "message": "check #18: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T22:37:40.402764+00:00",
+   "message": "free monitoring extended to 7 days; paid budget and Pod count unchanged",
+   "detail": {
+    "expires_at": "2026-11-17T22:37:00+00:00",
+    "max_checks": 672
+   }
+  },
+  {
+   "at": "2026-11-10T22:37:52.639132+00:00",
+   "message": "monitor started",
+   "detail": {
+    "expires_at": "2026-11-17T22:37:00+00:00",
+    "interval_seconds": 900,
+    "dry_run": false
+   }
+  },
+  {
+   "at": "2026-11-10T22:37:59.003576+00:00",
+   "message": "check #19: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T22:53:06.408746+00:00",
+   "message": "check #20: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-10T23:08:14.149852+00:00",
+   "message": "check #21: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T09:40:59.160007+00:00",
+   "message": "monitor started",
+   "detail": {
+    "expires_at": "2026-11-17T22:37:00+00:00",
+    "interval_seconds": 900,
+    "dry_run": false
+   }
+  },
+  {
+   "at": "2026-11-11T09:41:07.846586+00:00",
+   "message": "check #22: wait",
+   "detail": {
+    "reason": "the local backend is not healthy",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T09:43:16.333563+00:00",
+   "message": "check #23: wait",
+   "detail": {
+    "reason": "the local backend is not healthy",
+    "candidates": 1,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T09:45:23.771264+00:00",
+   "message": "check #24: wait",
+   "detail": {
+    "reason": "the local backend is not healthy",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T09:47:31.825700+00:00",
+   "message": "check #25: wait",
+   "detail": {
+    "reason": "the local backend is not healthy",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T09:49:39.569937+00:00",
+   "message": "check #26: wait",
+   "detail": {
+    "reason": "the local backend is not healthy",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T09:51:47.106361+00:00",
+   "message": "check #27: wait",
+   "detail": {
+    "reason": "the local backend is not healthy",
+    "candidates": 1,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T09:53:54.829859+00:00",
+   "message": "check #28: wait",
+   "detail": {
+    "reason": "the local backend is not healthy",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T09:56:03.154953+00:00",
+   "message": "check #29: create",
+   "detail": {
+    "reason": null,
+    "candidates": 1,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T09:56:40.762389+00:00",
+   "message": "monitor started",
+   "detail": {
+    "expires_at": "2026-11-17T22:37:00+00:00",
+    "interval_seconds": 900,
+    "dry_run": false
+   }
+  },
+  {
+   "at": "2026-11-11T09:56:49.847343+00:00",
+   "message": "check #30: reconcile_session",
+   "detail": {
+    "reason": "a previous live session has no recorded verdict",
+    "candidates": 1,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T09:56:49.859099+00:00",
+   "message": "reconciling a session the previous process did not finish",
+   "detail": {
+    "pods": 1
+   }
+  },
+  {
+   "at": "2026-11-11T09:56:54.235753+00:00",
+   "message": "cleared the latch this session's own stop created",
+   "detail": {}
+  },
+  {
+   "at": "2026-11-11T09:57:13.238020+00:00",
+   "message": "the account is clean again; monitoring continues",
+   "detail": {}
+  },
+  {
+   "at": "2026-11-11T09:57:20.434471+00:00",
+   "message": "check #32: create",
+   "detail": {
+    "reason": null,
+    "candidates": 1,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T09:57:20.450325+00:00",
+   "message": "T4L+LA: starting one Pod on NVIDIA L40S (48 GB, $0.79/h, US-MO-1)",
+   "detail": {
+    "session_seconds": 480,
+    "watchdog_seconds": 510
+   }
+  },
+  {
+   "at": "2026-11-11T10:08:14.124765+00:00",
+   "message": "T4L: BLOCKED (not a product verdict)",
+   "detail": {
+    "reasons": [
+     "not run"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T10:08:14.125774+00:00",
+   "message": "LA: BLOCKED (not a product verdict)",
+   "detail": {
+    "reasons": [
+     "not run"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T10:08:24.328516+00:00",
+   "message": "check #33: finish",
+   "detail": {
+    "reason": "3 Pods were already created in this task",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T11:02:06.819041+00:00",
+   "message": "paid ledger reconciled with the provider balance",
+   "detail": {
+    "pods_created": 4,
+    "measured_spend_usd": 0.6907,
+    "attempt_attributed_usd": 0.4798,
+    "remaining_usd": 0.1593
+   }
+  },
+  {
+   "at": "2026-11-11T11:06:04.940088+00:00",
+   "message": "paid ledger reconciled with the provider balance",
+   "detail": {
+    "pods_created": 4,
+    "measured_spend_usd": 0.7004,
+    "attempt_attributed_usd": 0.4798,
+    "remaining_usd": 0.1496
+   }
+  },
+  {
+   "at": "2026-11-11T12:32:35.431827+00:00",
+   "message": "owner granted one more Pod inside a $1.10 cycle cap",
+   "detail": {
+    "budget_usd": 1.1,
+    "max_pods": 5,
+    "pods_created": 4,
+    "measured_spend_usd": 0.7101,
+    "remaining_usd": 0.3899,
+    "t4l_verdict": "BLOCKED"
+   }
+  },
+  {
+   "at": "2026-11-11T12:36:02.865904+00:00",
+   "message": "monitor started",
+   "detail": {
+    "expires_at": "2026-11-17T22:37:00+00:00",
+    "interval_seconds": 900,
+    "dry_run": true
+   }
+  },
+  {
+   "at": "2026-11-11T12:36:10.174075+00:00",
+   "message": "check #34: finish",
+   "detail": {
+    "reason": "3 Pods were already created in this cycle (4 in total)",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T12:36:20.678830+00:00",
+   "message": "monitor started",
+   "detail": {
+    "expires_at": "2026-11-17T22:37:00+00:00",
+    "interval_seconds": 900,
+    "dry_run": true
+   }
+  },
+  {
+   "at": "2026-11-11T12:36:28.564259+00:00",
+   "message": "check #35: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T12:36:42.029491+00:00",
+   "message": "monitor started",
+   "detail": {
+    "expires_at": "2026-11-17T22:37:00+00:00",
+    "interval_seconds": 900,
+    "dry_run": false
+   }
+  },
+  {
+   "at": "2026-11-11T12:36:50.505877+00:00",
+   "message": "check #36: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T12:51:59.082434+00:00",
+   "message": "check #37: create",
+   "detail": {
+    "reason": null,
+    "candidates": 1,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T12:51:59.082434+00:00",
+   "message": "T4L+LA: starting one Pod on NVIDIA A100 80GB PCIe (80 GB, $1.19/h, US-MO-1)",
+   "detail": {
+    "session_seconds": 480,
+    "watchdog_seconds": 510
+   }
+  },
+  {
+   "at": "2026-11-11T12:52:46.398865+00:00",
+   "message": "T4L: BLOCKED (not a product verdict)",
+   "detail": {
+    "reasons": [
+     "not run"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T12:52:46.401814+00:00",
+   "message": "LA: BLOCKED (not a product verdict)",
+   "detail": {
+    "reasons": [
+     "not run"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T12:52:56.388006+00:00",
+   "message": "check #38: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T13:08:05.494345+00:00",
+   "message": "check #39: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T13:23:13.408084+00:00",
+   "message": "check #40: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T13:38:22.381313+00:00",
+   "message": "check #41: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T13:53:32.444868+00:00",
+   "message": "check #42: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T14:08:41.807619+00:00",
+   "message": "check #43: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T14:23:48.792628+00:00",
+   "message": "check #44: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T14:38:56.442110+00:00",
+   "message": "check #45: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T14:54:04.321985+00:00",
+   "message": "check #46: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T15:09:13.008799+00:00",
+   "message": "check #47: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T15:24:20.783348+00:00",
+   "message": "check #48: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T15:39:27.937672+00:00",
+   "message": "check #49: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T15:54:35.698681+00:00",
+   "message": "check #50: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T16:09:42.847010+00:00",
+   "message": "check #51: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T16:24:49.639905+00:00",
+   "message": "check #52: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T16:39:56.440632+00:00",
+   "message": "check #53: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T16:43:48.233161+00:00",
+   "message": "paid ledger reconciled with the provider balance",
+   "detail": {
+    "pods_created": 4,
+    "measured_spend_usd": 0.749,
+    "attempt_attributed_usd": 0.4798,
+    "remaining_usd": 0.351
+   }
+  },
+  {
+   "at": "2026-11-11T16:43:52.011396+00:00",
+   "message": "monitor started",
+   "detail": {
+    "expires_at": "2026-11-17T22:37:00+00:00",
+    "interval_seconds": 900,
+    "dry_run": false
+   }
+  },
+  {
+   "at": "2026-11-11T16:43:58.532140+00:00",
+   "message": "check #54: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T16:59:05.100034+00:00",
+   "message": "check #55: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T17:14:11.494889+00:00",
+   "message": "check #56: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T17:29:18.462019+00:00",
+   "message": "check #57: wait",
+   "detail": {
+    "reason": "no compatible card is placeable on an existing volume right now",
+    "candidates": 0,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T17:44:25.019924+00:00",
+   "message": "check #58: create",
+   "detail": {
+    "reason": null,
+    "candidates": 1,
+    "datacenters": [
+     "US-MO-1",
+     "US-TX-3"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T17:44:25.031983+00:00",
+   "message": "T4L+LA: starting one Pod on NVIDIA A100-SXM4-80GB (80 GB, $1.39/h, US-MO-1)",
+   "detail": {
+    "session_seconds": 480,
+    "watchdog_seconds": 510
+   }
+  },
+  {
+   "at": "2026-11-11T17:57:13.437695+00:00",
+   "message": "T4L: FAIL",
+   "detail": {
+    "reasons": [
+     "the task never reached a terminal state after the reconnect",
+     "no final answer was persisted",
+     "the task did not complete: 'WAITING_CONFIRMATION'"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T17:57:13.437695+00:00",
+   "message": "LA: BLOCKED_SESSION_LIMIT (not a product verdict)",
+   "detail": {
+    "reasons": [
+     "effective window -258s is less than the 60 s minimum (session cap 480s leaves -243s; budget $0.351 at $1.79/h)"
+    ]
+   }
+  },
+  {
+   "at": "2026-11-11T18:29:10.690741+00:00",
+   "message": "cycle budget and Pod cap exhausted",
+   "detail": {
+    "at": "2026-11-11T18:29:10.690741+00:00",
+    "reason": "the one Pod the owner granted was used (5 of 5) and $1.0058 of the $1.10 cap is spent; a worst-case 600 s Pod at the $1.79/h the last one charged is $0.2983",
+    "pods_created": 5,
+    "max_pods": 5,
+    "measured_spend_usd": 1.0058,
+    "budget_usd": 1.1,
+    "remaining_usd": 0.0942,
+    "t4l": "FAIL — harness fixture and approver defects plus one product transition defect, all fixed and proven free after the session"
+   }
+  }
+ ],
+ "last_decision": {
+  "action": "create",
+  "scenarios": [
+   "T4L",
+   "LA"
+  ],
+  "scenario": "T4L",
+  "max_session_seconds": 480,
+  "watchdog_seconds": 510,
+  "budget_usd": 0.351,
+  "planned_seconds": 600
+ },
+ "availability": {
+  "tested_at": "2026-11-11T17:44:22Z",
+  "verdict": "PLACEABLE",
+  "checked_datacenters": [
+   "US-MO-1",
+   "US-TX-3"
+  ],
+  "candidates": [
+   {
+    "id": "NVIDIA A100-SXM4-80GB",
+    "display_name": "A100 SXM",
+    "vram_gb": 80,
+    "secure_hourly_usd": 1.39,
+    "community_hourly_usd": null,
+    "cheapest_hourly_usd": 1.39,
+    "datacenter": "US-MO-1",
+    "selected_hourly_usd": 1.39,
+    "secure_only_rate": true,
+    "volume_id": "y92bt25ru8",
+    "volume_name": "orcarouter-storage-mo1"
+   }
+  ]
+ },
+ "last_rate_usd": 1.79,
+ "manual_off_note": "the latch present at 11:37Z was created by this run's own stop; the runner now restores the pre-run latch state",
+ "max_checks": 672,
+ "ttl_extension": {
+  "granted_at": "2026-11-10T22:37:00+00:00",
+  "reason": "owner permitted one bounded extension of the free monitor to 7 days because T4 LIVE was not passed inside the first 48-hour window",
+  "previous_expires_at": "2026-11-12T11:17:30.723545+00:00",
+  "new_expires_at": "2026-11-17T22:37:00+00:00",
+  "max_checks": 672,
+  "paid_budget_unchanged_usd": 0.85
+ },
+ "last_reconcile": "2026-11-11T09:57:13.238020+00:00",
+ "reason": "",
+ "spent_usd": 0.4798,
+ "billing": {
+  "measured_at": "2026-11-11T18:29:10.690741+00:00",
+  "balance_start_usd": 10.1309,
+  "balance_now_usd": 9.1250622573,
+  "measured_spend_usd": 1.0058,
+  "attempt_attributed_usd": 0.4798,
+  "unattributed_usd": 0.2692,
+  "pods_created": 5,
+  "pod_limit": 5,
+  "budget_usd": 1.1,
+  "remaining_usd": 0.0942,
+  "real_l40s_rate_usd_per_hour": 1.09,
+  "max_affordable_pod_seconds_at_l40s_rate": 1159,
+  "note": "The balance delta is authoritative. It includes every Pod of this cycle and the provider's own billing granularity; the per-attempt rows explain $0.7256 of it."
+ },
+ "cycle_pods_created": 5,
+ "permission_extension": {
+  "granted_at": "2026-11-11T12:32:35.431827+00:00",
+  "reason": "owner raised the cycle cap and allowed one more Pod after the free root-cause fix",
+  "previous_budget_usd": 0.85,
+  "new_budget_usd": 1.1,
+  "previous_max_pods": 3,
+  "new_max_pods": 5,
+  "pods_created_before": 4,
+  "additional_pods_allowed": 1,
+  "hard_limits": {
+   "one_pod_at_a_time": true,
+   "max_pod_seconds": 600,
+   "watchdog_reserve_seconds": 90,
+   "max_hourly_usd": 1.79,
+   "min_vram_gb": 48
+  }
+ },
+ "cycle_closed": {
+  "at": "2026-11-11T18:29:10.690741+00:00",
+  "reason": "the one Pod the owner granted was used (5 of 5) and $1.0058 of the $1.10 cap is spent; a worst-case 600 s Pod at the $1.79/h the last one charged is $0.2983",
+  "pods_created": 5,
+  "max_pods": 5,
+  "measured_spend_usd": 1.0058,
+  "budget_usd": 1.1,
+  "remaining_usd": 0.0942,
+  "t4l": "FAIL — harness fixture and approver defects plus one product transition defect, all fixed and proven free after the session"
+ }
+}

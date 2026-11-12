@@ -1,0 +1,18 @@
+{
+  "13_manifest_backup": "PASS",
+  "02_developer": "PASS",
+  "03_candidate": "PASS",
+  "04_verify_artifact": "PASS",
+  "08_installed_smoke": "PASS",
+  "01_source": "PASS",
+  "05_ci": "PASS",
+  "06_backup": "PASS",
+  "07_install": "SKIP",
+  "09_tag": "SKIP",
+  "10_release": "SKIP",
+  "11_anonymous_download": "PASS",
+  "12_downloads": "PASS",
+  "14_manifest": "SKIP",
+  "15_updater_matrix": "PASS",
+  "16_health": "PASS"
+}

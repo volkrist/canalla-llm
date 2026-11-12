@@ -1,0 +1,118 @@
+{
+  "version": "1.2.6",
+  "head": "0b7af14ba8116bf92666360f1a02c2ca5f7af375",
+  "steps": [
+    {
+      "step": "01_source",
+      "status": "PASS",
+      "detail": "1.2.6 at 0b7af14",
+      "already": false,
+      "exit_code": null,
+      "at": "2026-11-12T15:21:40.435037+00:00"
+    },
+    {
+      "step": "02_developer",
+      "status": "PASS",
+      "detail": "developer: RELEASE GATE: PASS",
+      "already": false,
+      "exit_code": 0,
+      "at": "2026-11-12T15:34:55.062635+00:00"
+    },
+    {
+      "step": "03_candidate",
+      "status": "PASS",
+      "detail": "candidate: RELEASE GATE: PASS",
+      "already": false,
+      "exit_code": 0,
+      "at": "2026-11-12T15:49:49.118172+00:00"
+    },
+    {
+      "step": "04_verify_artifact",
+      "status": "PASS",
+      "detail": "verify-artifact: RELEASE GATE: PASS",
+      "already": false,
+      "exit_code": 0,
+      "at": "2026-11-12T15:49:50.002003+00:00"
+    },
+    {
+      "step": "05_ci",
+      "status": "PASS",
+      "detail": "7/7 jobs on 0b7af14ba8",
+      "already": false,
+      "exit_code": null,
+      "at": "2026-11-12T15:49:56.017657+00:00"
+    },
+    {
+      "step": "06_backup",
+      "status": "PASS",
+      "detail": "verified backup 20261112T154958Z-manual",
+      "already": false,
+      "exit_code": null,
+      "at": "2026-11-12T15:50:00.046455+00:00"
+    },
+    {
+      "step": "07_install",
+      "status": "SKIP",
+      "detail": "the installed build is already 1.2.6 with the packaged sidecar",
+      "already": true,
+      "exit_code": null,
+      "at": "2026-11-12T15:50:00.435163+00:00"
+    },
+    {
+      "step": "08_installed_smoke",
+      "status": "PASS",
+      "detail": "INSTALLED-UI: PASS",
+      "already": false,
+      "exit_code": null,
+      "at": "2026-11-12T15:50:22.269412+00:00"
+    },
+    {
+      "step": "09_tag",
+      "status": "SKIP",
+      "detail": "v1.2.6 exists locally and on origin",
+      "already": true,
+      "exit_code": null,
+      "at": "2026-11-12T15:50:23.595538+00:00"
+    },
+    {
+      "step": "10_release",
+      "status": "SKIP",
+      "detail": "all three assets are already published",
+      "already": true,
+      "exit_code": null,
+      "at": "2026-11-12T15:50:25.763362+00:00"
+    },
+    {
+      "step": "11_anonymous_download",
+      "status": "PASS",
+      "detail": "95540283 bytes, anonymous download matches the signed digest",
+      "already": false,
+      "exit_code": null,
+      "at": "2026-11-12T15:50:39.631350+00:00"
+    },
+    {
+      "step": "12_downloads",
+      "status": "PASS",
+      "detail": "Canalla.LLM_1.2.6_x64-setup.exe: present; Canalla.LLM_1.2.6_x64-setup.exe.sig: present",
+      "already": false,
+      "exit_code": null,
+      "at": "2026-11-12T16:39:55.752187+00:00"
+    },
+    {
+      "step": "13_manifest_backup",
+      "status": "PASS",
+      "detail": "backed up to /var/lib/alex-gateway/updates/updates-manifest.json.bak-20261112T1639Z",
+      "already": false,
+      "exit_code": null,
+      "at": "2026-11-12T16:39:59.435326+00:00"
+    },
+    {
+      "step": "14_manifest",
+      "status": "FAIL",
+      "detail": "the Gateway still serves the previous version",
+      "already": false,
+      "exit_code": null,
+      "at": "2026-11-12T16:41:12.882998+00:00"
+    }
+  ]
+}

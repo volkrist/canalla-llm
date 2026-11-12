@@ -84,6 +84,11 @@ def build(args: argparse.Namespace) -> int:
         _fail(f"signed name {signed_name!r} != installer name {installer.name!r}")
 
     url = urllib.parse.urljoin(args.base_url, urllib.parse.quote(installer.name))
+    if args.url_query:
+        # A per-release cache-buster. The artifact name must stay the signed one - only the query
+        # differs - and a CDN that cached a 404 for an earlier attempt can never pin the client
+        # to a dead URL. The signature binding ignores the query: it names the file, not the call.
+        url = f"{url}?{args.url_query}"
     notes = ""
     if args.notes_file:
         notes = Path(args.notes_file).read_text(encoding="utf-8").strip()
@@ -287,6 +292,11 @@ def main() -> int:
     builder.add_argument("--pub-date", required=True)
     builder.add_argument("--notes-file", default="")
     builder.add_argument("--expect-sha256", default="")
+    builder.add_argument(
+        "--url-query",
+        default="",
+        help="cache-buster appended to the artifact URL, e.g. v=1.2.6 (the signed name stays intact)",
+    )
     builder.add_argument("--out", required=True)
     builder.set_defaults(func=build)
 
@@ -310,7 +320,15 @@ def main() -> int:
 
     args = parser.parse_args()
     if args.command == "live":
-        args.signature = Path(args.signature).read_text(encoding="utf-8").strip()
+        # `--signature` is the expected .sig *content* (release_steps passes it inline). A path is
+        # still accepted for hand runs: on Windows the inline value raised
+        # `OSError: [Errno 22] Invalid argument`, which read like a transport failure.
+        candidate = Path(args.signature)
+        try:
+            if candidate.is_file():
+                args.signature = candidate.read_text(encoding="utf-8").strip()
+        except OSError:
+            pass
     return args.func(args)
 
 

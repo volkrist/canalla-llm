@@ -51,6 +51,17 @@ PREPUBLICATION = {
     "installed_smoke",
 }
 
+# The gate names in the plan and the step ids that produce them are not the same strings. Without
+# this map `installed_smoke` never ran in phase A: the loop compared `08_installed_smoke` with a
+# gate called `installed_smoke` and skipped it, so the run stopped one gate short of publishing.
+STEP_FOR_GATE = {
+    "developer_gate": "02_developer",
+    "candidate_gate": "03_candidate",
+    "verify_artifact": "04_verify_artifact",
+    "ci": "05_ci",
+    "installed_smoke": "08_installed_smoke",
+}
+
 MANDATORY = (
     "d2_live",
     "long_autonomy_live",
@@ -455,15 +466,17 @@ def main(argv: list[str] | None = None) -> int:
     if plan["blocked_by"] and set(plan["blocked_by"]) <= PREPUBLICATION:
         print("\nphase A: producing the pre-publication gates")
         context_a = release_steps.Context(evidence=evidence)
+        wanted = {STEP_FOR_GATE[name] for name in plan["blocked_by"] if name in STEP_FOR_GATE}
+        wanted |= {"02_developer", "03_candidate", "04_verify_artifact"}
         for step in ("01_source", "02_developer", "03_candidate", "04_verify_artifact",
                      "05_ci", "08_installed_smoke"):
-            if step in plan["blocked_by"] or step in {"02_developer", "03_candidate",
-                                                      "04_verify_artifact"}:
-                context_a.log.clear()
-                release_steps.run_steps(context_a, only=step)
-                if context_a.log and context_a.log[-1]["status"] in {"FAIL", "BLOCKED"}:
-                    print(f"\n{step} failed; publication refused")
-                    return 1
+            if step not in wanted:
+                continue
+            context_a.log.clear()
+            release_steps.run_steps(context_a, only=step)
+            if context_a.log and context_a.log[-1]["status"] in {"FAIL", "BLOCKED"}:
+                print(f"\n{step} failed; publication refused")
+                return 1
         evidence = collect_evidence()
         plan = release_plan(evidence)
         print_plan(plan)

@@ -1,0 +1,14 @@
+{
+  "version": "1.2.6",
+  "head": "0b7af14ba8116bf92666360f1a02c2ca5f7af375",
+  "steps": [
+    {
+      "step": "13_manifest_backup",
+      "status": "PASS",
+      "detail": "backed up to /var/lib/alex-gateway/updates/updates-manifest.json.bak-20261112T1652Z",
+      "already": false,
+      "exit_code": null,
+      "at": "2026-11-12T16:53:02.144263+00:00"
+    }
+  ]
+}

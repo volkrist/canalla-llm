@@ -30,7 +30,7 @@
     "d2_free": "apps/backend/tests/test_d2_final_answer.py -> 25 passed",
     "build_e2e": "apps/backend/tests/test_agent_build_e2e.py -> build, fail, fix, retest, run",
     "web_continuation": "apps/backend/tests/test_web_research_gap.py -> two bounded batches, no repeats",
-    "data": "integrity ok, users 2, chats 48, messages 108, paired_devices 59, device f3548022-a676-463c-9fc0-b05bbd5ac907",
+    "data": "integrity ok, users 2, chats 48, messages 108, paired_devices 59, device f3548022-a676-463c-9fc5-b05bbd5ac907",
     "watchdog": "ssh distance --status -> disarmed, deadline 510s, allowed_max_hourly 2.0"
   },
   "verdict": "FREE_WORK_READY_LIVE_BLOCKED_BY_CAPACITY"
