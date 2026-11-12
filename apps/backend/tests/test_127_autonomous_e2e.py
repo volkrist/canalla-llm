@@ -467,7 +467,6 @@ def test_deep_research_tool_reads_real_pages_and_requeries(client, auth, tmp_pat
             },
             context,
         ))
-        payload = result.metadata["research"]
         assert result.metadata["research"]["facts"]["version"], result.text
         # The seed URL answers `version`; `license` remains a gap and is reported as such.
         assert "license" in result.metadata["research"]["gaps"]

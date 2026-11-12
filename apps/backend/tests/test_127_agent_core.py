@@ -8,16 +8,13 @@ server and a real SQLite session; the end-to-end run with the real tool executor
 from __future__ import annotations
 
 import http.server
-import json
 import os
-import socket
 import threading
 
-import pytest
 from sqlalchemy import select
 
-from app.agent.evidence import Evidence, EvidenceLedger
 from app.agent import queue as agent_queue
+from app.agent.evidence import Evidence, EvidenceLedger
 from app.agent.repair import RepairLedger, classify, fingerprint
 from app.agent.research import DeepResearch, ResearchBudget, scan_injection
 from app.agent.verifier import Verifier

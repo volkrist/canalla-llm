@@ -12,7 +12,7 @@ import socket
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from urllib.parse import urlsplit, urljoin
+from urllib.parse import urljoin, urlsplit
 
 USER_AGENT = "CanallaResearch/1.2.7 (+https://github.com/volkrist/canalla-llm)"
 MAX_BYTES = 2_000_000

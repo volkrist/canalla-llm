@@ -16,7 +16,6 @@ Two rules are absolute:
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import html
 import re
