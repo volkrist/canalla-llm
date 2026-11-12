@@ -391,10 +391,17 @@ def test_one_goal_research_free_build_run_gui_fix_and_verify(client, auth, tmp_p
         connection.close()
     assert "Alpha task" in titles
 
-    # -- and the app is no longer running
-    with socket.socket() as sock:
-        sock.settimeout(2)
-        assert sock.connect_ex(("127.0.0.1", port)) != 0
+    # -- and the app is no longer running (a server needs a moment to release the port)
+    deadline = time.monotonic() + 15
+    closed = False
+    while time.monotonic() < deadline:
+        with socket.socket() as sock:
+            sock.settimeout(2)
+            if sock.connect_ex(("127.0.0.1", port)) != 0:
+                closed = True
+                break
+        time.sleep(0.25)
+    assert closed, f"the app still answers on 127.0.0.1:{port} after stop_process"
 
 
 def test_deep_research_tool_reads_real_pages_and_requeries(client, auth, tmp_path):
