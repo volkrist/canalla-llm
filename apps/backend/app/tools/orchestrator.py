@@ -72,6 +72,12 @@ class ToolOrchestrator:
                 selected.append(definition)
             elif capability in EXTERNAL_CAPABILITIES and self._external_visible(prompt):
                 selected.append(definition)
+            elif capability in {"verify", "research", "queue", "gui"}:
+                # The 1.2.7 core is not a per-prompt heuristic: an autonomous task always needs to
+                # prove its result, keep its queue and research a gap. The computer permission
+                # boundary still applies, and every tool is bounded by its own budget.
+                if context.computer_mode != "off":
+                    selected.append(definition)
             elif capability in LOCAL_CAPABILITIES and context.computer_mode != "off":
                 # Computer mode is the permission boundary; the prompt is not. A tool the model
                 # may legitimately need (run_process, run_python, read_file) must not disappear

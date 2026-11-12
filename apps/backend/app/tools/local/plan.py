@@ -41,6 +41,12 @@ GREENFIELD_HINT = (
     r")"
 )
 REPAIR_HINT = r"(?i)(исправ|fix|refactor|рефактор|debug|найди (причин|ошиб)|failing test|почини)"
+# A request that both creates a project and fixes a defect in it is a build task, not a repair of
+# somebody else's repository. Only these phrases say the work is an existing codebase.
+REPAIR_SCOPE_HINT = (
+    r"(?i)(в (этом|текущем) (проект|репозитор)|existing (project|repository|repo)|"
+    r"this (repo|repository|project)|failing tests|падают тест|сломанн\w* (тест|сборк))"
+)
 AUTONOMY_HINT = (
     r"(?i)("
     r"полностью|пока не|не заверш|дай отч[её]т|"
@@ -111,19 +117,33 @@ def looks_like_push_request(prompt: str) -> bool:
 
 
 def looks_like_greenfield(prompt: str) -> bool:
-    """A build from scratch, not a repair of an existing project."""
+    """A build from scratch, not a repair of an existing project.
+
+    «Создай приложение TaskDesk … исправь найденный дефект» is a build: the defect is inside the
+    thing being created. The previous rule saw the word «исправь» and chose the repair plan, so
+    the model was told to run baseline tests on a project that did not exist yet.
+    """
     import re
 
     text = prompt or ""
-    return bool(re.search(GREENFIELD_HINT, text)) and not re.search(REPAIR_HINT, text)
+    return bool(re.search(GREENFIELD_HINT, text)) and not re.search(REPAIR_SCOPE_HINT, text)
 
 
 def looks_like_autonomous(prompt: str) -> bool:
     import re
 
-    if looks_like_coding(prompt) or looks_like_file_task(prompt):
+    if looks_like_coding(prompt) or looks_like_file_task(prompt) or looks_like_greenfield(prompt):
         return True
     return bool(re.search(AUTONOMY_HINT, prompt or ""))
+
+
+def is_coding_request(prompt: str) -> bool:
+    """A coding task is a repair *or* a build from scratch.
+
+    The plan and the completion gate used `looks_like_coding` alone, so «создай приложение …
+    с тестами» produced a generic three-step plan and the task could complete after two files.
+    """
+    return looks_like_coding(prompt) or looks_like_greenfield(prompt)
 
 
 def default_plan(

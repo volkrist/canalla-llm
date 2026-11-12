@@ -77,6 +77,11 @@ LOCAL_CAPABILITIES = {
     "local_credential",
     "local_git",
 }
+# 1.2.7 core: they run in the backend process, not on the host, but they are local facts and
+# belong to the same permission boundary. They are listed here so the executor records their
+# command and takes a checkpoint exactly like the other local tools.
+AGENT_CAPABILITIES = {"verify", "research", "queue", "gui"}
+LOCAL_CAPABILITIES |= AGENT_CAPABILITIES
 EXTERNAL_CAPABILITIES = {
     "external_form",
     "external_message",

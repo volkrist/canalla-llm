@@ -113,9 +113,11 @@ def make_registry():
     from .external import register_external_tools
     from .local.provider import register_local_tools
     from .tor.provider import register_tor_tools
+    from .agent_tools import register_agent_tools
 
     register_tor_tools(registry)
     register_local_tools(registry)
+    register_agent_tools(registry)
     register_external_tools(registry)
     return registry
 

@@ -14,6 +14,7 @@ from .journal import append_event
 from .locks import acquire_write, enqueue_write, owns_write, reconcile_locks, release, waiter_position
 from .plan import (
     default_plan,
+    is_coding_request,
     looks_like_autonomous,
     looks_like_commit_request,
     looks_like_computer,
@@ -261,7 +262,7 @@ class LocalTaskController:
         lowered = prompt.lower()
         steps = default_plan(
             prompt,
-            coding=bool(context.coding_task),
+            coding=bool(context.coding_task) or is_coding_request(prompt),
             research=needs_research(prompt),
             tor=getattr(context, "tor_mode", "off") != "off" and ("tor" in lowered or ".onion" in lowered),
             security=security,
@@ -1314,7 +1315,7 @@ class LocalTaskController:
             return
         if row.status in machine.TERMINAL:
             return
-        coding = looks_like_coding(row.original_user_request) or bool(getattr(context, "coding_task", False))
+        coding = is_coding_request(row.original_user_request) or bool(getattr(context, "coding_task", False))
         if not getattr(context, "autonomous", False) and not coding:
             machine.transition(row, machine.COMPLETED)
             append_event(db, row.id, "COMPLETED", {})
@@ -1394,7 +1395,7 @@ class LocalTaskController:
         # security verdict (fresh assessment, advisories checked, no open high-risk finding) is
         # the gate that matters here.
         security_task = bool(facts.get("security_scope") or facts.get("security_scope_error"))
-        coding = looks_like_coding(row.original_user_request) and not security_task
+        coding = is_coding_request(row.original_user_request) and not security_task
         missing = []
         if row.original_user_request and not (row.tool_calls_used or facts):
             missing.append("no_actions")
@@ -1428,6 +1429,10 @@ class LocalTaskController:
             or any(item.get("kind") == "RESEARCH_SOURCE" for item in facts.get("verified") or [])
         ):
             missing.append("sources_missing")
+        # 1.2.7: if the task used the independent verifier, its verdict gates completion. A failed
+        # check is never a completed task, whatever the model wrote in the final answer.
+        if (row.verification or {}).get("agent") and not (row.verification or {}).get("evidence_ok"):
+            missing.append("evidence_failed")
         report = {
             "files": [
                 item

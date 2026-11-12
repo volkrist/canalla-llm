@@ -498,7 +498,7 @@ class ToolExecutor:
             raise ToolError("sensitive_arguments")
         digest_value = digest(args.model_dump(mode="json"), definition.name)
         if getattr(context, "network_route", "") == "TOR_ONLY" and (
-            definition.capability in {"search", "fetch", "browser", "agent"}
+            definition.capability in {"search", "fetch", "browser", "agent", "research"}
             or definition.name in {"web_search", "web_fetch", "web_browser", "web_agent"}
         ):
             if getattr(context, "task_id", None):

@@ -1,7 +1,18 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
@@ -98,6 +109,7 @@ class PairedDevice(Base):
 
 class LocalTask(Base):
     __tablename__ = "local_tasks"
+    __table_args__ = (Index("ix_local_tasks_status_priority", "status", "queue_priority"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     chat_id: Mapped[str | None] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), index=True)
@@ -123,6 +135,18 @@ class LocalTask(Base):
     retry_budget: Mapped[int] = mapped_column(Integer, default=3, server_default="3")
     last_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
     completion_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 1.2.7: the durable queue and the structured request. Additive only - the existing fields keep
+    # every meaning they had, so a 1.2.6 task row is still a valid task row.
+    queue_priority: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    claimed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    depends_on: Mapped[list] = mapped_column(JSON, default=list)
+    time_budget_seconds: Mapped[int] = mapped_column(Integer, default=1800, server_default="1800")
+    cost_budget_usd: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
+    normalized_goal: Mapped[str] = mapped_column(Text, default="", server_default="")
+    scope: Mapped[dict] = mapped_column(JSON, default=dict)
+    permissions: Mapped[dict] = mapped_column(JSON, default=dict)
+    artifacts: Mapped[dict] = mapped_column(JSON, default=dict)
     success_criteria: Mapped[dict] = mapped_column(JSON, default=dict)
     facts: Mapped[dict] = mapped_column(JSON, default=dict)
     verification: Mapped[dict] = mapped_column(JSON, default=dict)
