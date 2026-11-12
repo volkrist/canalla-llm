@@ -3,7 +3,7 @@
 **Дата:** 12 ноября 2026 (UTC), отчёт подготовлен после публикации.
 **Ветка:** `release/canalla-1.2.4`
 **Git HEAD на момент выпуска:** `0b7af14ba8116bf92666360f1a02c2ca5f7af375` (на нём стоит annotated tag `v1.2.6`)
-**HEAD рабочей ветки после закрытия цикла:** `322b8488d0407223a0fb1e5821b8ddebd751f4fc` (только инструментарий релиза и evidence; продуктовый код не менялся)
+**HEAD рабочей ветки после закрытия цикла:** `4a3e2143c74acbfbca28fac5ed7f1e4c095801f7` (только инструментарий релиза, evidence и отчёт; продуктовый код не менялся) — CI 7/7 зелёный
 **Продуктовый коммит сборки:** `b5b24f0` — с тех пор `apps/` менялись только в двух тестовых файлах, runtime-исходники не тронуты, поэтому пересборка и переподпись не требовались.
 
 ---
@@ -155,7 +155,7 @@ downloaded artifact 95 540 283 bytes, sha256 matches
 - **Кэш CDN.** Отрицательный кэш Cloudflare на 4 часа — теперь нейтрализован per-release query; на будущих релизах это уже заложено в шаг 14.
 - **Известные ограничения без изменений:** нет Authenticode-подписи установщика (подписывается только updater-артефакт minisign), WM-07 и CD-08 остаются открытыми.
 - **Backend 1086 passed / 1 skipped** — зафиксировано ранее в этом цикле; сегодня не перезапускалось, потому что runtime-код не менялся. Сегодня прогонялись self-tests релиза: **73/73** (`release_steps_selftest.py`) и **57/57** (`coordinator_selftest.py`).
-- **CI.** 7/7 job'ов + Linux gate — зелёные на `0b7af14` (релизный SHA): `developer-gate`, `llama-runtime-image`, `llama-runtime`, `installer-build`, `native-gate`, `tor-runtime`, `frontend-e2e`.
+- **CI.** 7/7 job'ов + Linux gate — зелёные на релизном SHA `0b7af14`: `developer-gate`, `llama-runtime-image`, `llama-runtime`, `installer-build`, `native-gate`, `tor-runtime`, `frontend-e2e`. Тот же набор 7/7 зелёный и на финальном `4a3e214` (проверено после пуша).
 
 ---
 
@@ -169,7 +169,7 @@ downloaded artifact 95 540 283 bytes, sha256 matches
 | T4 FREE | PASS (11/11 проверок) |
 | **T4 LIVE** | **PASS** — реальная Qwen, L40S, `COMPLETED` |
 | TOR | PASS (16.0.1 / 0.4.9.16) |
-| CI | PASS — 7/7 + Linux gate на `0b7af14` |
+| CI | PASS — 7/7 + Linux gate на `0b7af14` и на финальном `4a3e214` |
 | SIGNATURE | VALID — `9B328EFF111D1FB2`, verify-artifact 8/8 |
 | INSTALLED SMOKE | PASS |
 | DATA | PASS — integrity ok, 2/54/120/59 |
