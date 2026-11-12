@@ -355,7 +355,7 @@
   "generated_at": "2026-11-11T22:23:01.354837+00:00",
   "installed_version": "1.2.6"
  },
- "updated_at": "2026-11-12T17:01:34.851100+00:00",
+ "updated_at": "2026-11-12T17:28:13.359839+00:00",
  "events": [
   {
    "at": "2026-11-10T11:17:30.731611+00:00",
@@ -1638,19 +1638,19 @@
  "reason": "6 Pods were already created in this cycle (6 in total)",
  "spent_usd": 0.7256,
  "billing": {
-  "measured_at": "2026-11-12T17:01:34.851100+00:00",
+  "measured_at": "2026-11-12T17:28:13.359839+00:00",
   "balance_start_usd": 10.1309,
-  "balance_now_usd": 8.7672151726,
-  "measured_spend_usd": 1.3637,
+  "balance_now_usd": 8.7574929504,
+  "measured_spend_usd": 1.3734,
   "attempt_attributed_usd": 0.7525,
   "unattributed_usd": 0.6112,
   "pods_created": 6,
   "pod_limit": 6,
   "budget_usd": 1.45,
-  "remaining_usd": 0.0863,
+  "remaining_usd": 0.0766,
   "real_l40s_rate_usd_per_hour": 1.09,
   "max_affordable_pod_seconds_at_l40s_rate": 182,
-  "note": "The balance delta is authoritative: $10.1309 opening minus $8.7672151726 now. Per-attempt rows explain $0.7525 of it; the rest is provider billing granularity (minimum billable windows) and late charges inside the measurement window. No Pod is running: pods [] at the same read."
+  "note": "The balance delta is authoritative. Repeated reads after the cycle closed differ by a few tenths of a cent (storage accrual), never by Pod time: pods [] on every read."
  },
  "cycle_pods_created": 6,
  "permission_extension": {
@@ -1675,10 +1675,10 @@
   "reason": "the cycle is complete: the owner's final grant (one Pod, cap $1.45, six Pods in total) was spent on the last T4 LIVE, which PASSED, and 1.2.6 is published",
   "pods_created": 6,
   "max_pods": 6,
-  "measured_spend_usd": 1.3637,
+  "measured_spend_usd": 1.3734,
   "budget_usd": 1.45,
-  "remaining_usd": 0.0863,
-  "balance_now_usd": 8.7672151726,
+  "remaining_usd": 0.0766,
+  "balance_now_usd": 8.7574929504,
   "t4l": "PASS — real Qwen on an L40S, 3 model-origin tools, typed WAITING_DEVICE, resume of the same task, byte-identical t4l_out.txt, COMPLETED"
  },
  "real_rates_usd": {
@@ -1704,7 +1704,7 @@
   "release": "1.2.6 PUBLISHED",
   "updater": "manifest 1.2.6 live; 1.2.3/1.2.4/1.2.5 -> 1.2.6, 1.2.6 -> 204",
   "pods_running": 0,
-  "measured_spend_usd": 1.3637,
+  "measured_spend_usd": 1.3734,
   "budget_usd": 1.45
  }
 }
