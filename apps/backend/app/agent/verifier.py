@@ -66,9 +66,7 @@ def _process_alive(pid: int) -> bool:
         import ctypes
 
         PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        handle = ctypes.windll.kernel32.OpenProcess(
-            PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid)
-        )
+        handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
         if not handle:
             return False
         try:
@@ -128,9 +126,13 @@ class Verifier:
                 size = os.path.getsize(target) if exists else 0
                 minimum = int(spec.get("min_bytes") or 1)
                 return Evidence(
-                    kind, target, exists and size >= minimum,
-                    expected=f"file >= {minimum} bytes", observed=f"exists={exists} size={size}",
-                    source=source, detail={**detail, "size": size},
+                    kind,
+                    target,
+                    exists and size >= minimum,
+                    expected=f"file >= {minimum} bytes",
+                    observed=f"exists={exists} size={size}",
+                    source=source,
+                    detail={**detail, "size": size},
                 )
 
             if kind == "file_sha256":
@@ -138,35 +140,48 @@ class Verifier:
 
                 expected = str(spec.get("expected") or "").lower()
                 if not expected:
-                    return Evidence(kind, target, False, "sha256", "missing expected",
-                                    source, detail=detail)
+                    return Evidence(kind, target, False, "sha256", "missing expected", source, detail=detail)
                 try:
                     digest = hashlib.sha256(open(target, "rb").read()).hexdigest()
                 except OSError as error:
-                    return Evidence(kind, target, False, expected, type(error).__name__,
-                                    source, detail=detail)
-                return Evidence(kind, target, digest == expected, expected, digest,
-                                source, detail=detail)
+                    return Evidence(
+                        kind, target, False, expected, type(error).__name__, source, detail=detail
+                    )
+                return Evidence(kind, target, digest == expected, expected, digest, source, detail=detail)
 
             if kind == "file_contains":
                 needle = str(spec.get("expected") or "")
                 try:
                     text = open(target, encoding="utf-8", errors="replace").read(500_000)
                 except OSError as error:
-                    return Evidence(kind, target, False, needle, type(error).__name__,
-                                    source, detail=detail)
-                return Evidence(kind, target, needle in text, needle,
-                                "present" if needle in text else "absent", source, detail=detail)
+                    return Evidence(kind, target, False, needle, type(error).__name__, source, detail=detail)
+                return Evidence(
+                    kind,
+                    target,
+                    needle in text,
+                    needle,
+                    "present" if needle in text else "absent",
+                    source,
+                    detail=detail,
+                )
 
             if kind == "process_alive":
                 alive = _process_alive(int(target))
-                return Evidence(kind, target, alive, "running", "running" if alive else "gone",
-                                source, detail=detail)
+                return Evidence(
+                    kind, target, alive, "running", "running" if alive else "gone", source, detail=detail
+                )
 
             if kind == "port_open":
                 opened = _port_open(target, timeout)
-                return Evidence(kind, target, opened, "listening",
-                                "listening" if opened else "closed", source, detail=detail)
+                return Evidence(
+                    kind,
+                    target,
+                    opened,
+                    "listening",
+                    "listening" if opened else "closed",
+                    source,
+                    detail=detail,
+                )
 
             if kind == "http_ok":
                 status, body = _http_check(target, timeout)
@@ -174,10 +189,16 @@ class Verifier:
                 contains = str(spec.get("contains") or "")
                 ok = status == expected_status and (not contains or contains in body)
                 return Evidence(
-                    kind, target, ok, f"status {expected_status}" + (f" + {contains!r}" if contains else ""),
-                    f"status {status}" + ("" if not contains else
-                                          (" + body matched" if contains in body else " + body missing")),
-                    source, detail={**detail, "body_bytes": len(body)},
+                    kind,
+                    target,
+                    ok,
+                    f"status {expected_status}" + (f" + {contains!r}" if contains else ""),
+                    f"status {status}"
+                    + (
+                        "" if not contains else (" + body matched" if contains in body else " + body missing")
+                    ),
+                    source,
+                    detail={**detail, "body_bytes": len(body)},
                 )
 
             if kind == "command":
@@ -185,18 +206,25 @@ class Verifier:
                 cwd = spec.get("cwd") or None
                 expected_code = int(spec.get("exit_code") or 0)
                 if not isinstance(argv, list) or not argv:
-                    return Evidence(kind, target, False, "command", "invalid argv", source,
-                                    detail=detail)
+                    return Evidence(kind, target, False, "command", "invalid argv", source, detail=detail)
                 completed = subprocess.run(
-                    [str(part) for part in argv], cwd=cwd, capture_output=True,
-                    timeout=timeout, text=True, encoding="utf-8", errors="replace",
+                    [str(part) for part in argv],
+                    cwd=cwd,
+                    capture_output=True,
+                    timeout=timeout,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
                 )
                 observed = f"exit {completed.returncode}"
                 return Evidence(
-                    kind, target, completed.returncode == expected_code,
-                    f"exit {expected_code}", observed, source,
-                    detail={**detail, "stdout": completed.stdout[-2000:],
-                            "stderr": completed.stderr[-2000:]},
+                    kind,
+                    target,
+                    completed.returncode == expected_code,
+                    f"exit {expected_code}",
+                    observed,
+                    source,
+                    detail={**detail, "stdout": completed.stdout[-2000:], "stderr": completed.stderr[-2000:]},
                 )
 
             if kind == "db_row":
@@ -205,32 +233,66 @@ class Verifier:
                 query = str(spec.get("query") or "")
                 at_least = int(spec.get("at_least") or 1)
                 if not query or not os.path.isfile(target):
-                    return Evidence(kind, target, False, f">= {at_least} row(s)",
-                                    "database missing or query empty", source, detail=detail)
+                    return Evidence(
+                        kind,
+                        target,
+                        False,
+                        f">= {at_least} row(s)",
+                        "database missing or query empty",
+                        source,
+                        detail=detail,
+                    )
                 connection = sqlite3.connect(f"file:{target}?mode=ro", uri=True, timeout=timeout)
                 try:
                     rows = connection.execute(query).fetchall()
                 finally:
                     connection.close()
                 count = int(rows[0][0]) if rows and isinstance(rows[0], tuple) else len(rows)
-                return Evidence(kind, target, count >= at_least, f">= {at_least}", str(count),
-                                source, detail={**detail, "rows": count})
+                return Evidence(
+                    kind,
+                    target,
+                    count >= at_least,
+                    f">= {at_least}",
+                    str(count),
+                    source,
+                    detail={**detail, "rows": count},
+                )
 
             if kind == "window_present":
                 if self.window_probe is None:
                     raise ProbeUnavailable("window_probe")
                 found = bool(self.window_probe(target))
-                return Evidence(kind, target, found, "window listed",
-                                "listed" if found else "not found", source, detail=detail)
+                return Evidence(
+                    kind,
+                    target,
+                    found,
+                    "window listed",
+                    "listed" if found else "not found",
+                    source,
+                    detail=detail,
+                )
 
             raise ProbeUnavailable(kind)
         except ProbeUnavailable as error:
-            return Evidence(kind, target, False, "supported probe",
-                            f"probe unavailable: {error}", source,
-                            detail={**detail, "unsupported": True})
+            return Evidence(
+                kind,
+                target,
+                False,
+                "supported probe",
+                f"probe unavailable: {error}",
+                source,
+                detail={**detail, "unsupported": True},
+            )
         except (ValueError, OSError, subprocess.SubprocessError) as error:
-            return Evidence(kind, target, False, "check completed",
-                            f"{type(error).__name__}: {error}", source, detail=detail)
+            return Evidence(
+                kind,
+                target,
+                False,
+                "check completed",
+                f"{type(error).__name__}: {error}",
+                source,
+                detail=detail,
+            )
 
     # -- many checks -----------------------------------------------------------------------
     def run(self, specs: Iterable[dict[str, Any]]) -> Report:

@@ -148,7 +148,7 @@ FIXED = BUGGY.replace(
     "def matches(title: str, query: str) -> bool:\n    return query.casefold() in title.casefold()",
 )
 
-TESTS = '''
+TESTS = """
 from fastapi.testclient import TestClient
 
 import main
@@ -170,7 +170,7 @@ def test_create_and_status(tmp_path, monkeypatch):
     task_id = client.post("/tasks", json={"title": "Beta"}).json()["id"]
     assert client.patch(f"/tasks/{task_id}", json={"title": "Beta", "status": "done"}).json()["status"] == "done"
     assert client.get("/tasks", params={"status": "done"}).json()[0]["status"] == "done"
-'''
+"""
 
 
 def _free_port() -> int:
@@ -207,46 +207,99 @@ class Planner:
         self.step += 1
         root = self.root
         sequence = {
-            1: ("write_file", {"path": str(root / "main.py"), "content": BUGGY,
-                               "purpose": "TaskDesk application"}),
-            2: ("write_file", {"path": str(root / "test_main.py"), "content": TESTS,
-                               "purpose": "acceptance tests"}),
-            3: ("run_python", {"cwd": str(root), "argv": ["-m", "pytest", "-q"],
-                               "purpose": "baseline tests"}),
+            1: (
+                "write_file",
+                {"path": str(root / "main.py"), "content": BUGGY, "purpose": "TaskDesk application"},
+            ),
+            2: (
+                "write_file",
+                {"path": str(root / "test_main.py"), "content": TESTS, "purpose": "acceptance tests"},
+            ),
+            3: (
+                "run_python",
+                {"cwd": str(root), "argv": ["-m", "pytest", "-q"], "purpose": "baseline tests"},
+            ),
             4: ("read_file", {"path": str(root / "main.py"), "purpose": "diagnose the failing search"}),
-            5: ("write_file", {"path": str(root / "main.py"), "content": FIXED,
-                               "purpose": "fix case-insensitive search"}),
-            6: ("run_python", {"cwd": str(root), "argv": ["-m", "pytest", "-q"],
-                               "purpose": "verify the fix"}),
-            7: ("run_python", {"cwd": str(root),
-                               "argv": ["-m", "uvicorn", "main:app", "--host", "127.0.0.1",
-                                        "--port", str(self.port), "--log-level", "warning"],
-                               "wait": False, "purpose": "run TaskDesk"}),
-            8: ("verify_result", {"checks": [
-                {"kind": "port_open", "target": f"127.0.0.1:{self.port}"},
-                {"kind": "http_ok", "target": f"http://127.0.0.1:{self.port}/tasks",
-                 "contains": "[]"},
-                {"kind": "command", "target": "pytest -q",
-                 "argv": [sys.executable, "-m", "pytest", "-q"], "cwd": str(root)},
-            ], "purpose": "readiness"}),
-            9: ("browser_gui", {
-                "url": f"http://127.0.0.1:{self.port}/",
-                "steps": [
-                    {"action": "fill", "selector": "testid=title", "value": "Alpha task"},
-                    {"action": "click", "selector": "testid=add", "expect": "Alpha task"},
-                    {"action": "fill", "selector": "testid=search", "value": "alpha"},
-                    {"action": "click", "selector": "testid=find", "expect": "Alpha task"},
-                ],
-                "screenshot_dir": str(root / "gui"),
-            }),
-            10: ("verify_result", {"checks": [
-                {"kind": "db_row", "target": str(root / "tasks.db"),
-                 "query": "select count(*) from tasks", "at_least": 1},
-                {"kind": "http_ok", "target": f"http://127.0.0.1:{self.port}/tasks?q=alpha",
-                 "contains": "Alpha task"},
-                {"kind": "file_contains", "target": str(root / "main.py"),
-                 "expected": "casefold()"},
-            ], "purpose": "persisted data and fixed code"}),
+            5: (
+                "write_file",
+                {"path": str(root / "main.py"), "content": FIXED, "purpose": "fix case-insensitive search"},
+            ),
+            6: (
+                "run_python",
+                {"cwd": str(root), "argv": ["-m", "pytest", "-q"], "purpose": "verify the fix"},
+            ),
+            7: (
+                "run_python",
+                {
+                    "cwd": str(root),
+                    "argv": [
+                        "-m",
+                        "uvicorn",
+                        "main:app",
+                        "--host",
+                        "127.0.0.1",
+                        "--port",
+                        str(self.port),
+                        "--log-level",
+                        "warning",
+                    ],
+                    "wait": False,
+                    "purpose": "run TaskDesk",
+                },
+            ),
+            8: (
+                "verify_result",
+                {
+                    "checks": [
+                        {"kind": "port_open", "target": f"127.0.0.1:{self.port}"},
+                        {
+                            "kind": "http_ok",
+                            "target": f"http://127.0.0.1:{self.port}/tasks",
+                            "contains": "[]",
+                        },
+                        {
+                            "kind": "command",
+                            "target": "pytest -q",
+                            "argv": [sys.executable, "-m", "pytest", "-q"],
+                            "cwd": str(root),
+                        },
+                    ],
+                    "purpose": "readiness",
+                },
+            ),
+            9: (
+                "browser_gui",
+                {
+                    "url": f"http://127.0.0.1:{self.port}/",
+                    "steps": [
+                        {"action": "fill", "selector": "testid=title", "value": "Alpha task"},
+                        {"action": "click", "selector": "testid=add", "expect": "Alpha task"},
+                        {"action": "fill", "selector": "testid=search", "value": "alpha"},
+                        {"action": "click", "selector": "testid=find", "expect": "Alpha task"},
+                    ],
+                    "screenshot_dir": str(root / "gui"),
+                },
+            ),
+            10: (
+                "verify_result",
+                {
+                    "checks": [
+                        {
+                            "kind": "db_row",
+                            "target": str(root / "tasks.db"),
+                            "query": "select count(*) from tasks",
+                            "at_least": 1,
+                        },
+                        {
+                            "kind": "http_ok",
+                            "target": f"http://127.0.0.1:{self.port}/tasks?q=alpha",
+                            "contains": "Alpha task",
+                        },
+                        {"kind": "file_contains", "target": str(root / "main.py"), "expected": "casefold()"},
+                    ],
+                    "purpose": "persisted data and fixed code",
+                },
+            ),
         }
         if self.step in sequence:
             name, arguments = sequence[self.step]
@@ -262,11 +315,13 @@ class Planner:
             return _call(name, arguments, f"step-{self.step}")
         if self.step == 11:
             # Read the process handle from the transcript so the stop is exact, not by name.
-            return _call("process_status", {"tool_run_id": self._run_id(messages),
-                                            "purpose": "running app"}, "step-11")
+            return _call(
+                "process_status", {"tool_run_id": self._run_id(messages), "purpose": "running app"}, "step-11"
+            )
         if self.step == 12:
-            return _call("stop_process", {"tool_run_id": self._run_id(messages),
-                                          "purpose": "stop TaskDesk"}, "step-12")
+            return _call(
+                "stop_process", {"tool_run_id": self._run_id(messages), "purpose": "stop TaskDesk"}, "step-12"
+            )
         return {"tool_calls": []}
 
     @staticmethod
@@ -344,19 +399,22 @@ def test_one_goal_research_free_build_run_gui_fix_and_verify(client, auth, tmp_p
         return None
 
     context = ExecutionContext(
-        user_id, chat_id, generation_id,
-        ToolLimits(max_calls=40, hard_max_calls=60), emit,
-        mode="off", computer_mode="trusted",
+        user_id,
+        chat_id,
+        generation_id,
+        ToolLimits(max_calls=40, hard_max_calls=60),
+        emit,
+        mode="off",
+        computer_mode="trusted",
         settings=WebSettings(computer_mode="trusted", workspace_roots=[str(root)], default_mode="off"),
-        user_prompt=PROMPT, host_online=True,
+        user_prompt=PROMPT,
+        host_online=True,
     )
     host = FakeHost(client, device_headers, root).start()
     planner = Planner(root, port)
     try:
         orchestrator = ToolOrchestrator(make_registry(), ToolExecutor(make_registry()))
-        asyncio.run(orchestrator.prepare(
-            planner, [{"role": "user", "content": PROMPT}], 0, context, {}
-        ))
+        asyncio.run(orchestrator.prepare(planner, [{"role": "user", "content": PROMPT}], 0, context, {}))
     finally:
         host.close()
 
@@ -446,27 +504,36 @@ def test_deep_research_tool_reads_real_pages_and_requeries(client, auth, tmp_pat
             return None
 
         context = ExecutionContext(
-            user_id, chat_id, generation_id, ToolLimits(max_calls=10, hard_max_calls=12), emit,
-            mode="off", computer_mode="trusted",
-            settings=WebSettings(computer_mode="trusted", workspace_roots=[str(tmp_path)],
-                                 default_mode="off"),
-            user_prompt="research the framework version and license", host_online=True,
+            user_id,
+            chat_id,
+            generation_id,
+            ToolLimits(max_calls=10, hard_max_calls=12),
+            emit,
+            mode="off",
+            computer_mode="trusted",
+            settings=WebSettings(
+                computer_mode="trusted", workspace_roots=[str(tmp_path)], default_mode="off"
+            ),
+            user_prompt="research the framework version and license",
+            host_online=True,
         )
         registry = make_registry()
         executor = ToolExecutor(registry)
-        result = asyncio.run(executor.execute(
-            "deep_research",
-            {
-                "question": "framework latest version and license",
-                "required_facts": ["version", "license"],
-                "urls": [f"{base}/docs"],
-                "allow_local": True,
-                "max_rounds": 2,
-                "max_pages": 4,
-                "max_seconds": 30,
-            },
-            context,
-        ))
+        result = asyncio.run(
+            executor.execute(
+                "deep_research",
+                {
+                    "question": "framework latest version and license",
+                    "required_facts": ["version", "license"],
+                    "urls": [f"{base}/docs"],
+                    "allow_local": True,
+                    "max_rounds": 2,
+                    "max_pages": 4,
+                    "max_seconds": 30,
+                },
+                context,
+            )
+        )
         assert result.metadata["research"]["facts"]["version"], result.text
         # The seed URL answers `version`; `license` remains a gap and is reported as such.
         assert "license" in result.metadata["research"]["gaps"]

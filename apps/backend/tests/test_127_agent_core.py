@@ -59,8 +59,15 @@ def test_verifier_checks_real_files_and_digests(tmp_path):
 
 def test_verifier_runs_a_real_command(tmp_path):
     report = Verifier().run(
-        [{"kind": "command", "target": "python -c \"print(40+2)\"",
-          "argv": [os.sys.executable, "-c", "print(40+2)"], "cwd": str(tmp_path), "exit_code": 0}]
+        [
+            {
+                "kind": "command",
+                "target": 'python -c "print(40+2)"',
+                "argv": [os.sys.executable, "-c", "print(40+2)"],
+                "cwd": str(tmp_path),
+                "exit_code": 0,
+            }
+        ]
     )
     assert report.ok is True
     assert "42" in report.ledger.by_kind("command")[0].detail["stdout"]
@@ -93,8 +100,7 @@ def test_verifier_observes_a_real_port_and_http_endpoint(tmp_path):
         report = Verifier().run(
             [
                 {"kind": "port_open", "target": f"127.0.0.1:{port}"},
-                {"kind": "http_ok", "target": f"http://127.0.0.1:{port}/health",
-                 "contains": '"status":"ok"'},
+                {"kind": "http_ok", "target": f"http://127.0.0.1:{port}/health", "contains": '"status":"ok"'},
             ]
         )
     finally:
@@ -142,10 +148,13 @@ def test_research_requeries_only_for_a_missing_fact():
 
     queries: list[str] = []
     engine = DeepResearch(
-        _search_factory(queries), _fetch,
+        _search_factory(queries),
+        _fetch,
         budget=ResearchBudget(max_rounds=3, max_queries=4, max_pages=6, pages_per_round=2),
     )
-    result = asyncio.run(engine.run("Найди актуальную версию framework и его лицензию", ["version", "license"]))
+    result = asyncio.run(
+        engine.run("Найди актуальную версию framework и его лицензию", ["version", "license"])
+    )
     assert result.rounds >= 2
     assert len(result.queries) >= 2
     assert any("license" in query.lower() for query in result.queries[1:])
@@ -164,9 +173,7 @@ def test_research_quarantines_instruction_text_and_never_uses_it_as_control():
             raise OSError("unreachable")
         return {"url": url, "text": PAGES[url], "title": "Blog"}
 
-    engine = DeepResearch(
-        _search_factory([]), fetch, budget=ResearchBudget(max_rounds=1, pages_per_round=2)
-    )
+    engine = DeepResearch(_search_factory([]), fetch, budget=ResearchBudget(max_rounds=1, pages_per_round=2))
     result = asyncio.run(engine.run("framework official documentation", ["version"]))
     assert result.quarantined, result.to_dict()
     assert scan_injection(PAGES["https://example.org/blog/framework"])
@@ -182,19 +189,27 @@ def test_research_respects_the_page_budget():
     import asyncio
 
     engine = DeepResearch(
-        _search_factory([]), _fetch,
+        _search_factory([]),
+        _fetch,
         budget=ResearchBudget(max_rounds=5, max_queries=5, max_pages=1, pages_per_round=3),
     )
     result = asyncio.run(engine.run("framework", ["version", "license", "platform"]))
     assert len(result.sources) == 1
-    assert result.stopped_reason in {"time_budget", "query_budget", "round_budget", "no_results",
-                                     "too_few_sources", "no_requery_possible", "facts_covered"}
+    assert result.stopped_reason in {
+        "time_budget",
+        "query_budget",
+        "round_budget",
+        "no_results",
+        "too_few_sources",
+        "no_requery_possible",
+        "facts_covered",
+    }
 
 
 # ----------------------------------------------------------------------------- repair
 def test_repair_fingerprint_ignores_noise_and_detects_stall():
-    left = "Traceback:\n  File \"C:\\work\\app.py\", line 12, in main\nValueError: bad value 7"
-    right = "Traceback:\n  File \"C:\\other\\app.py\", line 99, in main\nValueError: bad value 41"
+    left = 'Traceback:\n  File "C:\\work\\app.py", line 12, in main\nValueError: bad value 7'
+    right = 'Traceback:\n  File "C:\\other\\app.py", line 99, in main\nValueError: bad value 41'
     assert fingerprint(left) == fingerprint(right)
     assert classify(left) == "python_exception"
 

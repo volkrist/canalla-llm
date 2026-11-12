@@ -114,8 +114,14 @@ class VerifyProvider(ToolProvider[VerifyArgs]):
         report = Verifier(window_probe=window_present).run(checks)
         ledger = report.ledger
         for target in refused:
-            ledger.record("CHECK_REFUSED", target, False, expected="inside workspace",
-                          observed="outside workspace roots", source="verify_result")
+            ledger.record(
+                "CHECK_REFUSED",
+                target,
+                False,
+                expected="inside workspace",
+                observed="outside workspace roots",
+                source="verify_result",
+            )
         payload = report.to_dict()
         if refused:
             payload["ok"] = False
@@ -139,9 +145,7 @@ class ResearchProvider(ToolProvider[ResearchArgs]):
         async def fetch(url: str) -> dict[str, Any]:
             from ..agent.webclient import fetch_page
 
-            page = await asyncio.to_thread(
-                fetch_page, url, allow_local=args.allow_local
-            )
+            page = await asyncio.to_thread(fetch_page, url, allow_local=args.allow_local)
             return {"url": page.url, "text": page.text, "title": ""}
 
         engine = DeepResearch(
@@ -157,12 +161,23 @@ class ResearchProvider(ToolProvider[ResearchArgs]):
         result = await engine.run(args.question, args.required_facts)
         payload = result.to_dict()
         _persist_research(context, payload)
-        text = result.notes() + "\n---\n" + json.dumps(
-            {"queries": payload["queries"], "gaps": payload["gaps"],
-             "stopped_reason": payload["stopped_reason"]}, ensure_ascii=False
+        text = (
+            result.notes()
+            + "\n---\n"
+            + json.dumps(
+                {
+                    "queries": payload["queries"],
+                    "gaps": payload["gaps"],
+                    "stopped_reason": payload["stopped_reason"],
+                },
+                ensure_ascii=False,
+            )
         )
-        return ToolResult(text=text[:12000], metadata={"research": payload},
-                          sources=[{"url": s["url"], "title": s["title"]} for s in payload["sources"]])
+        return ToolResult(
+            text=text[:12000],
+            metadata={"research": payload},
+            sources=[{"url": s["url"], "title": s["title"]} for s in payload["sources"]],
+        )
 
 
 class GuiProvider(ToolProvider[GuiArgs]):
@@ -170,8 +185,10 @@ class GuiProvider(ToolProvider[GuiArgs]):
         roots = _roots(context)
         shots = args.screenshot_dir
         if shots and roots and not _inside(shots, roots):
-            return ToolResult(text=json.dumps({"ok": False, "error": "screenshot_dir_outside_workspace"}),
-                              errors=["screenshot_dir_outside_workspace"])
+            return ToolResult(
+                text=json.dumps({"ok": False, "error": "screenshot_dir_outside_workspace"}),
+                errors=["screenshot_dir_outside_workspace"],
+            )
         if not shots:
             root = next((value for value in roots), "")
             shots = os.path.join(root, "gui") if root else ""
@@ -203,26 +220,36 @@ class QueueProvider(ToolProvider[QueueArgs]):
         with SessionLocal() as db:
             if args.action == "enqueue":
                 row = agent_queue.enqueue(
-                    db, user_id=context.user_id, prompt=args.prompt or context.user_prompt,
+                    db,
+                    user_id=context.user_id,
+                    prompt=args.prompt or context.user_prompt,
                     workspace=args.workspace or str(getattr(context.workspace, "primary_root", "") or ""),
-                    chat_id=context.chat_id, title=args.title, priority=args.priority,
+                    chat_id=context.chat_id,
+                    title=args.title,
+                    priority=args.priority,
                     depends_on=args.depends_on,
                 )
                 return ToolResult(text=json.dumps({"task_id": row.id, "status": row.status}))
             if args.action == "claim":
                 row = agent_queue.claim_next(db, args.worker)
-                return ToolResult(text=json.dumps(
-                    {"task_id": row.id if row else None, "status": row.status if row else "empty"}
-                ))
+                return ToolResult(
+                    text=json.dumps(
+                        {"task_id": row.id if row else None, "status": row.status if row else "empty"}
+                    )
+                )
             if args.action == "release":
                 row = agent_queue.release(db, args.task_id, reason="tool release")
-                return ToolResult(text=json.dumps({"task_id": args.task_id, "status": row.status if row else "missing"}))
+                return ToolResult(
+                    text=json.dumps({"task_id": args.task_id, "status": row.status if row else "missing"})
+                )
             if args.action == "stats":
                 return ToolResult(text=json.dumps(agent_queue.stats(db, user_id=context.user_id)))
             rows = agent_queue.pending(db, user_id=context.user_id)
-            return ToolResult(text=json.dumps(
-                [{"task_id": row.id, "title": row.title, "priority": row.queue_priority} for row in rows]
-            ))
+            return ToolResult(
+                text=json.dumps(
+                    [{"task_id": row.id, "title": row.title, "priority": row.queue_priority} for row in rows]
+                )
+            )
 
 
 async def _provider_search(query: str) -> list[dict[str, Any]]:
@@ -272,9 +299,10 @@ def _persist_research(context, payload: dict[str, Any]) -> None:
         rounds = list(current.get("rounds") or [])
         rounds.append(payload)
         facts["research"] = {"rounds": rounds[-6:], "last": payload}
-        facts["source_count"] = len({
-            source["url"] for entry in rounds[-6:] for source in entry.get("sources") or []
-        } | {source["url"] for source in payload.get("sources") or []})
+        facts["source_count"] = len(
+            {source["url"] for entry in rounds[-6:] for source in entry.get("sources") or []}
+            | {source["url"] for source in payload.get("sources") or []}
+        )
         facts["research_gaps"] = payload.get("gaps") or []
         facts["research_queries"] = payload.get("queries") or []
         row.facts = facts

@@ -51,8 +51,12 @@ def enqueue(
         depends_on=list(depends_on or []),
         time_budget_seconds=int(time_budget_seconds),
         cost_budget_usd=float(cost_budget_usd),
-        facts={"queue": {"enqueued_at": _now().isoformat(timespec="seconds"),
-                         "depends_on": list(depends_on or [])}},
+        facts={
+            "queue": {
+                "enqueued_at": _now().isoformat(timespec="seconds"),
+                "depends_on": list(depends_on or []),
+            }
+        },
     )
     db.add(row)
     db.commit()
@@ -72,17 +76,20 @@ def claim_next(db, worker_id: str, *, now: datetime | None = None) -> LocalTask 
     stamp = now or _now()
     for row in pending(db, limit=20):
         blocked = [
-            dependency
-            for dependency in (row.depends_on or [])
-            if not _dependency_done(db, dependency)
+            dependency for dependency in (row.depends_on or []) if not _dependency_done(db, dependency)
         ]
         if blocked:
             continue
         result = db.execute(
             update(LocalTask)
             .where(LocalTask.id == row.id, LocalTask.status == machine.QUEUED)
-            .values(status=machine.PLANNING, current_phase=machine.PLANNING,
-                    claimed_by=str(worker_id), claimed_at=stamp, updated_at=stamp)
+            .values(
+                status=machine.PLANNING,
+                current_phase=machine.PLANNING,
+                claimed_by=str(worker_id),
+                claimed_at=stamp,
+                updated_at=stamp,
+            )
         )
         db.commit()
         if result.rowcount == 1:
@@ -91,8 +98,7 @@ def claim_next(db, worker_id: str, *, now: datetime | None = None) -> LocalTask 
     return None
 
 
-def release(db, task: LocalTask | str, *, status: str = machine.QUEUED,
-            reason: str = "") -> LocalTask | None:
+def release(db, task: LocalTask | str, *, status: str = machine.QUEUED, reason: str = "") -> LocalTask | None:
     """Put a task back (or into a named state) without losing its plan or evidence."""
     task_id = task if isinstance(task, str) else task.id
     row = db.get(LocalTask, task_id)

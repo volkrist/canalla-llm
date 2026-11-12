@@ -260,9 +260,7 @@ class DeepResearch:
 
             # Rank: official domains first, then anything with a title, then discovery order.
             round_sources.sort(key=_rank)
-            to_read = [s for s in round_sources if s.state == FOUND][
-                : self.budget.pages_per_round
-            ]
+            to_read = [s for s in round_sources if s.state == FOUND][: self.budget.pages_per_round]
             for source in to_read:
                 if pages_read >= self.budget.max_pages or self.clock() - started > self.budget.max_seconds:
                     break
@@ -326,7 +324,8 @@ class DeepResearch:
             if facts.get(slot):
                 continue
             hits = [
-                sentence for sentence in sentences
+                sentence
+                for sentence in sentences
                 if any(hint in sentence.lower() for hint in SLOT_PATTERNS[slot])
             ]
             if not hits:
@@ -340,8 +339,18 @@ class DeepResearch:
             source.state = USED
 
 
-OFFICIAL_HINTS = (".gov", ".edu", "docs.", "developer.", "learn.microsoft.com", "playwright.dev",
-                  "python.org", "nodejs.org", "owasp.org", "github.com")
+OFFICIAL_HINTS = (
+    ".gov",
+    ".edu",
+    "docs.",
+    "developer.",
+    "learn.microsoft.com",
+    "playwright.dev",
+    "python.org",
+    "nodejs.org",
+    "owasp.org",
+    "github.com",
+)
 
 
 def _rank(source: Source) -> tuple[int, int, int]:

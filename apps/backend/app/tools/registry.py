@@ -110,10 +110,10 @@ def make_registry():
             ),
             adapter,
         )
+    from .agent_tools import register_agent_tools
     from .external import register_external_tools
     from .local.provider import register_local_tools
     from .tor.provider import register_tor_tools
-    from .agent_tools import register_agent_tools
 
     register_tor_tools(registry)
     register_local_tools(registry)

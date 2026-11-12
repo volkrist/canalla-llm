@@ -75,8 +75,9 @@ def _locator(page, step: GuiStep):
     raise ValueError("no_locator")
 
 
-def run_gui(url: str, steps: list[GuiStep], *, screenshot_dir: str = "",
-            headless: bool = True) -> dict[str, Any]:
+def run_gui(
+    url: str, steps: list[GuiStep], *, screenshot_dir: str = "", headless: bool = True
+) -> dict[str, Any]:
     """Run the script in one browser session and return every observed state."""
     from playwright.sync_api import sync_playwright
 
@@ -89,8 +90,10 @@ def run_gui(url: str, steps: list[GuiStep], *, screenshot_dir: str = "",
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=headless)
         page = browser.new_page()
-        page.on("console", lambda message: console_errors.append(message.text)
-                if message.type == "error" else None)
+        page.on(
+            "console",
+            lambda message: console_errors.append(message.text) if message.type == "error" else None,
+        )
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=20000)
             results.append(_observe(page, "goto", "", shots, 1, console_errors))
@@ -108,12 +111,10 @@ def run_gui(url: str, steps: list[GuiStep], *, screenshot_dir: str = "",
     }
 
 
-def _perform(page, step: GuiStep, shots: Path | None, index: int,
-             console_errors: list[str]) -> StepResult:
+def _perform(page, step: GuiStep, shots: Path | None, index: int, console_errors: list[str]) -> StepResult:
     try:
         if step.action == "goto":
-            page.goto(step.url or step.value, wait_until="domcontentloaded",
-                      timeout=step.timeout_ms)
+            page.goto(step.url or step.value, wait_until="domcontentloaded", timeout=step.timeout_ms)
         elif step.action == "click":
             _locator(page, step).click(timeout=step.timeout_ms)
         elif step.action == "fill":
@@ -137,12 +138,18 @@ def _perform(page, step: GuiStep, shots: Path | None, index: int,
             observed = page.locator("body").inner_text(timeout=2000)[:600]
         except Exception:  # noqa: BLE001
             pass
-        return StepResult(step.action, False, observed=observed, error=f"{type(error).__name__}: {error}",
-                          console_errors=console_errors[:5])
+        return StepResult(
+            step.action,
+            False,
+            observed=observed,
+            error=f"{type(error).__name__}: {error}",
+            console_errors=console_errors[:5],
+        )
 
 
-def _observe(page, action: str, expect: str, shots: Path | None, index: int,
-             console_errors: list[str]) -> StepResult:
+def _observe(
+    page, action: str, expect: str, shots: Path | None, index: int, console_errors: list[str]
+) -> StepResult:
     body = ""
     try:
         body = page.locator("body").inner_text(timeout=3000)
