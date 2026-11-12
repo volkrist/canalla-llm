@@ -70,6 +70,11 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r apps/backend/requirements.lock
 
+      # The GUI acceptance launches Chromium through Playwright; CI has to provide it, otherwise
+      # the e2e proves build/run only and the failure surfaces as a missing browser.
+      - name: Install the browser the GUI acceptance drives
+        run: python -m playwright install --with-deps chromium
+
       - name: Backend suite on Linux
         working-directory: apps/backend
         env:

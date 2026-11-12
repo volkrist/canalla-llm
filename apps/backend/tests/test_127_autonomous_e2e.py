@@ -280,6 +280,19 @@ class Planner:
         raise AssertionError("no started process in the transcript")
 
 
+def _browser_available() -> bool:
+    """Is a real Chromium launchable? A missing browser is a BLOCKED GUI proof, never a PASS."""
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            browser.close()
+        return True
+    except Exception:  # noqa: BLE001 - missing binary, missing deps, sandbox refusal
+        return False
+
+
 def _read(path, attempts=25):
     last = None
     for _ in range(attempts):
@@ -293,6 +306,14 @@ def _read(path, attempts=25):
 
 def test_one_goal_research_free_build_run_gui_fix_and_verify(client, auth, tmp_path):
     from tests.fake_host import FakeHost
+
+    if not _browser_available():
+        import pytest
+
+        pytest.skip(
+            "Playwright Chromium is not installed here; the GUI part of this acceptance is "
+            "BLOCKED, not passed. Run `python -m playwright install chromium`."
+        )
 
     headers = auth()
     user_id = client.get("/auth/me", headers=headers).json()["id"]

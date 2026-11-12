@@ -48,6 +48,11 @@ jobs:
         working-directory: apps/desktop
         run: npm ci
 
+      # The 1.2.7 acceptance drives a real browser. Without the pinned Playwright browser the GUI
+      # step cannot run and the acceptance would silently prove less than it claims.
+      - name: Install the browser the GUI acceptance drives
+        run: python -m playwright install chromium
+
       - name: Developer gate
         run: python scripts/release-gate.py developer
 
