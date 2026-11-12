@@ -250,6 +250,15 @@ class Planner:
         }
         if self.step in sequence:
             name, arguments = sequence[self.step]
+            if self.step == 8:
+                # uvicorn is started with wait=false; give it a bounded moment to bind before the
+                # verifier looks, so the check measures readiness rather than the race.
+                for _ in range(60):
+                    with socket.socket() as probe:
+                        probe.settimeout(0.2)
+                        if probe.connect_ex(("127.0.0.1", self.port)) == 0:
+                            break
+                    await asyncio.sleep(0.2)
             return _call(name, arguments, f"step-{self.step}")
         if self.step == 11:
             # Read the process handle from the transcript so the stop is exact, not by name.
@@ -343,7 +352,7 @@ def test_one_goal_research_free_build_run_gui_fix_and_verify(client, auth, tmp_p
         kinds = {item["kind"] for item in evidence}
         assert {"port_open", "http_ok", "command", "db_row", "file_contains"} <= kinds, kinds
         assert verification.get("evidence_ok") is True, evidence
-        assert row.status == machine.COMPLETED, row.status
+        assert row.status == machine.COMPLETED, (row.status, row.last_error, row.completion_summary)
         commands = (row.checkpoint or {}).get("commands") or []
         tools = [item.get("tool") for item in commands]
         assert tools.count("run_python") >= 3  # two pytest runs and the server

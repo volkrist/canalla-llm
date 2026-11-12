@@ -1,0 +1,116 @@
+{
+  "milestone": "Canalla LLM 1.2.7 - autonomous agent core",
+  "branch": "feature/canalla-1.2.7-autonomous-agent",
+  "base": "1.2.6 (tag v1.2.6, product commit b5b24f0)",
+  "model_used": "scripted planner (MOCK MODEL) - NOT live Qwen",
+  "level_3_acceptance": {
+    "test": "apps/backend/tests/test_127_autonomous_e2e.py::test_one_goal_research_free_build_run_gui_fix_and_verify",
+    "verdict": "PASS",
+    "runs": "4 consecutive passes; 1 earlier run failed only because the workspace was placed inside the repository and the product correctly demanded a git review",
+    "goal": "create TaskDesk, run it, verify the interface, find the search defect, fix it, confirm",
+    "task_state": "COMPLETED",
+    "tool_runs": {
+      "total_for_build_and_verify": 14,
+      "sequence": ["write_file", "write_file", "run_python(pytest, fails)", "read_file", "write_file(fix)", "run_python(pytest, passes)", "run_python(uvicorn, wait=false)", "verify_result", "browser_gui", "verify_result", "process_status", "stop_process"]
+    },
+    "independent_verification": {
+      "evidence_ok": true,
+      "checks_observed": ["port_open", "http_ok", "command", "db_row", "file_contains", "GUI_STEP"],
+      "gui_steps": 4,
+      "gui_steps_ok": 4
+    },
+    "artifacts": {
+      "application": "artifacts/acceptance-127/build/main.py",
+      "tests": "artifacts/acceptance-127/build/test_main.py",
+      "database": "artifacts/acceptance-127/build/tasks.db",
+      "screenshots": "artifacts/acceptance-127/gui/01-goto.png .. 05-click.png",
+      "persisted_row": "tasks: [(1, 'Alpha task', 'open')]"
+    }
+  },
+  "research_acceptance": {
+    "test": "apps/backend/tests/test_127_autonomous_e2e.py::test_deep_research_tool_reads_real_pages_and_requeries",
+    "verdict": "PASS",
+    "observed": {
+      "engine": "SEARCH -> READ -> GAP -> REQUERY",
+      "transport": "real local HTTP server through the real deep_research tool",
+      "facts_extracted": ["version"],
+      "gap_reported": ["license"],
+      "quarantine": "instruction-like page text is detected and never followed"
+    }
+  },
+  "matrix": {
+    "web_research": {
+      "code_ready": true,
+      "free_pass": true,
+      "live_pass": false,
+      "partial": false,
+      "blocked": false,
+      "evidence": "tests/test_127_agent_core.py (research), test_127_autonomous_e2e.py (real HTTP tool)",
+      "limits": "external search provider is used when configured; offline runs read supplied URLs"
+    },
+    "app_build": {
+      "code_ready": true,
+      "free_pass": true,
+      "live_pass": false,
+      "partial": false,
+      "blocked": false,
+      "evidence": "test_127_autonomous_e2e.py (Level 3: files, pytest, uvicorn, SQLite)"
+    },
+    "gui_autonomy": {
+      "code_ready": true,
+      "free_pass": true,
+      "live_pass": false,
+      "partial": true,
+      "blocked": false,
+      "evidence": "browser GUI: 5 screenshots, 4 verified steps",
+      "limits": "browser GUI only; native third-party Windows GUI (UI Automation) is NOT implemented in this increment"
+    },
+    "auto_fix": {
+      "code_ready": true,
+      "free_pass": true,
+      "live_pass": false,
+      "partial": false,
+      "blocked": false,
+      "evidence": "failing pytest -> diagnosis -> minimal patch -> passing pytest; repair ledger unit tests"
+    },
+    "durable_recovery": {
+      "code_ready": true,
+      "free_pass": true,
+      "live_pass": false,
+      "partial": true,
+      "blocked": false,
+      "evidence": "queue claim/release/stale-recovery tests; T4 LIVE resume already certified in 1.2.6",
+      "limits": "a full build interrupted mid-GUI and resumed was not re-run in this increment"
+    },
+    "security_assessment": {
+      "code_ready": true,
+      "free_pass": true,
+      "live_pass": false,
+      "partial": true,
+      "blocked": false,
+      "evidence": "apps/backend/app/security_assessment (OSV/KEV, SAST rules, config review, scope), security_flow retest gate; test_security_assessment.py",
+      "limits": "no active validation adapters (Nmap/ZAP) and no finding lifecycle labels; not a complete OWASP workflow"
+    }
+  },
+  "full_live_autonomy": "NOT VERIFIED - no Qwen live run, no paid Pod, no capacity wait",
+  "regressions": {
+    "backend_suite": "1102 passed, 1 skipped",
+    "migration_head": "0017",
+    "alembic_check": "no new upgrade operations",
+    "sidecar": {
+      "rebuilt": true,
+      "source_digest": "4b073ae256ad10cde678cb64d07773b8cad34174253dffb4b5699241a72ff9b2",
+      "exe_sha256_prefix": "5b51a4028d50e345"
+    }
+  },
+  "safety": {
+    "pods": [],
+    "paid_spend_usd": 0,
+    "runpod_balance_usd_seen": 8.7186040616,
+    "network_volumes": "untouched",
+    "user_data": "integrity ok; users 2, chats 54, messages 120, paired_devices 59",
+    "device_id": "f3548022-a676-463c-9fc5-b05bbd5ac907",
+    "updater_manifest": "unchanged (still 1.2.6)",
+    "published_release": "v1.2.6 untouched"
+  }
+}
