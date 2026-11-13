@@ -1,0 +1,54 @@
+{
+ "checked_at": "2026-11-13T12:21:43+00:00",
+ "budget_usd": 0.15,
+ "gateway": {
+  "status": 200,
+  "ready": true,
+  "ok": true
+ },
+ "updater_untouched": {
+  "status": 204,
+  "ok": true
+ },
+ "runpod": {
+  "pods": [],
+  "pod_count": 0,
+  "balance_usd": 8.5727707286,
+  "ok": true
+ },
+ "installed_app": {
+  "status": 200,
+  "version": "1.2.6",
+  "ok": true
+ },
+ "data": {
+  "ok": true,
+  "counts": {
+   "users": 2,
+   "chats": 54,
+   "messages": 120,
+   "paired_devices": 63
+  },
+  "integrity": "ok",
+  "device_id": "6413489d-6cae-4183-8446-a3b2339137dc",
+  "device_row": "6413489d-6cae-4183-8446-a3b2339137dc",
+  "device_online": true,
+  "device_matches_local": true
+ },
+ "disk": {
+  "free_gb": 70.4,
+  "ok": true
+ },
+ "budget": {
+  "cap_usd": 0.15,
+  "balance_usd": 8.5728,
+  "worst_case_pod_usd_at_1_09": 0.1453,
+  "ok": true
+ },
+ "coordinator": {
+  "backend_on_8000": true,
+  "note": "no paid runner is started here"
+ },
+ "verdict": "READY",
+ "blockers": []
+}

@@ -12,18 +12,35 @@ use std::fs;
 use std::path::PathBuf;
 
 fn credential_target() -> String {
-    let raw = std::env::var("ALEX_DEVICE_CREDENTIAL_TARGET")
-        .unwrap_or_else(|_| "Alex LLM/device-credential".into());
-    if raw.starts_with("Alex LLM/")
-        && raw.len() <= 80
+    let raw = match std::env::var("ALEX_DEVICE_CREDENTIAL_TARGET") {
+        Ok(value) => value.trim().to_string(),
+        Err(_) => return "Alex LLM/device-credential".into(),
+    };
+    if raw.is_empty() {
+        return "Alex LLM/device-credential".into();
+    }
+    // An acceptance harness is allowed to use its own target (`Canalla Acceptance/…`), and that
+    // target must be honoured. The previous rule required an `Alex LLM/` prefix and silently fell
+    // back to the production identity for anything else, so a harness that set the variable still
+    // overwrote the operator's credential and forced the installed app to re-pair with a new
+    // device id. A value we cannot use now maps to a clearly non-production target instead.
+    let safe = raw.len() <= 200
         && raw
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | ' ' | '.'))
-    {
-        raw
-    } else {
-        "Alex LLM/device-credential".into()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | ' ' | '.'));
+    if safe {
+        return raw;
     }
+    format!("Alex LLM/unusable-{:x}", fnv1a(raw.as_bytes()))
+}
+
+fn fnv1a(data: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in data {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 /// Where the product's own files live. `ALEX_DEVICE_DIR` moves only this directory's device record in
@@ -302,6 +319,30 @@ mod tests {
         }
         restore_device_dir(previous_dir);
         let _ = fs::remove_dir_all(&temp);
+    }
+
+    /// A harness is not required to use the `Alex LLM/` prefix. The previous rule forced one and
+    /// silently returned the production target for anything else, so an acceptance run that *did*
+    /// set the variable still overwrote the operator's credential and made the installed app
+    /// re-pair with a new device id.
+    #[test]
+    fn an_acceptance_target_with_another_prefix_is_honoured() {
+        let _guard = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let previous = std::env::var("ALEX_DEVICE_CREDENTIAL_TARGET").ok();
+        std::env::set_var(
+            "ALEX_DEVICE_CREDENTIAL_TARGET",
+            "Canalla Acceptance/packaged-uia",
+        );
+        assert_eq!(credential_target(), "Canalla Acceptance/packaged-uia");
+        // An unusable value never maps back to the identity the user's own installation owns.
+        std::env::set_var("ALEX_DEVICE_CREDENTIAL_TARGET", "bad\nvalue");
+        assert_ne!(credential_target(), "Alex LLM/device-credential");
+        match previous {
+            Some(value) => std::env::set_var("ALEX_DEVICE_CREDENTIAL_TARGET", value),
+            None => std::env::remove_var("ALEX_DEVICE_CREDENTIAL_TARGET"),
+        }
     }
 
     /// A16: the device credential, a named credential and a second named credential must not

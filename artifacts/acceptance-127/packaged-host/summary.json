@@ -1,0 +1,18 @@
+{
+ "verdict": "PASS",
+ "host_binary": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\apps\\desktop\\src-tauri\\target\\release\\alex-host-loop.exe",
+ "host_bytes": 2217472,
+ "device_id": "394cfbe6-b25d-4dc3-a759-5317253b0556",
+ "task_id": "eda9b5b0-c6f8-43f2-ac3f-2529fdc4375f",
+ "task_state": "COMPLETED",
+ "evidence_ok": true,
+ "saved_document": "UIA_PACKAGED_417",
+ "reloaded_document": "UIA_PACKAGED_417",
+ "screenshots": [
+  "01-saved.png",
+  "02-reopened.png"
+ ],
+ "reconnect_task_id": "1d9d2c0c-9b98-42c8-8147-8163c3ba64af",
+ "reconnect_observed": true,
+ "host_log_tail": "{\"device_id\":\"394cfbe6-b25d-4dc3-a759-5317253b0556\",\"event\":\"paired\",\"online\":true,\"storage\":\"windows_credential_manager\"}\n{\"event\":\"jobs\",\"started\":1}\n{\"event\":\"jobs\",\"started\":1}\n{\"event\":\"jobs\",\"started\":1}\n{\"event\":\"jobs\",\"started\":1}\n{\"event\":\"jobs\",\"started\":1}\n{\"event\":\"jobs\",\"started\":1}\n{\"event\":\"jobs\",\"started\":1}\n{\"event\":\"jobs\",\"started\":1}\n{\"event\":\"jobs\",\"started\":1}\n{\"device_id\":\"394cfbe6-b25d-4dc3-a759-5317253b0556\",\"event\":\"paired\",\"online\":true,\"storage\":\"windows_credential_manager\"}\n{\"event\":\"jobs\",\"started\":1}\n{\"event\":\"jobs\",\"started\":1}\n"
+}

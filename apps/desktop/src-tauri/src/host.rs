@@ -429,7 +429,16 @@ async fn fetch_jobs(
             Ok((jobs, token.to_string()))
         }
         Ok(response) if response.status() == reqwest::StatusCode::UNAUTHORIZED => {
-            let fresh = refresh_token(base).await.ok_or("unauthorized")?;
+            let refused = response.text().await.unwrap_or_default();
+            let fresh = match refresh_token(base).await {
+                Some(value) => value,
+                None => {
+                    return Err(format!(
+                        "unauthorized_refresh:{}",
+                        refused.chars().take(160).collect::<String>()
+                    ))
+                }
+            };
             let headers = device_headers(&fresh)?;
             let retry = client
                 .get(&url)
@@ -438,7 +447,14 @@ async fn fetch_jobs(
                 .await
                 .map_err(|error| error.to_string())?;
             if !retry.status().is_success() {
-                return Err("unauthorized".into());
+                // Keep the backend's own reason in the message: "unauthorized" alone cannot tell
+                // an expired token from a device credential that does not match.
+                let body = retry.text().await.unwrap_or_default();
+                return Err(format!(
+                    "unauthorized:{}:{}",
+                    refused.chars().take(120).collect::<String>(),
+                    body.chars().take(120).collect::<String>()
+                ));
             }
             let jobs = retry.json().await.map_err(|error| error.to_string())?;
             Ok((jobs, fresh))
