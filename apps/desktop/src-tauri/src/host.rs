@@ -814,6 +814,11 @@ fn run_local_tool(
         "process_status" => {
             ok_text(crate::process::job_status(&str_arg(args, "tool_run_id")).into())
         }
+        // Windows UI Automation. The operation itself lives in an embedded PowerShell script that
+        // only reads a JSON parameter file this code writes; no model text is interpolated into
+        // the script. Every action re-observes the window/element before reporting success.
+        "window_op" => window_op(args, tool_run_id),
+        "window_inspect" | "window_act" => window_op(args, tool_run_id),
         "list_processes" => list_processes(tool_run_id),
         "inspect_process" => inspect_process(args, tool_run_id),
         "list_volumes" => list_volumes(tool_run_id),
@@ -1323,6 +1328,88 @@ fn run_exec(
     out.stderr = redact_text(&out.stderr);
     out.text = redact_text(&out.text);
     out
+}
+
+/// Windows UI Automation through the host.
+///
+/// The operation is implemented by `uia.ps1`, embedded in this binary and written to a private
+/// per-run directory together with a JSON parameter file. Arguments are never concatenated into
+/// the script, so a window title or a typed value cannot change what the script does. The script
+/// reports `ok` only after it has re-observed the state it was asked to produce; a missing element
+/// or a pattern that the control does not expose is a typed failure, not a silent success.
+fn window_op(args: &Value, tool_run_id: &str) -> LocalOutcome {
+    if str_arg(args, "action").is_empty() {
+        return err_text("invalid_arguments");
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = tool_run_id;
+        return windows_only_tool();
+    }
+    #[cfg(windows)]
+    {
+        let action = str_arg(args, "action");
+        // `params` is accepted for callers that nest them; the model-facing tool is flat.
+        let params = args.get("params").cloned().unwrap_or_else(|| args.clone());
+        let allow_input = args
+            .get("allow_input")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let timeout = args
+            .get("timeout_seconds")
+            .and_then(Value::as_u64)
+            .unwrap_or(60)
+            .min(120);
+        let dir = std::env::temp_dir().join(format!("canalla-uia-{tool_run_id}"));
+        if std::fs::create_dir_all(&dir).is_err() {
+            return err_text("write_failed");
+        }
+        let args_file = dir.join("args.json");
+        if std::fs::write(&args_file, params.to_string()).is_err() {
+            return err_text("write_failed");
+        }
+        let script = dir.join("uia.ps1");
+        if std::fs::write(&script, include_str!("uia.ps1")).is_err() {
+            return err_text("write_failed");
+        }
+        let exe = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
+        let argv = vec![
+            "-NoProfile".to_string(),
+            "-NonInteractive".to_string(),
+            "-ExecutionPolicy".to_string(),
+            "Bypass".to_string(),
+            "-File".to_string(),
+            script.to_string_lossy().to_string(),
+            "-ArgsFile".to_string(),
+            args_file.to_string_lossy().to_string(),
+            "-Action".to_string(),
+            action,
+            "-AllowInput".to_string(),
+            if allow_input {
+                "1".to_string()
+            } else {
+                "0".to_string()
+            },
+        ];
+        let mut out = crate::process::run_job(
+            tool_run_id,
+            exe,
+            &argv,
+            None,
+            Duration::from_secs(timeout),
+            || false,
+            false,
+            true,
+        );
+        out.stdout = redact_text(&out.stdout);
+        out.stderr = redact_text(&out.stderr);
+        if !out.stdout.trim().is_empty() {
+            out.text = out.stdout.clone();
+        } else {
+            out.text = redact_text(&out.text);
+        }
+        out
+    }
 }
 
 /// Resolve the executable a `run_process` call asked for.

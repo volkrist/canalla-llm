@@ -76,11 +76,12 @@ LOCAL_CAPABILITIES = {
     "local_system",
     "local_credential",
     "local_git",
+    "local_gui",
 }
 # 1.2.7 core: they run in the backend process, not on the host, but they are local facts and
 # belong to the same permission boundary. They are listed here so the executor records their
 # command and takes a checkpoint exactly like the other local tools.
-AGENT_CAPABILITIES = {"verify", "research", "queue", "gui"}
+AGENT_CAPABILITIES = {"verify", "research", "queue", "gui", "security_active"}
 LOCAL_CAPABILITIES |= AGENT_CAPABILITIES
 EXTERNAL_CAPABILITIES = {
     "external_form",
@@ -401,6 +402,11 @@ class ToolPolicy:
                     and not getattr(args, "elevate", False)
                     and not getattr(args, "cwd", None)
                 )
+                # Driving the window of an application the user asked for is the desktop
+                # equivalent of running that application: in trusted mode it is allowed, in ask
+                # mode it still needs the click. The adapter itself refuses mouse/SendKeys
+                # fallbacks unless the call explicitly sets allow_input.
+                or (computer_mode == "trusted" and definition.capability in {"local_gui", "security_active"})
             ):
                 return "allowed"
             return "allowed" if confirmed else "confirmation_required"

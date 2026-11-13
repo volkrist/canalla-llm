@@ -475,6 +475,12 @@ class LocalTaskController:
 
     def _store_plan(self, db, row, steps, revision=1):
         row.plan_revision = revision
+        # Whether this plan contains a step whose whole point is verification. A task that
+        # changed files and never verified anything cannot be called complete (`final_review`
+        # and `_goal_satisfied` both read this flag).
+        facts = dict(row.facts or {})
+        facts["plan_has_verification"] = any(bool(item.get("verification_required")) for item in steps)
+        row.facts = facts
         for index, item in enumerate(steps):
             db.add(
                 TaskStep(
@@ -913,6 +919,16 @@ class LocalTaskController:
             facts["tests_passed"] = False
             facts["verification_stale"] = True
             facts.pop("conflict_path", None)
+        # Reading back a file whose digest we recorded is a real verification of the write; a
+        # passing `verify_result` is one for whatever it checked. Without this, a resumed task
+        # stayed "stale" after its own verification and could never close honestly.
+        if name == "read_file":
+            path = str(meta.get("path") or "")
+            digest = meta.get("sha256") or meta.get("before_sha256")
+            if path and digest and digest == (facts.get("file_hashes") or {}).get(path):
+                facts["verification_stale"] = False
+        if name == "verify_result" and not (output or {}).get("error"):
+            facts["verification_stale"] = False
         row.facts = facts
         verification = dict(row.verification or {})
         if facts.get("verification_stale"):
@@ -1408,6 +1424,11 @@ class LocalTaskController:
         if coding and facts.get("verification_stale"):
             if "verification_required" not in missing:
                 missing.append("verification_required")
+        # The plan itself says verification is part of the deliverable. A task that changed the
+        # workspace and never verified it is not complete, whatever the request looked like.
+        if facts.get("verification_stale") and facts.get("plan_has_verification"):
+            if "verification_required" not in missing:
+                missing.append("verification_required")
         if coding:
             commands = (row.checkpoint or {}).get("commands") or []
             changed = any(item.get("tool") in WRITE_TOOLS for item in commands) or bool(
@@ -1433,6 +1454,11 @@ class LocalTaskController:
         # check is never a completed task, whatever the model wrote in the final answer.
         if (row.verification or {}).get("agent") and not (row.verification or {}).get("evidence_ok"):
             missing.append("evidence_failed")
+        # 1.2.7: a confirmed active finding is an open defect, not a report. The task cannot be
+        # completed while the probe still reproduces it, and FIXED is only set by a retest.
+        active = (row.verification or {}).get("security") or {}
+        if active.get("open"):
+            missing.append("security_findings_open")
         report = {
             "files": [
                 item

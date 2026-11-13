@@ -1,0 +1,210 @@
+{
+ "scope": {
+  "scope_id": "local-stand",
+  "allowed_targets": [
+   "http://127.0.0.1:1523"
+  ],
+  "authorized": true,
+  "max_requests": 40
+ },
+ "findings": {
+  "header:content-security-policy:127.0.0.1:1519": {
+   "id": "header:content-security-policy:127.0.0.1:1519",
+   "title": "Missing security header: content-security-policy",
+   "target": "http://127.0.0.1:1519",
+   "scope_id": "local-stand",
+   "severity": "medium",
+   "status": "FIXED",
+   "description": "The response to GET / does not send `content-security-policy`.",
+   "evidence": [
+    {
+     "kind": "http_headers",
+     "url": "http://127.0.0.1:1519/",
+     "status": 200,
+     "headers": [
+      "content-length",
+      "content-type",
+      "date",
+      "server"
+     ]
+    }
+   ],
+   "reproduction": "GET http://127.0.0.1:1519/ and inspect the response headers for `content-security-policy`.",
+   "remediation": "Set a Content-Security-Policy that matches the pages actually served.",
+   "cwe": "CWE-693",
+   "confidence": "high",
+   "created_at": "2026-11-13T10:35:00+00:00",
+   "retest": {
+    "at": "2026-11-13T10:35:01+00:00",
+    "reproduced": false,
+    "note": "the check no longer produces this finding"
+   }
+  },
+  "header:x-content-type-options:127.0.0.1:1519": {
+   "id": "header:x-content-type-options:127.0.0.1:1519",
+   "title": "Missing security header: x-content-type-options",
+   "target": "http://127.0.0.1:1519",
+   "scope_id": "local-stand",
+   "severity": "low",
+   "status": "FIXED",
+   "description": "The response to GET / does not send `x-content-type-options`.",
+   "evidence": [
+    {
+     "kind": "http_headers",
+     "url": "http://127.0.0.1:1519/",
+     "status": 200,
+     "headers": [
+      "content-length",
+      "content-type",
+      "date",
+      "server"
+     ]
+    }
+   ],
+   "reproduction": "GET http://127.0.0.1:1519/ and inspect the response headers for `x-content-type-options`.",
+   "remediation": "Send `X-Content-Type-Options: nosniff`.",
+   "cwe": "CWE-693",
+   "confidence": "high",
+   "created_at": "2026-11-13T10:35:00+00:00",
+   "retest": {
+    "at": "2026-11-13T10:35:01+00:00",
+    "reproduced": false,
+    "note": "the check no longer produces this finding"
+   }
+  },
+  "header:x-frame-options:127.0.0.1:1519": {
+   "id": "header:x-frame-options:127.0.0.1:1519",
+   "title": "Missing security header: x-frame-options",
+   "target": "http://127.0.0.1:1519",
+   "scope_id": "local-stand",
+   "severity": "low",
+   "status": "FIXED",
+   "description": "The response to GET / does not send `x-frame-options`.",
+   "evidence": [
+    {
+     "kind": "http_headers",
+     "url": "http://127.0.0.1:1519/",
+     "status": 200,
+     "headers": [
+      "content-length",
+      "content-type",
+      "date",
+      "server"
+     ]
+    }
+   ],
+   "reproduction": "GET http://127.0.0.1:1519/ and inspect the response headers for `x-frame-options`.",
+   "remediation": "Send `X-Frame-Options: DENY` (or CSP frame-ancestors).",
+   "cwe": "CWE-1021",
+   "confidence": "high",
+   "created_at": "2026-11-13T10:35:00+00:00",
+   "retest": {
+    "at": "2026-11-13T10:35:01+00:00",
+    "reproduced": false,
+    "note": "the check no longer produces this finding"
+   }
+  },
+  "header:referrer-policy:127.0.0.1:1519": {
+   "id": "header:referrer-policy:127.0.0.1:1519",
+   "title": "Missing security header: referrer-policy",
+   "target": "http://127.0.0.1:1519",
+   "scope_id": "local-stand",
+   "severity": "low",
+   "status": "FIXED",
+   "description": "The response to GET / does not send `referrer-policy`.",
+   "evidence": [
+    {
+     "kind": "http_headers",
+     "url": "http://127.0.0.1:1519/",
+     "status": 200,
+     "headers": [
+      "content-length",
+      "content-type",
+      "date",
+      "server"
+     ]
+    }
+   ],
+   "reproduction": "GET http://127.0.0.1:1519/ and inspect the response headers for `referrer-policy`.",
+   "remediation": "Send a restrictive `Referrer-Policy`.",
+   "cwe": "CWE-200",
+   "confidence": "high",
+   "created_at": "2026-11-13T10:35:00+00:00",
+   "retest": {
+    "at": "2026-11-13T10:35:01+00:00",
+    "reproduced": false,
+    "note": "the check no longer produces this finding"
+   }
+  },
+  "xss:reflected:127.0.0.1:1519": {
+   "id": "xss:reflected:127.0.0.1:1519",
+   "title": "Query parameter is reflected without encoding",
+   "target": "http://127.0.0.1:1519",
+   "scope_id": "local-stand",
+   "severity": "high",
+   "status": "FIXED",
+   "description": "The `q` parameter is written into the HTML response verbatim.",
+   "evidence": [
+    {
+     "kind": "http_body",
+     "url": "http://127.0.0.1:1519/?q=%3Cscript%3Ecanalla8e782464%3C/script%3E",
+     "marker": "canalla8e782464",
+     "snippet": "<html><body><p>echo: <script>canalla8e782464</script></p></body></html>"
+    }
+   ],
+   "reproduction": "GET http://127.0.0.1:1519/?q=<script>canalla8e782464</script> and search the body for the payload.",
+   "remediation": "Encode every interpolated value (HTML-escape) before writing it into a page.",
+   "cwe": "CWE-79",
+   "confidence": "high",
+   "created_at": "2026-11-13T10:35:00+00:00",
+   "retest": {
+    "at": "2026-11-13T10:35:01+00:00",
+    "reproduced": false,
+    "note": "the check no longer produces this finding"
+   }
+  },
+  "expose:debug:127.0.0.1:1519": {
+   "id": "expose:debug:127.0.0.1:1519",
+   "title": "Diagnostic endpoint is exposed",
+   "target": "http://127.0.0.1:1519",
+   "scope_id": "local-stand",
+   "severity": "medium",
+   "status": "FIXED",
+   "description": "GET /debug answers 200 with a body.",
+   "evidence": [
+    {
+     "kind": "http_body",
+     "url": "http://127.0.0.1:1519/debug",
+     "status": 200,
+     "snippet": "DEBUG build=dev diagnostics"
+    }
+   ],
+   "reproduction": "GET http://127.0.0.1:1519/debug",
+   "remediation": "Disable the diagnostic route outside development.",
+   "cwe": "CWE-489",
+   "confidence": "high",
+   "created_at": "2026-11-13T10:35:00+00:00",
+   "retest": {
+    "at": "2026-11-13T10:35:01+00:00",
+    "reproduced": false,
+    "note": "the check no longer produces this finding"
+   }
+  }
+ },
+ "open": 0,
+ "fixed": 6,
+ "adapters": {
+  "nmap": {
+   "available": true,
+   "path": "C:\\Program Files (x86)\\Nmap\\nmap.EXE"
+  },
+  "zap": {
+   "available": false,
+   "path": ""
+  },
+  "zap_win": {
+   "available": false,
+   "path": ""
+  }
+ }
+}

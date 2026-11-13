@@ -72,7 +72,7 @@ class ToolOrchestrator:
                 selected.append(definition)
             elif capability in EXTERNAL_CAPABILITIES and self._external_visible(prompt):
                 selected.append(definition)
-            elif capability in {"verify", "research", "queue", "gui"}:
+            elif capability in {"verify", "research", "queue", "gui", "security_active"}:
                 # The 1.2.7 core is not a per-prompt heuristic: an autonomous task always needs to
                 # prove its result, keep its queue and research a gap. The computer permission
                 # boundary still applies, and every tool is bounded by its own budget.
@@ -84,8 +84,13 @@ class ToolOrchestrator:
                 # because the user phrased the task in a way no heuristic anticipated.
                 allowed = set(CODING_PLANNER_TOOLS) | {
                     "run_process",
+                    "run_python",
                     "install_software",
                     "list_installed_software",
+                    # Desktop verification is part of the build loop: a task that starts a real
+                    # application must be able to see and drive its window.
+                    "window_inspect",
+                    "window_act",
                 }
                 workspace = getattr(context, "workspace", None)
                 if workspace and getattr(workspace, "test_via", "") == "run_process":
@@ -1119,6 +1124,11 @@ class ToolOrchestrator:
             # run yet, so the user got one __init__.py and a summary that claimed success.
             steps = controller.steps(db, row.id)
             if any(step.status not in STEP_DONE for step in steps):
+                return False
+            # A plan that contains a verification step has not verified anything while the
+            # controller still believes the workspace changed after the last check.
+            facts = row.facts or {}
+            if facts.get("verification_stale") and facts.get("plan_has_verification"):
                 return False
             return bool(goal_met(row.facts, prompt))
 

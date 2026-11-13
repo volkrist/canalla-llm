@@ -20,6 +20,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..agent import queue as agent_queue
+from ..agent import security as active_security
 from ..agent.evidence import EvidenceLedger, merge_into_task
 from ..agent.gui import GuiStep, run_gui, window_present
 from ..agent.research import DeepResearch, ResearchBudget
@@ -57,6 +58,16 @@ class GuiArgs(BaseModel):
     steps: list[dict[str, Any]] = Field(default_factory=list, max_length=40)
     screenshot_dir: str = Field(default="", max_length=500)
     headless: bool = True
+
+
+class SecurityArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["scan", "retest", "list", "ports", "tls"] = "scan"
+    target: str = Field(default="", max_length=500)
+    allowed_targets: list[str] = Field(default_factory=list, max_length=10)
+    authorized: bool = False
+    ports: list[int] = Field(default_factory=list, max_length=64)
+    scope_id: str = Field(default="task-scope", max_length=80)
 
 
 class QueueArgs(BaseModel):
@@ -215,6 +226,99 @@ class GuiProvider(ToolProvider[GuiArgs]):
         )
 
 
+class SecurityProvider(ToolProvider[SecurityArgs]):
+    async def execute(self, args: SecurityArgs, context) -> ToolResult:
+        scope = active_security.ActiveScope(
+            scope_id=args.scope_id,
+            allowed_targets=list(args.allowed_targets) or ([args.target] if args.target else []),
+            authorized=bool(args.authorized),
+        )
+        previous = _stored_findings(context)
+        try:
+            if args.action in {"scan", "retest"}:
+                if not args.target:
+                    return ToolResult(
+                        text=json.dumps({"ok": False, "error": "target_required"}), errors=["target_required"]
+                    )
+                base = scope.assert_url(args.target)
+                assessment = active_security.ActiveAssessment(scope)
+                findings = assessment.probe_http(base)
+                findings.update(assessment.probe_debug_endpoint(base))
+                findings = {key: value.public() for key, value in findings.items()}
+                merged = active_security.merge(previous, findings)
+                payload = {
+                    "ok": True,
+                    "action": args.action,
+                    "scope": scope.public(),
+                    "found": len(findings),
+                    "open": len(active_security.open_findings(merged)),
+                    "fixed": sum(1 for item in merged.values() if item.get("status") == "FIXED"),
+                    "requests": assessment.requests,
+                    "findings": list(merged.values()),
+                    "adapters": active_security.adapters(),
+                }
+                _persist_security(context, scope, merged, payload)
+                return ToolResult(
+                    text=json.dumps(payload, ensure_ascii=False)[:12000], metadata={"security": payload}
+                )
+            if args.action == "ports":
+                if not args.target:
+                    return ToolResult(
+                        text=json.dumps({"ok": False, "error": "target_required"}), errors=["target_required"]
+                    )
+                host = active_security._hostname(args.target)
+                ports = args.ports or [80, 443, 8000, 8080]
+                results = active_security.ActiveAssessment(scope).port_scan(host, ports)
+                payload = {"ok": True, "scope": scope.public(), "results": results}
+                return ToolResult(text=json.dumps(payload, ensure_ascii=False))
+            if args.action == "tls":
+                host = active_security._hostname(args.target)
+                info = active_security.ActiveAssessment(scope).tls(host, args.ports[0] if args.ports else 443)
+                return ToolResult(text=json.dumps({"ok": True, "tls": info}, ensure_ascii=False))
+            payload = {"ok": True, "findings": list(previous.values())}
+            return ToolResult(text=json.dumps(payload, ensure_ascii=False)[:12000])
+        except active_security.ScopeRefused as error:
+            return ToolResult(text=json.dumps({"ok": False, "error": error.code}), errors=[error.code])
+
+
+def _stored_findings(context) -> dict[str, dict]:
+    task_id = getattr(context, "task_id", None)
+    if not task_id:
+        return {}
+    with SessionLocal() as db:
+        row = db.get(LocalTask, task_id)
+        if row is None:
+            return {}
+        security = (row.verification or {}).get("security") or {}
+        return dict(security.get("findings") or {})
+
+
+def _persist_security(context, scope, findings, payload) -> None:
+    task_id = getattr(context, "task_id", None)
+    if not task_id:
+        return
+    with SessionLocal() as db:
+        row = db.get(LocalTask, task_id)
+        if row is None:
+            return
+        verification = dict(row.verification or {})
+        verification["security"] = {
+            "scope": scope.public(),
+            "findings": findings,
+            "open": len(active_security.open_findings(findings)),
+            "adapters": payload.get("adapters") or {},
+        }
+        row.verification = verification
+        facts = dict(row.facts or {})
+        facts["security_active"] = {
+            "scope_id": scope.scope_id,
+            "open": verification["security"]["open"],
+            "findings": len(findings),
+        }
+        row.facts = facts
+        db.commit()
+
+
 class QueueProvider(ToolProvider[QueueArgs]):
     async def execute(self, args: QueueArgs, context) -> ToolResult:
         with SessionLocal() as db:
@@ -354,6 +458,22 @@ def register_agent_tools(registry) -> None:
             "agent",
         ),
         GuiProvider(),
+    )
+    registry.register(
+        ToolDefinition(
+            "security_active",
+            "Authorized active security assessment: HTTP header and reflection checks, exposed "
+            "diagnostic routes, TCP port reachability and TLS metadata, with a finding lifecycle "
+            "(POTENTIAL/CONFIRMED/FIXED/REOPENED). Refuses every target that is not listed in the "
+            "scope the caller confirmed.",
+            SecurityArgs,
+            "security_active",
+            RiskLevel.NORMAL_CHANGE,
+            "free",
+            180,
+            "agent",
+        ),
+        SecurityProvider(),
     )
     registry.register(
         ToolDefinition(

@@ -62,6 +62,40 @@ class ProcessIdArgs(BaseModel):
     purpose: str | None = Field(default=None, max_length=500)
 
 
+class WindowInspectArgs(BaseModel):
+    """Read-only UI Automation: list windows, find elements, read text, take a screenshot."""
+
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["list_windows", "find", "get_text", "screenshot", "wait_window"] = "list_windows"
+    window: str = Field(default="", max_length=300)
+    name: str = Field(default="", max_length=300)
+    automation_id: str = Field(default="", max_length=300)
+    control_type: str = Field(default="", max_length=60)
+    class_name: str = Field(default="", max_length=120)
+    path: str = Field(default="", max_length=500)
+    timeout_ms: int = Field(default=8000, ge=100, le=30000)
+    timeout_seconds: int = Field(default=60, ge=5, le=120)
+    purpose: str | None = Field(default=None, max_length=500)
+
+
+class WindowActArgs(BaseModel):
+    """A UI Automation action. Every action re-observes the result before reporting ok."""
+
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["focus", "invoke", "set_value", "select", "expand", "scroll", "close_window", "send_keys"]
+    window: str = Field(default="", max_length=300)
+    name: str = Field(default="", max_length=300)
+    automation_id: str = Field(default="", max_length=300)
+    control_type: str = Field(default="", max_length=60)
+    class_name: str = Field(default="", max_length=120)
+    value: str = Field(default="", max_length=4000)
+    direction: Literal["up", "down", "left", "right"] = "down"
+    amount: Literal["small", "large", "no"] = "large"
+    allow_input: bool = False
+    timeout_seconds: int = Field(default=60, ge=5, le=120)
+    purpose: str | None = Field(default=None, max_length=500)
+
+
 class EmptyArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     purpose: str | None = Field(default=None, max_length=500)
@@ -245,6 +279,7 @@ def register_local_tools(registry):
     install = LocalDeviceProvider("local_install")
     system = LocalDeviceProvider("local_system")
     creds = LocalDeviceProvider("local_credential")
+    gui = LocalDeviceProvider("local_gui")
     for name, schema, capability, risk, description, adapter in (
         (
             "list_directory",
@@ -333,6 +368,27 @@ def register_local_tools(registry):
             RiskLevel.CRITICAL,
             "Delete several paths in one irreversible operation.",
             provider,
+        ),
+        (
+            "window_inspect",
+            WindowInspectArgs,
+            "local_gui",
+            RiskLevel.READ,
+            "Inspect Windows UI Automation: list open windows, find an element by name/AutomationId/"
+            "ControlType, read its text, wait for a window or take a screenshot. WHEN TO USE: "
+            "before and after acting on a desktop application. WHEN NOT: guessing coordinates.",
+            gui,
+        ),
+        (
+            "window_act",
+            WindowActArgs,
+            "local_gui",
+            RiskLevel.NORMAL_CHANGE,
+            "Act on a Windows application through UI Automation: focus, invoke a button/menu item, "
+            "set a value, select, expand, scroll or close a window. Every action re-observes the "
+            "result and reports ok only when the expected state is visible. send_keys is a "
+            "fallback for apps without patterns and needs allow_input=true.",
+            gui,
         ),
         (
             "run_process",

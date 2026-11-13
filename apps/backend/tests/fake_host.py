@@ -1,14 +1,18 @@
 """In-process host that executes allowed workspace jobs for autonomous tests."""
 
 import hashlib
+import json
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
 
 from app.database import SessionLocal
 from app.tools.models import ToolRun
+
+UIA_SCRIPT = Path(__file__).resolve().parents[3] / "apps" / "desktop" / "src-tauri" / "src" / "uia.ps1"
 
 
 class FakeHost:
@@ -92,6 +96,55 @@ class FakeHost:
             },
         )
         self._ack(job)
+
+    def _window(self, args):
+        """Run the same UI Automation script the packaged host runs.
+
+        The transport is this test host, but the automation is the product's real script against a
+        real Windows application: the same parameter file, the same JSON answer, the same
+        post-action observation.
+        """
+        if sys.platform != "win32" or not UIA_SCRIPT.is_file():
+            return {
+                "text": "windows_only",
+                "exit_code": 1,
+                "metadata": {"error": "windows_only"},
+            }
+        workdir = Path(tempfile.mkdtemp(prefix="canalla-uia-"))
+        args_file = workdir / "args.json"
+        args_file.write_text(json.dumps(args, ensure_ascii=False), encoding="utf-8")
+        action = str(args.get("action") or "")
+        allow = "1" if args.get("allow_input") else "0"
+        powershell = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+        completed = subprocess.run(
+            [
+                powershell,
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(UIA_SCRIPT),
+                "-ArgsFile",
+                str(args_file),
+                "-Action",
+                action,
+                "-AllowInput",
+                allow,
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120,
+        )
+        return {
+            "text": completed.stdout.strip(),
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+            "exit_code": completed.returncode,
+            "metadata": {"exit_code": completed.returncode},
+        }
 
     def _execute(self, name, args, run_id=""):
         if name == "list_directory":
@@ -266,6 +319,40 @@ class FakeHost:
                     "system_disk_free_gb": "100",
                 },
             }
+        if name == "run_process":
+            exe = str(args.get("executable") or "")
+            argv = [exe, *list(args.get("argv") or [])]
+            cwd = args.get("cwd") or str(self.root)
+            if args.get("wait") is False:
+                proc = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.jobs[run_id] = proc
+                return {
+                    "text": f"started pid={proc.pid}",
+                    "exit_code": None,
+                    "metadata": {
+                        "pid": proc.pid,
+                        "status": "running",
+                        "started_by_alex": True,
+                        "tool_run_id": run_id,
+                    },
+                }
+            result = subprocess.run(
+                argv,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=int(args.get("timeout_seconds") or 30),
+                check=False,
+            )
+            return {
+                "text": (result.stdout or "") + (result.stderr or ""),
+                "stdout": result.stdout or "",
+                "stderr": result.stderr or "",
+                "exit_code": result.returncode,
+                "metadata": {"exit_code": result.returncode, "cwd": cwd},
+            }
+        if name in {"window_inspect", "window_act", "window_op"}:
+            return self._window(args)
         if name == "run_python":
             cwd = args.get("cwd") or str(self.root)
             argv = [sys.executable, *list(args.get("argv") or [])]

@@ -1,0 +1,34 @@
+{
+ "interrupt_exit_code": 17,
+ "resume_exit_code": 0,
+ "task_id": "db768638-2e01-42a6-be18-7a58032909ac",
+ "status_after_resume": "COMPLETED",
+ "completion_summary": "Completed: Original request is addressed",
+ "events": [
+  "TASK_CREATED",
+  "PLAN_CREATED",
+  "WORKSPACE_LOCK_ACQUIRED",
+  "CHECKPOINT_CREATED",
+  "FILE_CHANGED",
+  "TOOL_COMPLETED",
+  "STEP_STARTED",
+  "STEP_COMPLETED",
+  "CHECKPOINT_CREATED",
+  "TOOL_COMPLETED",
+  "STEP_STARTED",
+  "STEP_COMPLETED",
+  "RESUMED",
+  "CHECKPOINT_CREATED",
+  "FILE_CHANGED",
+  "TOOL_COMPLETED",
+  "STEP_STARTED",
+  "STEP_COMPLETED",
+  "CHECKPOINT_CREATED",
+  "TOOL_COMPLETED",
+  "COMPLETED"
+ ],
+ "content": "one\ntwo\n",
+ "files": [
+  "steps.txt"
+ ]
+}
