@@ -79,14 +79,29 @@ def digest_text(value: str) -> str:
     return hashlib.sha256((value or "").encode("utf-8", "replace")).hexdigest()
 
 
-def arguments_digest(arguments: Any) -> str:
-    """Digest of the *parsed* arguments, so key order in the model's JSON cannot change it."""
+def arguments_digest(arguments: Any, tool_name: str = "") -> str:
+    """Digest of the *parsed* arguments, identical to the executor's ledger digest.
+
+    The ledger hashes `{"action", "command", "arguments"}` (and the path when present) because a
+    tool name is part of what was requested. The provenance records must use the same formula, or
+    a live run would cross-check a genuinely linked call against a different digest and report
+    `INVALID_PROVENANCE`. `test_provenance_arguments_digest_matches_the_ledger` pins this.
+    """
     try:
         parsed = json.loads(arguments) if isinstance(arguments, str) else arguments
     except (TypeError, ValueError):
         parsed = arguments
     if not isinstance(parsed, (dict, list)):
         parsed = {"value": parsed}
+    if tool_name:
+        payload: dict[str, Any] = {
+            "action": tool_name,
+            "command": tool_name,
+            "arguments": parsed,
+        }
+        if isinstance(parsed, dict) and parsed.get("path") is not None:
+            payload["path"] = parsed["path"]
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     return hashlib.sha256(_canonical(parsed)).hexdigest()
 
 

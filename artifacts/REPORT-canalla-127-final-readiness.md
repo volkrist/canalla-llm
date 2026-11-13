@@ -17,7 +17,7 @@
 | Computer Connect (pair / heartbeat / jobs / reconnect) | **PASS** |
 | Изоляция identity (тест host при работающей установленной 1.2.6) | **PASS** |
 | Device credential lifecycle (19 проверок) | **PASS** |
-| Model provenance (цепочка + независимый валидатор) | **UNIT PASS (11/11)** |
+| Model provenance (цепочка + независимый валидатор) | **UNIT PASS (12/12)** |
 | Cost policy (математика бюджета) | **UNIT PASS (6/6)** |
 | Внешний watchdog (dry run, fake provider) | **PASS (18/18)** |
 | Негативные сценарии (16) | **PASS** |
@@ -79,6 +79,15 @@
 `fetch_jobs` теперь возвращает тело ответа backend вместо голого `unauthorized`; это позволило
 найти дефект §2.1.
 
+### 2.5 Provenance-дайджест не совпадал с ledger (нашёл бы только LIVE-прогон)
+
+Ledger (`ToolRun.input_digest`) хэширует `{action, command, arguments, path}`, а первый вариант
+provenance-дайджеста — только аргументы. Кросс-проверка валидатора сравнивает их напрямую, поэтому
+настоящий LIVE-прогон получил бы `INVALID_PROVENANCE` при полностью корректной работе модели.
+Дефект не проявлялся на mock/scripted прогонах: `classify()` возвращает `MOCK_MODEL` до
+кросс-проверки. Исправлено: `arguments_digest(arguments, tool_name)` повторяет формулу ledger'а,
+добавлен тест `test_provenance_arguments_digest_matches_the_ledger`.
+
 ---
 
 ## 3. Model provenance — проверяемая цепочка
@@ -107,8 +116,9 @@ MODEL_RESPONSE   provider, model, response id, request id, объявленны�
 `REAL_MODEL_CONFIRMED`, `MOCK_MODEL`, `SCRIPTED_PLANNER`, `INCOMPLETE_TRACE`,
 `INVALID_PROVENANCE`. Неизвестный «live» адаптер — `INVALID_PROVENANCE`, не PASS.
 
-**Проверки:** 11/11 (`tests/test_127_provenance.py`), включая положительные и отрицательные
-сценарии и сквозную запись через оркестратор. Это проверки валидатора, **не** LIVE-прогон.
+**Проверки:** 12/12 (`tests/test_127_provenance.py`), включая положительные и отрицательные
+сценарии, сквозную запись через оркестратор и совпадение provenance-дайджеста с ledger'ом. Это
+проверки валидатора, **не** LIVE-прогон.
 
 **В реальном packaged-host прогоне** journal содержит 15 model responses и 14 tool calls и
 классифицируется как `MOCK_MODEL` — scripted planner не может быть прочитан как настоящая модель.
@@ -384,7 +394,7 @@ active checks продолжают работать (6 confirmed → 6 fixed →
 | Packaged host E2E | **PASS** (повторён) |
 | Identity isolation | **PASS** |
 | Device lifecycle | **19/19 PASS** |
-| Provenance tests | **11/11 PASS** |
+| Provenance tests | **12/12 PASS** |
 | Cost policy tests | **6/6 PASS** |
 | Negative matrix | **16/16 PASS** |
 | Watchdog dry run | **PASS (18 checks)** |
@@ -463,7 +473,7 @@ docs/model-provenance.md
 | DURABLE RECOVERY | FREE INTEGRATION PASS | `test_127_recovery_e2e.py` | live-Pod restart not tested | future |
 | SECURITY ASSESSMENT | FREE INTEGRATION PASS | `test_127_security_active.py` | Nmap/ZAP optional | optional |
 | MODEL TOOL CALLING | CODE READY | model-contract.json | real model pending | LIVE run |
-| MODEL PROVENANCE | UNIT PASS | model-provenance.json | LIVE verdict pending | LIVE run |
+| MODEL PROVENANCE | UNIT PASS (12/12) | model-provenance.json | LIVE verdict pending | LIVE run |
 | CONTEXT MANAGEMENT | UNIT PASS | context tests | real overflow untested | LIVE run |
 | COST CONTROL | UNIT PASS | cost policy tests | rate re-checked live | LIVE run |
 | WATCHDOG | FREE INTEGRATION PASS | watchdog-dry-run.json | fake provider | LIVE run |

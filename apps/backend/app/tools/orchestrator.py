@@ -574,6 +574,9 @@ class ToolOrchestrator:
                         break
                     function = call["function"]
                     context.current_tool_call_id = str(call.get("id") or "")
+                    # A refused call never reaches `create_run`; a stale ledger id must not be
+                    # attached to its provenance record.
+                    context.run_id = None
                     try:
                         output = await self._run(
                             function.get("name", ""),
@@ -1594,7 +1597,7 @@ class ToolOrchestrator:
             if origin == "model" and getattr(context, "current_tool_call_id", ""):
                 from ..agent.provenance import arguments_digest as provenance_arguments_digest
 
-                self._record_tool_call(context, name, provenance_arguments_digest(parsed))
+                self._record_tool_call(context, name, provenance_arguments_digest(parsed, name))
             try:
                 result = await self.executor.execute(name, arguments, context, origin=origin)
             except ToolError as error:
@@ -1604,7 +1607,7 @@ class ToolOrchestrator:
                     self._record_tool_result(
                         context,
                         name,
-                        provenance_arguments_digest(parsed),
+                        provenance_arguments_digest(parsed, name),
                         False,
                         error=error.code,
                     )
@@ -1626,7 +1629,7 @@ class ToolOrchestrator:
                 self._record_tool_result(
                     context,
                     name,
-                    provenance_arguments_digest(parsed),
+                    provenance_arguments_digest(parsed, name),
                     True,
                     digest=ledger_digest
                     or provenance_result_digest(result.text, result.metadata, result.errors),

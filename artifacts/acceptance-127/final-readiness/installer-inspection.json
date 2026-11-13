@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-13T14:20:11+00:00",
+ "generated_at": "2026-11-13T14:28:59+00:00",
  "note": "Package inspection only. Nothing was built, signed, installed or published; the installed 1.2.6 was not modified.",
  "host": {
   "path": "apps\\desktop\\src-tauri\\target\\release\\alex-host-loop.exe",

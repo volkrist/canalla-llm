@@ -41,7 +41,7 @@ def _task(db, *, model_run=True):
                 tool_name="write_file",
                 provider="local_device",
                 risk_level="normal",
-                input_digest=provenance.arguments_digest({"path": "a.txt", "content": "hi"}),
+                input_digest=provenance.arguments_digest({"path": "a.txt", "content": "hi"}, "write_file"),
                 result_digest="c" * 64,
                 origin="model",
                 status="completed",
@@ -58,7 +58,7 @@ def _tool_run(db, task_id):
 
 def _write_trace(db, task_id, *, live=True, provider="llamacpp", response_id="resp-1", tool_run_id=""):
     call_id = "call-1"
-    args_digest = provenance.arguments_digest({"path": "a.txt", "content": "hi"})
+    args_digest = provenance.arguments_digest({"path": "a.txt", "content": "hi"}, "write_file")
     provenance.record(
         db,
         task_id,
@@ -304,7 +304,7 @@ def test_the_orchestrator_records_the_chain_for_a_declared_live_adapter():
         task = _task(db)
         run = _tool_run(db, task.id)
         args = {"path": "a.txt", "content": "hi"}
-        digest = provenance.arguments_digest(args)
+        digest = provenance.arguments_digest(args, "write_file")
         run.input_digest = digest
         db.commit()
 
@@ -352,7 +352,7 @@ def test_the_same_recording_path_never_confirms_an_unrecognised_adapter():
     with SessionLocal() as db:
         task = _task(db)
         run = _tool_run(db, task.id)
-        digest = provenance.arguments_digest({})
+        digest = provenance.arguments_digest({}, "write_file")
         orchestrator = ToolOrchestrator(None, None)
         ctx = _recorder_ctx(task, run)
         provider = type(
@@ -381,3 +381,13 @@ def test_the_same_recording_path_never_confirms_an_unrecognised_adapter():
     verdict = provenance.classify(events, secret=SECRET, tool_runs=runs)
     assert verdict.status == provenance.INVALID_PROVENANCE
     assert verdict.ok is False
+
+
+def test_provenance_arguments_digest_matches_the_ledger():
+    """The chain is only verifiable if both sides hash the same material."""
+    from app.tools.security import digest as ledger_digest
+
+    args = {"path": "a.txt", "content": "hi"}
+    assert provenance.arguments_digest(args, "write_file") == ledger_digest(args, "write_file")
+    other = {"query": "пример", "limit": 3}
+    assert provenance.arguments_digest(other, "web_search") == ledger_digest(other, "web_search")

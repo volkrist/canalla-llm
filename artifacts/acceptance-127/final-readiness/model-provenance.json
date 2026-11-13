@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-13T14:20:17+00:00",
+ "generated_at": "2026-11-13T14:28:23+00:00",
  "classifier_states": [
   "REAL_MODEL_CONFIRMED",
   "MOCK_MODEL",
@@ -18,7 +18,7 @@
   {
    "node": "tests/test_127_provenance.py::test_a_live_chain_with_verification_is_confirmed",
    "ok": true,
-   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.34s"
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.36s"
   },
   {
    "node": "tests/test_127_provenance.py::test_a_mock_turn_is_never_confirmed",
@@ -28,51 +28,56 @@
   {
    "node": "tests/test_127_provenance.py::test_tools_without_a_model_response_are_a_scripted_planner",
    "ok": true,
-   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.34s"
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.33s"
   },
   {
    "node": "tests/test_127_provenance.py::test_an_origin_model_run_without_a_model_response_is_invalid",
    "ok": true,
-   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.35s"
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.33s"
   },
   {
    "node": "tests/test_127_provenance.py::test_a_missing_tool_result_is_incomplete",
    "ok": true,
-   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.31s"
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.35s"
   },
   {
    "node": "tests/test_127_provenance.py::test_a_tool_call_not_declared_by_the_response_is_invalid",
    "ok": true,
-   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.35s"
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.31s"
   },
   {
    "node": "tests/test_127_provenance.py::test_a_tampered_record_fails_the_seal",
    "ok": true,
-   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.30s"
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.34s"
   },
   {
    "node": "tests/test_127_provenance.py::test_a_tool_result_without_a_call_is_invalid",
    "ok": true,
-   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.35s"
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.39s"
   },
   {
    "node": "tests/test_127_provenance.py::test_the_ledger_is_cross_checked_against_the_journal",
    "ok": true,
-   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.34s"
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.33s"
   },
   {
    "node": "tests/test_127_provenance.py::test_the_orchestrator_records_the_chain_for_a_declared_live_adapter",
    "ok": true,
-   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.34s"
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.37s"
   },
   {
    "node": "tests/test_127_provenance.py::test_the_same_recording_path_never_confirms_an_unrecognised_adapter",
    "ok": true,
    "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.36s"
+  },
+  {
+   "node": "tests/test_127_provenance.py::test_provenance_arguments_digest_matches_the_ledger",
+   "ok": true,
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.31s"
   }
  ],
- "tests_ok": 11,
- "tests_total": 11,
+ "tests_ok": 12,
+ "tests_total": 12,
  "free_real_model": {
   "status": "NOT AVAILABLE",
   "inventory": {
