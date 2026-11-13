@@ -33,8 +33,7 @@ def upgrade():
     with op.batch_alter_table("local_tasks") as batch:
         for column in _COLUMNS:
             batch.add_column(column)
-        batch.create_index("ix_local_tasks_status_priority", ["status", "queue_priority"],
-                           unique=False)
+        batch.create_index("ix_local_tasks_status_priority", ["status", "queue_priority"], unique=False)
 
 
 def downgrade():
