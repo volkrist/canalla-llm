@@ -1,0 +1,183 @@
+{
+ "generated_at": "2026-11-13T14:20:11+00:00",
+ "note": "Package inspection only. Nothing was built, signed, installed or published; the installed 1.2.6 was not modified.",
+ "host": {
+  "path": "apps\\desktop\\src-tauri\\target\\release\\alex-host-loop.exe",
+  "bytes": 2222080,
+  "sha256": "46903241f7c0b066c41571b7eecca8f49a16a00a3c93034cf6a99f655bc1cce1"
+ },
+ "staged_host_is_current": true,
+ "bundle_inputs": {
+  "resources": [
+   "sidecar/README.txt",
+   "sidecar/alex-backend",
+   "sidecar/alex-host-loop.exe",
+   "runtime/tor"
+  ],
+  "product": "Canalla LLM",
+  "version": "1.2.6",
+  "identifier": "com.alexllm.desktop",
+  "updater_endpoint": "https://gateway.12testers.store/updates/latest?target={{target}}&arch={{arch}}&current_version={{current_version}}"
+ },
+ "release_installers": [
+  {
+   "name": "Canalla LLM_1.2.5_x64-setup.exe",
+   "bytes": 95468784,
+   "sha256": "b90a6ee23ecac9922514830cb2b832e11697353c7b7a130de05bb16f46d8426b",
+   "authenticode": {
+    "status": "NotSigned",
+    "signer": null
+   },
+   "minisign_sidecar": true
+  },
+  {
+   "name": "Canalla LLM_1.2.6_x64-setup.exe",
+   "bytes": 95540283,
+   "sha256": "485ee23eb5149b46a23a16595442931a17bbb0fd290d553751095c08d981d1b1",
+   "authenticode": {
+    "status": "NotSigned",
+    "signer": null
+   },
+   "minisign_sidecar": true
+  }
+ ],
+ "installed_program_dirs": [
+  "Anki",
+  "BurpSuite",
+  "Canalla LLM",
+  "Common",
+  "ImageGlass",
+  "Kakao",
+  "Ollama",
+  "Opera",
+  "Python",
+  "Zed",
+  "Zed Preview",
+  "cursor"
+ ],
+ "checks": [
+  {
+   "check": "install_mode_current_user",
+   "ok": true,
+   "detail": "currentUser"
+  },
+  {
+   "check": "nsis_hooks_present",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "x64_target",
+   "ok": true,
+   "detail": "win32"
+  },
+  {
+   "check": "host_present_in_bundle_inputs",
+   "ok": true,
+   "detail": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\apps\\desktop\\src-tauri\\sidecar\\alex-host-loop.exe"
+  },
+  {
+   "check": "host_x64",
+   "ok": true,
+   "detail": "x64"
+  },
+  {
+   "check": "backend_present_in_bundle_inputs",
+   "ok": true,
+   "detail": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\apps\\desktop\\src-tauri\\sidecar\\alex-backend\\alex-backend.exe"
+  },
+  {
+   "check": "backend_x64",
+   "ok": true,
+   "detail": "x64"
+  },
+  {
+   "check": "tor_present_in_bundle_inputs",
+   "ok": true,
+   "detail": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\apps\\desktop\\src-tauri\\runtime\\tor\\tor.exe"
+  },
+  {
+   "check": "tor_x64",
+   "ok": true,
+   "detail": "x64"
+  },
+  {
+   "check": "release_build_embeds_uia",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "staged_sidecar_embeds_uia",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "backend_source_exposes_window_tools",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "staging_copies_the_release_host",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "staging_refuses_a_stale_backend",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "backend_stamp_present",
+   "ok": true,
+   "detail": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\apps\\desktop\\src-tauri\\sidecar\\alex-backend\\build-stamp.json"
+  },
+  {
+   "check": "backend_stamp_current",
+   "ok": true,
+   "detail": "backend sidecar is current (C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\apps\\desktop\\src-tauri\\sidecar\\alex-backend\\build-stamp.json)\n"
+  },
+  {
+   "check": "uninstall_keeps_user_data",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "no_credential_deletion_in_installer",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "legacy_program_removal_is_guarded",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "installer_resources_cover_runtime",
+   "ok": true,
+   "detail": "['sidecar/README.txt', 'sidecar/alex-backend', 'sidecar/alex-host-loop.exe', 'runtime/tor']"
+  },
+  {
+   "check": "published_installer_present",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "production_1_2_6_still_installed",
+   "ok": true,
+   "detail": "['Anki', 'BurpSuite', 'Canalla LLM', 'Common', 'ImageGlass', 'Kakao', 'Ollama', 'Opera', 'Python', 'Zed', 'Zed Preview', 'cursor']"
+  },
+  {
+   "check": "legacy_program_absent",
+   "ok": true,
+   "detail": "['Anki', 'BurpSuite', 'Canalla LLM', 'Common', 'ImageGlass', 'Kakao', 'Ollama', 'Opera', 'Python', 'Zed', 'Zed Preview', 'cursor']"
+  }
+ ],
+ "statuses": {
+  "RELEASE_BINARY": "PASS",
+  "STAGING_PACKAGE": "PASS",
+  "ISOLATED_INSTALLER_E2E": "NOT PERFORMED",
+  "PRODUCTION_INSTALLATION": "NOT TOUCHED"
+ },
+ "not_performed_reason": "Installing a 1.2.7 package would either replace the working 1.2.6 user installation or require an additional Windows VM, both of which are explicitly out of scope for this stage. The release binary itself is proven by the packaged-host E2E; the installer path is proven structurally here and will be exercised by the owner's approved RC install.",
+ "verdict": "PASS"
+}

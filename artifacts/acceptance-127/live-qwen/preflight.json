@@ -1,5 +1,5 @@
 {
- "checked_at": "2026-11-13T12:21:43+00:00",
+ "checked_at": "2026-11-13T13:55:39+00:00",
  "budget_usd": 0.15,
  "gateway": {
   "status": 200,
@@ -13,7 +13,7 @@
  "runpod": {
   "pods": [],
   "pod_count": 0,
-  "balance_usd": 8.5727707286,
+  "balance_usd": 8.5630485064,
   "ok": true
  },
  "installed_app": {
@@ -36,14 +36,40 @@
   "device_matches_local": true
  },
  "disk": {
-  "free_gb": 70.4,
+  "free_gb": 70.3,
   "ok": true
  },
  "budget": {
   "cap_usd": 0.15,
-  "balance_usd": 8.5728,
-  "worst_case_pod_usd_at_1_09": 0.1453,
+  "balance_usd": 8.563,
+  "policy": {
+   "budget_usd": 0.15,
+   "hourly_rate_usd": 1.09,
+   "billing_granularity_seconds": 60,
+   "termination_grace_seconds": 30,
+   "watchdog_margin_seconds": 10,
+   "watchdog_poll_seconds": 5,
+   "capacity_timeout_seconds": 60,
+   "max_billed_seconds": 480,
+   "hard_wall_seconds": 450,
+   "stop_request_seconds": 440,
+   "worst_case_usd": 0.145333,
+   "budget_headroom_usd": 0.004667,
+   "feasible": true,
+   "reasons": []
+  },
   "ok": true
+ },
+ "watchdog": {
+  "ok": true,
+  "self_test": "PASS"
+ },
+ "provenance": {
+  "ok": true,
+  "real_providers": [
+   "canalla-cloud",
+   "llamacpp"
+  ]
  },
  "coordinator": {
   "backend_on_8000": true,

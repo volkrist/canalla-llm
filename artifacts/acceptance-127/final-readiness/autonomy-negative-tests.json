@@ -1,0 +1,210 @@
+{
+ "generated_at": "2026-11-13T14:19:08+00:00",
+ "method": "targeted pytest nodes plus existing acceptance artifacts; no full-suite rerun",
+ "scenarios": [
+  {
+   "id": 1,
+   "name": "model unavailable",
+   "expected": "WAITING_LLM, no false COMPLETED",
+   "node": "tests/test_task_status.py::test_a_dead_provider_is_a_model_wait_with_a_real_idle_time",
+   "evidence": {
+    "node": "tests/test_task_status.py::test_a_dead_provider_is_a_model_wait_with_a_real_idle_time",
+    "ok": true,
+    "returncode": 0,
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.26s"
+   },
+   "status": "PASS"
+  },
+  {
+   "id": 1.1,
+   "name": "provider outage after a completed tool",
+   "expected": "real result kept, typed failure, no invented success",
+   "node": "tests/test_autonomous_tasks.py::test_a_gateway_outage_after_a_tool_keeps_the_result_and_finishes",
+   "evidence": {
+    "node": "tests/test_autonomous_tasks.py::test_a_gateway_outage_after_a_tool_keeps_the_result_and_finishes",
+    "ok": true,
+    "returncode": 0,
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 2.68s"
+   },
+   "status": "PASS"
+  },
+  {
+   "id": 2,
+   "name": "tool returns failure",
+   "expected": "the model receives the error and the task does not claim success",
+   "node": "tests/test_autonomous_tasks.py::test_stale_patch_is_conflict",
+   "evidence": {
+    "node": "tests/test_autonomous_tasks.py::test_stale_patch_is_conflict",
+    "ok": true,
+    "returncode": 0,
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 1.57s"
+   },
+   "status": "PASS"
+  },
+  {
+   "id": 3,
+   "name": "Computer Connect disconnected",
+   "expected": "WAITING_DEVICE, checkpoint kept, resumes after reconnect",
+   "node": "tests/test_autonomous_tasks.py::test_device_disconnect_waits",
+   "evidence": {
+    "node": "tests/test_autonomous_tasks.py::test_device_disconnect_waits",
+    "ok": true,
+    "returncode": 0,
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 9.40s"
+   },
+   "status": "PASS"
+  },
+  {
+   "id": 4,
+   "name": "fabricated tool result",
+   "expected": "independent verifier refuses; provenance seal fails",
+   "node": "tests/test_127_provenance.py::test_a_tampered_record_fails_the_seal",
+   "evidence": {
+    "node": "tests/test_127_provenance.py::test_a_tampered_record_fails_the_seal",
+    "ok": true,
+    "returncode": 0,
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.35s"
+   },
+   "status": "PASS"
+  },
+  {
+   "id": 4.1,
+   "name": "claimed file that does not exist",
+   "expected": "verification fails instead of passing",
+   "node": "tests/test_127_agent_core.py::test_verifier_checks_real_files_and_digests",
+   "evidence": {
+    "node": "tests/test_127_agent_core.py::test_verifier_checks_real_files_and_digests",
+    "ok": true,
+    "returncode": 0,
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.35s"
+   },
+   "status": "PASS"
+  },
+  {
+   "id": 5,
+   "name": "process dies between write and verification",
+   "expected": "same task_id resumes, real content re-checked, no repeated side effect",
+   "node": "tests/test_127_recovery_e2e.py::test_a_killed_process_leaves_a_task_that_a_new_process_resumes",
+   "evidence": {
+    "node": "tests/test_127_recovery_e2e.py::test_a_killed_process_leaves_a_task_that_a_new_process_resumes",
+    "ok": true,
+    "returncode": 0,
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 5.95s"
+   },
+   "status": "PASS"
+  },
+  {
+   "id": 5.1,
+   "name": "restart does not replay a completed tool",
+   "expected": "no duplicate side effects",
+   "node": "tests/test_autonomous_tasks.py::test_restart_does_not_rerun_completed_tools",
+   "evidence": {
+    "node": "tests/test_autonomous_tasks.py::test_restart_does_not_rerun_completed_tools",
+    "ok": true,
+    "returncode": 0,
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 2.34s"
+   },
+   "status": "PASS"
+  },
+  {
+   "id": 6,
+   "name": "defect not fixed after retries",
+   "expected": "stall detected, bounded retries, no false PASS",
+   "node": "tests/test_127_agent_core.py::test_repair_fingerprint_ignores_noise_and_detects_stall",
+   "evidence": {
+    "node": "tests/test_127_agent_core.py::test_repair_fingerprint_ignores_noise_and_detects_stall",
+    "ok": true,
+    "returncode": 0,
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.32s"
+   },
+   "status": "PASS"
+  },
+  {
+   "id": 6.1,
+   "name": "retry schedule is bounded",
+   "expected": "no infinite retry loop",
+   "node": "tests/test_autonomous_tasks.py::test_the_recovery_retry_schedule_is_bounded",
+   "evidence": {
+    "node": "tests/test_autonomous_tasks.py::test_the_recovery_retry_schedule_is_bounded",
+    "ok": true,
+    "returncode": 0,
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.31s"
+   },
+   "status": "PASS"
+  },
+  {
+   "id": 7,
+   "name": "context budget exhausted",
+   "expected": "the limit is reported honestly and a long task keeps its goal",
+   "node": "tests/test_context_usage.py::test_summarize_never_hides_an_overflow",
+   "evidence": {
+    "node": "tests/test_context_usage.py::test_summarize_never_hides_an_overflow",
+    "ok": true,
+    "returncode": 0,
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.32s"
+   },
+   "status": "PASS"
+  },
+  {
+   "id": 7.1,
+   "name": "twenty-step task still runs",
+   "expected": "no early stop before the budget",
+   "node": "tests/test_long_autonomy.py::test_the_loop_runs_at_least_fifteen_model_calls",
+   "evidence": {
+    "node": "tests/test_long_autonomy.py::test_the_loop_runs_at_least_fifteen_model_calls",
+    "ok": true,
+    "returncode": 0,
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 6.92s"
+   },
+   "status": "PASS"
+  },
+  {
+   "id": 8,
+   "name": "planned GPU cost above the budget",
+   "expected": "refused before a Pod exists",
+   "node": "tests/test_127_cost_policy.py::test_a_pricier_pod_is_refused_before_creation",
+   "evidence": {
+    "node": "tests/test_127_cost_policy.py::test_a_pricier_pod_is_refused_before_creation",
+    "ok": true,
+    "returncode": 0,
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.30s"
+   },
+   "status": "PASS"
+  },
+  {
+   "id": 9,
+   "name": "installed Canalla running in parallel",
+   "expected": "test identity isolated, production credential unchanged",
+   "evidence": {
+    "path": "artifacts\\acceptance-127\\final-readiness\\identity-isolation.json",
+    "key": "verdict",
+    "value": "PASS"
+   },
+   "status": "PASS"
+  },
+  {
+   "id": 10,
+   "name": "harness cleanup",
+   "expected": "own credential removed, own processes gone, temp data removed",
+   "evidence": {
+    "path": "artifacts\\acceptance-127\\final-readiness\\device-lifecycle.json",
+    "key": "verdict",
+    "value": "PASS"
+   },
+   "status": "PASS"
+  },
+  {
+   "id": 11,
+   "name": "external watchdog stops the Pod",
+   "expected": "stop requested inside the wall, termination confirmed, cost within budget",
+   "evidence": {
+    "path": "artifacts\\acceptance-127\\final-readiness\\watchdog-dry-run.json",
+    "key": "verdict",
+    "value": "PASS"
+   },
+   "status": "PASS"
+  }
+ ],
+ "verdict": "PASS",
+ "failed": []
+}

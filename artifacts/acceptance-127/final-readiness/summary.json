@@ -1,0 +1,171 @@
+{
+ "generated_at": "2026-11-13T14:21:58+00:00",
+ "git": {
+  "branch": "feature/canalla-1.2.7-autonomous-agent",
+  "head": "5903d6f2d50cb5d75df3aca8fb74685e70e73f23"
+ },
+ "verdicts": {
+  "identity_isolation": "PASS",
+  "device_lifecycle": "PASS",
+  "model_contract": "PASS",
+  "model_provenance": "PASS",
+  "watchdog": "PASS",
+  "negative_scenarios": "PASS",
+  "installer_inspection": "PASS",
+  "rc_staging_inputs": "PASS",
+  "packaged_host": "PASS"
+ },
+ "production": {
+  "start": {
+   "counts": {
+    "users": 2,
+    "chats": 54,
+    "messages": 120,
+    "paired_devices": 63,
+    "local_tasks": 30
+   },
+   "integrity": "ok",
+   "active_device_id": "6413489d-6cae-4183-8446-a3b2339137dc"
+  },
+  "end": {
+   "counts": {
+    "users": 2,
+    "chats": 54,
+    "messages": 120,
+    "paired_devices": 63,
+    "local_tasks": 30
+   },
+   "integrity": "ok",
+   "active_device_id": "6413489d-6cae-4183-8446-a3b2339137dc"
+  },
+  "unchanged": {
+   "counts": true,
+   "active_device_id": true,
+   "local_device_id": true,
+   "integrity": true,
+   "device_ids": true
+  },
+  "installed_version": "1.2.6"
+ },
+ "computer_connect": {
+  "device_online": true
+ },
+ "tor": {
+  "verified": true,
+  "method": "socks5h",
+  "process": "1"
+ },
+ "jobs": {
+  "full_backend_suite": "1124 passed, 1 skipped",
+  "rust_host_tests": "40 passed",
+  "packaged_host_e2e": "PASS"
+ },
+ "matrix": {
+  "WEB RESEARCH": {
+   "status": "FREE INTEGRATION PASS",
+   "evidence": "tests/test_127_agent_core.py::test_research_* (real HTTP, quarantine)",
+   "limitations": "TinyFish paid paths stay off; clearnet only in the free gate"
+  },
+  "APP BUILD": {
+   "status": "FREE INTEGRATION PASS",
+   "evidence": "tests/test_127_autonomous_e2e.py (real files, pytest, uvicorn, HTTP)",
+   "limitations": "the model in that test is scripted; a real Qwen run is separate"
+  },
+  "BROWSER GUI": {
+   "status": "FREE INTEGRATION PASS",
+   "evidence": "tests/test_127_autonomous_e2e.py browser_gui screenshots",
+   "limitations": "headless Chromium on this host"
+  },
+  "WINDOWS GUI": {
+   "status": "WINDOWS LIVE PASS",
+   "evidence": "artifacts/acceptance-127/packaged-host/summary.json",
+   "limitations": "controlled WinForms fixture, not Notepad"
+  },
+  "PACKAGED HOST": {
+   "status": "PACKAGED HOST PASS",
+   "evidence": "artifacts/acceptance-127/packaged-host/summary.json",
+   "limitations": "release binary; the installer E2E is a separate status"
+  },
+  "COMPUTER CONNECT": {
+   "status": "WINDOWS LIVE PASS",
+   "evidence": "packaged-host pair/heartbeat/reconnect + installed device online",
+   "limitations": "no autostart at login (by design)"
+  },
+  "TOR": {
+   "status": "WINDOWS LIVE PASS",
+   "evidence": "runtime/tor.json verified=True socks5h, process=1",
+   "limitations": "proof is persisted; not re-certified in this stage"
+  },
+  "AUTO FIX": {
+   "status": "FREE INTEGRATION PASS",
+   "evidence": "tests/test_127_agent_core.py repair tests + a_failure_preceded_a_pass criterion",
+   "limitations": "the LIVE repair cycle is proven only by the paid run"
+  },
+  "DURABLE RECOVERY": {
+   "status": "FREE INTEGRATION PASS",
+   "evidence": "tests/test_127_recovery_e2e.py (real os._exit, same task_id)",
+   "limitations": "backend restart with a live Pod is still not live-tested"
+  },
+  "SECURITY ASSESSMENT": {
+   "status": "FREE INTEGRATION PASS",
+   "evidence": "tests/test_127_security_active.py (6 confirmed / 6 fixed / 0 open)",
+   "limitations": "Nmap/ZAP adapters NOT IMPLEMENTED (optional)"
+  },
+  "MODEL TOOL CALLING": {
+   "status": "CODE READY",
+   "evidence": "artifacts/acceptance-127/final-readiness/model-contract.json",
+   "limitations": "proven end to end with a scripted planner; real model pending"
+  },
+  "MODEL PROVENANCE": {
+   "status": "UNIT PASS",
+   "evidence": "artifacts/acceptance-127/final-readiness/model-provenance.json",
+   "limitations": "the LIVE verdict requires a real model turn"
+  },
+  "CONTEXT MANAGEMENT": {
+   "status": "UNIT PASS",
+   "evidence": "tests/test_context_usage.py + tests/test_long_autonomy.py",
+   "limitations": "a real Qwen overflow is not exercised yet"
+  },
+  "COST CONTROL": {
+   "status": "UNIT PASS",
+   "evidence": "tests/test_127_cost_policy.py (480 s billed / 450 s usable)",
+   "limitations": "price is the measured L40S rate; a real run re-checks the Pod rate"
+  },
+  "WATCHDOG": {
+   "status": "FREE INTEGRATION PASS",
+   "evidence": "artifacts/acceptance-127/final-readiness/watchdog-dry-run.json",
+   "limitations": "fake provider; the live mode is prepared but not run"
+  },
+  "INSTALLER": {
+   "status": "STAGING PACKAGE PASS",
+   "evidence": "artifacts/acceptance-127/final-readiness/installer-inspection.json",
+   "limitations": "ISOLATED INSTALLER E2E NOT PERFORMED; production install untouched"
+  },
+  "AUTHENTICODE": {
+   "status": "BLOCKED",
+   "evidence": "installer-inspection.json → NotSigned (minisign updater signature is separate)",
+   "limitations": "BLOCKED_BY_EXTERNAL_CERTIFICATE"
+  },
+  "QWEN LIVE": {
+   "status": "NOT VERIFIED",
+   "evidence": "preflight READY; no real task trace",
+   "limitations": "one authorised Pod is required"
+  },
+  "RC READINESS": {
+   "status": "PARTIAL",
+   "evidence": "artifacts/acceptance-127/final-readiness/rc-readiness.json",
+   "limitations": "RC BLOCKED PENDING LIVE QWEN + CERTIFICATE"
+  }
+ },
+ "statuses": {
+  "PACKAGED_HOST": "PASS",
+  "ISOLATED_INSTALLER_E2E": "NOT PERFORMED",
+  "PRODUCTION_INSTALLATION": "NOT TOUCHED",
+  "FULL_LIVE_AUTONOMY": "NOT VERIFIED",
+  "AUTHENTICODE": "BLOCKED_BY_EXTERNAL_CERTIFICATE",
+  "NMAP_ZAP": "NOT IMPLEMENTED / OPTIONAL",
+  "RC": "RC STAGING READY — BLOCKED PENDING LIVE QWEN + CERTIFICATE"
+ },
+ "spend_usd": 0.0,
+ "all_free_checks_pass": true
+}

@@ -1,0 +1,25 @@
+{
+ "checks": [
+  {
+   "check": "budget_fits_the_rate",
+   "ok": true
+  },
+  {
+   "check": "hard_wall_is_inside_the_budget",
+   "ok": true
+  },
+  {
+   "check": "watchdog_stops_before_the_wall",
+   "ok": true
+  },
+  {
+   "check": "capacity_wait_is_bounded",
+   "ok": true
+  },
+  {
+   "check": "no_capacity_timeout_1200",
+   "ok": true
+  }
+ ],
+ "verdict": "PASS"
+}

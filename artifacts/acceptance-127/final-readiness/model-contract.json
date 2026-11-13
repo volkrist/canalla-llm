@@ -1,0 +1,363 @@
+{
+ "generated_at": "2026-11-13T14:20:16+00:00",
+ "mode": "inspection_of_the_real_application_objects",
+ "note": "No model was contacted. The LIVE verdict can only be produced by classifying a real task journal after a real provider turn.",
+ "model": {
+  "provider_default": "mock",
+  "model": "orcarouter-qwen38-27b-q5km",
+  "context_window": 32768,
+  "task_max_calls": 40,
+  "task_hard_calls": 100,
+  "task_max_runtime_seconds": 1800,
+  "task_hard_runtime_seconds": 7200,
+  "planner_max_tokens": 1200
+ },
+ "providers": {
+  "llamacpp": {
+   "live": true,
+   "supports_tools": true
+  },
+  "canalla-cloud": {
+   "live": true,
+   "supports_tools": true
+  },
+  "mock": {
+   "live": false,
+   "supports_tools": true
+  }
+ },
+ "tools": {
+  "count": 80,
+  "names": [
+   "agent_queue",
+   "bitlocker_change",
+   "boot_config",
+   "browser_gui",
+   "change_service_settings",
+   "checkout_purchase",
+   "copy_file",
+   "create_directory",
+   "credential_list",
+   "credential_use",
+   "deep_research",
+   "delete_directory",
+   "delete_file",
+   "delete_registry_key",
+   "delete_registry_value",
+   "email_send",
+   "fill_form_field",
+   "firewall_rule",
+   "format_volume",
+   "get_known_folders",
+   "get_system_info",
+   "git_add",
+   "git_branch",
+   "git_commit",
+   "git_diff",
+   "git_log",
+   "git_push",
+   "git_reset",
+   "git_restore",
+   "git_show",
+   "git_status",
+   "hash_file",
+   "inspect_form",
+   "inspect_process",
+   "inspect_product",
+   "install_software",
+   "list_directory",
+   "list_installed_software",
+   "list_processes",
+   "list_volumes",
+   "manage_partition",
+   "mass_delete",
+   "message_send",
+   "move_file",
+   "patch_file",
+   "process_status",
+   "query_service",
+   "read_file",
+   "read_registry",
+   "registry_read",
+   "registry_write",
+   "restart_service",
+   "run_powershell",
+   "run_process",
+   "run_python",
+   "scheduled_task",
+   "search_code",
+   "search_files",
+   "security_active",
+   "set_environment",
+   "start_service",
+   "stop_process",
+   "stop_service",
+   "submit_form",
+   "system_shutdown",
+   "tor_browser",
+   "tor_fetch",
+   "tor_search",
+   "uninstall_software",
+   "verify_result",
+   "web_agent",
+   "web_browser",
+   "web_fetch",
+   "web_search",
+   "window_act",
+   "window_inspect",
+   "windows_service_control",
+   "windows_service_status",
+   "write_file",
+   "write_registry"
+  ]
+ },
+ "task_states": [
+  "COMPLETED",
+  "CONFLICT",
+  "CREATED",
+  "EXECUTING",
+  "FAILED",
+  "INSPECTING",
+  "INTERRUPTED",
+  "PAUSED",
+  "PLANNING",
+  "QUEUED",
+  "READY",
+  "RECOVERING",
+  "RESEARCHING",
+  "RETRYING",
+  "STOPPED",
+  "STOPPING",
+  "VERIFYING",
+  "WAITING_CONFIRMATION",
+  "WAITING_DEVICE",
+  "WAITING_LLM",
+  "WAITING_USER",
+  "WAITING_WORKSPACE"
+ ],
+ "provenance_kinds": [
+  "MODEL_RESPONSE",
+  "MODEL_TOOL_CALL",
+  "TOOL_RESULT",
+  "VERIFY_FAILED",
+  "VERIFY_PASSED"
+ ],
+ "evidence_chain": [
+  "model -> plan_tools(messages, tools, usage)",
+  "decision -> MODEL_RESPONSE (sealed: provider, model, response_id, tool_call_ids)",
+  "tool_call -> MODEL_TOOL_CALL (sealed: tool_call_id, tool, arguments_digest)",
+  "ToolExecutor.execute -> ToolRun(origin=model, input_digest, result_digest)",
+  "result -> TOOL_RESULT (sealed: executed, result_digest, tool_run_id)",
+  "verify_result -> VERIFY_PASSED/VERIFY_FAILED + task.verification.evidence_ok",
+  "classify(journal) -> REAL_MODEL_CONFIRMED only for a named live provider + runtime"
+ ],
+ "tests": {
+  "model_loop": "apps/backend/tests/test_127_autonomous_e2e.py",
+  "provenance": "apps/backend/tests/test_127_provenance.py",
+  "recovery": "apps/backend/tests/test_127_recovery_e2e.py",
+  "long_task": "apps/backend/tests/test_long_autonomy.py"
+ },
+ "checks": [
+  {
+   "check": "production_model_is_qwen",
+   "ok": true,
+   "detail": "orcarouter-qwen38-27b-q5km"
+  },
+  {
+   "check": "context_window_is_server_side",
+   "ok": true,
+   "detail": "32768"
+  },
+  {
+   "check": "real_provider_declares_live",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "real_provider_name",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "gateway_provider_declares_live",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "gateway_provider_name",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "mock_is_not_live",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "mock_factory_is_explicit",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "provider_supports_tools",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "gateway_supports_tools",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "tool_schemas_are_openai_shape",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "tool_count_at_least_the_agent_core",
+   "ok": true,
+   "detail": "80"
+  },
+  {
+   "check": "tool_registered_write_file",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "tool_registered_read_file",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "tool_registered_run_process",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "tool_registered_run_python",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "tool_registered_window_inspect",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "tool_registered_window_act",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "tool_registered_verify_result",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "tool_registered_deep_research",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "tool_registered_browser_gui",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "tool_registered_security_active",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "tool_registered_agent_queue",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "controller_owns_completion",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "controller_requires_verification",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "state_PLANNING",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "state_EXECUTING",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "state_WAITING_DEVICE",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "state_WAITING_CONFIRMATION",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "state_WAITING_LLM",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "state_INTERRUPTED",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "state_VERIFYING",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "state_COMPLETED",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "state_FAILED",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "journal_kind_MODEL_RESPONSE",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "journal_kind_MODEL_TOOL_CALL",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "journal_kind_TOOL_RESULT",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "real_providers_are_named",
+   "ok": true,
+   "detail": "{'llamacpp', 'canalla-cloud'}"
+  },
+  {
+   "check": "real_runtimes_are_named",
+   "ok": true,
+   "detail": "{'gateway', 'llama.cpp'}"
+  },
+  {
+   "check": "mock_providers_are_named",
+   "ok": true,
+   "detail": ""
+  }
+ ],
+ "verdict": "PASS"
+}

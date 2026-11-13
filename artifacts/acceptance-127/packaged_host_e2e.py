@@ -211,6 +211,7 @@ def main() -> int:
 
     host_env = {
         **os.environ,
+        "ALEX_ACCEPTANCE_RUN": "1",
         "ALEX_BACKEND_URL": base,
         "ALEX_TOKEN": token,
         "ALEX_DEVICE_NAME": "Packaged UIA acceptance",
@@ -268,6 +269,17 @@ def main() -> int:
             task_state = row.status if row else None
             evidence_ok = bool((row.verification or {}).get("evidence_ok")) if row else False
 
+        # The same turn records the model→tool chain. A scripted planner must never be read as a
+        # live model, but the absence of any chain would mean the recording path is broken.
+        from app.agent import provenance as provenance_module
+        from app.config import get_settings
+
+        with SessionLocal() as db:
+            events, runs = provenance_module.from_task(db, task_id) if task_id else ([], [])
+        provenance_verdict = provenance_module.classify(
+            events, secret=get_settings().jwt_secret, tool_runs=runs
+        )
+
         saved = out_file.read_text(encoding="utf-8") if out_file.is_file() else ""
         reloaded = (
             Path(str(out_file) + ".loaded").read_text(encoding="utf-8")
@@ -307,7 +319,13 @@ def main() -> int:
             "verdict": "PASS" if (
                 task_state == "COMPLETED" and evidence_ok and saved == MARKER
                 and reloaded == MARKER and len(shots_made) >= 2
+                and provenance_verdict.model_responses >= 1
+                and provenance_verdict.tool_calls >= 1
+                and provenance_verdict.status == provenance_module.MOCK_MODEL
             ) else "FAIL",
+            "provenance_status": provenance_verdict.status,
+            "provenance_model_responses": provenance_verdict.model_responses,
+            "provenance_tool_calls": provenance_verdict.tool_calls,
             "host_binary": str(HOST_EXE),
             "host_bytes": HOST_EXE.stat().st_size,
             "device_id": device.id,
@@ -339,6 +357,17 @@ def main() -> int:
         host_log.close()
         server.should_exit = True
         time.sleep(0.5)
+        # Remove exactly this run's own credential entry, then prove no test process survived.
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            adv = ctypes.windll.advapi32
+            adv.CredDeleteW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD]
+            adv.CredDeleteW.restype = wintypes.BOOL
+            adv.CredDeleteW("Canalla Acceptance/packaged-uia", 1, 0)
+        except Exception:
+            pass
         subprocess.run(["powershell", "-NoProfile", "-Command",
                         "Get-Process AcceptanceApp -ErrorAction SilentlyContinue | Stop-Process -Force"],
                        capture_output=True)

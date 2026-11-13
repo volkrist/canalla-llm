@@ -1,0 +1,122 @@
+{
+ "generated_at": "2026-11-13T14:19:04+00:00",
+ "devices": [
+  {
+   "id": "203f30cd-7749-4e41-8965-9814bc607b88",
+   "revoked": true,
+   "hash_len": 64
+  },
+  {
+   "id": "886da4d1-c80f-435d-a2bb-1de6879d14a1",
+   "revoked": true,
+   "hash_len": 64
+  },
+  {
+   "id": "80bbbc1a-6a4b-4de2-a232-95d4920f7361",
+   "revoked": false,
+   "hash_len": 64
+  }
+ ],
+ "cleanup": {
+  "temp_removed": true,
+  "temp_path": "C:\\Users\\Volkr\\AppData\\Local\\Temp\\canalla-device-u7cy22au"
+ },
+ "checks": [
+  {
+   "check": "pair_creates_a_device",
+   "ok": true,
+   "detail": "203f30cd-7749-4e41-8965-9814bc607b88"
+  },
+  {
+   "check": "pair_returns_a_credential",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "pair_reports_online",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "heartbeat_accepts_the_credential",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "check": "jobs_accept_the_credential",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "check": "corrupt_credential_is_refused",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "check": "unknown_device_is_refused",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "check": "another_users_device_is_refused",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "check": "re_pair_succeeds",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "check": "superseded_device_is_revoked",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "check": "re_paired_device_works",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "check": "revoke_succeeds",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "check": "revoked_device_is_refused",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "check": "re_pair_after_revoke_works",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "check": "only_the_active_device_is_listed",
+   "ok": true,
+   "detail": "{'80bbbc1a-6a4b-4de2-a232-95d4920f7361'}"
+  },
+  {
+   "check": "integrity_ok",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "revoked_rows_are_kept",
+   "ok": true,
+   "detail": "3"
+  },
+  {
+   "check": "credentials_are_hashed_at_rest",
+   "ok": true,
+   "detail": "[64, 64, 64]"
+  },
+  {
+   "check": "no_plaintext_credential_in_the_database",
+   "ok": true,
+   "detail": ""
+  }
+ ],
+ "verdict": "PASS"
+}

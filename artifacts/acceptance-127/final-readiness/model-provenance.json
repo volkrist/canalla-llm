@@ -1,0 +1,92 @@
+{
+ "generated_at": "2026-11-13T14:20:17+00:00",
+ "classifier_states": [
+  "REAL_MODEL_CONFIRMED",
+  "MOCK_MODEL",
+  "SCRIPTED_PLANNER",
+  "INCOMPLETE_TRACE",
+  "INVALID_PROVENANCE"
+ ],
+ "recording_rules": {
+  "seal": "HMAC-SHA256 over the canonical payload with the deployment secret",
+  "live_requires": "provider in {llamacpp, canalla-cloud} AND runtime in {llama.cpp, gateway}",
+  "result_requires": "executed=true, non-empty result digest, matching arguments digest",
+  "verification_requires": "VERIFY_PASSED with evidence_ok=true",
+  "mock_requires": "provider in MOCK_PROVIDERS or live=false"
+ },
+ "tests": [
+  {
+   "node": "tests/test_127_provenance.py::test_a_live_chain_with_verification_is_confirmed",
+   "ok": true,
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.34s"
+  },
+  {
+   "node": "tests/test_127_provenance.py::test_a_mock_turn_is_never_confirmed",
+   "ok": true,
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.35s"
+  },
+  {
+   "node": "tests/test_127_provenance.py::test_tools_without_a_model_response_are_a_scripted_planner",
+   "ok": true,
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.34s"
+  },
+  {
+   "node": "tests/test_127_provenance.py::test_an_origin_model_run_without_a_model_response_is_invalid",
+   "ok": true,
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.35s"
+  },
+  {
+   "node": "tests/test_127_provenance.py::test_a_missing_tool_result_is_incomplete",
+   "ok": true,
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.31s"
+  },
+  {
+   "node": "tests/test_127_provenance.py::test_a_tool_call_not_declared_by_the_response_is_invalid",
+   "ok": true,
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.35s"
+  },
+  {
+   "node": "tests/test_127_provenance.py::test_a_tampered_record_fails_the_seal",
+   "ok": true,
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.30s"
+  },
+  {
+   "node": "tests/test_127_provenance.py::test_a_tool_result_without_a_call_is_invalid",
+   "ok": true,
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.35s"
+  },
+  {
+   "node": "tests/test_127_provenance.py::test_the_ledger_is_cross_checked_against_the_journal",
+   "ok": true,
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.34s"
+  },
+  {
+   "node": "tests/test_127_provenance.py::test_the_orchestrator_records_the_chain_for_a_declared_live_adapter",
+   "ok": true,
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.34s"
+  },
+  {
+   "node": "tests/test_127_provenance.py::test_the_same_recording_path_never_confirms_an_unrecognised_adapter",
+   "ok": true,
+   "summary": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.36s"
+  }
+ ],
+ "tests_ok": 11,
+ "tests_total": 11,
+ "free_real_model": {
+  "status": "NOT AVAILABLE",
+  "inventory": {
+   "ollama_binary": "C:\\Users\\Volkr\\AppData\\Local\\Programs\\Ollama\\ollama.exe",
+   "ollama_models": [],
+   "gguf_files": [],
+   "llama_server": [],
+   "available": false
+  },
+  "note": "No real local Qwen exists on this machine, and downloading multi-gigabyte weights is out of scope. This is not a project failure: the remote Qwen path is ready and the LIVE run needs owner approval."
+ },
+ "live_verdict": {
+  "status": "NOT YET RUN",
+  "reason": "No real model turn has been recorded. Every synthetic trace in the tests above is a validator check, not a LIVE pass, and FULL LIVE AUTONOMY remains NOT VERIFIED."
+ },
+ "verdict": "PASS"
+}

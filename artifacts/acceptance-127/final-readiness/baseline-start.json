@@ -1,0 +1,349 @@
+{
+ "label": "start",
+ "captured_at": "2026-11-13T13:57:22+00:00",
+ "data_root_present": true,
+ "database_present": true,
+ "git": {
+  "branch": "feature/canalla-1.2.7-autonomous-agent",
+  "head": "07b6edfc43835027455557eb43689f7f3846d351"
+ },
+ "local_device_id": "6413489d-6cae-4183-8446-a3b2339137dc",
+ "counts": {
+  "users": 2,
+  "chats": 54,
+  "messages": 120,
+  "paired_devices": 63,
+  "local_tasks": 30
+ },
+ "integrity": "ok",
+ "foreign_keys": [],
+ "tasks_by_status": {
+  "COMPLETED": 6,
+  "FAILED": 13,
+  "INTERRUPTED": 1,
+  "STOPPED": 10
+ },
+ "devices": [
+  {
+   "id": "1bee1bbe-bc41-4995-ad82-28f065a2a387",
+   "revoked": true,
+   "created_at": "2026-09-21 05:04:30.842913"
+  },
+  {
+   "id": "908c2242-65c4-4dd9-bfc3-c168de3a37c4",
+   "revoked": false,
+   "created_at": "2026-09-22 15:22:23.601922"
+  },
+  {
+   "id": "608ca306-9d98-4dbd-b6ce-33565cecd23a",
+   "revoked": false,
+   "created_at": "2026-10-19 00:48:20.078816"
+  },
+  {
+   "id": "f1331e7e-4432-4bbe-abf0-ad14ff3f30fa",
+   "revoked": false,
+   "created_at": "2026-10-19 08:29:28.942191"
+  },
+  {
+   "id": "9c179040-76e5-4a49-bcc8-583c1067f6d1",
+   "revoked": false,
+   "created_at": "2026-10-19 13:00:34.858778"
+  },
+  {
+   "id": "93d66f3b-a3d7-487c-b2fb-496372151be2",
+   "revoked": false,
+   "created_at": "2026-10-19 22:49:23.438140"
+  },
+  {
+   "id": "c4952af6-db8e-4c73-b4a3-dbd29098002e",
+   "revoked": false,
+   "created_at": "2026-10-19 23:49:23.451086"
+  },
+  {
+   "id": "bd93d631-d421-4a8c-afc7-5cba9cbec7fd",
+   "revoked": false,
+   "created_at": "2026-10-20 00:49:23.472169"
+  },
+  {
+   "id": "773037de-0c39-4db5-882d-c7605ec71ced",
+   "revoked": false,
+   "created_at": "2026-10-20 01:49:23.472476"
+  },
+  {
+   "id": "afafd429-ed4e-478d-ad3f-63e07d571e56",
+   "revoked": false,
+   "created_at": "2026-10-20 02:49:23.484119"
+  },
+  {
+   "id": "c32aef17-0a9b-44a3-ad43-ed894c7feddc",
+   "revoked": false,
+   "created_at": "2026-10-20 03:49:23.497767"
+  },
+  {
+   "id": "9fcb0181-f68e-4d13-ae4e-b0157f83d85a",
+   "revoked": false,
+   "created_at": "2026-10-20 04:49:23.503775"
+  },
+  {
+   "id": "35673a7c-85f9-4484-a373-b4b5ced879a9",
+   "revoked": false,
+   "created_at": "2026-10-20 05:49:23.524385"
+  },
+  {
+   "id": "fb144438-74e7-47bf-becf-517f636b6afc",
+   "revoked": false,
+   "created_at": "2026-10-20 06:49:23.541484"
+  },
+  {
+   "id": "adb3d3ff-445e-49e2-ab5b-2dc369a16eba",
+   "revoked": false,
+   "created_at": "2026-10-20 07:49:23.528393"
+  },
+  {
+   "id": "d6a8a0a5-9379-41ed-9876-bce6d589f14c",
+   "revoked": false,
+   "created_at": "2026-10-20 08:49:23.541401"
+  },
+  {
+   "id": "6e97c272-9d1e-4dfc-a43a-251ee6ad6369",
+   "revoked": false,
+   "created_at": "2026-10-20 09:49:23.541336"
+  },
+  {
+   "id": "e2a6acd4-5eee-45d5-ba4c-c9e9d8159fb5",
+   "revoked": false,
+   "created_at": "2026-10-20 11:49:23.583794"
+  },
+  {
+   "id": "230cb7ee-c377-4819-b926-66aac2684212",
+   "revoked": false,
+   "created_at": "2026-10-20 12:59:23.172367"
+  },
+  {
+   "id": "665b9f2f-e8f1-4934-9e45-25f6425d0d65",
+   "revoked": false,
+   "created_at": "2026-10-20 15:29:31.041545"
+  },
+  {
+   "id": "bddef604-63dd-4536-9e36-b875204d6c0e",
+   "revoked": false,
+   "created_at": "2026-10-20 16:29:31.065398"
+  },
+  {
+   "id": "38dc5922-5ae6-4c23-a072-5da6593409bb",
+   "revoked": false,
+   "created_at": "2026-10-24 11:14:12.779825"
+  },
+  {
+   "id": "8fbe07ea-1575-47e0-a813-5404fb407144",
+   "revoked": false,
+   "created_at": "2026-10-24 12:14:12.797017"
+  },
+  {
+   "id": "a2a5e2e2-0d53-4bdd-9d27-625ffa56c5f9",
+   "revoked": false,
+   "created_at": "2026-10-24 13:14:12.779464"
+  },
+  {
+   "id": "19ac14e4-9652-4ad1-bba6-c38a3f212974",
+   "revoked": false,
+   "created_at": "2026-10-24 14:42:49.749497"
+  },
+  {
+   "id": "ff830972-9603-4d1a-9633-73536a19d436",
+   "revoked": false,
+   "created_at": "2026-10-24 15:42:49.737860"
+  },
+  {
+   "id": "1801c2bf-f6e9-4c1e-af18-f5bbd264e929",
+   "revoked": false,
+   "created_at": "2026-10-24 16:42:49.616667"
+  },
+  {
+   "id": "c1aa990c-5969-4f94-891b-63497ab41062",
+   "revoked": false,
+   "created_at": "2026-10-24 17:42:49.470138"
+  },
+  {
+   "id": "80855d40-d838-4efc-a46a-2e4b57be56f2",
+   "revoked": false,
+   "created_at": "2026-10-24 18:42:49.443765"
+  },
+  {
+   "id": "19d78ef4-0c3a-4107-b366-14a23e47b26d",
+   "revoked": false,
+   "created_at": "2026-10-24 19:42:49.421296"
+  },
+  {
+   "id": "30c03373-a716-4bcb-b32d-71e27dbaf67f",
+   "revoked": false,
+   "created_at": "2026-10-24 20:42:49.414266"
+  },
+  {
+   "id": "0e0b9076-4be3-4a21-a26d-0fc19642e07a",
+   "revoked": false,
+   "created_at": "2026-10-24 21:42:49.410994"
+  },
+  {
+   "id": "45d347d4-a216-4561-8732-4f0ab7ff7bda",
+   "revoked": false,
+   "created_at": "2026-10-24 22:42:49.420137"
+  },
+  {
+   "id": "9f15e86c-7dd0-43c1-8269-2398d961ba35",
+   "revoked": false,
+   "created_at": "2026-10-24 23:42:49.411184"
+  },
+  {
+   "id": "7473998f-4186-4446-a359-a434eb3c4b7e",
+   "revoked": false,
+   "created_at": "2026-10-25 00:42:49.421203"
+  },
+  {
+   "id": "0e23b0bd-45b0-4fe2-a256-09e7d36fe6fa",
+   "revoked": false,
+   "created_at": "2026-10-25 03:45:49.955294"
+  },
+  {
+   "id": "294c9e2f-ba51-4a56-94b1-ad5b62bfbf42",
+   "revoked": false,
+   "created_at": "2026-10-25 05:45:49.914043"
+  },
+  {
+   "id": "ddb147d7-1812-4c16-9cc8-4d0b30626e5e",
+   "revoked": false,
+   "created_at": "2026-10-26 12:08:47.843185"
+  },
+  {
+   "id": "12ebcbdf-7cef-40e1-bd9e-7b5d56af1f6c",
+   "revoked": false,
+   "created_at": "2026-10-26 13:08:47.827369"
+  },
+  {
+   "id": "67f17e0b-99b4-4ec4-b50f-06b6b17e463a",
+   "revoked": false,
+   "created_at": "2026-10-26 14:08:47.875930"
+  },
+  {
+   "id": "5e78a9fc-7684-4783-b7a8-5b4c9de55991",
+   "revoked": false,
+   "created_at": "2026-10-26 15:08:47.817929"
+  },
+  {
+   "id": "3d10d30a-c874-4900-a5a3-1610fa7e1653",
+   "revoked": false,
+   "created_at": "2026-10-26 16:08:47.817024"
+  },
+  {
+   "id": "50d2ac31-6d97-42fa-8461-fd9f619da043",
+   "revoked": false,
+   "created_at": "2026-10-26 17:08:47.807577"
+  },
+  {
+   "id": "5786a3b2-d3e6-4615-a6ce-7a0b174093af",
+   "revoked": false,
+   "created_at": "2026-10-26 18:08:48.050860"
+  },
+  {
+   "id": "70e44ce0-af03-42d7-a9bf-ffde74743dc7",
+   "revoked": false,
+   "created_at": "2026-10-26 19:08:48.064721"
+  },
+  {
+   "id": "c457e910-bf91-49c2-895d-3ccb91a4ad21",
+   "revoked": false,
+   "created_at": "2026-10-26 20:08:47.932564"
+  },
+  {
+   "id": "9f0279e8-45f7-43d6-b578-7fb95c05569b",
+   "revoked": false,
+   "created_at": "2026-10-26 21:08:47.925450"
+  },
+  {
+   "id": "2a178834-869b-47cf-81fa-6f1223e8cf1c",
+   "revoked": false,
+   "created_at": "2026-10-26 22:08:47.944062"
+  },
+  {
+   "id": "a200870d-513d-4e6a-a84c-7af44f80dea3",
+   "revoked": false,
+   "created_at": "2026-10-26 23:08:47.952897"
+  },
+  {
+   "id": "10d838d2-cac3-4e17-ad74-d801166c4bfb",
+   "revoked": false,
+   "created_at": "2026-10-27 00:57:52.854626"
+  },
+  {
+   "id": "fc095026-3a1e-4ca9-912b-f95083b40fd1",
+   "revoked": false,
+   "created_at": "2026-10-27 01:57:52.880831"
+  },
+  {
+   "id": "5dc0753e-7c36-40fc-a49e-786723c04b27",
+   "revoked": false,
+   "created_at": "2026-10-27 02:57:52.862175"
+  },
+  {
+   "id": "951cf004-d6f9-4698-a0b2-8c2b4ad59c9f",
+   "revoked": false,
+   "created_at": "2026-10-27 03:57:52.927804"
+  },
+  {
+   "id": "eca08649-198c-48b0-aa37-7771db53f7b9",
+   "revoked": false,
+   "created_at": "2026-10-27 04:57:52.958817"
+  },
+  {
+   "id": "57eaf277-985a-40f3-b1ed-5cffc420b9ba",
+   "revoked": false,
+   "created_at": "2026-10-27 05:57:52.966096"
+  },
+  {
+   "id": "aeb76c62-2f72-404f-80a7-907b1493b7ce",
+   "revoked": false,
+   "created_at": "2026-10-27 06:57:52.944253"
+  },
+  {
+   "id": "0e6f02ee-c536-4f3c-b8a7-1fe5d14247e1",
+   "revoked": false,
+   "created_at": "2026-10-27 07:57:52.980326"
+  },
+  {
+   "id": "e82e1a0a-2ddd-417c-89b3-c9096161a47f",
+   "revoked": false,
+   "created_at": "2026-10-27 08:57:52.978986"
+  },
+  {
+   "id": "f3548022-a676-463c-9fc5-b05bbd5ac907",
+   "revoked": true,
+   "created_at": "2026-10-27 11:12:43.507170"
+  },
+  {
+   "id": "861dfefa-0bf9-4320-94e6-084a8c0cf546",
+   "revoked": true,
+   "created_at": "2026-11-13 12:11:03.746668"
+  },
+  {
+   "id": "56e4716c-0d62-483e-a3fd-7de6d6b5a1ec",
+   "revoked": true,
+   "created_at": "2026-11-13 12:13:27.705383"
+  },
+  {
+   "id": "66276759-da41-4bba-9e45-ba36c2b4121e",
+   "revoked": true,
+   "created_at": "2026-11-13 12:15:27.714403"
+  },
+  {
+   "id": "6413489d-6cae-4183-8446-a3b2339137dc",
+   "revoked": false,
+   "created_at": "2026-11-13 12:16:31.724065"
+  }
+ ],
+ "active_device_id": "6413489d-6cae-4183-8446-a3b2339137dc",
+ "verdict": "OK",
+ "installed_app": {
+  "health": "up",
+  "version": "1.2.6"
+ }
+}

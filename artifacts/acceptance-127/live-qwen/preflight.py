@@ -19,6 +19,10 @@ BACKEND = REPO / "apps" / "backend"
 OUT = Path(__file__).resolve().parent
 GATEWAY = "https://gateway.12testers.store"
 BUDGET_USD = 0.15
+HOURLY_RATE = 1.09
+
+sys.path.insert(0, str(BACKEND))
+from app.compute import cost_policy  # noqa: E402
 
 
 def http_json(url: str, timeout: float = 10.0) -> tuple[int, dict | None]:
@@ -115,12 +119,32 @@ def main() -> int:
     balance = pods.get("balance_usd")
     if isinstance(balance, (int, float)):
         remaining = round(float(balance), 4)
+    policy = cost_policy.plan(BUDGET_USD, HOURLY_RATE)
     report["budget"] = {
         "cap_usd": BUDGET_USD,
         "balance_usd": remaining,
-        "worst_case_pod_usd_at_1_09": round(480 / 3600 * 1.09, 4),
-        "ok": remaining is None or remaining > BUDGET_USD,
+        "policy": policy.to_dict(),
+        "ok": (remaining is None or remaining > BUDGET_USD) and policy.feasible,
     }
+
+    # A paid run cannot be executed if the free parts of the harness are broken.
+    watchdog = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "live_qwen_watchdog.py"), "--self-test"],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    report["watchdog"] = {"ok": watchdog.returncode == 0, "self_test": "PASS" if watchdog.returncode == 0 else "FAIL"}
+    try:
+        from app.agent import provenance
+
+        report["provenance"] = {
+            "ok": provenance.REAL_PROVIDERS == {"llamacpp", "canalla-cloud"}
+            and bool(provenance.REAL_RUNTIMES),
+            "real_providers": sorted(provenance.REAL_PROVIDERS),
+        }
+    except Exception as error:  # noqa: BLE001 - a broken import is a blocker, not a pass
+        report["provenance"] = {"ok": False, "error": str(error)[:200]}
 
     with socket.socket() as sock:
         busy = sock.connect_ex(("127.0.0.1", 8000)) == 0

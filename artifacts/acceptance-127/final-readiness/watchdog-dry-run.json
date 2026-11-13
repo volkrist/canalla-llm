@@ -1,0 +1,436 @@
+{
+ "generated_at": "2026-11-13T13:54:39+00:00",
+ "mode": "dry_run_fake_provider",
+ "note": "A fake provider proves the watchdog's decisions. No Pod was created.",
+ "plan": {
+  "budget_usd": 0.15,
+  "hourly_rate_usd": 1.09,
+  "billing_granularity_seconds": 60,
+  "termination_grace_seconds": 30,
+  "watchdog_margin_seconds": 10,
+  "watchdog_poll_seconds": 5,
+  "capacity_timeout_seconds": 60,
+  "max_billed_seconds": 480,
+  "hard_wall_seconds": 450,
+  "stop_request_seconds": 440,
+  "worst_case_usd": 0.145333,
+  "budget_headroom_usd": 0.004667,
+  "feasible": true,
+  "reasons": []
+ },
+ "scenarios": {
+  "ok": {
+   "verdict": "OK",
+   "plan": {
+    "budget_usd": 0.15,
+    "hourly_rate_usd": 1.09,
+    "billing_granularity_seconds": 60,
+    "termination_grace_seconds": 30,
+    "watchdog_margin_seconds": 10,
+    "watchdog_poll_seconds": 5,
+    "capacity_timeout_seconds": 60,
+    "max_billed_seconds": 480,
+    "hard_wall_seconds": 450,
+    "stop_request_seconds": 440,
+    "worst_case_usd": 0.145333,
+    "budget_headroom_usd": 0.004667,
+    "feasible": true,
+    "reasons": []
+   },
+   "events": [
+    {
+     "at_seconds": 0.0,
+     "kind": "pod-observed",
+     "detail": "pod-ok at $1.0900/h"
+    },
+    {
+     "at_seconds": 440.0,
+     "kind": "stop-requested",
+     "detail": "elapsed=440.0s cost=$0.1332"
+    },
+    {
+     "at_seconds": 460.0,
+     "kind": "pod-gone",
+     "detail": "billed~460.0s"
+    }
+   ],
+   "billed_seconds": 460.0,
+   "estimated_cost_usd": 0.139278,
+   "stop_requested_at": 440.0,
+   "termination_confirmed": true,
+   "pods_remaining": 0,
+   "reasons": []
+  },
+  "capacity_unavailable": {
+   "verdict": "CAPACITY_UNAVAILABLE",
+   "plan": {
+    "budget_usd": 0.15,
+    "hourly_rate_usd": 1.09,
+    "billing_granularity_seconds": 60,
+    "termination_grace_seconds": 30,
+    "watchdog_margin_seconds": 10,
+    "watchdog_poll_seconds": 5,
+    "capacity_timeout_seconds": 60,
+    "max_billed_seconds": 480,
+    "hard_wall_seconds": 450,
+    "stop_request_seconds": 440,
+    "worst_case_usd": 0.145333,
+    "budget_headroom_usd": 0.004667,
+    "feasible": true,
+    "reasons": []
+   },
+   "events": [
+    {
+     "at_seconds": 0.0,
+     "kind": "no-pod",
+     "detail": ""
+    }
+   ],
+   "billed_seconds": 0.0,
+   "estimated_cost_usd": 0.0,
+   "stop_requested_at": null,
+   "termination_confirmed": false,
+   "pods_remaining": 0,
+   "reasons": [
+    "no Pod exists: nothing to supervise and nothing to spend",
+    "resolved in 0.000s of real time"
+   ]
+  },
+  "price_above_budget": {
+   "verdict": "PRICE_ABOVE_BUDGET",
+   "plan": {
+    "budget_usd": 0.15,
+    "hourly_rate_usd": 1.09,
+    "billing_granularity_seconds": 60,
+    "termination_grace_seconds": 30,
+    "watchdog_margin_seconds": 10,
+    "watchdog_poll_seconds": 5,
+    "capacity_timeout_seconds": 60,
+    "max_billed_seconds": 480,
+    "hard_wall_seconds": 450,
+    "stop_request_seconds": 440,
+    "worst_case_usd": 0.145333,
+    "budget_headroom_usd": 0.004667,
+    "feasible": true,
+    "reasons": []
+   },
+   "events": [
+    {
+     "at_seconds": 0.0,
+     "kind": "pod-observed",
+     "detail": "pod-pricey at $1.7900/h"
+    },
+    {
+     "at_seconds": 0.0,
+     "kind": "price-refused",
+     "detail": "selected rate $1.7900/h makes the worst case $0.2387 exceed the $0.15 budget"
+    },
+    {
+     "at_seconds": 305.0,
+     "kind": "stop-requested",
+     "detail": "elapsed=305.0s cost=$0.1517"
+    },
+    {
+     "at_seconds": 320.0,
+     "kind": "pod-gone",
+     "detail": "billed~320.0s"
+    }
+   ],
+   "billed_seconds": 320.0,
+   "estimated_cost_usd": 0.159111,
+   "stop_requested_at": 305.0,
+   "termination_confirmed": true,
+   "pods_remaining": 0,
+   "reasons": [
+    "selected rate $1.7900/h makes the worst case $0.2387 exceed the $0.15 budget"
+   ]
+  },
+  "termination_unconfirmed": {
+   "verdict": "TERMINATION_UNCONFIRMED",
+   "plan": {
+    "budget_usd": 0.15,
+    "hourly_rate_usd": 1.09,
+    "billing_granularity_seconds": 60,
+    "termination_grace_seconds": 30,
+    "watchdog_margin_seconds": 10,
+    "watchdog_poll_seconds": 5,
+    "capacity_timeout_seconds": 60,
+    "max_billed_seconds": 480,
+    "hard_wall_seconds": 450,
+    "stop_request_seconds": 440,
+    "worst_case_usd": 0.145333,
+    "budget_headroom_usd": 0.004667,
+    "feasible": true,
+    "reasons": []
+   },
+   "events": [
+    {
+     "at_seconds": 0.0,
+     "kind": "pod-observed",
+     "detail": "pod-stuck at $1.0900/h"
+    },
+    {
+     "at_seconds": 125.0,
+     "kind": "termination-unconfirmed",
+     "detail": ""
+    }
+   ],
+   "billed_seconds": 0.0,
+   "estimated_cost_usd": 0.0,
+   "stop_requested_at": null,
+   "termination_confirmed": false,
+   "pods_remaining": 1,
+   "reasons": [
+    "the Pod was not confirmed gone before the deadline; it may still be billing"
+   ]
+  },
+  "terminate_refused": {
+   "verdict": "TERMINATION_UNCONFIRMED",
+   "plan": {
+    "budget_usd": 0.15,
+    "hourly_rate_usd": 1.09,
+    "billing_granularity_seconds": 60,
+    "termination_grace_seconds": 30,
+    "watchdog_margin_seconds": 10,
+    "watchdog_poll_seconds": 5,
+    "capacity_timeout_seconds": 60,
+    "max_billed_seconds": 480,
+    "hard_wall_seconds": 450,
+    "stop_request_seconds": 440,
+    "worst_case_usd": 0.145333,
+    "budget_headroom_usd": 0.004667,
+    "feasible": true,
+    "reasons": []
+   },
+   "events": [
+    {
+     "at_seconds": 0.0,
+     "kind": "pod-observed",
+     "detail": "pod-refused at $1.0900/h"
+    },
+    {
+     "at_seconds": 185.0,
+     "kind": "termination-unconfirmed",
+     "detail": ""
+    }
+   ],
+   "billed_seconds": 0.0,
+   "estimated_cost_usd": 0.0,
+   "stop_requested_at": null,
+   "termination_confirmed": false,
+   "pods_remaining": 1,
+   "reasons": [
+    "the Pod was not confirmed gone before the deadline; it may still be billing"
+   ]
+  },
+  "late_pod": {
+   "verdict": "OK",
+   "plan": {
+    "budget_usd": 0.15,
+    "hourly_rate_usd": 1.09,
+    "billing_granularity_seconds": 60,
+    "termination_grace_seconds": 30,
+    "watchdog_margin_seconds": 10,
+    "watchdog_poll_seconds": 5,
+    "capacity_timeout_seconds": 60,
+    "max_billed_seconds": 480,
+    "hard_wall_seconds": 450,
+    "stop_request_seconds": 440,
+    "worst_case_usd": 0.145333,
+    "budget_headroom_usd": 0.004667,
+    "feasible": true,
+    "reasons": []
+   },
+   "events": [
+    {
+     "at_seconds": 0.0,
+     "kind": "waiting-for-pod",
+     "detail": ""
+    },
+    {
+     "at_seconds": 5.0,
+     "kind": "waiting-for-pod",
+     "detail": ""
+    },
+    {
+     "at_seconds": 10.0,
+     "kind": "waiting-for-pod",
+     "detail": ""
+    },
+    {
+     "at_seconds": 15.0,
+     "kind": "waiting-for-pod",
+     "detail": ""
+    },
+    {
+     "at_seconds": 20.0,
+     "kind": "waiting-for-pod",
+     "detail": ""
+    },
+    {
+     "at_seconds": 25.0,
+     "kind": "waiting-for-pod",
+     "detail": ""
+    },
+    {
+     "at_seconds": 30.0,
+     "kind": "pod-observed",
+     "detail": "pod-late at $1.0900/h"
+    },
+    {
+     "at_seconds": 440.0,
+     "kind": "stop-requested",
+     "detail": "elapsed=440.0s cost=$0.1332"
+    },
+    {
+     "at_seconds": 450.0,
+     "kind": "pod-gone",
+     "detail": "billed~450.0s"
+    }
+   ],
+   "billed_seconds": 450.0,
+   "estimated_cost_usd": 0.13625,
+   "stop_requested_at": 440.0,
+   "termination_confirmed": true,
+   "pods_remaining": 0,
+   "reasons": []
+  },
+  "multiple_pods": {
+   "verdict": "MULTIPLE_PODS",
+   "plan": {
+    "budget_usd": 0.15,
+    "hourly_rate_usd": 1.09,
+    "billing_granularity_seconds": 60,
+    "termination_grace_seconds": 30,
+    "watchdog_margin_seconds": 10,
+    "watchdog_poll_seconds": 5,
+    "capacity_timeout_seconds": 60,
+    "max_billed_seconds": 480,
+    "hard_wall_seconds": 450,
+    "stop_request_seconds": 440,
+    "worst_case_usd": 0.145333,
+    "budget_headroom_usd": 0.004667,
+    "feasible": true,
+    "reasons": []
+   },
+   "events": [
+    {
+     "at_seconds": 0.0,
+     "kind": "multiple-pods",
+     "detail": "pod-a,pod-b"
+    },
+    {
+     "at_seconds": 0.0,
+     "kind": "pod-observed",
+     "detail": "pod-a at $1.0900/h"
+    },
+    {
+     "at_seconds": 10.0,
+     "kind": "pod-gone",
+     "detail": "billed~10.0s"
+    }
+   ],
+   "billed_seconds": 10.0,
+   "estimated_cost_usd": 0.003028,
+   "stop_requested_at": null,
+   "termination_confirmed": true,
+   "pods_remaining": 0,
+   "reasons": [
+    "2 Pods exist where at most one is allowed"
+   ]
+  }
+ },
+ "checks": [
+  {
+   "check": "stop_requested_within_the_hard_wall",
+   "ok": true,
+   "detail": "440.0"
+  },
+  {
+   "check": "termination_confirmed",
+   "ok": true,
+   "detail": "OK"
+  },
+  {
+   "check": "no_pods_remaining",
+   "ok": true,
+   "detail": "0"
+  },
+  {
+   "check": "cost_within_budget",
+   "ok": true,
+   "detail": "$0.1393"
+  },
+  {
+   "check": "verdict_ok",
+   "ok": true,
+   "detail": "OK"
+  },
+  {
+   "check": "capacity_fails_fast",
+   "ok": true,
+   "detail": "CAPACITY_UNAVAILABLE"
+  },
+  {
+   "check": "capacity_creates_nothing",
+   "ok": true,
+   "detail": "0"
+  },
+  {
+   "check": "price_refused",
+   "ok": true,
+   "detail": "PRICE_ABOVE_BUDGET"
+  },
+  {
+   "check": "price_still_stopped",
+   "ok": true,
+   "detail": "True"
+  },
+  {
+   "check": "unconfirmed_reported",
+   "ok": true,
+   "detail": "TERMINATION_UNCONFIRMED"
+  },
+  {
+   "check": "unconfirmed_does_not_claim_cleanup",
+   "ok": true,
+   "detail": "False"
+  },
+  {
+   "check": "refused_terminate_is_loud",
+   "ok": true,
+   "detail": "TERMINATION_UNCONFIRMED ['the Pod was not confirmed gone before the deadline; it may still be billing']"
+  },
+  {
+   "check": "a_late_pod_is_supervised",
+   "ok": true,
+   "detail": "OK"
+  },
+  {
+   "check": "a_late_pod_still_stops_inside_the_wall",
+   "ok": true,
+   "detail": 440.0
+  },
+  {
+   "check": "a_second_pod_is_an_emergency",
+   "ok": true,
+   "detail": "MULTIPLE_PODS"
+  },
+  {
+   "check": "a_second_pod_is_stopped",
+   "ok": true,
+   "detail": "True"
+  },
+  {
+   "check": "no_long_capacity_wait",
+   "ok": true,
+   "detail": "60s"
+  },
+  {
+   "check": "billing_rounding_included",
+   "ok": true,
+   "detail": "480"
+  }
+ ],
+ "verdict": "PASS"
+}
