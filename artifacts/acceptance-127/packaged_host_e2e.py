@@ -187,7 +187,8 @@ def main() -> int:
     port = free_port()
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
     server = uvicorn.Server(config)
-    threading.Thread(target=server.run, daemon=True).start()
+    server_thread = threading.Thread(target=server.run, daemon=True)
+    server_thread.start()
     base = f"http://127.0.0.1:{port}"
     for _ in range(100):
         try:
@@ -356,7 +357,10 @@ def main() -> int:
             host.kill()
         host_log.close()
         server.should_exit = True
-        time.sleep(0.5)
+        server_thread.join(timeout=10)
+        from app.database import engine as _engine
+
+        _engine.dispose()
         # Remove exactly this run's own credential entry, then prove no test process survived.
         try:
             import ctypes
@@ -371,6 +375,14 @@ def main() -> int:
         subprocess.run(["powershell", "-NoProfile", "-Command",
                         "Get-Process AcceptanceApp -ErrorAction SilentlyContinue | Stop-Process -Force"],
                        capture_output=True)
+        # The evidence was copied into the repository above; the scratch tree is this run's own.
+        import shutil
+
+        for _ in range(20):
+            shutil.rmtree(work, ignore_errors=True)
+            if not work.exists():
+                break
+            time.sleep(0.5)
 
 
 if __name__ == "__main__":

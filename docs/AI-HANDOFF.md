@@ -608,3 +608,27 @@ dbus-run-session -- bash -c 'echo -n canalla-test | gnome-keyring-daemon --unloc
 - A client can never widen a technical bound, set another installation's policy or claim compute
   ownership
 - Local logout never deletes the installation credential; only an explicit Disconnect does
+
+## 16. 1.2.7 autonomy invariants (added by the final-readiness stage)
+
+- **Provenance is written by the adapter, not by the caller.** Only `LlamaCppProvider`
+  (`llamacpp`, runtime `llama.cpp`) and `GatewayProvider` (`canalla-cloud`, runtime `gateway`) may
+  claim `live=true`. A new adapter must be added to `REAL_PROVIDERS`/`REAL_RUNTIMES` on purpose;
+  an unknown "live" claim is `INVALID_PROVENANCE`, never a pass. Contract:
+  [model-provenance.md](model-provenance.md).
+- **The chain is sealed.** `MODEL_RESPONSE` → `MODEL_TOOL_CALL` → `TOOL_RESULT` → `VERIFY_PASSED`
+  are HMAC-sealed into `task_events`; `classify()` is the only thing that may produce a LIVE
+  verdict. `MOCK_MODEL`, `SCRIPTED_PLANNER` and `INCOMPLETE_TRACE` are not passes.
+- **Paid-run arithmetic lives in `app/compute/cost_policy.py`.** Never restate "seconds × rate" as
+  a ceiling: billing is rounded up and termination takes time. At $0.15 and $1.09/h the numbers are
+  480 s billed, 450 s usable, stop at 440 s. A Pod whose real rate breaks the worst case is refused
+  before creation.
+- **The watchdog is a separate process.** `scripts/live_qwen_watchdog.py` stops the one Pod even if
+  the agent hangs; a second Pod is `MULTIPLE_PODS` and both are stopped.
+- **Acceptance never touches production identity.** Any harness that runs a host must set
+  `ALEX_ACCEPTANCE_RUN=1`, `ALEX_DEVICE_DIR` and a unique `ALEX_DEVICE_CREDENTIAL_TARGET`. With the
+  marker set, a missing or production target resolves to `Alex LLM/unusable-acceptance-*`, never to
+  `Alex LLM/device-credential`.
+- **The LIVE acceptance is one command, guarded by a phrase.** 
+  `artifacts/acceptance-127/live-qwen/live_acceptance.py --live --confirm "I AUTHORIZE ONE PAID POD"`.
+  It refuses without preflight READY, without an empty Pod list and without a feasible budget.
