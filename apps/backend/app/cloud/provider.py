@@ -10,6 +10,7 @@ contract, so the chat pipeline is unchanged: only the transport moves behind the
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -90,6 +91,8 @@ class GatewayProvider(LLMProvider):
     # serves works through it. This used to be `False`, which made every model-driven tool call
     # impossible in production and injected "tool calling unsupported" into the model context.
     supports_tools = True
+    provenance_name = "canalla-cloud"
+    live_model = True
 
     # `/health` is the desktop's liveness contract (the runtime probe allows 400 ms) and the
     # UI polls it, so readiness is cached: at most one upstream probe per TTL and never a
@@ -427,6 +430,27 @@ class GatewayProvider(LLMProvider):
                 call["id"] = f"call_plan_{position}"
             if not call["function"].get("name"):
                 raise LLMError("malformed_response")
+        # The transport's own request id plus the Gateway's response header give the trace a link
+        # to the exact completion, without ever recording a token or a credential.
+        upstream_id = ""
+        try:
+            upstream_id = str(
+                response.headers.get("x-request-id") or response.headers.get("x-alex-request-id") or ""
+            )[:160]
+        except Exception:
+            upstream_id = ""
+        message["_provenance"] = {
+            "model_request_id": request_id,
+            "provider": "canalla-cloud",
+            "model": str(body.get("model") or self.settings.llm_model),
+            "response_id": upstream_id or request_id,
+            "live": True,
+            "runtime": "gateway",
+            "endpoint_fingerprint": hashlib.sha256(self.client.url.encode("utf-8", "replace")).hexdigest()[
+                :12
+            ],
+            "elapsed_ms": int((time.monotonic() - started_at) * 1000),
+        }
         logger.info(
             "gateway_plan_done id=%s elapsed_ms=%d first_token_ms=%s tool_calls=%d completed=%s",
             request_id,

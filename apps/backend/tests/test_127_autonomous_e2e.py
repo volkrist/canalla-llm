@@ -437,6 +437,20 @@ def test_one_goal_research_free_build_run_gui_fix_and_verify(client, auth, tmp_p
         assert tools.count("run_python") >= 3  # two pytest runs and the server
         assert "verify_result" in tools and "browser_gui" in tools
 
+    # -- every model turn and every executed tool is linked in the provenance journal, and a
+    # scripted planner is never classified as a live model.
+    from app.agent import provenance as provenance_module
+    from app.config import get_settings
+
+    with SessionLocal() as db:
+        events, runs = provenance_module.from_task(db, context.task_id)
+    verdict = provenance_module.classify(events, secret=get_settings().jwt_secret, tool_runs=runs)
+    assert verdict.model_responses >= 1, "no MODEL_RESPONSE was recorded for the planner turns"
+    assert verdict.tool_calls >= 1, verdict.to_dict()
+    assert any(item["kind"] == "TOOL_RESULT" and item.get("tool_run_id") for item in verdict.chain)
+    assert verdict.status == provenance_module.MOCK_MODEL, verdict.status
+    assert verdict.ok is False
+
     # -- the browser really drove the GUI: screenshots exist and data persisted in SQLite
     screenshots = sorted((root / "gui").glob("*.png"))
     assert len(screenshots) >= 4, screenshots

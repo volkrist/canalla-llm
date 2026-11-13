@@ -45,6 +45,10 @@ KINDS = {
     "TINYFISH_BROWSER_STARTED",
     "TINYFISH_BROWSER_CONNECTED",
     "TINYFISH_BROWSER_CLOSED",
+    # Model provenance: what the provider reported, what it proposed, what really ran.
+    "MODEL_RESPONSE",
+    "MODEL_TOOL_CALL",
+    "TOOL_RESULT",
 }
 
 

@@ -11,13 +11,41 @@
 use std::fs;
 use std::path::PathBuf;
 
+const PRODUCTION_TARGET: &str = "Alex LLM/device-credential";
+
+fn acceptance_run() -> bool {
+    match std::env::var("ALEX_ACCEPTANCE_RUN") {
+        Ok(value) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => false,
+    }
+}
+
 fn credential_target() -> String {
     let raw = match std::env::var("ALEX_DEVICE_CREDENTIAL_TARGET") {
         Ok(value) => value.trim().to_string(),
-        Err(_) => return "Alex LLM/device-credential".into(),
+        Err(_) => {
+            // A harness that marks itself as an acceptance run but forgets its own target must
+            // fail loudly. Falling back to production is how a test overwrote the operator's
+            // identity once already; the fix is an explicit non-production target, not a retry.
+            if acceptance_run() {
+                return "Alex LLM/unusable-acceptance-without-target".into();
+            }
+            return PRODUCTION_TARGET.into();
+        }
     };
     if raw.is_empty() {
-        return "Alex LLM/device-credential".into();
+        if acceptance_run() {
+            return "Alex LLM/unusable-acceptance-without-target".into();
+        }
+        return PRODUCTION_TARGET.into();
+    }
+    // An acceptance run may name the production target explicitly, but that is never what it
+    // meant: refuse it into a namespaced target instead of touching the installed app.
+    if acceptance_run() && raw == PRODUCTION_TARGET {
+        return "Alex LLM/unusable-acceptance-production-target".into();
     }
     // An acceptance harness is allowed to use its own target (`Canalla Acceptance/…`), and that
     // target must be honoured. The previous rule required an `Alex LLM/` prefix and silently fell
@@ -342,6 +370,58 @@ mod tests {
         match previous {
             Some(value) => std::env::set_var("ALEX_DEVICE_CREDENTIAL_TARGET", value),
             None => std::env::remove_var("ALEX_DEVICE_CREDENTIAL_TARGET"),
+        }
+    }
+
+    /// An acceptance run that forgot its own target must not fall into the production identity.
+    #[test]
+    fn an_acceptance_run_without_a_target_never_uses_production() {
+        let _guard = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let previous_target = std::env::var("ALEX_DEVICE_CREDENTIAL_TARGET").ok();
+        let previous_run = std::env::var("ALEX_ACCEPTANCE_RUN").ok();
+        std::env::remove_var("ALEX_DEVICE_CREDENTIAL_TARGET");
+        std::env::set_var("ALEX_ACCEPTANCE_RUN", "1");
+        assert_eq!(
+            credential_target(),
+            "Alex LLM/unusable-acceptance-without-target"
+        );
+        std::env::set_var("ALEX_DEVICE_CREDENTIAL_TARGET", "   ");
+        assert_eq!(
+            credential_target(),
+            "Alex LLM/unusable-acceptance-without-target"
+        );
+        restore_env("ALEX_DEVICE_CREDENTIAL_TARGET", previous_target);
+        restore_env("ALEX_ACCEPTANCE_RUN", previous_run);
+    }
+
+    /// Even an explicit production target is refused in an acceptance run: the intent of the run
+    /// is a test, and a test never owns the user's device identity.
+    #[test]
+    fn an_acceptance_run_refuses_the_production_target() {
+        let _guard = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let previous_target = std::env::var("ALEX_DEVICE_CREDENTIAL_TARGET").ok();
+        let previous_run = std::env::var("ALEX_ACCEPTANCE_RUN").ok();
+        std::env::set_var("ALEX_DEVICE_CREDENTIAL_TARGET", PRODUCTION_TARGET);
+        std::env::set_var("ALEX_ACCEPTANCE_RUN", "true");
+        assert_eq!(
+            credential_target(),
+            "Alex LLM/unusable-acceptance-production-target"
+        );
+        // Without the acceptance marker the installed application keeps its own target.
+        std::env::remove_var("ALEX_ACCEPTANCE_RUN");
+        assert_eq!(credential_target(), PRODUCTION_TARGET);
+        restore_env("ALEX_DEVICE_CREDENTIAL_TARGET", previous_target);
+        restore_env("ALEX_ACCEPTANCE_RUN", previous_run);
+    }
+
+    fn restore_env(name: &str, previous: Option<String>) {
+        match previous {
+            Some(value) => std::env::set_var(name, value),
+            None => std::env::remove_var(name),
         }
     }
 

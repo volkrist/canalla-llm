@@ -234,6 +234,11 @@ class ExecutionContext:
     # The planner went silent, but the tool phase had already done real work: the final answer is
     # attempted in this same turn, and the task is concluded only after it exists.
     final_after_halt: bool = False
+    # Provenance of the model turn that proposed the call now being executed. Set by the
+    # orchestrator from what the provider reported, never by a tool.
+    model_provenance: dict = field(default_factory=dict)
+    current_tool_call_id: str = ""
+    provenance_step: int = 0
 
     async def progress(self, **values):
         # Providers pass only documented, allowlisted metadata, never raw responses.
@@ -830,6 +835,12 @@ class ToolExecutor:
                 with SessionLocal() as db:
                     row = _run_row(db, run_id)
                     row.status, row.finished_at = "completed", now()
+                    if not row.result_digest:
+                        from ..agent.provenance import result_digest as provenance_result_digest
+
+                        row.result_digest = provenance_result_digest(
+                            result.text, result.metadata, result.errors
+                        )
                     row.cost_actual = (
                         Decimal(str(result.cost_actual)) if result.cost_actual is not None else None
                     )

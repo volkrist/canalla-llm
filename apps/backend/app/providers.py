@@ -1,8 +1,10 @@
 import asyncio
+import hashlib
 import json
 import logging
 import re
 import time
+import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator
 
@@ -212,6 +214,10 @@ def Pathish(root, rel):
 
 class LLMProvider(ABC):
     supports_tools = False
+    # Provenance is opt-in: an adapter that does not declare itself live is recorded as `unknown`
+    # and never counts as a real model in an acceptance trace.
+    provenance_name = "unknown"
+    live_model = False
 
     async def plan_tools(self, messages, tools, usage) -> dict:
         raise LLMError("tools_unsupported")
@@ -236,6 +242,8 @@ class LLMProvider(ABC):
 
 class MockLLMProvider(LLMProvider):
     supports_tools = True
+    provenance_name = "mock"
+    live_model = False
 
     async def plan_tools(self, messages, tools, usage):
         # Deterministic mock-only planner. Production decisions come from llama.cpp.
@@ -461,6 +469,8 @@ class LlamaCppProvider(LLMProvider):
     """Backend-only adapter. base_url points to the server root or its /v1 path."""
 
     supports_tools = True
+    provenance_name = "llamacpp"
+    live_model = True
 
     def _chat_payload(self, messages, **extra):
         payload = {
@@ -472,6 +482,8 @@ class LlamaCppProvider(LLMProvider):
         return payload
 
     async def plan_tools(self, messages, tools, usage):
+        request_id = uuid.uuid4().hex
+        started = time.monotonic()
         try:
             async with self.client(httpx.Timeout(90, connect=10)) as client:
                 response = await client.post(
@@ -500,7 +512,23 @@ class LlamaCppProvider(LLMProvider):
                         usage[key] = usage.get(key, 0) + count
                     else:
                         usage["_planner_usage_incomplete"] = True
-                return message
+                # The server's own answer id is the strongest available link to this exact turn.
+                # It is recorded with the decision; the orchestrator seals it into the task journal.
+                return {
+                    **message,
+                    "_provenance": {
+                        "model_request_id": request_id,
+                        "provider": "llamacpp",
+                        "model": str(value.get("model") or self.model),
+                        "response_id": str(value.get("id") or request_id),
+                        "live": True,
+                        "runtime": "llama.cpp",
+                        "endpoint_fingerprint": hashlib.sha256(
+                            self.base.encode("utf-8", "replace")
+                        ).hexdigest()[:12],
+                        "elapsed_ms": int((time.monotonic() - started) * 1000),
+                    },
+                }
         except httpx.TimeoutException:
             raise LLMError("llm_timeout") from None
         except httpx.HTTPError:

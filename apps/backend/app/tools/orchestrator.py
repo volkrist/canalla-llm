@@ -476,6 +476,7 @@ class ToolOrchestrator:
                 try:
                     async with asyncio.timeout(context.limits.remaining):
                         decision = await provider.plan_tools(planning, tools, usage)
+                        self._record_model_response(context, provider, decision)
                 except asyncio.CancelledError:
                     with SessionLocal() as db:
                         if getattr(context, "stop_requested", False):
@@ -572,13 +573,17 @@ class ToolOrchestrator:
                         notes.append("Task paused or stopped before the next tool.")
                         break
                     function = call["function"]
-                    output = await self._run(
-                        function.get("name", ""),
-                        function.get("arguments", "{}"),
-                        context,
-                        notes,
-                        origin="model",
-                    )
+                    context.current_tool_call_id = str(call.get("id") or "")
+                    try:
+                        output = await self._run(
+                            function.get("name", ""),
+                            function.get("arguments", "{}"),
+                            context,
+                            notes,
+                            origin="model",
+                        )
+                    finally:
+                        context.current_tool_call_id = ""
                     planning.append(
                         {
                             "role": "tool",
@@ -1322,6 +1327,141 @@ class ToolOrchestrator:
                     break
                 context.tor_candidates.append({**link, "depth": int(details.get("depth") or 0) + 1})
 
+    def _provenance_secret(self) -> str:
+        try:
+            from ..config import get_settings
+
+            return str(get_settings().jwt_secret or "")
+        except Exception:
+            return ""
+
+    def _record_model_response(self, context, provider, decision):
+        """Seal what the provider said about this planning turn into the task journal.
+
+        This is the only place a MODEL_RESPONSE is written, and it is written from the provider's
+        own report. A provider that does not declare ``live_model`` is recorded as not live, so a
+        mock or a scripted planner can never be read back as a real model.
+        """
+        from ..agent.provenance import (
+            MODEL_RESPONSE,
+            normalize_provenance,
+            record,
+            response_payload,
+        )
+
+        context.provenance_step = int(getattr(context, "provenance_step", 0) or 0) + 1
+        provenance = normalize_provenance(provider, decision)
+        context.model_provenance = provenance
+        if not getattr(context, "task_id", None):
+            return
+        payload = response_payload(
+            model_request_id=provenance["model_request_id"],
+            provider=provenance["provider"],
+            model=provenance["model"],
+            response_id=provenance["response_id"],
+            live=provenance["live"],
+            tool_call_ids=provenance["tool_call_ids"],
+            task_id=context.task_id,
+            step=context.provenance_step,
+            elapsed_ms=provenance.get("elapsed_ms"),
+            runtime=provenance.get("runtime", ""),
+            endpoint_fingerprint=provenance.get("endpoint_fingerprint", ""),
+            request_id=provenance["model_request_id"],
+        )
+        from ..database import SessionLocal
+
+        try:
+            with SessionLocal() as db:
+                record(db, context.task_id, MODEL_RESPONSE, payload, self._provenance_secret())
+                db.commit()
+        except Exception:
+            logger.debug("model_response_provenance_failed task=%s", context.task_id)
+
+    def _record_tool_call(self, context, name, arguments_digest):
+        from ..agent.provenance import MODEL_TOOL_CALL, record
+
+        if not getattr(context, "task_id", None) or not getattr(context, "current_tool_call_id", ""):
+            return
+        provenance = dict(getattr(context, "model_provenance", None) or {})
+        payload = {
+            "model_request_id": provenance.get("model_request_id", ""),
+            "provider": provenance.get("provider", ""),
+            "model": provenance.get("model", ""),
+            "response_id": provenance.get("response_id", ""),
+            "tool_call_id": context.current_tool_call_id,
+            "tool": name,
+            "arguments_digest": arguments_digest,
+            "task_id": context.task_id,
+            "step": int(getattr(context, "provenance_step", 0) or 0),
+        }
+        from ..database import SessionLocal
+
+        try:
+            with SessionLocal() as db:
+                record(db, context.task_id, MODEL_TOOL_CALL, payload, self._provenance_secret())
+                db.commit()
+        except Exception:
+            logger.debug("model_tool_call_provenance_failed task=%s", context.task_id)
+
+    def _record_tool_result(self, context, name, arguments_digest, executed, digest="", error=""):
+        from ..agent.provenance import TOOL_RESULT, record
+
+        if not getattr(context, "task_id", None) or not getattr(context, "current_tool_call_id", ""):
+            return
+        payload = {
+            "tool_call_id": context.current_tool_call_id,
+            "tool": name,
+            "arguments_digest": arguments_digest,
+            "executed": bool(executed),
+            "result_digest": digest,
+            "error": error,
+            "tool_run_id": getattr(context, "run_id", None) or "",
+            "task_id": context.task_id,
+        }
+        from ..database import SessionLocal
+
+        try:
+            with SessionLocal() as db:
+                record(
+                    db,
+                    context.task_id,
+                    TOOL_RESULT,
+                    payload,
+                    self._provenance_secret(),
+                    getattr(context, "run_id", None),
+                )
+                db.commit()
+        except Exception:
+            logger.debug("tool_result_provenance_failed task=%s", context.task_id)
+
+    def _record_verification(self, context, name, output):
+        from ..agent.provenance import VERIFY_FAILED, VERIFY_PASSED, record
+
+        if not getattr(context, "task_id", None) or name != "verify_result":
+            return
+        metadata = (output or {}).get("metadata") or {}
+        ok = bool(metadata.get("ok"))
+        payload = {
+            "task_id": context.task_id,
+            "evidence_ok": ok,
+            "summary": str(metadata.get("evidence") or "")[:300],
+            "tool_call_id": getattr(context, "current_tool_call_id", ""),
+        }
+        from ..database import SessionLocal
+
+        try:
+            with SessionLocal() as db:
+                record(
+                    db,
+                    context.task_id,
+                    VERIFY_PASSED if ok else VERIFY_FAILED,
+                    payload,
+                    self._provenance_secret(),
+                )
+                db.commit()
+        except Exception:
+            logger.debug("verify_provenance_failed task=%s", context.task_id)
+
     async def _run(self, name, arguments, context, notes, origin):
         from ..database import SessionLocal
         from .local.progress import apply_block, novelty_from_output, recommended, remember, should_block
@@ -1451,7 +1591,50 @@ class ToolOrchestrator:
                         and not sources_need_browser(context.sources)
                     ):
                         raise ToolError("paid_tool_not_selected")
-            result = await self.executor.execute(name, arguments, context, origin=origin)
+            if origin == "model" and getattr(context, "current_tool_call_id", ""):
+                from ..agent.provenance import arguments_digest as provenance_arguments_digest
+
+                self._record_tool_call(context, name, provenance_arguments_digest(parsed))
+            try:
+                result = await self.executor.execute(name, arguments, context, origin=origin)
+            except ToolError as error:
+                if origin == "model" and getattr(context, "current_tool_call_id", ""):
+                    from ..agent.provenance import arguments_digest as provenance_arguments_digest
+
+                    self._record_tool_result(
+                        context,
+                        name,
+                        provenance_arguments_digest(parsed),
+                        False,
+                        error=error.code,
+                    )
+                raise
+            if origin == "model" and getattr(context, "current_tool_call_id", ""):
+                from ..agent.provenance import arguments_digest as provenance_arguments_digest
+                from ..agent.provenance import result_digest as provenance_result_digest
+
+                ledger_digest = ""
+                try:
+                    from ..database import SessionLocal as _LedgerSession
+                    from .models import ToolRun as _ToolRun
+
+                    with _LedgerSession() as ledger_db:
+                        ledger_row = ledger_db.get(_ToolRun, context.run_id) if context.run_id else None
+                        ledger_digest = str(getattr(ledger_row, "result_digest", "") or "")
+                except Exception:
+                    ledger_digest = ""
+                self._record_tool_result(
+                    context,
+                    name,
+                    provenance_arguments_digest(parsed),
+                    True,
+                    digest=ledger_digest
+                    or provenance_result_digest(result.text, result.metadata, result.errors),
+                )
+            if name == "verify_result":
+                # Independent verification is recorded whoever asked for it: the model may call
+                # it itself, or the controller may force the one step the task still owes.
+                self._record_verification(context, name, {"metadata": result.metadata})
             if name in {"web_agent", "web_agent_read"}:
                 context.tinyfish_agent_done = True
             if name == "web_browser":
