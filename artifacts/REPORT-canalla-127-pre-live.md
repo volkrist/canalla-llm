@@ -17,7 +17,7 @@
 | Qwen LIVE readiness | **READY** (preflight без блокеров), запуск не выполнялся |
 | Watchdog / cost limits | подготовлены: 480 с, $0.145, стоп на 430 с |
 | Authenticode | **NotSigned** — план получения доверенной подписи описан, покупка не выполнялась |
-| Git / CI | см. §7 |
+| Git / CI | итог `b9d85a2`, **CI 7/7 success** |
 
 ---
 
@@ -154,9 +154,9 @@ Updater-подпись (minisign, ключ `9B328EFF111D1FB2`) — отдель�
 
 ## 7. Git и CI
 
-- Изменения этапа: `apps/desktop/src-tauri/src/credential.rs`, `src/host.rs`, `src/uia.ps1`,
-  regression-тест, `artifacts/acceptance-127/*`.
-- CI на итоговом SHA — см. журнал прогона (workflow `CI`, 7 jobs).
+- Итоговый SHA: **`b9d85a2`**; CI **7/7 success** (developer-gate, native-gate, frontend-e2e, installer-build, tor-runtime, llama-runtime, llama-runtime-image).
+- Изменения этапа: `apps/desktop/src-tauri/src/credential.rs`, `src/host.rs`,
+  regression-тест, `artifacts/acceptance-127/*`, этот отчёт.
 - 1.2.6, updater, manifest, release assets, ключи подписи, пользовательские данные — **не изменялись**.
 
 ---
