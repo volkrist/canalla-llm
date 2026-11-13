@@ -3,8 +3,8 @@
 **Дата:** 13 ноября 2026.
 **Ветка:** `feature/canalla-1.2.7-autonomous-agent`.
 **Исходный SHA (проверен, не из отчёта):** `07b6edf` — рабочее дерево синхронно с origin.
-**Последний подтверждённый CI:** 7/7 + Linux gate на `b9d85a2`. На `07b6edf` CI ещё не
-запускался: это report-only коммит, и его SHA не выдаётся за проверенный.
+**Итоговый SHA с зелёным CI:** `cfd7e14` (CI 7/7 + Linux gate).
+**Последний подтверждённый CI до этапа:** 7/7 + Linux gate на `b9d85a2`.
 **Публичная версия:** 1.2.6 — не изменялась (ни файлы, ни установка, ни updater, ни manifest).
 
 ---
@@ -418,7 +418,9 @@ active checks продолжают работать (6 confirmed → 6 fixed →
   `scripts/live_qwen_watchdog.py`, `docs/model-provenance.md`,
   `artifacts/acceptance-127/**`.
 - Не изменялись: версия, updater, manifest, release assets, ключи подписи, production БД.
-- CI на итоговом SHA фиксируется после push; до этого ни один SHA не называется «зелёным».
+- **CI на итоговом SHA `cfd7e14`: 7/7 success** (developer-gate, native-gate, frontend-e2e,
+  installer-build, tor-runtime, llama-runtime, llama-runtime-image) + **Linux gate success**.
+  Коммит с этим отчётом — report-only и не меняет продуктовый код.
 
 ---
 

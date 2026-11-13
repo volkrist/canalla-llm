@@ -37,6 +37,7 @@ TESTS = [
     "tests/test_127_provenance.py::test_the_ledger_is_cross_checked_against_the_journal",
     "tests/test_127_provenance.py::test_the_orchestrator_records_the_chain_for_a_declared_live_adapter",
     "tests/test_127_provenance.py::test_the_same_recording_path_never_confirms_an_unrecognised_adapter",
+    "tests/test_127_provenance.py::test_provenance_arguments_digest_matches_the_ledger",
 ]
 
 
