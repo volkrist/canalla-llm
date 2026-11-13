@@ -11,11 +11,31 @@
     "task_state": "COMPLETED",
     "tool_runs": {
       "total_for_build_and_verify": 14,
-      "sequence": ["write_file", "write_file", "run_python(pytest, fails)", "read_file", "write_file(fix)", "run_python(pytest, passes)", "run_python(uvicorn, wait=false)", "verify_result", "browser_gui", "verify_result", "process_status", "stop_process"]
+      "sequence": [
+        "write_file",
+        "write_file",
+        "run_python(pytest, fails)",
+        "read_file",
+        "write_file(fix)",
+        "run_python(pytest, passes)",
+        "run_python(uvicorn, wait=false)",
+        "verify_result",
+        "browser_gui",
+        "verify_result",
+        "process_status",
+        "stop_process"
+      ]
     },
     "independent_verification": {
       "evidence_ok": true,
-      "checks_observed": ["port_open", "http_ok", "command", "db_row", "file_contains", "GUI_STEP"],
+      "checks_observed": [
+        "port_open",
+        "http_ok",
+        "command",
+        "db_row",
+        "file_contains",
+        "GUI_STEP"
+      ],
       "gui_steps": 4,
       "gui_steps_ok": 4
     },
@@ -33,8 +53,12 @@
     "observed": {
       "engine": "SEARCH -> READ -> GAP -> REQUERY",
       "transport": "real local HTTP server through the real deep_research tool",
-      "facts_extracted": ["version"],
-      "gap_reported": ["license"],
+      "facts_extracted": [
+        "version"
+      ],
+      "gap_reported": [
+        "license"
+      ],
       "quarantine": "instruction-like page text is detected and never followed"
     }
   },
@@ -99,8 +123,15 @@
     "alembic_check": "no new upgrade operations",
     "sidecar": {
       "rebuilt": true,
-      "source_digest": "4b073ae256ad10cde678cb64d07773b8cad34174253dffb4b5699241a72ff9b2",
-      "exe_sha256_prefix": "5b51a4028d50e345"
+      "source_digest": "1483037752d08bcafa3d9b26db6a5a88f768cb8a4cbe9ff834318956a3a38e55",
+      "exe_sha256_prefix": "71cdb00b4efe32a8",
+      "stamp_test": "11 passed"
+    },
+    "ci": {
+      "run": "43333870009",
+      "sha": "62da633",
+      "jobs": "7/7 success",
+      "workflows": "CI (developer-gate, native-gate, frontend-e2e, tor-runtime, installer-build, llama-runtime-image, llama-runtime)"
     }
   },
   "safety": {

@@ -119,7 +119,9 @@ USER GOAL
 | Целевые наборы 1.2.7 | 15 новых тестов + 52 существующих — PASS |
 | `alembic upgrade head` + `alembic check` | head **0017**, «No new upgrade operations detected» |
 | Backup / migrations / upgrade | 46 тестов PASS после обновления ожидаемой ревизии |
-| Sidecar stamp | пересобран: digest `4b073ae256ad…`, exe `5b51a4028d50…`; 21 тест PASS |
+| Sidecar stamp | пересобран: digest `1483037752d0…`, exe `71cdb00b4efe…`; 11 тестов PASS |
+| **CI на ветке** | **7/7 success** на `62da633` (developer-gate, native-gate, frontend-e2e, installer-build, tor-runtime, llama-runtime, llama-runtime-image) |
+| Linux gate | **success** на `88f26d7` и последующих |
 | Plan/task regression | `test_autonomous_tasks.py`, `test_coding_agent.py`, `test_123_agent_runtime.py` — PASS |
 
 Изменения схемы аддитивны и обратимы: `downgrade()` удаляет только новые колонки; данные 1.2.6 не переписываются.
@@ -152,6 +154,7 @@ USER GOAL
 | | |
 |---|---|
 | Ветка | `feature/canalla-1.2.7-autonomous-agent` |
+| Финальный SHA с зелёным CI | `62da633` |
 | Публичный релиз 1.2.6 | не изменён |
 | Production updater | не изменён (по-прежнему 1.2.6) |
 | Подпись / ключ | не менялись |
