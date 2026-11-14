@@ -290,6 +290,9 @@ def pod_evidence() -> dict:
                         "gpu": row.gpu_type,
                         "hourly_rate_usd": float(row.hourly_rate or 0),
                         "estimated_cost_usd": float(row.estimated_cost or 0),
+                        "started_at": row.started_at.isoformat() if row.started_at else None,
+                        "ready_at": row.ready_at.isoformat() if row.ready_at else None,
+                        "stopped_at": row.stopped_at.isoformat() if row.stopped_at else None,
                     }
                     for row in rows
                 ],
@@ -481,7 +484,14 @@ def _write_jsonl(name: str, rows) -> None:
             handle.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
 
 
-def _sse_stream(url: str, token: str, body: dict, deadline: float, on_event=None) -> list[dict]:
+def _sse_stream(
+    url: str,
+    token: str,
+    body: dict,
+    deadline: float,
+    on_event=None,
+    read_timeout: float | None = None,
+) -> list[dict]:
     request = urllib.request.Request(
         url,
         data=json.dumps(body).encode(),
@@ -493,8 +503,12 @@ def _sse_stream(url: str, token: str, body: dict, deadline: float, on_event=None
     )
     events: list[dict] = []
     current = None
+    # The stall detector is bounded by the run's own deadline: a 300-second read can never outlive
+    # the budget the policy and the watchdog already enforce.
+    remaining = max(1.0, deadline - time.monotonic())
+    timeout = min(float(read_timeout or SSE_READ_TIMEOUT_SECONDS), remaining)
     try:
-        with urllib.request.urlopen(request, timeout=SSE_READ_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             for raw in response:
                 if time.monotonic() > deadline:
                     events.append({"event": "client_timeout"})
@@ -1066,6 +1080,10 @@ def run_live(
         "RUNPOD_STORAGE_MODE": placement["storage_mode"],
         "COMPUTE_BACKGROUND_ENABLED": "true",
         "ALLOW_USER_COMPUTE_START": "true",
+        # A fresh Pod's first inference is cold. The product's 20-second first-line default is a
+        # chat latency budget, not a model-load budget; keeping it would abort the run's very first
+        # generation at the moment the model becomes ready.
+        "LLM_STREAM_FIRST_LINE_SECONDS": "120",
         "TINYFISH_API_KEY": "",
         "ADMIN_EMAILS": "[]",
         "DOCUMENT_STORAGE_DIR": str(work / "documents"),
@@ -1507,6 +1525,84 @@ def run_live(
             pass
         shutil.rmtree(work, ignore_errors=True)
         print(json.dumps(summary, ensure_ascii=False, indent=1)[-4000:])
+
+
+def stream_timing_self_test() -> list[dict]:
+    """Cold start and stall behaviour of the stream reader, with a real local HTTP server.
+
+    A first token that takes a second is normal after a cold model load; a stalled reader is
+    evidence, never an uncaught exception that kills a paid run.
+    """
+
+    def serve(delay: float):
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                return
+
+            def do_POST(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                self.wfile.write(b'event: meta\ndata: {}\n\n')
+                self.wfile.flush()
+                time.sleep(delay)
+                try:
+                    self.wfile.write(
+                        (
+                            'event: delta\ndata: {"content": "готово к работе"}\n\n'
+                            'event: done\ndata: {"message_id": "m1"}\n\n'
+                        ).encode()
+                    )
+                    self.wfile.flush()
+                except OSError:
+                    pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server
+
+    checks: list[dict] = []
+    server = serve(1.0)
+    try:
+        events = _sse_stream(
+            f"http://127.0.0.1:{server.server_address[1]}/stream",
+            "token",
+            {},
+            time.monotonic() + 30,
+            read_timeout=10,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+    verdict = selftest_verdict(events)
+    checks.append(
+        {
+            "check": "a_delayed_first_token_is_not_a_failure",
+            "ok": verdict["verdict"] == "PASS" and verdict["answer_chars"] > 8,
+            "detail": str(verdict)[:160],
+        }
+    )
+
+    server = serve(2.0)
+    try:
+        stalled = _sse_stream(
+            f"http://127.0.0.1:{server.server_address[1]}/stream",
+            "token",
+            {},
+            time.monotonic() + 30,
+            read_timeout=0.5,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+    checks.append(
+        {
+            "check": "a_stalled_stream_is_evidence_not_a_crash",
+            "ok": bool(stalled) and stalled[-1].get("event") == "stream_read_error",
+            "detail": str(stalled[-1] if stalled else None)[:160],
+        }
+    )
+    return checks
 
 
 def approval_self_test() -> list[dict]:
@@ -2028,6 +2124,7 @@ def main() -> int:
                 and "no_done_marker" in truncated["problems"],
             },
         ]
+        checks += stream_timing_self_test()
         checks += approval_self_test()
         report = {
             "checks": checks,

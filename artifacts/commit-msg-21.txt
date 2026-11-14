@@ -1,0 +1,16 @@
+Harden the paid path for a second live attempt
+
+The stream reader now treats its read timeout as a stall detector bounded by
+the run's remaining budget, and the LIVE backend gets a 120-second first-line
+budget instead of the product's 20-second chat budget, so a cold model load
+cannot abort the first generation.
+
+The grant records when it was claimed, keeps that timestamp when the Pod is
+confirmed, and can never be un-used after confirmation. An unknown provider
+answer is reconciled before anything else. A genuinely new owner decision is
+recorded with `authorize.py --replace-consumed`, which archives the consumed
+record; the monitor re-arms itself for a new unused grant and stays disarmed
+for the old one.
+
+The watchdog is given the runner's pid and stops an orphaned Pod after a
+30-second grace.

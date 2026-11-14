@@ -307,7 +307,10 @@ def run_self_test() -> int:
             "K_a_pod_that_survives_the_run_is_critical_and_the_grant_stays_used",
             result["state"]["live_execution_state"] == "CRITICAL_TERMINATION_UNCONFIRMED"
             and result["state"]["pod_count"] == 1
-            and M.read_grant(rdir)["reason"] == "already_used",
+            and M.read_grant(rdir)["reason"] == "already_used"
+            and bool(
+                json.loads(M.grant_path(rdir).read_text(encoding="utf-8")).get("confirmed_at")
+            ),
         )
 
         rdir = root / "case_k_unknown"
@@ -467,6 +470,104 @@ def run_self_test() -> int:
             M.PREFLIGHT_TTL_SECONDS == 900
             and (rdir / "preflight-cache.json").is_file(),
         )
+
+        # ---- the claim time is written once, and a confirmed Pod is never un-used --------------
+        rdir = root / "case_grant_claim"
+        _write_grant(rdir)
+        M.mark_grant(rdir, used=True, run_id="r1")
+        first_used_at = (M.read_grant(rdir)["grant"] or {}).get("used_at")
+        M.mark_grant(rdir, used=True, run_id="r1", confirmed=True)
+        confirmed = M.read_grant(rdir)["grant"]
+        check(
+            "a_claim_keeps_its_first_timestamp_and_marks_confirmation",
+            bool(first_used_at)
+            and confirmed.get("used_at") == first_used_at
+            and bool(confirmed.get("confirmed_at")),
+            detail=f"used_at={confirmed.get('used_at')} confirmed={confirmed.get('confirmed_at')}",
+        )
+        M.mark_grant(rdir, used=False, run_id="r1")
+        check(
+            "a_confirmed_permission_is_never_restored",
+            json.loads(M.grant_path(rdir).read_text(encoding="utf-8"))["used"] is True,
+        )
+        rdir = root / "case_grant_other"
+        _write_grant(rdir)
+        M.mark_grant(rdir, used=True, run_id="r1")
+        M.mark_grant(rdir, used=False, run_id="r2")
+        check(
+            "another_run_cannot_clear_a_claim",
+            json.loads(M.grant_path(rdir).read_text(encoding="utf-8"))["used"] is True,
+        )
+
+        # ---- a *new* permission re-arms a terminal outcome; the old one never does -------------
+        rdir = root / "case_rearm"
+        old_grant = _write_grant(rdir)
+        state = M.load_state(rdir)
+        state["live_execution_state"] = "FAILED"
+        state["paid_run_already_attempted"] = True
+        state["terminal_grant_id"] = old_grant["grant_id"]
+        M.save_json(rdir / "state.json", state)
+        M.mark_grant(rdir, used=True, run_id="old", confirmed=True)
+        result = M.run_check(
+            provider=_provider(availability_by_dc={"US-MO-1": "LOW", "US-TX-3": "NONE"}),
+            rdir=rdir,
+        )
+        check(
+            "a_consumed_permission_does_not_rearm",
+            result["state"]["live_execution_state"] == "FAILED" and result["run"] is None,
+        )
+        new_grant = _write_grant(rdir)
+        result = M.run_check(
+            provider=_provider(availability_by_dc={"US-MO-1": "LOW", "US-TX-3": "NONE"}),
+            rdir=rdir,
+            dry_run=True,
+        )
+        check(
+            "a_new_permission_rearms_a_terminal_state",
+            result["state"]["live_execution_state"] == "DRY_RUN_OK"
+            and result["state"]["paid_run_already_attempted"] is False
+            and new_grant["grant_id"] != old_grant["grant_id"],
+        )
+
+        # ---- a new owner decision archives the consumed record, never edits it -----------------
+        import authorize
+
+        rdir = root / "case_replace"
+        consumed = _write_grant(rdir)
+        M.mark_grant(rdir, used=True, run_id="r0", confirmed=True)
+        replaced = authorize.main(
+            [
+                "--confirm",
+                M.PHRASE,
+                "--budget-usd",
+                "2.00",
+                "--replace-consumed",
+                "--state-dir",
+                str(rdir),
+            ]
+        )
+        after = json.loads(M.grant_path(rdir).read_text(encoding="utf-8"))
+        archived = list(rdir.glob("authorization-grant.consumed-*.json"))
+        check(
+            "a_new_owner_decision_replaces_a_consumed_permission",
+            replaced == 0
+            and after["grant_id"] != consumed["grant_id"]
+            and after["used"] is False
+            and len(archived) == 1,
+            detail=f"archived={len(archived)}",
+        )
+        refused = authorize.main(
+            [
+                "--confirm",
+                M.PHRASE,
+                "--budget-usd",
+                "2.00",
+                "--replace-consumed",
+                "--state-dir",
+                str(rdir),
+            ]
+        )
+        check("replace_refuses_an_unconsumed_permission", refused != 0)
 
         # ---- accounting is attributed to the run, never to "the latest file" -------------------
         record_ok = {"run_id": "r1", "pods_created": 1, "spend_usd": 0.04, "verdict": "FAIL"}

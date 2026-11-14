@@ -130,6 +130,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--revoke", action="store_true")
     parser.add_argument(
+        "--replace-consumed",
+        action="store_true",
+        help="archive a consumed permission and store a new one for a new owner decision",
+    )
+    parser.add_argument(
         "--consume",
         action="store_true",
         help="record that a Pod was created: the one paid attempt is spent",
@@ -243,7 +248,48 @@ def main(argv: list[str] | None = None) -> int:
     pairs = SCOPES[args.scope]
     now = datetime.now(timezone.utc)
 
-    if existing is None:
+    if args.replace_consumed:
+        # A consumed permission is archived, never edited. The new record is a new owner decision
+        # with its own id and lifetime; exactly one `authorization-grant.json` ever exists, so the
+        # monitor can never see two valid permissions.
+        if existing is None:
+            print(json.dumps({"authorized": False, "reason": "no_grant"}))
+            return 3
+        if not existing.get("used"):
+            print(
+                json.dumps(
+                    {
+                        "authorized": False,
+                        "reason": "grant_not_consumed",
+                        "note": "use the normal upgrade path; nothing was replaced",
+                    }
+                )
+            )
+            return 3
+        archive = path.with_name(
+            f"authorization-grant.consumed-{existing.get('grant_id') or 'unknown'}.json"
+        )
+        save_json(archive, existing)
+        grant = {
+            "schema": GRANT_SCHEMA,
+            "grant_id": uuid.uuid4().hex,
+            "phrase": PHRASE,
+            "budget_usd": round(float(budget), 2),
+            "max_pods": 1,
+            "allowed_model": MODEL_ID,
+            "allowed_gpu": GPU_ID,
+            "allowed_placements": placements_payload(pairs),
+            "scope": "one LIVE Qwen acceptance: TaskDesk, one Pod, 90 billable minutes",
+            "created_at": now.isoformat(timespec="seconds"),
+            "expires_at": (now + timedelta(days=args.days)).isoformat(timespec="seconds"),
+            "used": False,
+            "used_at": None,
+            "revoked": False,
+            "replaces": existing.get("grant_id"),
+        }
+        verdict = _atomic_replace(path, grant)
+        mode = "replaced_consumed"
+    elif existing is None:
         grant = {
             "schema": GRANT_SCHEMA,
             "grant_id": uuid.uuid4().hex,
@@ -331,6 +377,7 @@ def main(argv: list[str] | None = None) -> int:
                 "created_at": effective.get("created_at"),
                 "expires_at": effective.get("expires_at"),
                 "used": effective.get("used"),
+                "archived": mode == "replaced_consumed",
                 "note": "The monitor starts exactly one paid Pod when an authorized placement is bookable.",
             },
             ensure_ascii=False,

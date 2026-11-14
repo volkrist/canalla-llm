@@ -591,3 +591,79 @@ backend готов за 4 с, template 31 мс, **0 logging errors**.
   device `6413489d…` — **без изменений**.
 
 Следующий платный прогон требует **нового явного разрешения владельца**; автоматика его не выдаёт.
+
+---
+
+## Подготовка повторного LIVE (после daa28fd1)
+
+**HEAD:** `0eb63ed` + этот коммит. **Новых Pod:** 0. **Дополнительных расходов:** **$0.00**
+(баланс `7.0970879967` не изменился с момента остановки последнего Pod; `currentSpendPerHr` $0.01 —
+только storage томов).
+
+### 1–2. Цепочка таймаутов (проверена по коду и тестам)
+
+| Уровень | Значение | Оценка |
+|---|---|---|
+| клиент `_sse_stream` | **300 с**, ограничен остатком дедлайна | `SSE_READ_TIMEOUT_SECONDS`, проверено сервером с задержкой |
+| backend, первый токен | `LLM_STREAM_FIRST_LINE_SECONDS` = **120** (env LIVE; дефолт продукта 20) | холодная загрузка 27B больше не обрывает первую генерацию |
+| backend, httpx stream | `Timeout(120, connect=10)` | первый байт ≤120 с; дальше типизированная ошибка, не падение |
+| backend, простой потока | `llm_stream_stall_seconds` = 60 | после первого токена это настоящий stall |
+| ожидание модели | `runpod_startup_timeout` 900 (+30) | 930 с на старт Pod и загрузку |
+| общий дедлайн | `hard_wall_seconds` 5370 + grace | бюджет $2.00 / 90 минут |
+| watchdog | независимый, `--runner-pid` | стоп по wall, бюджету и смерти runner |
+| host-loop / proxy | вне пути генерации | host только опрашивает задания; прокси ограничен httpx-таймаутами выше |
+
+300 секунд не разрешают бесконечное ожидание: значение урезается остатком дедлайна, а дедлайн и
+watchdog не менялись.
+
+### 3. Причина «Pod создан 11:28:22, used_at 11:33:45»
+
+Разрешение было израсходовано **в 11:28:00**, до запуска harness (`last-run.json →
+timings.claimed_at`, `state.json → run_started_at`). Задержка в записи — косметический дефект:
+`_apply_run_payload` в конце вызывал `mark_grant(used=True)`, который **перезаписывал** `used_at`
+временем подтверждения (11:33:45). Исправлено: `used_at` фиксируется один раз при claim,
+`claimed_at` хранит момент claim, `confirmed_at` — момент, когда evidence доказал Pod. После
+`confirmed_at` разрешение **необратимо**: ни неизвестный ответ провайдера, ни рестарт его не
+возвращают. Неизвестный ответ сначала reconcil-ится (`CRITICAL_TERMINATION_UNCONFIRMED`), новый Pod
+не создаётся.
+
+### 4. Сохранность при аварии runner
+
+Проверено на реальном падении (`TimeoutError`): `run-daa28fd1….json` содержит `run_id`, `pod_ids`
+(`enrm4o02n87wkq`), `spend_usd 0.0957`, `balance_after_usd`, `finished_at`; `logs/backend.log`
+(162 KB) и `run-context.json` сохранены; `billing-summary.json` и `cleanup.json` записаны. Добавлено:
+`compute_sessions` в evidence теперь несёт `started_at`/`ready_at`/`stopped_at`. Любое непойманное
+исключение пишет `verdict: CRASHED` с причиной.
+
+### 5. Watchdog после смерти backend/host-loop
+
+`--runner-pid` передаётся; при исчезновении runner появляется `runner-gone`, через 30 с grace
+watchdog **сам завершает Pod** и подтверждает удаление (`stop-requested: "runner gone: the Pod has
+no consumer"`). Self-test: `a_dead_runner_stops_the_pod_it_left_behind` — PASS.
+
+### 6. Новое разрешение и авто-взвод
+
+- `authorize.py --replace-consumed` архивирует израсходованную запись
+  (`authorization-grant.consumed-<id>.json`) и создаёт **одну** новую; редактирование старой
+  невозможно.
+- Монитор замечает, что валидный неиспользованный grant отличается от того, что дал терминальный
+  исход, и сам снимает терминальность (`rearmed_from`), после чего снова ждёт L40S в любом из двух
+  DC. Израсходованная запись этого сделать не может.
+- Пока нового разрешения нет, каждый проход честно пишет `placement_not_authorized`, Pod не создаётся.
+
+### 7. Бесплатная регрессия
+
+| Набор | Результат |
+|---|---|
+| `monitor --self-test` | **50/50 PASS** (включая grant-safety, re-arm, replace, prepared fast path, re-arm на 30 с) |
+| `live_acceptance --self-test` | **27/27 PASS** (включая холодный первый токен, stall, разрыв, approval по digest) |
+| `watchdog --self-test` | **PASS** (включая смерть runner → остановка Pod) |
+| backend: logging / volume / compute / on-demand / allocation | **117 passed** |
+
+### 8. Состояние сейчас
+
+- Pod: **0**; grant `9606c90d…` — `used`, `automatic_live = DISARMED`.
+- Мониторинг: **RUNNING**, два DC, интервал **30 с** (`11:56:58, 11:57:28, :58, 11:58:29, :58`).
+- Production 1.2.6 не изменена; второй Pod по израсходованному разрешению невозможен.
+- Для следующего LIVE нужно **новое явное разрешение** (`--replace-consumed`); после него система
+  сама дождётся L40S в любом из двух DC и выполнит ровно один прогон.

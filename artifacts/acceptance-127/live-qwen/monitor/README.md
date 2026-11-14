@@ -135,6 +135,25 @@ permission - same `grant_id`, creation time and expiry, still unused - written t
 temporary file that atomically replaces the original. A consumed grant is never revived and a second
 grant file is never created.
 
+### Claim, confirmation, and a genuinely new decision
+
+The monitor writes the claim **before** the harness runs (`used: true`, `claimed_at`), so a crash
+cannot buy a second Pod. `used_at` keeps that first claim time; `confirmed_at` is added when evidence
+proves a Pod existed, and a confirmed permission can never be un-used - not even when the provider
+answer was unknown. That unknown case is reconciled first: the attempt stays terminal
+(`CRITICAL_TERMINATION_UNCONFIRMED`) and no new Pod is created.
+
+A **new** owner decision is recorded explicitly, never by editing the consumed record:
+
+```bat
+python artifacts\acceptance-127\live-qwen\monitor\authorize.py ^
+       --confirm "I AUTHORIZE ONE PAID POD" --budget-usd 2.00 --replace-consumed
+```
+
+It archives the old record as `authorization-grant.consumed-<id>.json` and stores one fresh
+permission. The monitor notices that a valid unused grant differs from the one that produced the
+terminal outcome and re-arms itself; the consumed file can never do that.
+
 ## Operational notes
 
 * **Schedule:** a `TimeTrigger` with `PT1M` and no end boundary, so it does not stop after a day.
@@ -160,6 +179,12 @@ grant file is never created.
   well as the phrase, budget and Pod count; a record that names anything else is refused. It holds
   no secret, and the monitor directory's ACL grants it only to the current user, SYSTEM and
   Administrators (no inherited entries).
+* **A dead runner does not leave a billing Pod.** The watchdog is given the runner's pid. If the
+  runner disappears, a 30-second grace lets its own stop land; after that the watchdog terminates
+  the Pod through the managed path and supervises the removal like any other stop.
+* **The stream reader is a stall detector, not a deadline.** Its 300-second read timeout is bounded
+  by the run's remaining budget and by the backend's own first-line budget (`120 s` for this run),
+  so a cold first token cannot kill the attempt and a silent stream still ends typed.
 * **No Pods for monitoring:** every scheduled pass is read-only. The only write to the provider is
   the one LIVE attempt the authorization names. The run's own `backend.log`, `host.log` and
   `watchdog.log` are copied into `artifacts/acceptance-127/live-qwen/final-live/logs/` before its

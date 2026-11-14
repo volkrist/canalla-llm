@@ -562,7 +562,16 @@ def validate_grant(grant, now: datetime | None = None) -> dict:
     return {"valid": True, "reason": "ok", "grant": grant, "placements": pairs}
 
 
-def mark_grant(rdir: Path, *, used: bool, run_id: str | None = None) -> None:
+def mark_grant(
+    rdir: Path, *, used: bool, run_id: str | None = None, confirmed: bool = False
+) -> None:
+    """Claim, confirm or (only for an unconfirmed claim) restore the stored permission.
+
+    The claim is written *before* the harness runs, so a crash cannot buy a second Pod. The claim
+    timestamp is never moved afterwards: the record says when the attempt began, and
+    ``confirmed_at`` says when evidence proved a Pod existed. Once confirmed the permission can
+    never be un-used - a provider answer that is merely unknown is not a reason to try again.
+    """
     path = grant_path(rdir)
     if not path.is_file():
         return
@@ -570,9 +579,23 @@ def mark_grant(rdir: Path, *, used: bool, run_id: str | None = None) -> None:
         grant = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return
-    grant["used"] = used
-    grant["used_at"] = utcnow() if used else None
-    grant["run_id"] = run_id if used else None
+    if used:
+        grant["used"] = True
+        if not grant.get("used_at"):
+            grant["used_at"] = utcnow()
+        grant.setdefault("claimed_at", grant["used_at"])
+        grant["run_id"] = run_id or grant.get("run_id")
+        if confirmed:
+            grant["confirmed_at"] = utcnow()
+    else:
+        if grant.get("confirmed_at"):
+            return
+        if grant.get("run_id") and run_id and grant["run_id"] != run_id:
+            return
+        grant["used"] = False
+        grant["used_at"] = None
+        grant["run_id"] = None
+        grant.pop("claimed_at", None)
     save_json(path, grant)
 
 
@@ -607,6 +630,17 @@ def run_check(
         {"datacenter": dc, "volume_id": vid}
         for dc, vid in (grant.get("placements") or [])
     ]
+    # A terminal outcome belongs to the permission that produced it. A *new*, unused permission is
+    # a new owner decision, and it re-arms the automation; the old one can never do that again
+    # because it is marked used and `read_grant` refuses it.
+    if _is_terminal(state) and grant["valid"]:
+        current_grant = (grant.get("grant") or {}).get("grant_id")
+        if current_grant and current_grant != state.get("terminal_grant_id"):
+            state["rearmed_from"] = state.get("live_execution_state")
+            state["live_execution_state"] = "WAITING_GPU"
+            state["paid_run_already_attempted"] = False
+            state["active_pod_id"] = None
+            state["last_error"] = None
     state["checks"] = int(state.get("checks") or 0) + 1
     state["last_check_time"] = now.isoformat(timespec="seconds")
     state["next_scheduled_check"] = (now + timedelta(seconds=next_delay)).isoformat(
@@ -1068,18 +1102,20 @@ def _apply_run_payload(
         state["last_error"] = (
             "preflight_blocked: " + ",".join(payload.get("blocked_by") or [])[:200]
         )
-        mark_grant(rdir, used=False)
+        mark_grant(rdir, used=False, run_id=payload.get("run_id"))
         return
     if pods_created == 0 and spend == 0.0:
         state["paid_run_already_attempted"] = False
         state["live_execution_state"] = "WAITING_GPU"
         state["active_pod_id"] = None
-        mark_grant(rdir, used=False)
+        mark_grant(rdir, used=False, run_id=payload.get("run_id"))
         return
     state["paid_run_already_attempted"] = True
     state["active_pod_id"] = _pod_id_from_evidence()
-    # A run that bought a Pod spends the permission, whichever launcher produced it.
-    mark_grant(rdir, used=True, run_id=payload.get("run_id"))
+    # A run that bought a Pod spends the permission, whichever launcher produced it. The claim was
+    # written before the harness started; this is the confirmation, and it can never be undone.
+    mark_grant(rdir, used=True, run_id=payload.get("run_id"), confirmed=True)
+    state["terminal_grant_id"] = state.get("authorization_grant_id")
     remaining = (remaining_reader or _remaining_pods)()
     if remaining is None:
         state["live_execution_state"] = "CRITICAL_TERMINATION_UNCONFIRMED"

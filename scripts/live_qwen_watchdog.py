@@ -38,6 +38,10 @@ sys.path.insert(0, str(REPO / "apps" / "backend"))
 
 from app.compute import cost_policy  # noqa: E402
 
+# A runner that disappears leaves its Pod with no consumer. The grace lets a runner that is
+# finishing its own stop land first; after it, the watchdog stops the Pod itself.
+RUNNER_GONE_GRACE_SECONDS = 30.0
+
 
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -248,6 +252,7 @@ def run_watchdog(
     saw_multiple = False
     read_errors = 0
     runner_gone = False
+    runner_gone_at: float | None = None
 
     def note(kind: str, detail: str = ""):
         result.events.append(WatchEvent(clock() - started, kind, detail))
@@ -264,6 +269,7 @@ def run_watchdog(
     while True:
         if runner_pid and not runner_gone and not _process_alive(runner_pid):
             runner_gone = True
+            runner_gone_at = clock()
             note("runner-gone", "the supervised runner is no longer alive; the wall still applies")
         try:
             pods = provider.list_pods()
@@ -330,11 +336,21 @@ def run_watchdog(
             if state.status != "terminated" and result.stop_requested_at is None:
                 elapsed = clock() - started
                 cost = elapsed / 3600 * state.hourly_rate_usd
-                if elapsed >= plan_value.stop_request_seconds or cost >= plan_value.budget_usd:
+                # The runner was the only consumer of this Pod. Once it is gone, a live Pod is
+                # pure spend: a 30-second grace lets a runner that is finishing its own stop
+                # land first, then the watchdog does it and verifies the removal.
+                orphaned = (
+                    runner_gone
+                    and runner_gone_at is not None
+                    and clock() - runner_gone_at >= RUNNER_GONE_GRACE_SECONDS
+                )
+                if elapsed >= plan_value.stop_request_seconds or cost >= plan_value.budget_usd or orphaned:
                     result.stop_requested_at = round(elapsed, 2)
                     note(
                         "stop-requested",
-                        f"elapsed={elapsed:.1f}s cost=${cost:.4f}",
+                        "runner gone: the Pod has no consumer"
+                        if orphaned
+                        else f"elapsed={elapsed:.1f}s cost=${cost:.4f}",
                     )
                     try:
                         stopped = provider.terminate(state.pod_id)
@@ -605,9 +621,14 @@ def self_test() -> dict:
     )
     gone = scenario_runner_gone()
     check(
-        "a_dead_runner_does_not_stop_the_watchdog",
+        "a_dead_runner_stops_the_pod_it_left_behind",
         gone.verdict == "OK"
-        and any(event.kind == "runner-gone" for event in gone.events),
+        and gone.termination_confirmed
+        and any(event.kind == "runner-gone" for event in gone.events)
+        and any(
+            event.kind == "stop-requested" and "runner gone" in event.detail
+            for event in gone.events
+        ),
         gone.verdict,
     )
     plan_two = cost_policy.plan(
