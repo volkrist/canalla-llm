@@ -37,6 +37,18 @@ def test_ledger_deduplicates_and_summarises():
     assert ledger.ok is False
 
 
+def test_a_repaired_check_is_not_stuck_failed():
+    """A failure keeps its place in the history, but a later pass decides completion."""
+    ledger = EvidenceLedger()
+    ledger.record("file_exists", "a.txt", False, observed="missing")
+    assert ledger.ok is False
+    ledger.record("file_exists", "a.txt", True, observed="exists")
+    assert ledger.ok is True
+    assert ledger.summary()["failed"] == 1
+    ledger.record("http_ok", "http://x", False, observed="500")
+    assert ledger.ok is False
+
+
 # ----------------------------------------------------------------------------- verifier
 def test_verifier_checks_real_files_and_digests(tmp_path):
     target = tmp_path / "out.txt"

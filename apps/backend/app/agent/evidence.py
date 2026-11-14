@@ -110,9 +110,21 @@ class EvidenceLedger:
         for item in items:
             self.add(item)
 
+    def latest(self) -> list[Evidence]:
+        """The newest record per (kind, target).
+
+        The ledger is a history on purpose, but completion must not be poisoned by an attempt that
+        was repaired: a file that was missing and exists now is present. A live build verified its
+        app 8/8 after fixing it and was still refused because three earlier checks had failed.
+        """
+        newest: dict[tuple[str, str], Evidence] = {}
+        for item in self._items:
+            newest[(item.kind, item.target)] = item
+        return list(newest.values())
+
     @property
     def ok(self) -> bool:
-        return bool(self._items) and all(item.ok for item in self._items)
+        return bool(self._items) and all(item.ok for item in self.latest())
 
     def by_kind(self, *kinds: str) -> list[Evidence]:
         wanted = set(kinds)
