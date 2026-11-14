@@ -53,12 +53,35 @@ EVIDENCE = LIVE_DIR / "final-live"
 BACKEND = REPO / "apps" / "backend"
 SCRIPTS = REPO / "scripts"
 
-VOLUME_ID = "y92bt25ru8"
+VOLUME_ID = "y92bt25ru8"  # the approved placement
 DATACENTER = "US-MO-1"
+# Both paid-for regional volumes. TX-3 is watched and reported, never auto-approved: its measured
+# manifest records a failing serving self-test, and the owner's grant names MO-1 only.
+PLACEMENTS = (
+    {
+        "volume_id": "y92bt25ru8",
+        "datacenter": "US-MO-1",
+        "name": "orcarouter-storage-mo1",
+        "approved": True,
+    },
+    {
+        "volume_id": "uwgeaie5b0",
+        "datacenter": "US-TX-3",
+        "name": "orcarouter-storage",
+        "approved": False,
+    },
+)
+VOLUME_IDS = tuple(item["volume_id"] for item in PLACEMENTS)
 GPU_ID = "NVIDIA L40S"
 MODEL_ID = "orcarouter-qwen38-27b-q5km"
 BUDGET_USD = 2.00
-INTERVAL_MINUTES = 10
+# One scheduled pass performs two checks 30 seconds apart; Task Scheduler repeats the pass every
+# minute. Task Scheduler's documented minimum repetition is one minute, so a 30-second cadence is
+# built from two checks per pass rather than a resident loop.
+CHECK_GAP_SECONDS = 30
+PASS_INTERVAL_SECONDS = 60
+INTERVAL_MINUTES = 1
+STALE_AFTER_SECONDS = 5 * 60
 PHRASE = "I AUTHORIZE ONE PAID POD"
 SCHEMA = 1
 USABLE = {"LOW", "MEDIUM", "HIGH"}
@@ -215,23 +238,106 @@ class FileLock:
 
 # ------------------------------------------------------------------------------------------ provider
 class ProviderUnavailable(Exception):
-    pass
+    """The provider answered badly or not at all - never a "no GPU" verdict."""
+
+
+class ProviderRateLimited(Exception):
+    """HTTP 429. The provider told us when it is polite to come back."""
+
+    def __init__(self, retry_after: int = 5):
+        self.retry_after = max(1, min(60, int(retry_after or 5)))
+        super().__init__(f"429 retry_after={self.retry_after}s")
+
+
+MODEL_EVIDENCE = {
+    "y92bt25ru8": (REPO / "docs" / "replica-us-mo-1.json", "replica"),
+    "uwgeaie5b0": (
+        REPO / "artifacts" / "runpod-tx3-watcher" / "primary-manifest.json",
+        "manifest",
+    ),
+}
+
+
+def model_status(volume_id: str) -> tuple[str, str]:
+    """VERIFIED / FAILED / UNKNOWN for the copy on this volume, from its own record.
+
+    No network and no Pod: the replica record carries a real-model answer, and the primary
+    manifest carries a measured serving self-test. A missing or unreadable record is UNKNOWN, which
+    is never treated as verified.
+    """
+    path, kind = MODEL_EVIDENCE.get(volume_id, (None, None))
+    if path is None or not path.is_file():
+        return "UNKNOWN", "no_record"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return "UNKNOWN", "unreadable_record"
+    if kind == "replica":
+        replicas = payload.get("replicas") if isinstance(payload, dict) else None
+        record = replicas[0] if isinstance(replicas, list) and replicas else None
+        if not isinstance(record, dict):
+            return "UNKNOWN", "no_replica_record"
+        if record.get("ready") is True and record.get("last_verified"):
+            return "VERIFIED", "replica_ready"
+        return "FAILED", "replica_not_ready"
+    value = payload.get("serve_selftest") if isinstance(payload, dict) else None
+    if value is None:
+        return "UNKNOWN", "no_selftest"
+    passed = str(value).strip().upper() in {"PASS", "OK", "READY", "TRUE"}
+    return (
+        ("VERIFIED", "serve_selftest_pass")
+        if passed
+        else (
+            "FAILED",
+            "serve_selftest_fail_recorded",
+        )
+    )
 
 
 class RealProvider:
+    BASE = "https://api.runpod.io"
+
     def __init__(self) -> None:
         import runpod_api_tools
 
-        self.tools = runpod_api_tools
         self.key = runpod_api_tools.read_provider_secret()
         if not self.key:
             raise ProviderUnavailable("credential_not_configured")
 
     def call(self, path: str, *, method: str = "GET", payload: dict | None = None):
-        status, body = self.tools.call(path, self.key, method=method, payload=payload)
-        if status == 0:
-            raise ProviderUnavailable(str(body)[:200])
-        return status, body
+        """One bounded call. 429 is its own signal so the caller can honour Retry-After."""
+        import urllib.error
+        import urllib.request
+
+        body = json.dumps(payload).encode() if payload is not None else None
+        headers = {
+            "Authorization": f"Bearer {self.key}",
+            "User-Agent": "canalla-llm-monitor/1.2.7",
+        }
+        if body:
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(
+            self.BASE + path, data=body, headers=headers, method=method
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                status, response_headers, raw = (
+                    response.status,
+                    response.headers,
+                    response.read(),
+                )
+        except urllib.error.HTTPError as error:
+            status, response_headers, raw = error.code, error.headers, error.read()
+        except (urllib.error.URLError, OSError, TimeoutError) as error:
+            raise ProviderUnavailable(str(error)[:200]) from None
+        if status == 429:
+            raise ProviderRateLimited((response_headers or {}).get("Retry-After") or 5)
+        if status in {401, 403}:
+            raise ProviderUnavailable(f"auth_failed: HTTP {status}")
+        try:
+            return status, json.loads(raw or b"{}")
+        except ValueError:
+            return status, raw.decode("utf-8", "replace")[:400]
 
     def pods(self) -> list[dict]:
         status, body = self.call("/v2/pods")
@@ -240,11 +346,31 @@ class RealProvider:
             raise ProviderUnavailable(f"pods_read_failed: HTTP {status}")
         return [row for row in rows if isinstance(row, dict)]
 
-    def volume(self, volume_id: str) -> dict:
-        status, body = self.call("/v2/network-volumes/" + volume_id)
-        if status != 200 or not isinstance(body, dict):
-            raise ProviderUnavailable(f"volume_read_failed: HTTP {status}")
-        return body
+    def volumes(self) -> dict[str, dict]:
+        """Both regional volumes from one read, so a cycle cannot disagree with itself."""
+        status, body = self.call("/v2/network-volumes")
+        rows = body if isinstance(body, list) else None
+        if rows is None and isinstance(body, dict):
+            for key in ("networkVolumes", "volumes", "data"):
+                if isinstance(body.get(key), list):
+                    rows = body[key]
+                    break
+        if status != 200 or not isinstance(rows, list):
+            raise ProviderUnavailable(f"volumes_read_failed: HTTP {status}")
+        result = {}
+        for row in rows:
+            if not isinstance(row, dict) or not row.get("id"):
+                continue
+            result[str(row["id"])] = {
+                "id": str(row["id"]),
+                "name": row.get("name"),
+                "datacenter": str(
+                    row.get("dataCenterId") or row.get("dataCenter") or ""
+                ),
+                "type": row.get("type"),
+                "size_gb": row.get("size"),
+            }
+        return result
 
     def catalog(self) -> list[dict]:
         import urllib.parse
@@ -265,9 +391,13 @@ class RealProvider:
 
 
 def inspect(provider) -> dict:
-    """One fast snapshot. No retries, no queue, no writes - the scheduler supplies the next look."""
+    """One fast snapshot of both placements. No retries, no queue, no writes.
+
+    Three GETs: the Pod list, one volume list (both volumes), and one catalogue read (both
+    datacenters are in the same payload, so checking two regions costs no extra request).
+    """
     pods = provider.pods()
-    volume = provider.volume(VOLUME_ID)
+    volumes = provider.volumes()
     rows = provider.catalog()
     row = next((item for item in rows if item.get("id") == GPU_ID), None)
     centers = {
@@ -275,14 +405,10 @@ def inspect(provider) -> dict:
         for center in (row or {}).get("dataCenters") or []
         if isinstance(center, dict) and center.get("id")
     }
-    availability = centers.get(DATACENTER, "NONE")
     try:
         price = float(((row or {}).get("price") or {}).get("secure") or 0)
     except (TypeError, ValueError):
         price = 0.0
-    volume_datacenter = str(
-        volume.get("dataCenterId") or volume.get("dataCenter") or ""
-    )
 
     from app.compute import cost_policy
 
@@ -295,28 +421,59 @@ def inspect(provider) -> dict:
             target_work_seconds=cost_policy.DEFAULT_TARGET_WORK_SECONDS,
             min_work_seconds=2700,
         ).to_dict()
+    budget_ok = bool(policy and policy["feasible"] and policy["sufficient"])
 
-    available = bool(
-        row
-        and volume_datacenter == DATACENTER
-        and availability in USABLE
-        and policy
-        and policy["feasible"]
-        and policy["sufficient"]
-        and not pods
-    )
-    reasons = []
-    if row is None:
-        reasons.append("sku_not_in_catalogue")
-    if volume_datacenter != DATACENTER:
-        reasons.append(f"volume_in_{volume_datacenter or 'unknown'}")
-    if availability not in USABLE:
-        reasons.append(f"availability_{availability.lower()}")
-    if policy and not policy["sufficient"]:
-        reasons.append("no_meaningful_work_window")
-    if pods:
-        reasons.append("existing_pod")
+    placements = []
+    for spec in PLACEMENTS:
+        volume = volumes.get(spec["volume_id"]) or {}
+        present = bool(volume)
+        actual_dc = str(volume.get("datacenter") or "")
+        availability = centers.get(spec["datacenter"], "NONE")
+        model, model_reason = model_status(spec["volume_id"])
+        reasons = []
+        if not present:
+            reasons.append("volume_missing")
+        elif actual_dc != spec["datacenter"]:
+            reasons.append(f"volume_in_{actual_dc or 'unknown'}")
+        if availability not in USABLE:
+            reasons.append(f"availability_{availability.lower()}")
+        if model != "VERIFIED":
+            reasons.append(f"model_{model.lower()}")
+        if not budget_ok:
+            reasons.append("no_meaningful_work_window")
+        if pods:
+            reasons.append("existing_pod")
+        if not spec["approved"]:
+            reasons.append("placement_not_approved")
+        eligible = bool(
+            spec["approved"]
+            and present
+            and actual_dc == spec["datacenter"]
+            and availability in USABLE
+            and model == "VERIFIED"
+            and budget_ok
+            and not pods
+        )
+        placements.append(
+            {
+                "volume_id": spec["volume_id"],
+                "name": spec["name"],
+                "datacenter": spec["datacenter"],
+                "approved": spec["approved"],
+                "present": present,
+                "volume_datacenter": actual_dc or None,
+                "gpu_available": availability in USABLE,
+                "gpu_availability": availability,
+                "model": model,
+                "model_reason": model_reason,
+                "budget_allowed": budget_ok,
+                "live_authorized": spec["approved"],
+                "eligible": eligible,
+                "reasons": reasons,
+            }
+        )
 
+    approved = next(item for item in placements if item["approved"])
     return {
         "ok": True,
         "observed_at": utcnow(),
@@ -330,24 +487,30 @@ def inspect(provider) -> dict:
             for pod in pods
         ],
         "pod_count": len(pods),
+        "placements": placements,
         "volume": {
-            "id": VOLUME_ID,
-            "datacenter": volume_datacenter,
-            "present": True,
-            "type": volume.get("type"),
-            "size_gb": volume.get("size"),
+            "id": approved["volume_id"],
+            "datacenter": approved["volume_datacenter"],
+            "present": approved["present"],
+            "type": (volumes.get(approved["volume_id"]) or {}).get("type"),
+            "size_gb": (volumes.get(approved["volume_id"]) or {}).get("size_gb"),
         },
         "gpu": {
             "id": GPU_ID,
             "price_usd_per_hour": price or None,
-            "availability": availability,
+            "availability": approved["gpu_availability"],
+            "availability_by_datacenter": {
+                item["datacenter"]: item["gpu_availability"] for item in placements
+            },
             "bookable_datacenters": sorted(
                 name for name, value in centers.items() if value in USABLE
             ),
         },
         "policy": policy,
-        "available": available,
-        "reason": None if available else ",".join(reasons) or "unavailable",
+        "available": approved["eligible"],
+        "reason": None
+        if approved["eligible"]
+        else ",".join(approved["reasons"]) or "unavailable",
     }
 
 
@@ -424,8 +587,9 @@ def run_check(
     launch=None,
     remaining_reader=None,
     state_override: dict | None = None,
+    next_delay: int = CHECK_GAP_SECONDS,
 ) -> dict:
-    """One scheduled pass. Pure enough to drive from tests: the provider and launcher are injected."""
+    """One check. Pure enough to drive from tests: the provider and launcher are injected."""
     now = now or datetime.now(timezone.utc)
     rdir.mkdir(parents=True, exist_ok=True)
     scheduler = _scheduler_info(rdir)
@@ -442,15 +606,22 @@ def run_check(
     state["grant_reason"] = grant["reason"]
     state["checks"] = int(state.get("checks") or 0) + 1
     state["last_check_time"] = now.isoformat(timespec="seconds")
-    state["next_scheduled_check"] = (
-        now + timedelta(minutes=INTERVAL_MINUTES)
-    ).isoformat(timespec="seconds")
+    state["next_scheduled_check"] = (now + timedelta(seconds=next_delay)).isoformat(
+        timespec="seconds"
+    )
 
     try:
         observation = inspect(provider)
         state["consecutive_failures"] = 0
         state["last_successful_check"] = state["last_check_time"]
         state["last_error"] = None
+        state.pop("retry_after_seconds", None)
+    except ProviderRateLimited as error:
+        observation = None
+        state["consecutive_failures"] = int(state.get("consecutive_failures") or 0) + 1
+        state["last_error"] = f"rate_limited: retry_after={error.retry_after}s"
+        state["retry_after_seconds"] = error.retry_after
+        state["last_gpu_status"] = "UNKNOWN"
     except ProviderUnavailable as error:
         observation = None
         state["consecutive_failures"] = int(state.get("consecutive_failures") or 0) + 1
@@ -466,6 +637,7 @@ def run_check(
         return result
 
     state["pod_count"] = observation["pod_count"]
+    state["placements"] = observation["placements"]
     state["selected_datacenter"] = (
         observation["volume"]["datacenter"] if observation["available"] else None
     )
@@ -514,6 +686,45 @@ def run_check(
     state["grant_reason"] = refreshed["reason"]
     _finish(rdir, state, observation, refreshed, result)
     return result
+
+
+def run_pass(
+    *,
+    provider_factory,
+    rdir: Path,
+    checks: int = 2,
+    gap: int = CHECK_GAP_SECONDS,
+    dry_run: bool = False,
+    launch=None,
+    sleep=None,
+) -> list[dict]:
+    """One scheduled pass: two checks, ``gap`` seconds apart, under one lock.
+
+    Task Scheduler's smallest repetition is one minute, so a 30-second cadence is two checks per
+    pass. A 429 ends the pass early: the scheduler will come back in a minute, which is already at
+    or beyond the Retry-After bound we accept.
+    """
+    sleeper = sleep or time.sleep
+    results: list[dict] = []
+    for index in range(max(1, int(checks))):
+        if index:
+            sleeper(gap)
+        provider = provider_factory()
+        next_delay = gap if index + 1 < checks else PASS_INTERVAL_SECONDS
+        result = run_check(
+            provider=provider,
+            rdir=rdir,
+            dry_run=dry_run,
+            launch=launch,
+            next_delay=next_delay,
+        )
+        results.append(result)
+        state = result.get("state") or {}
+        if state.get("retry_after_seconds"):
+            break
+        if _is_terminal(state):
+            break
+    return results
 
 
 def _live_command(grant: dict) -> list[str]:
@@ -746,8 +957,7 @@ def build_status(state: dict, observation, grant) -> dict:
         monitor = "ERROR"
     elif (
         last is None
-        or (datetime.now(timezone.utc) - last).total_seconds()
-        <= 3 * INTERVAL_MINUTES * 60
+        or (datetime.now(timezone.utc) - last).total_seconds() <= STALE_AFTER_SECONDS
     ):
         monitor = "RUNNING"
     else:
@@ -762,9 +972,15 @@ def build_status(state: dict, observation, grant) -> dict:
         "gpu_availability": availability,
         "live": state.get("live_execution_state"),
         "automatic_live": automatic_live(state),
+        "interval_seconds": CHECK_GAP_SECONDS,
+        "pending_interval_seconds": PASS_INTERVAL_SECONDS,
+        "placements": state.get("placements")
+        or (observation or {}).get("placements")
+        or [],
         "last_check": state.get("last_check_time"),
         "next_check": state.get("next_scheduled_check"),
         "current_gpu_price": state.get("last_gpu_price"),
+        "retry_after_seconds": state.get("retry_after_seconds"),
         "pod_count": state.get("pod_count"),
         "paid_run_authorized": bool(state.get("paid_run_authorized")),
         "grant_reason": state.get("grant_reason"),
@@ -875,7 +1091,16 @@ def main(argv: list[str] | None = None) -> int:
         description="Canalla LIVE GPU monitor (one scheduled pass)."
     )
     parser.add_argument(
-        "--once", action="store_true", help="run one scheduled pass (default)"
+        "--once", action="store_true", help="run a single check instead of a full pass"
+    )
+    parser.add_argument(
+        "--pass",
+        action="store_true",
+        help="run the scheduled pass: two checks, 30 seconds apart (default)",
+    )
+    parser.add_argument("--checks", type=int, default=2, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--gap", type=float, default=CHECK_GAP_SECONDS, help=argparse.SUPPRESS
     )
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--self-test", action="store_true")
@@ -924,30 +1149,46 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.debug_hold_seconds:
             time.sleep(args.debug_hold_seconds)
-        provider = (
-            _provider_from_fixture(args.fixture) if args.fixture else RealProvider()
+        fixture = _provider_from_fixture(args.fixture) if args.fixture else None
+        results = run_pass(
+            provider_factory=lambda: fixture if fixture is not None else RealProvider(),
+            rdir=rdir,
+            checks=1 if args.once else max(1, args.checks),
+            gap=0 if args.once else max(0.0, args.gap),
+            dry_run=args.dry_run,
         )
-        result = run_check(provider=provider, rdir=rdir, dry_run=args.dry_run)
-        observation = result.get("observation")
-        print(
-            json.dumps(
-                {
-                    "at": (result.get("state") or {}).get("last_check_time"),
-                    "gpu_availability": "UNKNOWN"
-                    if observation is None
-                    else ("AVAILABLE" if observation["available"] else "UNAVAILABLE"),
-                    "price": (result.get("state") or {}).get("last_gpu_price"),
-                    "live": (result.get("state") or {}).get("live_execution_state"),
-                    "authorized": bool(
-                        (result.get("state") or {}).get("paid_run_authorized")
-                    ),
-                    "pod_count": (result.get("state") or {}).get("pod_count"),
-                    "reason": (observation or {}).get("reason")
-                    or (result.get("state") or {}).get("last_error"),
-                },
-                ensure_ascii=False,
+        for result in results:
+            observation = result.get("observation")
+            print(
+                json.dumps(
+                    {
+                        "at": (result.get("state") or {}).get("last_check_time"),
+                        "gpu_availability": "UNKNOWN"
+                        if observation is None
+                        else (
+                            "AVAILABLE" if observation["available"] else "UNAVAILABLE"
+                        ),
+                        "price": (result.get("state") or {}).get("last_gpu_price"),
+                        "live": (result.get("state") or {}).get("live_execution_state"),
+                        "authorized": bool(
+                            (result.get("state") or {}).get("paid_run_authorized")
+                        ),
+                        "pod_count": (result.get("state") or {}).get("pod_count"),
+                        "placements": [
+                            {
+                                "datacenter": item["datacenter"],
+                                "gpu": item["gpu_availability"],
+                                "model": item["model"],
+                                "eligible": item["eligible"],
+                            }
+                            for item in (observation or {}).get("placements") or []
+                        ],
+                        "reason": (observation or {}).get("reason")
+                        or (result.get("state") or {}).get("last_error"),
+                    },
+                    ensure_ascii=False,
+                )
             )
-        )
         return 0
     finally:
         lock.release()
@@ -973,35 +1214,56 @@ class FixtureProvider:
 
     def pods(self):
         data = self._next()
+        if data.get("rate_limited"):
+            raise ProviderRateLimited(int(data.get("retry_after") or 5))
         if data.get("error"):
             raise ProviderUnavailable(str(data["error"]))
         return data.get("pods") or []
 
-    def volume(self, volume_id):
+    def volumes(self):
+        """Both volumes, each in its declared datacenter; a fixture may omit either id."""
         data = self._next()
+        if data.get("rate_limited"):
+            raise ProviderRateLimited(int(data.get("retry_after") or 5))
         if data.get("error"):
             raise ProviderUnavailable(str(data["error"]))
-        volume = data.get("volume") or {}
-        return {
-            "id": volume_id,
-            "dataCenterId": volume.get("datacenter", DATACENTER),
-            "type": volume.get("type", "STANDARD"),
-            "size": volume.get("size_gb", 50),
-        }
+        supplied = data.get("volumes") if isinstance(data.get("volumes"), dict) else {}
+        result = {}
+        for spec in PLACEMENTS:
+            override = supplied.get(spec["volume_id"])
+            if override is False:
+                continue
+            override = override if isinstance(override, dict) else {}
+            result[spec["volume_id"]] = {
+                "id": spec["volume_id"],
+                "name": spec["name"],
+                "datacenter": override.get("datacenter", spec["datacenter"]),
+                "type": override.get("type", "STANDARD"),
+                "size_gb": override.get("size_gb", 50),
+            }
+        return result
 
     def catalog(self):
         data = self._next()
+        if data.get("rate_limited"):
+            raise ProviderRateLimited(int(data.get("retry_after") or 5))
         if data.get("error"):
             raise ProviderUnavailable(str(data["error"]))
         gpu = data.get("gpu") or {}
-        availability = gpu.get("availability", "NONE")
+        by_dc = gpu.get("availability_by_dc")
+        if not isinstance(by_dc, dict):
+            # Backward compatible: one availability means the approved datacenter, the other is
+            # reported as NONE rather than being invented.
+            by_dc = {DATACENTER: gpu.get("availability", "NONE")}
         return [
             {
                 "id": GPU_ID,
                 "manufacturer": "NVIDIA",
                 "memory": 48,
                 "price": {"secure": gpu.get("price_usd_per_hour", 1.09)},
-                "dataCenters": [{"id": DATACENTER, "availability": availability}],
+                "dataCenters": [
+                    {"id": dc, "availability": value} for dc, value in by_dc.items()
+                ],
             }
         ]
 
@@ -1141,6 +1403,68 @@ def self_test() -> int:
             "an_existing_pod_blocks_the_run",
             result["state"]["live_execution_state"] == "WAITING_GPU"
             and result["run"] is None,
+        )
+
+        # 8b. both placements are reported, and TX-3 availability never authorises a run
+        rdir = root / "case8b"
+        _write_grant(rdir)
+        result = run_check(
+            provider=FixtureProvider(
+                {"gpu": {"availability_by_dc": {"US-MO-1": "NONE", "US-TX-3": "LOW"}}}
+            ),
+            rdir=rdir,
+        )
+        by_dc = {
+            item["datacenter"]: item for item in result["observation"]["placements"]
+        }
+        check(
+            "both_placements_are_reported_and_tx3_never_authorises",
+            len(by_dc) == 2
+            and by_dc["US-TX-3"]["gpu_available"]
+            and not by_dc["US-TX-3"]["eligible"]
+            and not by_dc["US-TX-3"]["live_authorized"]
+            and by_dc["US-MO-1"]["model"] == "VERIFIED"
+            and by_dc["US-TX-3"]["model"] == "FAILED"
+            and result["state"]["live_execution_state"] == "WAITING_GPU"
+            and result["run"] is None,
+        )
+
+        # 8c. model evidence comes from each volume's own record
+        check(
+            "model_evidence_is_per_volume",
+            model_status("y92bt25ru8")[0] == "VERIFIED"
+            and model_status("uwgeaie5b0")[0] == "FAILED"
+            and model_status("unknown-volume")[0] == "UNKNOWN",
+        )
+
+        # 8d. a 429 is UNKNOWN with its Retry-After, and never a run
+        rdir = root / "case8d"
+        _write_grant(rdir)
+        result = run_check(
+            provider=FixtureProvider({"rate_limited": True, "retry_after": 7}),
+            rdir=rdir,
+        )
+        check(
+            "rate_limit_is_unknown_and_backs_off",
+            result["state"]["last_gpu_status"] == "UNKNOWN"
+            and result["state"]["retry_after_seconds"] == 7
+            and result["state"]["live_execution_state"] == "ERROR"
+            and result["run"] is None,
+        )
+
+        # 8e. one pass is two checks (the 30-second cadence at a one-minute schedule)
+        rdir = root / "case8e"
+        results = run_pass(
+            provider_factory=lambda: FixtureProvider({"gpu": {"availability": "NONE"}}),
+            rdir=rdir,
+            checks=2,
+            gap=0,
+            sleep=lambda _seconds: None,
+        )
+        rows = (rdir / "checks.jsonl").read_text(encoding="utf-8").strip().splitlines()
+        check(
+            "a_pass_takes_two_checks",
+            len(results) == 2 and len(rows) == 2 and load_state(rdir)["checks"] == 2,
         )
 
         # 9. the lock refuses a second instance

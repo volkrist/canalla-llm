@@ -2,9 +2,10 @@
 
 Persistent, unattended monitoring for the one authorised REAL Qwen LIVE acceptance.
 
-Windows Task Scheduler starts `monitor.py --once` **every 10 minutes, indefinitely**. Each pass takes
-an exclusive lock, reads a small provider snapshot, writes its durable state and exits. There is no
-resident process and no dependency on an editor window, the Canalla backend or the installed app.
+Windows Task Scheduler starts `monitor.py` **every minute**, and each pass performs **two checks 30 seconds
+apart**, so the effective GPU cadence is **30 seconds**. Each pass takes an exclusive lock, reads a
+small provider snapshot, writes its durable state and exits. There is no resident process and no
+dependency on an editor window, the Canalla backend or the installed app.
 
 ## Files
 
@@ -27,15 +28,27 @@ resident process and no dependency on an editor window, the Canalla backend or t
 
 ## What a pass checks
 
-1. `GET /v2/pods` — the provider is reachable and the account is a confirmed zero-Pod state.
-2. `GET /v2/network-volumes/y92bt25ru8` — the verified replica exists and lives in `US-MO-1`.
-3. `GET /v2/catalog/gpus?include=AVAILABILITY` — `NVIDIA L40S` availability **in that datacenter**
-   and its current Secure price.
-4. `app.compute.cost_policy` — whether `$2.00` still leaves a meaningful window at that price
-   (60-minute billing granularity, 30 s termination grace, 10 s watchdog margin, 45-minute minimum).
-5. The stored authorization — phrase, budget, Pod count, expiry, and whether it was already used.
+One pass = two checks, 30 seconds apart, under one lock. Each check makes **three GETs**:
 
-No capacity queue, no retries inside a pass, no full preflight while the GPU is still absent.
+1. `GET /v2/pods` — the provider is reachable and the account has no Pod.
+2. `GET /v2/network-volumes` — **both** paid volumes from one read: `y92bt25ru8` (US-MO-1) and
+   `uwgeaie5b0` (US-TX-3), each with its datacenter.
+3. `GET /v2/catalog/gpus?include=AVAILABILITY` — `NVIDIA L40S` availability for **both**
+   datacenters and its current Secure price, from one payload.
+
+Then `app.compute.cost_policy` decides whether `$2.00` still leaves a meaningful window at that
+price (60-minute billing granularity, 30 s termination grace, 10 s watchdog margin, 45-minute
+minimum), and the stored authorization is validated.
+
+Every check reports, per placement: `gpu_available`, `model` (`VERIFIED` / `FAILED` / `UNKNOWN`),
+`budget_allowed`, `live_authorized`, `eligible` and the reasons. Model evidence is read from each
+volume's own record: `docs/replica-us-mo-1.json` (`ready:true`, a real-model answer) and
+`artifacts/runpod-tx3-watcher/primary-manifest.json` (`serve_selftest: FAIL`). **US-TX-3 is watched
+and reported but never auto-approved** — the owner's grant names MO-1 only.
+
+An HTTP 429 is its own signal: the check records `rate_limited` with the provider's `Retry-After`
+(bounded to 60 s), reports `UNKNOWN`, and the pass ends early so the next scheduled pass backs off.
+No capacity queue, no retries inside a pass, no full preflight while the GPU is absent.
 
 ## When the GPU appears
 
@@ -68,7 +81,7 @@ scheduled pass retries automatically.
 :: status (the block the operator reads)
 python artifacts\acceptance-127\live-qwen\monitor\monitor.py --status
 
-:: one manual pass (the scheduler does this every 10 minutes)
+:: one manual pass (the scheduler does this every minute)
 python artifacts\acceptance-127\live-qwen\monitor\monitor.py --once
 
 :: free proof of the whole paid path, no Pod
@@ -99,9 +112,11 @@ default (`--days`), and a budget above `$2.00` or more than one Pod is refused.
 
 ## Operational notes
 
-* **Schedule:** a `TimeTrigger` with `PT10M` and no end boundary, so it does not stop after a day.
-  `StartWhenAvailable` runs a missed pass after sleep or a reboot; `RestartOnFailure` retries a
-  crashed pass three times, one minute apart.
+* **Schedule:** a `TimeTrigger` with `PT1M` and no end boundary, so it does not stop after a day.
+  Task Scheduler's documented minimum repetition is one minute, which is why the 30-second cadence
+  is built from two checks per pass instead of a resident loop. `StartWhenAvailable` runs a missed
+  pass after sleep or a reboot; `RestartOnFailure` retries a crashed pass three times, one minute
+  apart.
 * **One instance:** Task Scheduler's `MultipleInstances=IgnoreNew` plus the file lock. A second
   process exits with `{"skipped": "another_instance_running"}` and writes nothing.
 * **Logon type:** `InteractiveToken`, because the RunPod credential lives in the user's Credential

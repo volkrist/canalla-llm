@@ -41,14 +41,14 @@ New-Item -ItemType Directory -Force -Path $runtime | Out-Null
 
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $escape = { param($text) [System.Security.SecurityElement]::Escape([string]$text) }
-$arguments = '"' + $monitor + '" --once'
+$arguments = '"' + $monitor + '" --pass'
 $start = (Get-Date).AddMinutes(1).ToString('yyyy-MM-ddTHH:mm:ss')
 
 $xml = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Canalla LLM 1.2.7 - read-only GPU availability check every 10 minutes; starts the prepared LIVE acceptance only when a stored owner authorization exists.</Description>
+    <Description>Canalla LLM 1.2.7 - one pass per minute, each pass performs two read-only checks 30 seconds apart, so the effective GPU cadence is 30 seconds. Both regional volumes are reported. Starts the prepared LIVE acceptance only when a stored owner authorization exists.</Description>
     <URI>\$($escape.Invoke($TaskName))</URI>
   </RegistrationInfo>
   <Triggers>
@@ -56,7 +56,7 @@ $xml = @"
       <StartBoundary>$start</StartBoundary>
       <Enabled>true</Enabled>
       <Repetition>
-        <Interval>PT10M</Interval>
+        <Interval>PT1M</Interval>
         <StopAtDurationEnd>false</StopAtDurationEnd>
       </Repetition>
     </TimeTrigger>
@@ -111,7 +111,9 @@ $marker = [ordered]@{
   monitor       = $monitor
   repo          = $repo
   runtime_dir   = $runtime
-  interval      = 'PT10M'
+  interval      = 'PT1M'
+  check_gap     = 30
+  check_count   = 2
   logon_type    = 'InteractiveToken'
 }
 $marker | ConvertTo-Json | ForEach-Object {
