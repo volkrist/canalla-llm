@@ -33,22 +33,23 @@ REPO = Path(__file__).resolve().parents[3]
 BACKEND = REPO / "apps" / "backend"
 OUT = Path(__file__).resolve().parent / "final-live"
 PRIMARY_VOLUME = "uwgeaie5b0"
-# The only placement this run is approved to use: the copy whose real-GPU answer is recorded.
-PREFERRED_VOLUME = "y92bt25ru8"
+# 
+# Both paid volumes are placements this run may use. The distinction is not permission but proof:
+# ``placement_records`` reads each volume's own record and reports VERIFIED (a real model answer),
+# UNVERIFIED_NEEDS_LIVE_CHECK (its recorded self-test was malformed, assets intact) or FAILED. A
+# placement that is not VERIFIED is allowed, and the harness proves the model inside the same Pod
+# before any TaskDesk work.
+#
 # The owner's preferred card for the run. It is a *pin*, not a hint: a cheaper or pricier card is
 # not substituted, because a fallback that quietly changes the approved SKU is exactly what the
 # confirmation is bound against.
 REQUIRED_GPU_ID = "NVIDIA L40S"
 MIN_VRAM_GB = 48
 BUDGET_USD = Decimal("2.00")
-# A volume is only a placement when its *serving* evidence is a pass. The measured manifest of the
-# primary volume records `serve_selftest: FAIL`, so that placement is refused for this run rather
-# than being silently preferred by a price tie.
-SERVING_MANIFEST = REPO / "artifacts" / "runpod-tx3-watcher" / "primary-manifest.json"
-SERVING_PASS = {"PASS", "OK", "READY", "TRUE"}
 
 sys.path.insert(0, str(REPO / "scripts"))
 sys.path.insert(0, str(BACKEND))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import runpod_api_tools
 from app.compute import candidates as policy
@@ -59,6 +60,16 @@ from app.compute.replicas import (
     parse_replicas,
     placement_refusals,
 )
+from placement_records import (
+    FAILED as MODEL_FAILED,
+    PLACEMENTS,
+    VERIFIED,
+    is_usable,
+    model_status,
+    rank as model_rank,
+)
+
+APPROVED_VOLUMES = tuple(item["volume_id"] for item in PLACEMENTS)
 
 # What this build's model actually is. Read from the deployment's own pin, never from a replica.
 EXPECTATION = ReplicaExpectation(
@@ -88,29 +99,32 @@ def rows_of(payload, *keys) -> list:
 
 
 def serving_evidence() -> dict:
-    """What the record says about *serving* from each volume, never what we hope it says.
+    """What each volume's own record proves about serving this exact model.
 
-    The primary volume's manifest records ``serve_selftest: FAIL``. That is not proof the volume can
-    never serve - production uses it - but it *is* proof that this build has no passing serving
-    check on it, so a LIVE run must not land there by a price tie. Only a recorded failure is
-    turned into a refusal here; silence is not a verdict.
+    The TX-3 manifest records ``serve_selftest: FAIL``, but the run's raw log shows ``curl`` printing
+    its usage text immediately before the marker: the *check command* was malformed, not the model.
+    That makes TX-3 UNVERIFIED_NEEDS_LIVE_CHECK (usable only with a live proof), never FAILED. A
+    record whose assets are inconsistent is a real failure and stays refused.
     """
-    evidence: dict = {"source": str(SERVING_MANIFEST.relative_to(REPO)), "records": {}}
-    try:
-        manifest = json.loads(SERVING_MANIFEST.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        evidence["note"] = "manifest unreadable; no serving refusal derived"
-        return evidence
-    volume_id = str(manifest.get("volume_id") or "")
-    value = manifest.get("serve_selftest")
-    if volume_id and value is not None:
-        passed = str(value).strip().upper() in SERVING_PASS
-        evidence["records"][volume_id] = {
-            "serve_selftest": value,
-            "passed": passed,
-            "measured_at": manifest.get("measured_at"),
+    records = {}
+    for spec in PLACEMENTS:
+        status, reason = model_status(spec["volume_id"])
+        records[spec["volume_id"]] = {
+            "datacenter": spec["datacenter"],
+            "model_state": status,
+            "reason": reason,
+            "usable": is_usable(status),
+            "requires_live_selftest": status != VERIFIED,
         }
-    return evidence
+    return {
+        "source": "artifacts/acceptance-127/live-qwen/placement_records.py",
+        "records": records,
+        "refusals": {
+            volume: f"model_{record['model_state'].lower()}"
+            for volume, record in records.items()
+            if not record["usable"]
+        },
+    }
 
 
 def replica_records() -> list[dict]:
@@ -190,9 +204,7 @@ def main() -> int:
         placements, records, EXPECTATION, require_records=require_records
     )
     served = serving_evidence()
-    for volume_id, record in served.get("records", {}).items():
-        if not record["passed"]:
-            refusals[volume_id] = "serve_selftest_failed"
+    refusals.update(served.get("refusals") or {})
 
     query = urllib.parse.urlencode(
         {
@@ -274,9 +286,21 @@ def main() -> int:
             "name": candidate.gpu_name,
             "hourly_price_usd": float(candidate.hourly_rate),
             "storage_mode": storage_layout.REGIONAL_VOLUME,
+            "model_state": model_status(candidate.volume_id)[0],
+            "requires_live_selftest": model_status(candidate.volume_id)[0] != VERIFIED,
         }
         for candidate in plan.candidates
     ]
+    # Price first, proof as the tie-break: when both copies can book the same card at the same price
+    # the verified one wins. Availability is never widened by this ordering - it only orders what
+    # the policy already allowed.
+    candidates.sort(
+        key=lambda item: (
+            item["hourly_price_usd"],
+            model_rank(item["model_state"]),
+            item["volume_id"],
+        )
+    )
     selected = candidates[0] if candidates else None
     reference = None
     if not selected:
@@ -300,7 +324,7 @@ def main() -> int:
         },
         "volumes": volumes,
         "required_gpu": REQUIRED_GPU_ID,
-        "preferred_volume": PREFERRED_VOLUME,
+        "approved_volumes": list(APPROVED_VOLUMES),
         "serving_evidence": served,
         "replicas": records,
         "placements": [item.audit() for item in placements],
@@ -311,6 +335,7 @@ def main() -> int:
         "catalogue_offers": len(offers),
         "candidates": candidates[:10],
         "selected": selected,
+        "requires_live_selftest": bool(selected and selected["requires_live_selftest"]),
         "volume": next(
             (
                 {
@@ -329,14 +354,14 @@ def main() -> int:
         "plan_reason": plan.reason,
         "ok": selected is not None,
     }
-    if selected is not None and selected["volume_id"] != PREFERRED_VOLUME:
-        # The owner approved this replica. A different placement is a different decision, so it is
-        # reported as not-ready instead of being used quietly.
+    if selected is not None and selected["volume_id"] not in APPROVED_VOLUMES:
+        # Defensive: the policy can only produce placements from the approved list, but a widened
+        # list is a different owner decision and must never be used quietly.
         report["verdict"] = "PLACEMENT_NOT_APPROVED"
         report["reason"] = (
             f"the only bookable placement is {selected['volume_id']} "
-            f"({selected['datacenter']}), not the approved verified replica {PREFERRED_VOLUME}; "
-            "no Pod was created"
+            f"({selected['datacenter']}), which is not one of the approved placements "
+            f"({', '.join(APPROVED_VOLUMES)}); no Pod was created"
         )
         report["selected"] = None
         report["ok"] = False
@@ -349,15 +374,15 @@ def main() -> int:
 
     if selected is None:
         if not report["verified_placements"]:
-            report["verdict"] = "NO_VERIFIED_MODEL_COPY"
+            report["verdict"] = "NO_USABLE_MODEL_COPY"
             report["reason"] = (
-                "no placement holds a verified copy of this model with a passing serving check; "
+                "no approved placement holds a copy of this model whose record is usable; "
                 "nothing was created"
             )
         else:
             report["verdict"] = "CAPACITY_UNAVAILABLE"
             report["reason"] = (
-                f"{REQUIRED_GPU_ID} is not bookable in any verified placement ("
+                f"{REQUIRED_GPU_ID} is not bookable in any approved placement ("
                 + ", ".join(report["verified_placements"])
                 + "); no Pod was created and no capacity wait was started"
             )

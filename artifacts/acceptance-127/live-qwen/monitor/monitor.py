@@ -2,12 +2,23 @@
 
 Design in one paragraph
 -----------------------
-Windows Task Scheduler runs this file every 10 minutes, one-shot. Each run takes an exclusive file
-lock, reads a lightweight snapshot of the provider (pods, the verified volume, the pinned SKU's
-availability and price), updates a durable state and status file, and exits. There is no resident
-process and no dependency on an editor window. When the conditions are true *and* a stored,
-separate owner authorization exists, the same run starts the prepared LIVE acceptance and then
-records its outcome. With no authorization it keeps monitoring and never creates a Pod.
+Windows Task Scheduler runs this file once a minute, and every pass performs two checks 30 seconds
+apart - a 30-second cadence built from the scheduler's own one-minute minimum. Each run takes an
+exclusive file lock, reads a lightweight snapshot of the provider (pods, both regional volumes, the
+pinned SKU's availability in both datacenters and its price), updates a durable state and status
+file, and exits. There is no resident process and no dependency on an editor window. When the
+conditions are true *and* a stored, separate owner authorization exists, the same run starts the
+prepared LIVE acceptance and then records its outcome. With no authorization it keeps monitoring
+and never creates a Pod.
+
+Two placements, one permission
+------------------------------
+Both paid volumes are equal candidates: ``uwgeaie5b0`` (US-TX-3) and ``y92bt25ru8`` (US-MO-1). Their
+records do not prove the same thing - MO-1 carries a verified answer from the real model, TX-3 carries
+a manifest whose recorded self-test was malformed - so the model's state is reported per placement and
+a candidate that is not VERIFIED runs with ``--self-test-mode``: the same Pod proves the model with a
+real answer before any TaskDesk work, and a failed proof stops that Pod instead of trying a second
+one. Availability is never widened beyond the authorization's own placement list.
 
 Why the authorization is a file and not a flag
 ----------------------------------------------
@@ -53,37 +64,15 @@ EVIDENCE = LIVE_DIR / "final-live"
 BACKEND = REPO / "apps" / "backend"
 SCRIPTS = REPO / "scripts"
 
-VOLUME_ID = "y92bt25ru8"  # the approved placement
-DATACENTER = "US-MO-1"
-# Both paid-for regional volumes. TX-3 is watched and reported, never auto-approved: its measured
-# manifest records a failing serving self-test, and the owner's grant names MO-1 only.
-PLACEMENTS = (
-    {
-        "volume_id": "y92bt25ru8",
-        "datacenter": "US-MO-1",
-        "name": "orcarouter-storage-mo1",
-        "approved": True,
-    },
-    {
-        "volume_id": "uwgeaie5b0",
-        "datacenter": "US-TX-3",
-        "name": "orcarouter-storage",
-        "approved": False,
-    },
-)
-VOLUME_IDS = tuple(item["volume_id"] for item in PLACEMENTS)
-GPU_ID = "NVIDIA L40S"
-MODEL_ID = "orcarouter-qwen38-27b-q5km"
+VOLUME_IDS = ()
 BUDGET_USD = 2.00
-# One scheduled pass performs two checks 30 seconds apart; Task Scheduler repeats the pass every
-# minute. Task Scheduler's documented minimum repetition is one minute, so a 30-second cadence is
-# built from two checks per pass rather than a resident loop.
 CHECK_GAP_SECONDS = 30
 PASS_INTERVAL_SECONDS = 60
 INTERVAL_MINUTES = 1
 STALE_AFTER_SECONDS = 5 * 60
 PHRASE = "I AUTHORIZE ONE PAID POD"
 SCHEMA = 1
+GRANT_SCHEMA = 2
 USABLE = {"LOW", "MEDIUM", "HIGH"}
 TERMINAL_STATES = {
     "COMPLETED",
@@ -97,6 +86,19 @@ LIVE_TIMEOUT_SECONDS = 2 * 60 * 60
 
 sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(BACKEND))
+sys.path.insert(0, str(LIVE_DIR))
+
+from placement_records import (  # noqa: E402
+    GPU_ID,
+    MODEL_ID,
+    PLACEMENTS,
+    VERIFIED,
+    is_usable,
+    model_status,
+    rank,
+)
+
+VOLUME_IDS = tuple(item["volume_id"] for item in PLACEMENTS)
 
 
 def utcnow() -> str:
@@ -139,6 +141,10 @@ def initial_state() -> dict:
         "consecutive_failures": 0,
         "selected_datacenter": None,
         "selected_volume": None,
+        "allowed_placements": [],
+        "placements": [],
+        "selection_mode": None,
+        "requires_selftest": False,
         "live_execution_state": "WAITING_GPU",
         "paid_run_authorized": False,
         "grant_reason": None,
@@ -249,51 +255,6 @@ class ProviderRateLimited(Exception):
         super().__init__(f"429 retry_after={self.retry_after}s")
 
 
-MODEL_EVIDENCE = {
-    "y92bt25ru8": (REPO / "docs" / "replica-us-mo-1.json", "replica"),
-    "uwgeaie5b0": (
-        REPO / "artifacts" / "runpod-tx3-watcher" / "primary-manifest.json",
-        "manifest",
-    ),
-}
-
-
-def model_status(volume_id: str) -> tuple[str, str]:
-    """VERIFIED / FAILED / UNKNOWN for the copy on this volume, from its own record.
-
-    No network and no Pod: the replica record carries a real-model answer, and the primary
-    manifest carries a measured serving self-test. A missing or unreadable record is UNKNOWN, which
-    is never treated as verified.
-    """
-    path, kind = MODEL_EVIDENCE.get(volume_id, (None, None))
-    if path is None or not path.is_file():
-        return "UNKNOWN", "no_record"
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError):
-        return "UNKNOWN", "unreadable_record"
-    if kind == "replica":
-        replicas = payload.get("replicas") if isinstance(payload, dict) else None
-        record = replicas[0] if isinstance(replicas, list) and replicas else None
-        if not isinstance(record, dict):
-            return "UNKNOWN", "no_replica_record"
-        if record.get("ready") is True and record.get("last_verified"):
-            return "VERIFIED", "replica_ready"
-        return "FAILED", "replica_not_ready"
-    value = payload.get("serve_selftest") if isinstance(payload, dict) else None
-    if value is None:
-        return "UNKNOWN", "no_selftest"
-    passed = str(value).strip().upper() in {"PASS", "OK", "READY", "TRUE"}
-    return (
-        ("VERIFIED", "serve_selftest_pass")
-        if passed
-        else (
-            "FAILED",
-            "serve_selftest_fail_recorded",
-        )
-    )
-
-
 class RealProvider:
     BASE = "https://api.runpod.io"
 
@@ -390,12 +351,17 @@ class RealProvider:
         return [row for row in rows if isinstance(row, dict)]
 
 
-def inspect(provider) -> dict:
-    """One fast snapshot of both placements. No retries, no queue, no writes.
+def inspect(provider, *, allowed_pairs=()) -> dict:
+    """One snapshot of both placements, then the one this pass would use.
 
     Three GETs: the Pod list, one volume list (both volumes), and one catalogue read (both
     datacenters are in the same payload, so checking two regions costs no extra request).
+
+    ``allowed_pairs`` comes from the stored authorization. A placement can be technically perfect
+    and still not be selectable, which is why technical eligibility and authorization are reported
+    as separate facts.
     """
+    allowed = {(str(dc), str(vid)) for dc, vid in allowed_pairs}
     pods = provider.pods()
     volumes = provider.volumes()
     rows = provider.catalog()
@@ -430,6 +396,7 @@ def inspect(provider) -> dict:
         actual_dc = str(volume.get("datacenter") or "")
         availability = centers.get(spec["datacenter"], "NONE")
         model, model_reason = model_status(spec["volume_id"])
+        authorized = (spec["datacenter"], spec["volume_id"]) in allowed
         reasons = []
         if not present:
             reasons.append("volume_missing")
@@ -437,20 +404,19 @@ def inspect(provider) -> dict:
             reasons.append(f"volume_in_{actual_dc or 'unknown'}")
         if availability not in USABLE:
             reasons.append(f"availability_{availability.lower()}")
-        if model != "VERIFIED":
+        if not is_usable(model):
             reasons.append(f"model_{model.lower()}")
         if not budget_ok:
             reasons.append("no_meaningful_work_window")
         if pods:
             reasons.append("existing_pod")
-        if not spec["approved"]:
-            reasons.append("placement_not_approved")
-        eligible = bool(
-            spec["approved"]
-            and present
+        if not authorized:
+            reasons.append("placement_not_authorized")
+        technical = bool(
+            present
             and actual_dc == spec["datacenter"]
             and availability in USABLE
-            and model == "VERIFIED"
+            and is_usable(model)
             and budget_ok
             and not pods
         )
@@ -459,21 +425,32 @@ def inspect(provider) -> dict:
                 "volume_id": spec["volume_id"],
                 "name": spec["name"],
                 "datacenter": spec["datacenter"],
-                "approved": spec["approved"],
                 "present": present,
                 "volume_datacenter": actual_dc or None,
                 "gpu_available": availability in USABLE,
                 "gpu_availability": availability,
                 "model": model,
+                "model_status": model,
                 "model_reason": model_reason,
+                "requires_selftest": model != VERIFIED,
                 "budget_allowed": budget_ok,
-                "live_authorized": spec["approved"],
-                "eligible": eligible,
+                "live_authorized": authorized,
+                "technically_eligible": technical,
+                "live_eligible": technical and authorized,
+                "rejection_reason": None
+                if technical and authorized
+                else ",".join(reasons) or "unavailable",
                 "reasons": reasons,
             }
         )
 
-    approved = next(item for item in placements if item["approved"])
+    # Prefer the proven copy when both can book the same card at the same price; otherwise the
+    # only available one wins. Availability is never widened - this only orders what exists.
+    candidates = [item for item in placements if item["live_eligible"]]
+    chosen = min(candidates, key=lambda item: (rank(item["model"]), item["volume_id"])) if candidates else None
+    technically = [item for item in placements if item["technically_eligible"]]
+    reference = chosen or (min(technically, key=lambda item: rank(item["model"])) if technically else placements[0])
+
     return {
         "ok": True,
         "observed_at": utcnow(),
@@ -488,17 +465,19 @@ def inspect(provider) -> dict:
         ],
         "pod_count": len(pods),
         "placements": placements,
+        "chosen": chosen,
+        "technically_available": bool(technically),
         "volume": {
-            "id": approved["volume_id"],
-            "datacenter": approved["volume_datacenter"],
-            "present": approved["present"],
-            "type": (volumes.get(approved["volume_id"]) or {}).get("type"),
-            "size_gb": (volumes.get(approved["volume_id"]) or {}).get("size_gb"),
+            "id": reference["volume_id"],
+            "datacenter": reference["volume_datacenter"],
+            "present": reference["present"],
+            "type": (volumes.get(reference["volume_id"]) or {}).get("type"),
+            "size_gb": (volumes.get(reference["volume_id"]) or {}).get("size_gb"),
         },
         "gpu": {
             "id": GPU_ID,
             "price_usd_per_hour": price or None,
-            "availability": approved["gpu_availability"],
+            "availability": reference["gpu_availability"],
             "availability_by_datacenter": {
                 item["datacenter"]: item["gpu_availability"] for item in placements
             },
@@ -507,10 +486,8 @@ def inspect(provider) -> dict:
             ),
         },
         "policy": policy,
-        "available": approved["eligible"],
-        "reason": None
-        if approved["eligible"]
-        else ",".join(approved["reasons"]) or "unavailable",
+        "available": chosen is not None,
+        "reason": None if chosen else (",".join(reference["reasons"]) or "unavailable"),
     }
 
 
@@ -521,7 +498,6 @@ def grant_path(rdir: Path) -> Path:
 
 def read_grant(rdir: Path, now: datetime | None = None) -> dict:
     """The stored permission, validated. Silence, prose or a GPU sighting never substitutes."""
-    now = now or datetime.now(timezone.utc)
     path = grant_path(rdir)
     if not path.is_file():
         return {"valid": False, "reason": "not_granted", "grant": None}
@@ -529,6 +505,16 @@ def read_grant(rdir: Path, now: datetime | None = None) -> dict:
         grant = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {"valid": False, "reason": "malformed", "grant": None}
+    return validate_grant(grant, now)
+
+
+def validate_grant(grant, now: datetime | None = None) -> dict:
+    """Validate one payload without touching the disk.
+
+    Separate from the read so a scope upgrade can be proven valid *before* it atomically replaces
+    the stored file: a bad rewrite must never become the live permission.
+    """
+    now = now or datetime.now(timezone.utc)
     if not isinstance(grant, dict):
         return {"valid": False, "reason": "malformed", "grant": None}
     if grant.get("phrase") != PHRASE:
@@ -541,15 +527,28 @@ def read_grant(rdir: Path, now: datetime | None = None) -> dict:
         return {"valid": False, "reason": "budget_out_of_range", "grant": grant}
     if int(grant.get("max_pods") or 0) != 1:
         return {"valid": False, "reason": "pod_count_not_one", "grant": grant}
-    # The grant names the exact run it permits. A record for a different model, card, volume or
-    # datacenter is not a wider permission and is not silently applied to this one.
-    for field, expected in (
-        ("allowed_model", MODEL_ID),
-        ("allowed_gpu", GPU_ID),
-        ("allowed_volume", VOLUME_ID),
-        ("allowed_datacenter", DATACENTER),
-    ):
-        if grant.get(field) != expected:
+    # The grant names the exact run it permits: one model, one card, and an explicit list of
+    # placements. A list is used from schema 2 on; a legacy single placement is still honoured.
+    if grant.get("allowed_model") != MODEL_ID or grant.get("allowed_gpu") != GPU_ID:
+        return {"valid": False, "reason": "scope_mismatch", "grant": grant}
+    placements = grant.get("allowed_placements")
+    if placements is None:
+        if grant.get("allowed_volume") != "y92bt25ru8" or grant.get("allowed_datacenter") != "US-MO-1":
+            return {"valid": False, "reason": "scope_mismatch", "grant": grant}
+        pairs = [("US-MO-1", "y92bt25ru8")]
+    else:
+        if not isinstance(placements, list) or not placements:
+            return {"valid": False, "reason": "scope_mismatch", "grant": grant}
+        pairs = []
+        known = {(item["datacenter"], item["volume_id"]) for item in PLACEMENTS}
+        for entry in placements:
+            if not isinstance(entry, dict):
+                return {"valid": False, "reason": "scope_mismatch", "grant": grant}
+            pair = (str(entry.get("datacenter") or ""), str(entry.get("volume_id") or ""))
+            if pair not in known or str(entry.get("gpu") or GPU_ID) != GPU_ID:
+                return {"valid": False, "reason": "scope_mismatch", "grant": grant}
+            pairs.append(pair)
+        if len(set(pairs)) != len(pairs):
             return {"valid": False, "reason": "scope_mismatch", "grant": grant}
     if grant.get("used"):
         return {"valid": False, "reason": "already_used", "grant": grant}
@@ -560,7 +559,7 @@ def read_grant(rdir: Path, now: datetime | None = None) -> dict:
         return {"valid": False, "reason": "expired", "grant": grant}
     if grant.get("revoked"):
         return {"valid": False, "reason": "revoked", "grant": grant}
-    return {"valid": True, "reason": "ok", "grant": grant}
+    return {"valid": True, "reason": "ok", "grant": grant, "placements": pairs}
 
 
 def mark_grant(rdir: Path, *, used: bool, run_id: str | None = None) -> None:
@@ -604,6 +603,10 @@ def run_check(
     grant = read_grant(rdir, now)
     state["paid_run_authorized"] = bool(grant["valid"])
     state["grant_reason"] = grant["reason"]
+    state["allowed_placements"] = [
+        {"datacenter": dc, "volume_id": vid}
+        for dc, vid in (grant.get("placements") or [])
+    ]
     state["checks"] = int(state.get("checks") or 0) + 1
     state["last_check_time"] = now.isoformat(timespec="seconds")
     state["next_scheduled_check"] = (now + timedelta(seconds=next_delay)).isoformat(
@@ -611,7 +614,7 @@ def run_check(
     )
 
     try:
-        observation = inspect(provider)
+        observation = inspect(provider, allowed_pairs=grant.get("placements") or ())
         state["consecutive_failures"] = 0
         state["last_successful_check"] = state["last_check_time"]
         state["last_error"] = None
@@ -638,22 +641,33 @@ def run_check(
 
     state["pod_count"] = observation["pod_count"]
     state["placements"] = observation["placements"]
-    state["selected_datacenter"] = (
-        observation["volume"]["datacenter"] if observation["available"] else None
+    chosen = observation.get("chosen")
+    state["selected_datacenter"] = chosen["datacenter"] if chosen else None
+    state["selected_volume"] = chosen["volume_id"] if chosen else None
+    state["requires_selftest"] = bool(chosen and chosen["requires_selftest"])
+    state["selection_mode"] = (
+        ("AUTO_LIVE_WITH_MODEL_SELFTEST" if chosen["requires_selftest"] else "AUTO_LIVE")
+        if chosen
+        else None
     )
-    state["selected_volume"] = VOLUME_ID if observation["available"] else None
     price = observation["gpu"]["price_usd_per_hour"]
     state["last_gpu_price"] = price
+    # Availability is a fact about the catalogue, not about permission: a placement the grant
+    # does not cover can still be bookable, and saying UNAVAILABLE would hide that.
     state["last_gpu_status"] = (
-        "AVAILABLE" if observation["available"] else "UNAVAILABLE"
+        "AVAILABLE" if observation["technically_available"] else "UNAVAILABLE"
     )
 
     if _is_terminal(state):
         _finish(rdir, state, observation, grant, result)
         return result
 
-    if not observation["available"]:
-        state["live_execution_state"] = "WAITING_GPU"
+    if not chosen:
+        # A technically usable placement that the grant does not cover is an authorization
+        # question, not a capacity question; both are reported honestly.
+        state["live_execution_state"] = (
+            "WAITING_AUTHORIZATION" if observation["technically_available"] else "WAITING_GPU"
+        )
         _finish(rdir, state, observation, grant, result)
         return result
 
@@ -670,7 +684,10 @@ def run_check(
 
     if dry_run:
         state["live_execution_state"] = "DRY_RUN_OK"
-        result["run"] = {"dry_run": True, "would_launch": _live_command(grant["grant"])}
+        result["run"] = {
+            "dry_run": True,
+            "would_launch": _live_command(grant["grant"], chosen),
+        }
         _finish(rdir, state, observation, grant, result)
         return result
 
@@ -698,17 +715,21 @@ def run_pass(
     launch=None,
     sleep=None,
 ) -> list[dict]:
-    """One scheduled pass: two checks, ``gap`` seconds apart, under one lock.
+    """One scheduled pass: two checks whose *starts* are ``gap`` seconds apart, under one lock.
 
     Task Scheduler's smallest repetition is one minute, so a 30-second cadence is two checks per
-    pass. A 429 ends the pass early: the scheduler will come back in a minute, which is already at
-    or beyond the Retry-After bound we accept.
+    pass. The gap is measured from the start of one check to the start of the next: sleeping a full
+    ``gap`` after the check finished made the real cadence ~44 s, because three provider reads are
+    not instant. A 429 ends the pass early: the scheduler will come back in a minute, which is
+    already at or beyond the Retry-After bound we accept.
     """
     sleeper = sleep or time.sleep
     results: list[dict] = []
+    previous_start: float | None = None
     for index in range(max(1, int(checks))):
-        if index:
-            sleeper(gap)
+        if previous_start is not None:
+            sleeper(max(0.0, float(gap) - (time.monotonic() - previous_start)))
+        started = time.monotonic()
         provider = provider_factory()
         next_delay = gap if index + 1 < checks else PASS_INTERVAL_SECONDS
         result = run_check(
@@ -718,6 +739,7 @@ def run_pass(
             launch=launch,
             next_delay=next_delay,
         )
+        previous_start = started
         results.append(result)
         state = result.get("state") or {}
         if state.get("retry_after_seconds"):
@@ -727,8 +749,14 @@ def run_pass(
     return results
 
 
-def _live_command(grant: dict) -> list[str]:
-    return [
+def _live_command(grant: dict, chosen: dict) -> list[str]:
+    """The prepared harness, bound to the placement this pass proved and to its own proof level.
+
+    ``--self-test-mode`` is not a weaker run: it is the same single Pod proving the model with a
+    real answer before TaskDesk starts. It is added exactly when the chosen copy's record is not a
+    verified real-model answer.
+    """
+    command = [
         sys.executable,
         str(LIVE),
         "--live",
@@ -737,8 +765,11 @@ def _live_command(grant: dict) -> list[str]:
         "--confirm",
         str(grant["phrase"]),
         "--volume",
-        VOLUME_ID,
+        str(chosen["volume_id"]),
     ]
+    if chosen.get("requires_selftest"):
+        command.append("--self-test-mode")
+    return command
 
 
 def launch_live(*, rdir: Path, state: dict, grant: dict, observation: dict) -> dict:
@@ -765,8 +796,16 @@ def launch_live(*, rdir: Path, state: dict, grant: dict, observation: dict) -> d
         )
         return payload
 
+    chosen = observation.get("chosen") or {}
+    volume_id = str(chosen.get("volume_id") or "")
+    if not volume_id:
+        raise RuntimeError("no placement was chosen for the paid run")
     state["paid_run_already_attempted"] = True
-    state["live_execution_state"] = "RUNNING"
+    state["live_execution_state"] = (
+        "AUTO_LIVE_WITH_MODEL_SELFTEST"
+        if chosen.get("requires_selftest")
+        else "AUTO_LIVE"
+    )
     state["run_started_at"] = utcnow()
     state["authorization_grant_id"] = grant.get("grant_id")
     save_json(rdir / "state.json", state)
@@ -776,7 +815,7 @@ def launch_live(*, rdir: Path, state: dict, grant: dict, observation: dict) -> d
     started = time.monotonic()
     try:
         completed = subprocess.run(
-            _live_command(grant),
+            _live_command(grant, chosen),
             cwd=str(REPO),
             capture_output=True,
             text=True,
@@ -802,7 +841,11 @@ def launch_live(*, rdir: Path, state: dict, grant: dict, observation: dict) -> d
     final = _read_json(EVIDENCE / "final-summary.json") or {}
     cleanup = _read_json(EVIDENCE / "cleanup.json") or {}
     pods_created = int(final.get("pods_created") or 0)
-    spend = float(final.get("spend_usd") or 0.0)
+    if pods_created == 0 and _pod_id_from_evidence():
+        # A run whose lifecycle record names a Pod bought one, whatever the summary did or did not
+        # count. Restoring the permission in that case would authorise a second Pod.
+        pods_created = 1
+    spend = float(final.get("spend_usd") or final.get("estimated_spend_usd") or 0.0)
 
     payload = {
         "generated_at": utcnow(),
@@ -873,10 +916,13 @@ def _apply_run_payload(
 
 
 def _pod_id_from_evidence() -> str | None:
-    for name in ("pod-lifecycle.json", "watchdog-events.json"):
+    for name in ("pod-lifecycle.json", "watchdog-events.json", "final-summary.json"):
         payload = _read_json(EVIDENCE / name) or {}
         if payload.get("pod_id"):
             return str(payload["pod_id"])
+        pod_ids = payload.get("pod_ids")
+        if isinstance(pod_ids, list) and pod_ids:
+            return str(pod_ids[0])
         for event in payload.get("events") or []:
             if isinstance(event, dict) and event.get("pod_id"):
                 return str(event["pod_id"])
@@ -965,13 +1011,16 @@ def build_status(state: dict, observation, grant) -> dict:
     availability = (
         "UNKNOWN"
         if observation is None
-        else ("AVAILABLE" if observation["available"] else "UNAVAILABLE")
+        else ("AVAILABLE" if observation["technically_available"] else "UNAVAILABLE")
     )
     return {
         "gpu_monitor": monitor,
         "gpu_availability": availability,
         "live": state.get("live_execution_state"),
         "automatic_live": automatic_live(state),
+        "selection_mode": state.get("selection_mode"),
+        "requires_selftest": bool(state.get("requires_selftest")),
+        "allowed_placements": state.get("allowed_placements") or [],
         "interval_seconds": CHECK_GAP_SECONDS,
         "pending_interval_seconds": PASS_INTERVAL_SECONDS,
         "placements": state.get("placements")
@@ -1017,7 +1066,7 @@ def append_check(rdir: Path, state: dict, observation, grant) -> None:
         "at": state.get("last_check_time"),
         "availability": "UNKNOWN"
         if observation is None
-        else ("AVAILABLE" if observation["available"] else "UNAVAILABLE"),
+        else ("AVAILABLE" if observation["technically_available"] else "UNAVAILABLE"),
         "price": state.get("last_gpu_price"),
         "pod_count": state.get("pod_count"),
         "live": state.get("live_execution_state"),
@@ -1047,7 +1096,7 @@ def notify(rdir: Path, state: dict, observation, grant) -> None:
         [
             "UNKNOWN"
             if observation is None
-            else ("AVAILABLE" if observation["available"] else "UNAVAILABLE"),
+            else ("AVAILABLE" if observation["technically_available"] else "UNAVAILABLE"),
             str(state.get("last_gpu_price")),
             str(state.get("live_execution_state")),
             str(state.get("pod_count")),
@@ -1166,7 +1215,7 @@ def main(argv: list[str] | None = None) -> int:
                         "gpu_availability": "UNKNOWN"
                         if observation is None
                         else (
-                            "AVAILABLE" if observation["available"] else "UNAVAILABLE"
+                            "AVAILABLE" if observation["technically_available"] else "UNAVAILABLE"
                         ),
                         "price": (result.get("state") or {}).get("last_gpu_price"),
                         "live": (result.get("state") or {}).get("live_execution_state"),
@@ -1179,7 +1228,7 @@ def main(argv: list[str] | None = None) -> int:
                                 "datacenter": item["datacenter"],
                                 "gpu": item["gpu_availability"],
                                 "model": item["model"],
-                                "eligible": item["eligible"],
+                                "eligible": item["live_eligible"],
                             }
                             for item in (observation or {}).get("placements") or []
                         ],
@@ -1252,9 +1301,11 @@ class FixtureProvider:
         gpu = data.get("gpu") or {}
         by_dc = gpu.get("availability_by_dc")
         if not isinstance(by_dc, dict):
-            # Backward compatible: one availability means the approved datacenter, the other is
-            # reported as NONE rather than being invented.
-            by_dc = {DATACENTER: gpu.get("availability", "NONE")}
+            # Backward compatible: one availability names the placement the caller had in mind; the
+            # other is reported as NONE rather than being invented. ``datacenter`` says which one.
+            single = gpu.get("availability", "NONE")
+            named = gpu.get("datacenter") or PLACEMENTS[0]["datacenter"]
+            by_dc = {spec["datacenter"]: (single if spec["datacenter"] == named else "NONE") for spec in PLACEMENTS}
         return [
             {
                 "id": GPU_ID,
@@ -1274,329 +1325,10 @@ def _provider_from_fixture(path: str):
 
 # ------------------------------------------------------------------------------------------ self-test
 def self_test() -> int:
-    from app.compute import (
-        cost_policy,  # noqa: F401 - proves the shared policy is importable
-    )
+    """The free lifecycle matrix lives next to the monitor; see ``selftest.py``."""
+    import selftest
 
-    checks: list[dict] = []
-
-    def check(name: str, ok: bool, detail: str = "") -> None:
-        checks.append({"check": name, "ok": bool(ok), "detail": detail})
-
-    root = Path(tempfile.mkdtemp(prefix="canalla-monitor-selftest-"))
-    try:
-        # 1. unavailable + no grant -> wait, no spend
-        rdir = root / "case1"
-        result = run_check(
-            provider=FixtureProvider({"gpu": {"availability": "NONE"}}), rdir=rdir
-        )
-        state = result["state"]
-        check(
-            "unavailable_gpu_waits_without_spending",
-            state["live_execution_state"] == "WAITING_GPU"
-            and state["paid_run_authorized"] is False
-            and state["paid_run_already_attempted"] is False,
-        )
-
-        # 2. available + no grant -> waiting for authorization, never a Pod
-        rdir = root / "case2"
-        result = run_check(
-            provider=FixtureProvider({"gpu": {"availability": "LOW"}}), rdir=rdir
-        )
-        check(
-            "available_gpu_without_grant_does_not_run",
-            result["state"]["live_execution_state"] == "WAITING_AUTHORIZATION"
-            and result["run"] is None,
-        )
-
-        # 3. a valid grant + a dry run proves the paid path without consuming it
-        _write_grant(rdir, budget=2.00)
-        result = run_check(
-            provider=FixtureProvider({"gpu": {"availability": "LOW"}}),
-            rdir=rdir,
-            dry_run=True,
-        )
-        grant = read_grant(rdir)
-        check(
-            "dry_run_arms_without_consuming_the_grant",
-            result["state"]["live_execution_state"] == "DRY_RUN_OK"
-            and grant["valid"]
-            and result["run"]["would_launch"][-1] == VOLUME_ID,
-        )
-
-        # 4. a used grant can never start a second run
-        mark_grant(rdir, used=True, run_id="test")
-        result = run_check(
-            provider=FixtureProvider({"gpu": {"availability": "LOW"}}), rdir=rdir
-        )
-        check(
-            "used_grant_is_refused",
-            result["state"]["live_execution_state"] == "WAITING_AUTHORIZATION"
-            and result["run"] is None
-            and read_grant(rdir)["reason"] == "already_used",
-        )
-
-        # 5. a launch that reports a created Pod is terminal and keeps the grant consumed
-        rdir = root / "case5"
-        _write_grant(rdir)
-        result = run_check(
-            provider=FixtureProvider({"gpu": {"availability": "LOW"}}),
-            rdir=rdir,
-            launch=lambda **_: {
-                "verdict": "COMPLETED",
-                "pods_created": 1,
-                "spend_usd": 1.2,
-            },
-            remaining_reader=list,
-        )
-        check(
-            "a_paid_attempt_consumes_the_grant_and_is_terminal",
-            result["state"]["live_execution_state"] in {"COMPLETED", "FAILED"}
-            and result["state"]["paid_run_already_attempted"] is True
-            and read_grant(rdir)["reason"] == "already_used",
-        )
-
-        # 6. a capacity race that created nothing restores the permission
-        rdir = root / "case6"
-        _write_grant(rdir)
-        result = run_check(
-            provider=FixtureProvider({"gpu": {"availability": "LOW"}}),
-            rdir=rdir,
-            launch=lambda **_: {
-                "verdict": "CAPACITY_UNAVAILABLE",
-                "pods_created": 0,
-                "spend_usd": 0.0,
-            },
-        )
-        check(
-            "nothing_created_restores_the_grant",
-            result["state"]["live_execution_state"] == "WAITING_GPU"
-            and result["state"]["paid_run_already_attempted"] is False
-            and read_grant(rdir)["valid"],
-        )
-
-        # 7. an unreachable provider is ERROR/UNKNOWN, never "no Pods"
-        rdir = root / "case7"
-        result = run_check(
-            provider=FixtureProvider({"error": "network down"}), rdir=rdir
-        )
-        check(
-            "provider_error_is_not_a_clean_account",
-            result["state"]["live_execution_state"] == "ERROR"
-            and result["state"]["last_gpu_status"] == "UNKNOWN"
-            and result["state"]["consecutive_failures"] == 1,
-        )
-
-        # 8. an existing Pod blocks the run even with a grant
-        rdir = root / "case8"
-        _write_grant(rdir)
-        result = run_check(
-            provider=FixtureProvider(
-                {
-                    "gpu": {"availability": "LOW"},
-                    "pods": [{"id": "foreign", "status": "RUNNING"}],
-                }
-            ),
-            rdir=rdir,
-        )
-        check(
-            "an_existing_pod_blocks_the_run",
-            result["state"]["live_execution_state"] == "WAITING_GPU"
-            and result["run"] is None,
-        )
-
-        # 8b. both placements are reported, and TX-3 availability never authorises a run
-        rdir = root / "case8b"
-        _write_grant(rdir)
-        result = run_check(
-            provider=FixtureProvider(
-                {"gpu": {"availability_by_dc": {"US-MO-1": "NONE", "US-TX-3": "LOW"}}}
-            ),
-            rdir=rdir,
-        )
-        by_dc = {
-            item["datacenter"]: item for item in result["observation"]["placements"]
-        }
-        check(
-            "both_placements_are_reported_and_tx3_never_authorises",
-            len(by_dc) == 2
-            and by_dc["US-TX-3"]["gpu_available"]
-            and not by_dc["US-TX-3"]["eligible"]
-            and not by_dc["US-TX-3"]["live_authorized"]
-            and by_dc["US-MO-1"]["model"] == "VERIFIED"
-            and by_dc["US-TX-3"]["model"] == "FAILED"
-            and result["state"]["live_execution_state"] == "WAITING_GPU"
-            and result["run"] is None,
-        )
-
-        # 8c. model evidence comes from each volume's own record
-        check(
-            "model_evidence_is_per_volume",
-            model_status("y92bt25ru8")[0] == "VERIFIED"
-            and model_status("uwgeaie5b0")[0] == "FAILED"
-            and model_status("unknown-volume")[0] == "UNKNOWN",
-        )
-
-        # 8d. a 429 is UNKNOWN with its Retry-After, and never a run
-        rdir = root / "case8d"
-        _write_grant(rdir)
-        result = run_check(
-            provider=FixtureProvider({"rate_limited": True, "retry_after": 7}),
-            rdir=rdir,
-        )
-        check(
-            "rate_limit_is_unknown_and_backs_off",
-            result["state"]["last_gpu_status"] == "UNKNOWN"
-            and result["state"]["retry_after_seconds"] == 7
-            and result["state"]["live_execution_state"] == "ERROR"
-            and result["run"] is None,
-        )
-
-        # 8e. one pass is two checks (the 30-second cadence at a one-minute schedule)
-        rdir = root / "case8e"
-        results = run_pass(
-            provider_factory=lambda: FixtureProvider({"gpu": {"availability": "NONE"}}),
-            rdir=rdir,
-            checks=2,
-            gap=0,
-            sleep=lambda _seconds: None,
-        )
-        rows = (rdir / "checks.jsonl").read_text(encoding="utf-8").strip().splitlines()
-        check(
-            "a_pass_takes_two_checks",
-            len(results) == 2 and len(rows) == 2 and load_state(rdir)["checks"] == 2,
-        )
-
-        # 9. the lock refuses a second instance
-        rdir = root / "case9"
-        lock = FileLock(rdir / "monitor.lock")
-        lock.acquire()
-        try:
-            second = subprocess.run(
-                [
-                    sys.executable,
-                    str(Path(__file__).resolve()),
-                    "--once",
-                    "--state-dir",
-                    str(rdir),
-                    "--fixture",
-                    str(_write_fixture(root, {"gpu": {"availability": "LOW"}})),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=120,
-                check=False,
-            )
-            payload = json.loads(second.stdout.strip() or "{}")
-            check(
-                "a_second_instance_is_refused",
-                payload.get("skipped") == "another_instance_running",
-            )
-        finally:
-            lock.release()
-
-        # 10. the journal records one line per distinct observation
-        rdir = root / "case10"
-        fixture = FixtureProvider({"gpu": {"availability": "NONE"}})
-        run_check(provider=fixture, rdir=rdir)
-        run_check(provider=fixture, rdir=rdir)
-        events = (
-            (rdir / "events.jsonl").read_text(encoding="utf-8").strip().splitlines()
-        )
-        checks_rows = (
-            (rdir / "checks.jsonl").read_text(encoding="utf-8").strip().splitlines()
-        )
-        check(
-            "duplicate_observations_do_not_repeat_notifications",
-            len(events) == 1 and len(checks_rows) == 2,
-        )
-
-        # 11. state survives a reload
-        reloaded = load_state(rdir)
-        check(
-            "state_round_trips",
-            reloaded["checks"] == 2 and reloaded["last_gpu_status"] == "UNAVAILABLE",
-        )
-
-        # 12. the authorizer refuses a larger budget
-        import authorize
-
-        denied = authorize.main(
-            [
-                "--confirm",
-                PHRASE,
-                "--budget-usd",
-                "2.01",
-                "--state-dir",
-                str(root / "case12"),
-            ]
-        )
-        check("authorizer_refuses_over_budget", denied != 0)
-
-        # 13. the authorizer stores a valid grant with an expiry and the exact run it permits
-        allowed = authorize.main(
-            [
-                "--confirm",
-                PHRASE,
-                "--budget-usd",
-                "2.00",
-                "--state-dir",
-                str(root / "case12"),
-            ]
-        )
-        stored = read_grant(root / "case12")
-        check(
-            "authorizer_stores_a_valid_grant",
-            allowed == 0
-            and stored["valid"]
-            and stored["grant"]["max_pods"] == 1
-            and stored["grant"]["allowed_volume"] == VOLUME_ID
-            and stored["grant"]["allowed_gpu"] == GPU_ID,
-        )
-
-        # 14. a grant for a different run is not a wider permission
-        rdir = root / "case14"
-        grant = _write_grant(rdir)
-        grant["allowed_gpu"] = "NVIDIA A40"
-        save_json(grant_path(rdir), grant)
-        verdict = read_grant(rdir)
-        check(
-            "a_grant_for_another_sku_is_refused",
-            not verdict["valid"] and verdict["reason"] == "scope_mismatch",
-        )
-    finally:
-        shutil.rmtree(root, ignore_errors=True)
-
-    report = {
-        "checks": checks,
-        "verdict": "PASS" if all(item["ok"] for item in checks) else "FAIL",
-    }
-    print(json.dumps(report, ensure_ascii=False, indent=1))
-    return 0 if report["verdict"] == "PASS" else 1
-
-
-def _write_grant(rdir: Path, *, budget: float = 2.00, days: int = 30) -> dict:
-    rdir.mkdir(parents=True, exist_ok=True)
-    grant = {
-        "schema": SCHEMA,
-        "grant_id": uuid.uuid4().hex,
-        "phrase": PHRASE,
-        "budget_usd": budget,
-        "max_pods": 1,
-        "allowed_model": MODEL_ID,
-        "allowed_gpu": GPU_ID,
-        "allowed_volume": VOLUME_ID,
-        "allowed_datacenter": DATACENTER,
-        "scope": "one LIVE Qwen acceptance: TaskDesk, one Pod, 90 billable minutes",
-        "created_at": utcnow(),
-        "expires_at": (datetime.now(timezone.utc) + timedelta(days=days)).isoformat(
-            timespec="seconds"
-        ),
-        "used": False,
-        "used_at": None,
-    }
-    save_json(grant_path(rdir), grant)
-    return grant
+    return selftest.run_self_test()
 
 
 def _write_fixture(root: Path, payload: dict) -> Path:

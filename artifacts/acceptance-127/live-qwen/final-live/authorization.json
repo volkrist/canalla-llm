@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-14T07:48:07+00:00",
+ "generated_at": "2026-11-14T09:12:57+00:00",
  "status": "BLOCKED",
  "blocked_by": [
   "CAPACITY_UNAVAILABLE"
@@ -12,7 +12,10 @@
  "min_work_minutes": 45,
  "model": "orcarouter-qwen38-27b-q5km",
  "context_window": 32768,
- "expected_volume": "y92bt25ru8",
+ "approved_volumes": [
+  "uwgeaie5b0",
+  "y92bt25ru8"
+ ],
  "gpu": null,
  "placement": {
   "datacenter": null,
@@ -20,11 +23,10 @@
   "storage_mode": null
  },
  "verified_placements": [
+  "uwgeaie5b0",
   "y92bt25ru8"
  ],
- "replica_refusals": {
-  "uwgeaie5b0": "serve_selftest_failed"
- },
+ "replica_refusals": {},
  "reference_gpu": {
   "gpu_id": "NVIDIA A40",
   "name": "A40",
@@ -32,7 +34,6 @@
   "hourly_price_usd": 0.59,
   "tier": "secure",
   "datacenters": {
-   "CA-MTL-1": "LOW",
    "EU-SE-1": "MEDIUM"
   }
  },
@@ -63,10 +64,10 @@
  "policy": null,
  "preflight_verdict": "READY",
  "pods": 0,
- "balance_usd": 8.3880485068,
+ "balance_usd": 8.3686040624,
  "command": "python artifacts\\acceptance-127\\live-qwen\\live_acceptance.py --live --budget-usd 2.00 --confirm \"I AUTHORIZE ONE PAID POD\"",
  "production": {
-  "captured_at": "2026-11-14T07:48:07+00:00",
+  "captured_at": "2026-11-14T09:12:57+00:00",
   "database_present": true,
   "data_root": "C:\\Users\\Volkr\\AppData\\Local\\Alex LLM",
   "local_device_id": "6413489d-6cae-4183-8446-a3b2339137dc",

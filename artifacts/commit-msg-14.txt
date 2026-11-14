@@ -1,0 +1,23 @@
+Treat an empty volume-type list as silence
+
+US-MO-1's datacenter catalogue answers `networkVolumeTypes: []` while a
+STANDARD volume demonstrably exists there. Refusing on that turned a usable
+placement into `volume_mismatch`, so every request from the MO-1 volume ended
+as a generic `stream_interrupted` before any Pod existed. An empty list now
+means silence; only an explicit list that omits the volume's type is a refusal.
+
+Both paid volumes are now equal placements in the monitor, the probe and the
+acceptance. A placement whose record is not a verified real-model answer
+(TX-3: the recorded self-test was a malformed curl invocation, assets intact)
+is proved inside the same Pod with `--self-test-mode` before TaskDesk starts.
+A failed proof stops that Pod and never buys a second one.
+
+The grant is a schema-2 placement list. A scope change is an in-place upgrade of
+the same grant - same id, creation time and expiry, still unused - written
+through a validated temporary file that atomically replaces the original.
+
+The acceptance now approves the product's own `compute.start` money prompt
+bound to its digest, records the Pod this run actually used, and keeps the
+isolated backend/watchdog logs instead of losing them with the temp directory.
+The monitor measures its 30-second gap from check start to check start, which
+brings the real cadence back to 30 seconds.

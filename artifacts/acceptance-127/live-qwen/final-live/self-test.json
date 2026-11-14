@@ -35,6 +35,37 @@
   {
    "check": "no_twenty_minute_capacity_wait",
    "ok": true
+  },
+  {
+   "check": "both_paid_volumes_are_approved",
+   "ok": true
+  },
+  {
+   "check": "a_real_answer_is_the_only_selftest_pass",
+   "ok": true
+  },
+  {
+   "check": "an_error_event_is_never_a_pass",
+   "ok": true
+  },
+  {
+   "check": "a_truncated_stream_is_never_a_pass",
+   "ok": true
+  },
+  {
+   "check": "the_money_prompt_is_approved_once",
+   "ok": true,
+   "detail": "[{'allow': True, 'digest': 'd1'}]"
+  },
+  {
+   "check": "an_approved_prompt_yields_a_real_answer",
+   "ok": true,
+   "detail": "{'verdict': 'PASS', 'problems': [], 'answer_chars': 24, 'answer_preview': 'готов отвечать на задачи', 'delta_events': 1, 'errors': []}"
+  },
+  {
+   "check": "the_approval_is_recorded_for_the_evidence",
+   "ok": true,
+   "detail": "[{'at': '2026-11-14T09:06:58+00:00', 'run_id': 'run-1', 'digest_bound': True, 'status': 200, 'answer': {'status': 'approved'}}]"
   }
  ],
  "verdict": "PASS"

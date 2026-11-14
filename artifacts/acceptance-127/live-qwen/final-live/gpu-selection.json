@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-14T07:48:35+00:00",
+ "generated_at": "2026-11-14T09:12:55+00:00",
  "read_only": true,
  "budget_usd": 2.0,
  "minimum_vram_gb": 48,
@@ -29,16 +29,29 @@
   }
  ],
  "required_gpu": "NVIDIA L40S",
- "preferred_volume": "y92bt25ru8",
+ "approved_volumes": [
+  "uwgeaie5b0",
+  "y92bt25ru8"
+ ],
  "serving_evidence": {
-  "source": "artifacts\\runpod-tx3-watcher\\primary-manifest.json",
+  "source": "artifacts/acceptance-127/live-qwen/placement_records.py",
   "records": {
    "uwgeaie5b0": {
-    "serve_selftest": "FAIL",
-    "passed": false,
-    "measured_at": "2026-09-26T05:08:40Z"
+    "datacenter": "US-TX-3",
+    "model_state": "UNVERIFIED_NEEDS_LIVE_CHECK",
+    "reason": "recorded_selftest_was_malformed_assets_intact",
+    "usable": true,
+    "requires_live_selftest": true
+   },
+   "y92bt25ru8": {
+    "datacenter": "US-MO-1",
+    "model_state": "VERIFIED",
+    "reason": "replica_ready_with_real_model_answer",
+    "usable": true,
+    "requires_live_selftest": false
    }
-  }
+  },
+  "refusals": {}
  },
  "replicas": [
   {
@@ -71,15 +84,15 @@
    "pins_datacenter": true
   }
  ],
- "replica_refusals": {
-  "uwgeaie5b0": "serve_selftest_failed"
- },
+ "replica_refusals": {},
  "verified_placements": [
+  "uwgeaie5b0",
   "y92bt25ru8"
  ],
  "catalogue_offers": 19,
  "candidates": [],
  "selected": null,
+ "requires_live_selftest": false,
  "volume": null,
  "compatible_but_not_in_any_verified_placement": [
   {
@@ -99,9 +112,10 @@
    "hourly_price_usd": 2.19,
    "tier": "secure",
    "datacenters": {
+    "EU-RO-1": "LOW",
     "EUR-IS-1": "LOW",
     "US-KS-2": "LOW",
-    "US-MD-1": "LOW",
+    "US-MD-1": "MEDIUM",
     "US-WA-1": "LOW"
    }
   },
@@ -112,7 +126,6 @@
    "hourly_price_usd": 0.59,
    "tier": "secure",
    "datacenters": {
-    "CA-MTL-1": "LOW",
     "EU-SE-1": "MEDIUM"
    }
   },
@@ -159,6 +172,16 @@
    }
   },
   {
+   "gpu_id": "NVIDIA H100 NVL",
+   "name": "H100 NVL",
+   "vram_gb": 94,
+   "hourly_price_usd": 3.19,
+   "tier": "secure",
+   "datacenters": {
+    "US-KS-2": "LOW"
+   }
+  },
+  {
    "gpu_id": "NVIDIA H200",
    "name": "H200 SXM",
    "vram_gb": 141,
@@ -184,18 +207,9 @@
    "hourly_price_usd": 1.09,
    "tier": "secure",
    "datacenters": {
+    "EU-NL-1": "LOW",
     "EUR-IS-2": "LOW",
-    "US-TX-4": "LOW"
-   }
-  },
-  {
-   "gpu_id": "NVIDIA RTX 6000 Ada Generation",
-   "name": "RTX 6000 Ada",
-   "vram_gb": 48,
-   "hourly_price_usd": 1.09,
-   "tier": "secure",
-   "datacenters": {
-    "US-WA-1": "LOW"
+    "US-NC-1": "LOW"
    }
   },
   {
@@ -216,14 +230,13 @@
   "hourly_price_usd": 0.59,
   "tier": "secure",
   "datacenters": {
-   "CA-MTL-1": "LOW",
    "EU-SE-1": "MEDIUM"
   }
  },
  "plan_reason": "gpu_unavailable",
  "ok": false,
  "verdict": "CAPACITY_UNAVAILABLE",
- "reason": "NVIDIA L40S is not bookable in any verified placement (y92bt25ru8); no Pod was created and no capacity wait was started",
+ "reason": "NVIDIA L40S is not bookable in any approved placement (uwgeaie5b0, y92bt25ru8); no Pod was created and no capacity wait was started",
  "reference_policy": {
   "budget_usd": 2.0,
   "hourly_rate_usd": 0.59,

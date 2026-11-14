@@ -34,10 +34,12 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
@@ -63,13 +65,23 @@ CONFIRMATION = "I AUTHORIZE ONE PAID POD"
 CONFIRMATION_RU = (
     "Разрешаю один платный LIVE-прогон Qwen с бюджетом не более $2.00 и одним GPU Pod."
 )
-# The placement the owner approved for this run: the copy whose real-GPU answer is recorded. A
-# different volume is a different decision, so the run refuses it instead of using it silently.
-PREFERRED_VOLUME = "y92bt25ru8"
+sys.path.insert(0, str(OUT))
+from placement_records import PLACEMENTS, VERIFIED, model_status  # noqa: E402
+
+# Both paid volumes are approved placements. A placement whose record is not a verified real-model
+# answer is still usable - but only through `--self-test-mode`, where the one Pod proves the model
+# with a real answer before any TaskDesk work starts.
+APPROVED_VOLUMES = tuple(item["volume_id"] for item in PLACEMENTS)
+DEFAULT_VOLUME = "y92bt25ru8"
+SELFTEST_PROMPT = (
+    "Ответь одним коротким предложением, подтвердив, что ты готов выполнять задачи. "
+    "Не вызывай инструменты."
+)
 MAX_BUDGET_USD = cost_policy.MAX_LIVE_BUDGET_USD
 MAX_BILLABLE_MINUTES = 90
 TARGET_WORK_MINUTES = 80
 MIN_WORK_MINUTES = 45
+SELFTEST_TIMEOUT_SECONDS = 900
 SCENARIO = (
     "Создай полноценное локальное веб-приложение TaskDesk для управления задачами.\n\n"
     "Приложение должно иметь:\n"
@@ -232,6 +244,47 @@ def production_snapshot() -> dict:
     return snapshot
 
 
+def pod_evidence() -> dict:
+    """What this run's own isolated database proves about compute.
+
+    The monitor decides whether to restore the owner's permission from `pods_created`. Reading that
+    from a lifecycle file the watchdog may not have filled in would let a real Pod look like
+    nothing, and a restored permission would permit a second one. The controller's session row is
+    the authoritative record of the Pod this run actually used.
+    """
+    try:
+        from app.compute.models import ComputeSession
+        from app.database import SessionLocal
+
+        with SessionLocal() as db:
+            rows = db.query(ComputeSession).all()
+            pod_ids = sorted({row.pod_id for row in rows if row.pod_id})
+            estimate = 0.0
+            for row in rows:
+                try:
+                    estimate += float(row.estimated_cost or 0)
+                except (TypeError, ValueError):
+                    continue
+            return {
+                "pods_created": len(pod_ids),
+                "pod_ids": pod_ids,
+                "compute_sessions": [
+                    {
+                        "pod_id": row.pod_id,
+                        "status": row.status,
+                        "datacenter": row.datacenter,
+                        "gpu": row.gpu_type,
+                        "hourly_rate_usd": float(row.hourly_rate or 0),
+                        "estimated_cost_usd": float(row.estimated_cost or 0),
+                    }
+                    for row in rows
+                ],
+                "estimated_spend_usd": round(estimate, 4),
+            }
+    except Exception as error:  # noqa: BLE001 - an unreadable record is reported, never assumed clean
+        return {"pods_created": None, "pod_ids": [], "error": str(error)[:300]}
+
+
 def prepare() -> int:
     """Free preparation: preflight, GPU read, and the exact authorization request."""
     pre = preflight()
@@ -267,7 +320,7 @@ def prepare() -> int:
         "min_work_minutes": MIN_WORK_MINUTES,
         "model": "orcarouter-qwen38-27b-q5km",
         "context_window": 32768,
-        "expected_volume": PREFERRED_VOLUME,
+        "approved_volumes": list(APPROVED_VOLUMES),
         "gpu": selection.get("selected"),
         "placement": {
             "datacenter": (selection.get("selected") or {}).get("datacenter"),
@@ -412,7 +465,7 @@ def _write_jsonl(name: str, rows) -> None:
             handle.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
 
 
-def _sse_stream(url: str, token: str, body: dict, deadline: float) -> list[dict]:
+def _sse_stream(url: str, token: str, body: dict, deadline: float, on_event=None) -> list[dict]:
     request = urllib.request.Request(
         url,
         data=json.dumps(body).encode(),
@@ -423,6 +476,7 @@ def _sse_stream(url: str, token: str, body: dict, deadline: float) -> list[dict]
         },
     )
     events: list[dict] = []
+    current = None
     with urllib.request.urlopen(request, timeout=30) as response:
         for raw in response:
             if time.monotonic() > deadline:
@@ -432,7 +486,168 @@ def _sse_stream(url: str, token: str, body: dict, deadline: float) -> list[dict]
             if not line or line.startswith(":"):
                 continue
             events.append({"line": line[:400]})
+            if line.startswith("event: "):
+                current = line[len("event: ") :].strip()
+            elif line.startswith("data: ") and on_event is not None:
+                try:
+                    payload = json.loads(line[len("data: ") :])
+                except ValueError:
+                    continue
+                try:
+                    on_event(current, payload)
+                except Exception:  # noqa: BLE001 - a failed reaction must not kill the stream
+                    continue
     return events
+
+
+APPROVALS: list[dict] = []
+
+
+def approve_compute_start(*, base: str, token: str, seen: set):
+    """Approve the product's own money prompt, exactly once, while the stream is open.
+
+    A direct-mode chat that needs the model asks the owner to confirm the paid start. An unattended
+    acceptance is that owner, and the owner's decision is bound to the prompt's digest - so this
+    approves the run the server created rather than starting compute behind the product's back.
+    Without this the request waits for a click that never comes and ends as a timeout with no Pod.
+    """
+
+    def handler(event, payload):
+        if event != "tool" or not isinstance(payload, dict):
+            return
+        if payload.get("tool_name") != "compute.start":
+            return
+        run_id = payload.get("id")
+        if not run_id or run_id in seen:
+            return
+        seen.add(run_id)
+        request = {"allow": True}
+        if payload.get("input_digest"):
+            request["digest"] = payload["input_digest"]
+        try:
+            status, answer = http(
+                "POST", f"{base}/tools/runs/{run_id}/confirm", request, token=token, timeout=30
+            )
+        except Exception as error:  # noqa: BLE001 - reported in the evidence, not swallowed
+            status, answer = 0, {"error": str(error)[:200]}
+        APPROVALS.append(
+            {
+                "at": utcnow(),
+                "run_id": run_id,
+                "digest_bound": bool(payload.get("input_digest")),
+                "status": status,
+                "answer": answer,
+            }
+        )
+
+    return handler
+
+
+def selftest_verdict(events: list[dict]) -> dict:
+    """Did the model actually answer? A decision the harness can test without a Pod.
+
+    The SSE stream is the evidence: the answer arrives as ``delta`` events, a turn that failed ends
+    with an ``error`` event, and a finished turn ends with ``done``. Anything short of a non-empty
+    answer plus a done marker is a FAIL - never a partial PASS.
+    """
+    current = None
+    deltas: list[str] = []
+    errors: list[str] = []
+    done = False
+    for row in events if isinstance(events, list) else []:
+        line = row.get("line") if isinstance(row, dict) else None
+        if not isinstance(line, str):
+            continue
+        if line.startswith("event: "):
+            current = line[len("event: ") :].strip()
+        elif line.startswith("data: "):
+            payload = line[len("data: ") :]
+            if current == "delta":
+                try:
+                    body = json.loads(payload)
+                except ValueError:
+                    body = {}
+                text = body.get("content") if isinstance(body, dict) else None
+                if isinstance(text, str) and text.strip():
+                    deltas.append(text)
+            elif current == "error":
+                errors.append(payload[:400])
+            elif current == "done":
+                done = True
+    answer = "".join(deltas).strip()
+    problems: list[str] = []
+    if errors:
+        problems.append("error_event")
+    if not done:
+        problems.append("no_done_marker")
+    if len(answer) < 8:
+        problems.append("no_real_answer")
+    return {
+        "verdict": "PASS" if not problems else "FAIL",
+        "problems": problems,
+        "answer_chars": len(answer),
+        "answer_preview": answer[:300],
+        "delta_events": len(deltas),
+        "errors": errors,
+    }
+
+
+def prove_model(*, base: str, token: str, deadline: float, on_event=None) -> dict:
+    """One short chat turn through the real backend, in the same Pod TaskDesk will use.
+
+    This does not replace the acceptance: it is the *precondition* a run on a not-yet-verified copy
+    must satisfy before it may spend the rest of the budget. A failure here ends the run with the
+    Pod stopped, never with a second Pod somewhere else.
+    """
+    _, chat = http("POST", base + "/chats", {}, token=token)
+    chat_id = chat["id"]
+    events = _sse_stream(
+        f"{base}/chats/{chat_id}/stream",
+        token,
+        {
+            "content": SELFTEST_PROMPT,
+            "web_mode": "off",
+            "computer_mode": "off",
+            "tor_mode": "off",
+        },
+        deadline,
+        on_event=on_event,
+    )
+    verdict = selftest_verdict(events)
+    status_code = 0
+    status: dict = {}
+    try:
+        status_code, status = http("GET", base + "/llm/status", token=token, timeout=30)
+    except Exception as error:  # noqa: BLE001 - an unreadable status is a failed proof
+        status = {"error": str(error)[:200]}
+    diagnostic = (status or {}).get("diagnostic") or {}
+    identity = {
+        "provider": (status or {}).get("provider"),
+        "model": (status or {}).get("model"),
+        "pod_id": diagnostic.get("pod_id"),
+        "gpu": diagnostic.get("gpu"),
+        "datacenter": diagnostic.get("datacenter"),
+        "available": (status or {}).get("available"),
+    }
+    problems = list(verdict["problems"])
+    if status_code != 200:
+        problems.append("llm_status_unreadable")
+    if identity["provider"] != "llamacpp":
+        problems.append("provider_not_llamacpp")
+    if not identity["pod_id"]:
+        problems.append("no_pod_id")
+    verdict.update(
+        {
+            "verdict": "PASS" if not problems else "FAIL",
+            "problems": problems,
+            "checked_at": utcnow(),
+            "chat_id": chat_id,
+            "identity": identity,
+            "llm_status_code": status_code,
+            "raw_events": events[-20:],
+        }
+    )
+    return verdict
 
 
 def run_live(
@@ -442,7 +657,8 @@ def run_live(
     max_billable_minutes: int,
     target_work_minutes: int,
     min_work_minutes: int,
-    volume: str = PREFERRED_VOLUME,
+    volume: str | None = DEFAULT_VOLUME,
+    self_test_mode: bool = False,
 ) -> int:
     problem = authorization_problem(confirm, budget)
     if problem:
@@ -522,11 +738,20 @@ def run_live(
         raise SystemExit(
             f"refusing: the selected candidate has no placement: {selection.get('selected')}"
         )
-    if placement["volume_id"] != volume:
+    if placement["volume_id"] not in APPROVED_VOLUMES:
         raise SystemExit(
-            f"refusing: the selected placement {placement['volume_id']} is not the approved "
-            f"verified replica {volume}; a different placement needs its own approval"
+            f"refusing: {placement['volume_id']} is not an approved placement "
+            f"({', '.join(APPROVED_VOLUMES)}); a new placement needs its own approval"
         )
+    if volume and placement["volume_id"] != volume:
+        raise SystemExit(
+            f"refusing: the selected placement {placement['volume_id']} is not the one this run "
+            f"was started for ({volume})"
+        )
+    model_state, model_reason = model_status(placement["volume_id"])
+    # A copy whose record is not a verified real-model answer is proved *in this same Pod* before
+    # any TaskDesk work. The explicit flag can only add the proof, never remove it.
+    selftest_required = bool(self_test_mode or model_state != VERIFIED)
     policy = cost_policy.plan(
         budget,
         rate,
@@ -615,6 +840,9 @@ def run_live(
         "hourly_rate_usd": rate,
         "gpu": selection.get("selected"),
         "placement": placement,
+        "model_state": model_state,
+        "model_reason": model_reason,
+        "selftest_required": selftest_required,
         "volume": selection.get("volume"),
         "policy": policy.to_dict(),
         "balance_before_usd": pods.get("balance_usd"),
@@ -708,6 +936,35 @@ def run_live(
             + policy.hard_wall_seconds
             + policy.termination_grace_seconds
         )
+        APPROVALS.clear()
+        approve = approve_compute_start(base=base, token=token, seen=set())
+        if selftest_required:
+            # The same Pod proves the model before it spends the acceptance window. A failure here
+            # is a typed result, not a reason to try elsewhere: `finally` stops the Pod and the
+            # removal is confirmed before this returns.
+            proof = prove_model(
+                base=base,
+                token=token,
+                deadline=min(deadline, time.monotonic() + SELFTEST_TIMEOUT_SECONDS),
+                on_event=approve,
+            )
+            proof["mode"] = "self_test"
+            proof["placement"] = placement
+            _write_json("selftest-evidence.json", proof)
+            _write_json("compute-confirmations.json", APPROVALS)
+            summary["model_selftest"] = {
+                "verdict": proof["verdict"],
+                "problems": proof["problems"],
+                "answer_chars": proof["answer_chars"],
+                "identity": proof["identity"],
+            }
+            if proof["verdict"] != "PASS":
+                summary["verdict"] = "MODEL_SELFTEST_FAILED"
+                summary["reasons"] = proof["problems"]
+                summary.update(pod_evidence())
+                _write_json("final-summary.json", summary)
+                print(json.dumps(summary, ensure_ascii=False, indent=1)[-4000:])
+                return 3
         events = _sse_stream(
             f"{base}/chats/{chat_id}/stream",
             token,
@@ -718,7 +975,9 @@ def run_live(
                 "tor_mode": "off",
             },
             deadline,
+            on_event=approve,
         )
+        _write_json("compute-confirmations.json", APPROVALS)
         summary["stream_events"] = len(events)
         summary["stream_end"] = events[-1] if events else None
 
@@ -734,6 +993,10 @@ def run_live(
             if task is None:
                 summary["verdict"] = "FAIL"
                 summary["reasons"] = ["no task was created"]
+                summary.update(pod_evidence())
+                # Written before returning: the monitor reads this file to decide whether anything
+                # was bought, and a missing summary used to leave a stale verdict in its place.
+                _write_json("final-summary.json", summary)
                 return 1
             events_rows, runs = provenance_module.from_task(db, task.id)
             verdict = provenance_module.classify(
@@ -843,6 +1106,7 @@ def run_live(
             and all(item["ok"] for item in checks)
             else "FAIL"
         )
+        summary.update(pod_evidence())
         _write_json("final-summary.json", summary)
         return 0 if summary["verdict"] == "PASS" else 1
     finally:
@@ -887,8 +1151,104 @@ def run_live(
             host.terminate()
         backend.terminate()
         backend_log.close()
+        # The run's own logs are the only way to explain a failure after the fact. They live in a
+        # temporary directory, so they are copied into the evidence before it is removed. The
+        # 08:55 attempt failed with a generic `stream_interrupted` and left no backend log at all.
+        logs_dir = LIVE / "logs"
+        try:
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            for name in ("backend.log", "host.log", "watchdog.log"):
+                source = work / name
+                if source.is_file():
+                    shutil.copy2(source, logs_dir / name)
+            (logs_dir / "run-context.json").write_text(
+                json.dumps(
+                    {
+                        "captured_at": utcnow(),
+                        "placement": placement,
+                        "model_state": model_state,
+                        "model_reason": model_reason,
+                        "selftest_required": selftest_required,
+                        "budget_usd": budget,
+                        "hourly_rate_usd": rate,
+                        "verdict": summary.get("verdict"),
+                        "reasons": summary.get("reasons"),
+                    },
+                    ensure_ascii=False,
+                    indent=1,
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
         shutil.rmtree(work, ignore_errors=True)
         print(json.dumps(summary, ensure_ascii=False, indent=1)[-4000:])
+
+
+def approval_self_test() -> list[dict]:
+    """Offline: the money prompt is approved exactly once, and a real answer still decides PASS."""
+    calls: list[dict] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args):  # noqa: D401 - silence the test server
+            return
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            if self.path.endswith("/confirm"):
+                calls.append(json.loads(self.rfile.read(length) or b"{}"))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"status": "approved"}')
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            self.wfile.write(
+                (
+                    'event: tool\ndata: {"id": "run-1", "tool_name": "compute.start", '
+                    '"input_digest": "d1"}\n\n'
+                    'event: delta\ndata: {"content": "готов отвечать на задачи"}\n\n'
+                    'event: done\ndata: {"message_id": "m1"}\n\n'
+                ).encode()
+            )
+            self.wfile.flush()
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        APPROVALS.clear()
+        events = _sse_stream(
+            base + "/chats/c1/stream",
+            "token",
+            {"content": "hi"},
+            time.monotonic() + 30,
+            on_event=approve_compute_start(base=base, token="token", seen=set()),
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+    verdict = selftest_verdict(events)
+    return [
+        {
+            "check": "the_money_prompt_is_approved_once",
+            "ok": calls == [{"allow": True, "digest": "d1"}],
+            "detail": str(calls)[:200],
+        },
+        {
+            "check": "an_approved_prompt_yields_a_real_answer",
+            "ok": verdict["verdict"] == "PASS" and verdict["answer_chars"] > 8,
+            "detail": str(verdict)[:200],
+        },
+        {
+            "check": "the_approval_is_recorded_for_the_evidence",
+            "ok": len(APPROVALS) == 1 and APPROVALS[0].get("run_id") == "run-1",
+            "detail": str(APPROVALS)[:200],
+        },
+    ]
 
 
 def run_independent_checks(workspace: Path, summary: dict) -> tuple[list[dict], dict]:
@@ -1115,7 +1475,12 @@ def main() -> int:
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--confirm", default="")
     parser.add_argument("--budget-usd", type=float, default=None)
-    parser.add_argument("--volume", default=PREFERRED_VOLUME)
+    parser.add_argument("--volume", default=DEFAULT_VOLUME, choices=list(APPROVED_VOLUMES))
+    parser.add_argument(
+        "--self-test-mode",
+        action="store_true",
+        help="prove the model with a real answer in the same Pod before the acceptance",
+    )
     parser.add_argument(
         "--max-billable-minutes", type=int, default=MAX_BILLABLE_MINUTES
     )
@@ -1157,6 +1522,30 @@ def main() -> int:
             },
         ]
         policy = plan_report(2.00, 1.09)["policy"]
+        answered = selftest_verdict(
+            [
+                {"line": "event: delta"},
+                {"line": 'data: {"content": "готов отвечать на задачи"}'},
+                {"line": "event: done"},
+                {"line": 'data: {"message_id": "m1"}'},
+            ]
+        )
+        errored = selftest_verdict(
+            [
+                {"line": "event: delta"},
+                {"line": 'data: {"content": "ok"}'},
+                {"line": "event: error"},
+                {"line": 'data: {"code": "stream_interrupted"}'},
+                {"line": "event: done"},
+                {"line": "data: {}"},
+            ]
+        )
+        truncated = selftest_verdict(
+            [
+                {"line": "event: delta"},
+                {"line": 'data: {"content": "частичный ответ модели"}'},
+            ]
+        )
         checks += [
             {
                 "check": "ninety_minute_billable_ceiling",
@@ -1178,7 +1567,27 @@ def main() -> int:
                 "check": "no_twenty_minute_capacity_wait",
                 "ok": "1200" not in json.dumps(plan_report(2.00, 1.09)),
             },
+            {
+                "check": "both_paid_volumes_are_approved",
+                "ok": set(APPROVED_VOLUMES) == {"uwgeaie5b0", "y92bt25ru8"}
+                and model_status("uwgeaie5b0")[0] == "UNVERIFIED_NEEDS_LIVE_CHECK"
+                and model_status("y92bt25ru8")[0] == "VERIFIED",
+            },
+            {
+                "check": "a_real_answer_is_the_only_selftest_pass",
+                "ok": answered["verdict"] == "PASS" and answered["answer_chars"] > 8,
+            },
+            {
+                "check": "an_error_event_is_never_a_pass",
+                "ok": errored["verdict"] == "FAIL" and "error_event" in errored["problems"],
+            },
+            {
+                "check": "a_truncated_stream_is_never_a_pass",
+                "ok": truncated["verdict"] == "FAIL"
+                and "no_done_marker" in truncated["problems"],
+            },
         ]
+        checks += approval_self_test()
         report = {
             "checks": checks,
             "verdict": "PASS" if all(item["ok"] for item in checks) else "FAIL",
@@ -1197,6 +1606,7 @@ def main() -> int:
             target_work_minutes=args.target_work_minutes,
             min_work_minutes=args.min_work_minutes,
             volume=args.volume,
+            self_test_mode=args.self_test_mode,
         )
     parser.print_help()
     return 0

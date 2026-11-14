@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-14T07:48:35+00:00",
+ "generated_at": "2026-11-14T09:12:55+00:00",
  "budget_usd": 2.0,
  "selected_rate_usd": null,
  "policy": null,
@@ -10,7 +10,6 @@
   "hourly_price_usd": 0.59,
   "tier": "secure",
   "datacenters": {
-   "CA-MTL-1": "LOW",
    "EU-SE-1": "MEDIUM"
   }
  },

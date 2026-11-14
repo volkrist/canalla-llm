@@ -1,5 +1,5 @@
 {
- "checked_at": "2026-11-14T08:27:19+00:00",
+ "checked_at": "2026-11-14T09:12:49+00:00",
  "budget_usd": 2.0,
  "gateway": {
   "status": 200,
@@ -13,7 +13,7 @@
  "runpod": {
   "pods": [],
   "pod_count": 0,
-  "balance_usd": 8.3783262846,
+  "balance_usd": 8.3686040624,
   "ok": true
  },
  "installed_app": {
@@ -43,7 +43,7 @@
  },
  "budget": {
   "cap_usd": 2.0,
-  "balance_usd": 8.3783,
+  "balance_usd": 8.3686,
   "policy": {
    "budget_usd": 2.0,
    "hourly_rate_usd": 1.09,

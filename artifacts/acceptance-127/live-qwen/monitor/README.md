@@ -12,7 +12,8 @@ dependency on an editor window, the Canalla backend or the installed app.
 | Path | Role |
 |---|---|
 | `monitor.py` | the scheduled pass, `--status`, `--self-test`, `--dry-run`, `--enable/--disable` |
-| `authorize.py` | stores or revokes the owner's one-Pod permission (the exact phrase is required) |
+| `selftest.py` | the 31-case free lifecycle matrix behind `--self-test` |
+| `authorize.py` | stores, scopes or revokes the owner's one-Pod permission |
 | `install_monitor.ps1` | registers/removes the scheduled task |
 | `%LOCALAPPDATA%\CanallaMonitor\state.json` | durable state (survives restarts and reboots) |
 | `%LOCALAPPDATA%\CanallaMonitor\status.json` | the current status block |
@@ -40,11 +41,14 @@ Then `app.compute.cost_policy` decides whether `$2.00` still leaves a meaningful
 price (60-minute billing granularity, 30 s termination grace, 10 s watchdog margin, 45-minute
 minimum), and the stored authorization is validated.
 
-Every check reports, per placement: `gpu_available`, `model` (`VERIFIED` / `FAILED` / `UNKNOWN`),
-`budget_allowed`, `live_authorized`, `eligible` and the reasons. Model evidence is read from each
-volume's own record: `docs/replica-us-mo-1.json` (`ready:true`, a real-model answer) and
-`artifacts/runpod-tx3-watcher/primary-manifest.json` (`serve_selftest: FAIL`). **US-TX-3 is watched
-and reported but never auto-approved** — the owner's grant names MO-1 only.
+Every check reports, per placement: `gpu_available`, `model` (`VERIFIED` /
+`UNVERIFIED_NEEDS_LIVE_CHECK` / `FAILED` / `UNKNOWN`), `requires_selftest`, `budget_allowed`,
+`live_authorized`, `live_eligible` and the reasons. Model evidence is read from each volume's own
+record (`placement_records.py`): `docs/replica-us-mo-1.json` proves MO-1 with a real-model answer;
+`artifacts/runpod-tx3-watcher/primary-manifest.json` records `serve_selftest: FAIL`, but its raw log
+shows the marker next to `curl`'s usage text - the check command was malformed, not the model. TX-3
+is therefore `UNVERIFIED_NEEDS_LIVE_CHECK`: a legitimate candidate whose model must be proved
+inside the same Pod before any TaskDesk work (`--self-test-mode`).
 
 An HTTP 429 is its own signal: the check records `rate_limited` with the provider's `Retry-After`
 (bounded to 60 s), reports `UNKNOWN`, and the pass ends early so the next scheduled pass backs off.
@@ -61,8 +65,25 @@ The monitor re-checks through the same pass, then requires:
 * `paid_run_already_attempted == false`.
 
 It then writes the attempt to disk **before** calling the provider, consumes the authorization,
-launches `live_acceptance.py --live --budget-usd 2.00 --confirm "<phrase>" --volume y92bt25ru8`
-(one Pod, 90-minute billable ceiling, external watchdog), and records the outcome.
+launches `live_acceptance.py --live --budget-usd 2.00 --confirm "<phrase>" --volume <chosen>`
+(one Pod, 90-minute billable ceiling, external watchdog), and records the outcome. When the chosen
+copy is not `VERIFIED`, `--self-test-mode` is added and the same Pod must answer a real prompt - and
+pass `GET /llm/status` with a Pod id - before the TaskDesk scenario runs. A failed proof stops that
+Pod and ends the run; it never buys a Pod elsewhere.
+
+A direct-mode chat that needs the model asks the owner to confirm the paid start. The acceptance is
+that owner: it approves the prompt through `POST /tools/runs/{id}/confirm`, bound to the prompt's
+digest, so the product's own money gate is honoured rather than bypassed. Without that the request
+would wait for a click that never comes.
+
+### Fixed blocker: the MO-1 volume read
+
+`RunPodAPI.volume()` refused US-MO-1 because `GET /v2/catalog/datacenters/US-MO-1` answers
+`networkVolumeTypes: []`. That silence was treated as incompatibility, so every MO-1 request ended
+as `stream_interrupted` before any Pod existed. An empty list now means silence; only an explicit
+list that omits the volume's type is a refusal. `apps/backend/tests/test_volume_catalogue.py` pins
+the three cases apart, and `quote_preflight.py` proves the product's own quote path for both
+placements.
 
 If the run proves that nothing was created and nothing was spent, the authorization is restored and
 the monitor returns to `WAITING_GPU`; a capacity race must not burn the owner's permission.
@@ -108,7 +129,11 @@ python artifacts\acceptance-127\live-qwen\monitor\authorize.py ^
 ```
 
 `--status` shows the stored grant; `--revoke` cancels it. The record expires after 30 days by
-default (`--days`), and a budget above `$2.00` or more than one Pod is refused.
+default (`--days`), and a budget above `$2.00` or more than one Pod is refused. `--scope {both|mo1|tx3}`
+chooses the placements (default **both**). A scope change is an in-place upgrade of the *same*
+permission - same `grant_id`, creation time and expiry, still unused - written through a validated
+temporary file that atomically replaces the original. A consumed grant is never revived and a second
+grant file is never created.
 
 ## Operational notes
 
@@ -131,9 +156,12 @@ default (`--days`), and a budget above `$2.00` or more than one Pod is refused.
   package is 1.2.6, which `preflight.py` reads from the installed sidecar's `build-stamp.json`; the
   LIVE run uses its own backend and a headless browser. `/health` is still reported (and used when
   the app happens to be running), but a closed window no longer blocks an unattended run.
-* **The grant is scoped and protected:** it names the model, GPU, volume and datacenter as well as
-  the phrase, budget and Pod count; a record that names anything else is refused. It holds no
-  secret, and the monitor directory's ACL grants it only to the current user, SYSTEM and
+* **The grant is scoped and protected:** it names the model, GPU and an explicit placement list as
+  well as the phrase, budget and Pod count; a record that names anything else is refused. It holds
+  no secret, and the monitor directory's ACL grants it only to the current user, SYSTEM and
   Administrators (no inherited entries).
 * **No Pods for monitoring:** every scheduled pass is read-only. The only write to the provider is
-  the one LIVE attempt the authorization names.
+  the one LIVE attempt the authorization names. The run's own `backend.log`, `host.log` and
+  `watchdog.log` are copied into `artifacts/acceptance-127/live-qwen/final-live/logs/` before its
+  temporary directory is removed, because a generic `stream_interrupted` with no log is not
+  diagnosable.

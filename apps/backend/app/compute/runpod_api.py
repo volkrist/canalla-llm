@@ -240,8 +240,15 @@ class RunPodAPI:
         )
         if dc is None:  # the datacenter catalog did not return the JSON object we need
             raise RunPodError("malformed_response")
-        if volume.dataCenter != self.settings.runpod_datacenter or volume.type not in dc.get(
-            "networkVolumeTypes", []
+        # An empty list is catalogue silence, not a refusal. US-MO-1 answers with
+        # ``networkVolumeTypes: []`` while a STANDARD volume demonstrably exists there and has
+        # served a real model answer; refusing on that turned a usable placement into
+        # ``volume_mismatch`` and made every request from it end as an interrupted stream. Only an
+        # explicit list that omits our type proves the datacenter cannot host this storage — and a
+        # placement the provider truly refuses is already handled by the candidate walk.
+        types = dc.get("networkVolumeTypes") or []
+        if volume.dataCenter != self.settings.runpod_datacenter or (
+            types and volume.type not in types
         ):
             raise RunPodError("volume_mismatch", 409)
         return volume

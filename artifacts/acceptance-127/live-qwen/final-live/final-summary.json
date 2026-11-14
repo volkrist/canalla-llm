@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-14T07:48:07+00:00",
+ "generated_at": "2026-11-14T09:12:57+00:00",
  "verdict": "LIVE NOT RUN",
  "live_run": false,
  "blocked_by": [
@@ -8,6 +8,6 @@
  "pods_created": 0,
  "spend_usd": 0.0,
  "reason": "No paid run was started: CAPACITY_UNAVAILABLE",
- "detail": "NVIDIA L40S is not bookable in any verified placement (y92bt25ru8); no Pod was created and no capacity wait was started",
+ "detail": "NVIDIA L40S is not bookable in any approved placement (uwgeaie5b0, y92bt25ru8); no Pod was created and no capacity wait was started",
  "authorization": "Owner authorization is a separate prerequisite and was not bypassed."
 }
