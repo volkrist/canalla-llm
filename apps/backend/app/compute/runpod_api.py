@@ -406,9 +406,7 @@ class RunPodAPI:
         hardcoded path that this placement does not have. A combination that cannot be mounted is
         refused *before* the provider call: nothing is created, so nothing can be left billing.
         """
-        mode = storage_type or getattr(
-            self.settings, "runpod_storage_mode", storage_layout.REGIONAL_VOLUME
-        )
+        mode = storage_type or getattr(self.settings, "runpod_storage_mode", storage_layout.REGIONAL_VOLUME)
         # Shared mode passes its own settings class. Reading these with a default keeps the
         # Gateway's behaviour exactly as it is until that deployment opts into another storage
         # kind - an AttributeError here would surface as a misleading `create_unknown`.
