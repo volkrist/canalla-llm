@@ -1312,7 +1312,9 @@ def run_live(
             token,
             {
                 "content": SCENARIO,
-                "web_mode": "on",
+                # The acceptance has no TinyFish credential, so a web turn can only fail and waste
+                # model steps (one real attempt spent two calls on `provider_not_configured`).
+                "web_mode": "off",
                 "computer_mode": "trusted",
                 "tor_mode": "off",
             },

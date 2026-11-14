@@ -1,10 +1,214 @@
 {
- "generated_at": "2026-11-14T09:13:45+00:00",
- "verdict": "CAPACITY_UNAVAILABLE",
- "live_run": false,
- "pods_created": 0,
- "spend_usd": 0.0,
- "reason": "NVIDIA L40S is not bookable in any approved placement (uwgeaie5b0, y92bt25ru8); no Pod was created and no capacity wait was started",
- "gpu_selection": null,
- "volume": null
+ "started_at": "2026-11-14T12:15:32+00:00",
+ "budget_usd": 2.0,
+ "hourly_rate_usd": 1.09,
+ "gpu": {
+  "gpu": "NVIDIA L40S",
+  "datacenter": "US-TX-3",
+  "volume_id": "uwgeaie5b0",
+  "storage_type": "regional_network_volume",
+  "hourly_price_usd": 1.09,
+  "name": "L40S"
+ },
+ "placement": {
+  "datacenter": "US-TX-3",
+  "volume_id": "uwgeaie5b0",
+  "storage_mode": "regional_network_volume"
+ },
+ "model_state": "UNVERIFIED_NEEDS_LIVE_CHECK",
+ "model_reason": "recorded_selftest_was_malformed_assets_intact",
+ "selftest_required": true,
+ "volume": {
+  "id": "uwgeaie5b0",
+  "datacenter": "US-TX-3"
+ },
+ "policy": {
+  "budget_usd": 2.0,
+  "hourly_rate_usd": 1.09,
+  "billing_granularity_seconds": 60,
+  "termination_grace_seconds": 30,
+  "watchdog_margin_seconds": 10,
+  "watchdog_poll_seconds": 5,
+  "capacity_timeout_seconds": 60,
+  "requested_max_billed_seconds": 5400,
+  "max_billed_seconds": 5400,
+  "hard_wall_seconds": 5370,
+  "stop_request_seconds": 5360,
+  "target_work_seconds": 4800,
+  "worst_case_usd": 1.635,
+  "budget_headroom_usd": 0.365,
+  "budget_limited": false,
+  "time_limited": true,
+  "min_work_seconds": 2700,
+  "feasible": true,
+  "sufficient": true,
+  "reasons": []
+ },
+ "balance_before_usd": null,
+ "path": "prepared",
+ "prepared_observed_at": "2026-11-14T12:15:30+00:00",
+ "prepared_rejected": null,
+ "database": {
+  "mode": "template",
+  "head": "0017",
+  "seconds": 0.016
+ },
+ "timings": {
+  "started_at": "2026-11-14T12:15:31+00:00",
+  "prepared_loaded_at": "2026-11-14T12:15:31+00:00",
+  "selected_at": "2026-11-14T12:15:31+00:00",
+  "database_at": "2026-11-14T12:15:32+00:00",
+  "database": {
+   "mode": "template",
+   "head": "0017",
+   "seconds": 0.016
+  },
+  "backend_ready_at": "2026-11-14T12:15:36+00:00",
+  "backend_healthy": true,
+  "session_ready_at": "2026-11-14T12:15:36+00:00",
+  "first_request_at": "2026-11-14T12:15:36+00:00"
+ },
+ "model_selftest": {
+  "verdict": "PASS",
+  "problems": [],
+  "answer_chars": 26,
+  "identity": {
+   "provider": "llamacpp",
+   "model": "orcarouter-qwen38-27b-q5km",
+   "pod_id": "w1cflixatbtw7q",
+   "gpu": "NVIDIA L40S",
+   "datacenter": "US-TX-3",
+   "available": true
+  }
+ },
+ "stream_events": 50,
+ "stream_end": {
+  "line": "data: {\"message_id\": \"bf71b697-876a-4c88-9dc7-1d72e1ebb95e\"}"
+ },
+ "stream_recovery": {
+  "waited_seconds": 0.0,
+  "reason": null,
+  "finished": null
+ },
+ "task": {
+  "id": "ec3ab5e1-7a19-44a7-8e2b-699fd59e95af",
+  "status": "FAILED",
+  "verification_ok": false,
+  "last_error": "tests_not_verified",
+  "workspace": "C:\\Users\\Volkr\\AppData\\Local\\Temp\\canalla-live-fxqvoq6a\\workspace"
+ },
+ "provenance": {
+  "status": "INCOMPLETE_TRACE",
+  "ok": false,
+  "reasons": [
+   "no passing independent verification was recorded"
+  ],
+  "providers": [
+   "llamacpp"
+  ],
+  "models": [
+   "orcarouter-qwen38-27b-q5km"
+  ],
+  "model_responses": 2,
+  "live_responses": 2,
+  "tool_calls": 2,
+  "linked_results": 1,
+  "verified": false,
+  "tampered": 0,
+  "chain": [
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "9e8224e8724145f99a2556166f98f31f"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "9e8224e8724145f99a2556166f98f31f",
+    "tool_call_id": "TKRCKgKBxuTuBl0Se2E1l6j6exexeNes",
+    "tool": "list_directory"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "TKRCKgKBxuTuBl0Se2E1l6j6exexeNes",
+    "tool_run_id": "7ad3f48e-9a4c-4262-aa58-e44c89f4b501"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "eef120d428e3413394d537f5f66071b4"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "eef120d428e3413394d537f5f66071b4",
+    "tool_call_id": "M7EHuD2uDbl0jimumInWJIv5gbNoE7xH",
+    "tool": "write_file"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "M7EHuD2uDbl0jimumInWJIv5gbNoE7xH",
+    "tool_run_id": null
+   }
+  ]
+ },
+ "checks": [
+  {
+   "check": "application_files_exist",
+   "ok": false,
+   "detail": "[]"
+  },
+  {
+   "check": "tests_were_written",
+   "ok": false,
+   "detail": "[]"
+  },
+  {
+   "check": "tests_pass",
+   "ok": false,
+   "detail": "\nno tests ran in 0.01s\n"
+  },
+  {
+   "check": "gui_screenshot_exists",
+   "ok": false,
+   "detail": "[]"
+  },
+  {
+   "check": "a_failure_preceded_a_pass",
+   "ok": false,
+   "detail": "[]"
+  },
+  {
+   "check": "no_duplicate_tool_payloads",
+   "ok": false,
+   "detail": "[('web_search', 'ca1adf6a626e1a02135ad33b6237fda9e2ce59f6a325c52a157652c2a94485b7')]"
+  },
+  {
+   "check": "database_contains_task_rows",
+   "ok": false,
+   "detail": "{}"
+  },
+  {
+   "check": "application_serves_http",
+   "ok": false,
+   "detail": "main.py missing"
+  }
+ ],
+ "balance_after_usd": 7.0525486726,
+ "verdict": "FAIL",
+ "pods_created": 1,
+ "pod_ids": [
+  "w1cflixatbtw7q"
+ ],
+ "compute_sessions": [
+  {
+   "pod_id": "w1cflixatbtw7q",
+   "status": "ready",
+   "datacenter": "US-TX-3",
+   "gpu": "NVIDIA L40S",
+   "hourly_rate_usd": 1.09,
+   "estimated_cost_usd": 0.049656,
+   "started_at": "2026-11-14T12:15:54.917000",
+   "ready_at": "2026-11-14T12:17:06.882481",
+   "stopped_at": null
+  }
+ ],
+ "estimated_spend_usd": 0.0497,
+ "run_id": "c89661185a0d4768a96ff4f511ad5448"
 }

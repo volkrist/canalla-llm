@@ -1,15 +1,15 @@
 {
- "captured_at": "2026-11-14T11:33:44+00:00",
+ "captured_at": "2026-11-14T12:22:17+00:00",
  "placement": {
-  "datacenter": "US-MO-1",
-  "volume_id": "y92bt25ru8",
+  "datacenter": "US-TX-3",
+  "volume_id": "uwgeaie5b0",
   "storage_mode": "regional_network_volume"
  },
- "model_state": "VERIFIED",
- "model_reason": "replica_ready_with_real_model_answer",
- "selftest_required": false,
+ "model_state": "UNVERIFIED_NEEDS_LIVE_CHECK",
+ "model_reason": "recorded_selftest_was_malformed_assets_intact",
+ "selftest_required": true,
  "budget_usd": 2.0,
  "hourly_rate_usd": 1.09,
- "verdict": null,
+ "verdict": "FAIL",
  "reasons": null
 }

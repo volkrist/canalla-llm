@@ -16,7 +16,14 @@ from ..database import get_db
 from ..models import Chat, Message, User, now
 from ..security import current_user
 from .contracts import ToolError
-from .executor import ExecutionContext, ToolExecutor, public_job, public_run, public_source
+from .executor import (
+    MAX_TOOL_ARGUMENT_CHARS,
+    ExecutionContext,
+    ToolExecutor,
+    public_job,
+    public_run,
+    public_source,
+)
 from .local.devices import HostClaim, HostResult, PairRequest, public_device, require_device
 from .models import PairedDevice, ToolPreferences, ToolRun, WebSourceSnapshot
 from .policy import ToolLimits, WebSettings, preferences
@@ -134,7 +141,7 @@ async def execute_tool(
 
     if not db.scalar(select(Chat.id).where(Chat.id == body.chat_id, Chat.user_id == user.id)):
         raise HTTPException(404, "Диалог не найден")
-    if len(json.dumps(body.arguments)) > 16000:
+    if len(json.dumps(body.arguments)) > MAX_TOOL_ARGUMENT_CHARS:
         raise HTTPException(422, "Слишком большой запрос инструмента")
     owner = user.id
     prefs = preferences(db, user.id)

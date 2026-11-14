@@ -667,3 +667,62 @@ no consumer"`). Self-test: `a_dead_runner_stops_the_pod_it_left_behind` — PASS
 - Production 1.2.6 не изменена; второй Pod по израсходованному разрешению невозможен.
 - Для следующего LIVE нужно **новое явное разрешение** (`--replace-consumed`); после него система
   сама дождётся L40S в любом из двух DC и выполнит ровно один прогон.
+
+---
+
+## LIVE c8966118 — настоящая Qwen, настоящий tool call, найден блокер TaskDesk
+
+**HEAD:** `d559841` + этот коммит. **Pod:** `w1cflixatbtw7q` (L40S 48 GB, **US-TX-3**), создан
+12:15:54, удалён. **Grant:** `e4ab7ac…` — used (`claimed_at 12:15:30`, `confirmed_at 12:22:18`).
+**Оценка расходов LIVE:** `$0.1144` (сессия, isolated DB). Баланс в момент отчёта `7.0525486726`
+(минус $0.0348 относительно старта; RunPod публикует списание с задержкой, `currentSpendPerHr`
+сразу после стопа ещё показывал Pod).
+
+### Что подтверждено настоящим LIVE
+
+- **Модель реально загрузилась и отвечала.** TX-3 (`uwgeaie5b0`) прошёл self-test настоящим
+  ответом: «Я готов выполнять ваши задачи.» → размещение, ранее помеченное
+  `UNVERIFIED_NEEDS_LIVE_CHECK`, **доказано живым inference**.
+- **Настоящие `MODEL_RESPONSE`:** 2 события, `provider: llamacpp`, `model:
+  orcarouter-qwen38-27b-q5km`, `live: true`, `runtime: llama.cpp`, endpoint fingerprint,
+  response ids `chatcmpl-…`, elapsed 7 015 мс и 40 266 мс.
+- **Настоящие model-directed tool calls:** `list_directory` (исполнен, `TOOL_RESULT executed=True`,
+  результат возвращён модели) и `write_file` (отвергнут **до исполнения**:
+  `TOOL_RESULT executed=False, error=invalid_arguments`).
+- Модель после результата `list_directory` перешла к следующему зависимому шагу — это **LEVEL 2**.
+- Поток жил 50 SSE-событий, без таймаута: исправления 300/120 с работают.
+
+### Найденный блокер (исправлен)
+
+`write_file` не мог создать настоящий файл:
+
+| Ограничение | Было | Стало |
+|---|---|---|
+| строка аргументов tool call | 16 000 символов | `MAX_TOOL_ARGUMENT_CHARS = 400 000` |
+| `WriteArgs.content` | 20 000 символов | `MAX_WRITE_CONTENT_CHARS = 200 000` |
+| ручной `/tools/execute` | 16 000 | тот же предел |
+
+Поэтому модель получила `invalid_arguments` на первый же файл, потратила шаги на
+`web_search` (`provider_not_configured`) и завершила задачу `tests_not_verified`. Регрессия:
+`tests/test_tool_argument_size.py` (3 теста) + 127-provenance/autonomous e2e.
+
+Дополнительно: acceptance больше не включает `web_mode` — TinyFish в этой среде не настроен, и
+каждый web-вызов был гарантированным провалом.
+
+### TaskDesk и автономность
+
+TaskDesk **не создан**: файлов нет, SQLite пуст, HTTP/GUI не проверялись, verifier —
+`INCOMPLETE_TRACE` (2 ответа, 2 tool call, один исполнен). Repair и durable resume не выполнялись.
+
+Подтверждённые уровни: **LEVEL 1** (настоящий ответ) и **LEVEL 2** (model-directed tool call
+исполнен, результат возвращён модели). **LEVEL 3+ не подтверждены** — зависимая запись файла не
+состоялась по вине лимита аргументов, который теперь снят.
+
+### Cleanup и состояние
+
+- Pod удалён, `pod_count: 0`; тарификация вычислений остановлена.
+- Второй Pod по этому grant невозможен: `used=true`, `confirmed_at` записан; монитор —
+  `automatic_live = DISARMED`, проверки продолжаются каждые 30 с.
+- Production 1.2.6 не изменена (изолированная БД и device).
+- Для следующего LIVE нужно новое разрешение владельца: это был единственный оплаченный Pod,
+  разрешённый текущим заданием.

@@ -1,0 +1,12 @@
+Let a real source file be written by the model
+
+The live run proved the model: two real responses and two model-directed tool
+calls. It also proved a blocker. `write_file` rejected the very first file as
+`invalid_arguments` because the raw tool-call arguments were capped at 16,000
+characters and file content at 20,000 - smaller than a normal FastAPI or HTML
+file. The model then spent its remaining steps on a web provider that is not
+configured and the task ended `tests_not_verified` with no files.
+
+The argument bound is now 400,000 characters and write content 200,000, with a
+regression test that validates a 72 KB source file. The acceptance no longer
+requests web mode, since every web call in this environment can only fail.

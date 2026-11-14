@@ -6,6 +6,12 @@ from ..contracts import RiskLevel, ToolDefinition, ToolError, ToolProvider, Tool
 from .paths import assert_local_path
 from .registry_keys import assert_registry_key
 
+# A source file is not a chat message. The old 20,000-character cap rejected a real FastAPI or
+# HTML file as `invalid_arguments`, which no reminder from the UI can fix: the model simply cannot
+# create the code it was asked for. The context window is the real bound; this is only a sanity
+# ceiling that never binds before the model's own output limit.
+MAX_WRITE_CONTENT_CHARS = 200_000
+
 
 class PathArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -16,7 +22,7 @@ class PathArgs(BaseModel):
 class WriteArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: str = Field(min_length=1, max_length=500)
-    content: str = Field(default="", max_length=20000)
+    content: str = Field(default="", max_length=MAX_WRITE_CONTENT_CHARS)
     expected_before_sha256: str | None = Field(default=None, max_length=64)
     purpose: str | None = Field(default=None, max_length=500)
 

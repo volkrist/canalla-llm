@@ -23,6 +23,12 @@ from .web_router import canonical_url
 
 logger = logging.getLogger(__name__)
 
+# The bound on the raw tool-call argument string. It must exceed the largest write payload
+# (`MAX_WRITE_CONTENT_CHARS`, 200k) even when every character is JSON-escaped. The old 16,000-character
+# limit rejected a single real source file before parsing, which is exactly how the LIVE attempt
+# lost its TaskDesk: the model's `write_file` became `invalid_arguments`.
+MAX_TOOL_ARGUMENT_CHARS = 400_000
+
 TERMINAL = {"completed", "stopped", "failed", "denied"}
 STATES = {
     "search": "searching",
@@ -488,7 +494,7 @@ class ToolExecutor:
         definition, provider = self.registry.get(name)
         try:
             if isinstance(arguments, str):
-                if len(arguments) > 16000:
+                if len(arguments) > MAX_TOOL_ARGUMENT_CHARS:
                     raise ValueError()
                 arguments = json.loads(arguments)
             args = definition.input_model.model_validate(arguments)
