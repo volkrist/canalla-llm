@@ -237,6 +237,13 @@ def prepare() -> int:
         "model": "orcarouter-qwen38-27b-q5km",
         "context_window": 32768,
         "gpu": selection.get("selected"),
+        "placement": {
+            "datacenter": (selection.get("selected") or {}).get("datacenter"),
+            "volume_id": (selection.get("selected") or {}).get("volume_id"),
+            "storage_mode": (selection.get("selected") or {}).get("storage_type"),
+        },
+        "verified_placements": selection.get("verified_placements"),
+        "replica_refusals": selection.get("replica_refusals"),
         "reference_gpu": selection.get("reference"),
         "reference_policy": selection.get("reference_policy"),
         "gpu_verdict": selection.get("verdict"),
@@ -331,7 +338,7 @@ def plan_report(budget: float, rate: float) -> dict:
         "abort_rules": [
             "any preflight blocker",
             "an existing Pod before the run",
-            "no compatible GPU in the volume's datacenter (CAPACITY_UNAVAILABLE, no queue)",
+            "no compatible GPU in any verified placement (CAPACITY_UNAVAILABLE, no queue)",
             "the planned worst case exceeds the approved budget",
             "the watchdog reports MULTIPLE_PODS or TERMINATION_UNCONFIRMED",
             "the provenance verdict is anything other than REAL_MODEL_CONFIRMED",
@@ -460,6 +467,15 @@ def run_live(
         return 2
 
     rate = float(selection["selected"]["hourly_price_usd"])
+    placement = {
+        "datacenter": str(selection["selected"].get("datacenter") or ""),
+        "volume_id": str(selection["selected"].get("volume_id") or ""),
+        "storage_mode": str(
+            selection["selected"].get("storage_type") or "regional_network_volume"
+        ),
+    }
+    if not placement["volume_id"] or not placement["datacenter"]:
+        raise SystemExit(f"refusing: the selected candidate has no placement: {selection.get('selected')}")
     policy = cost_policy.plan(
         budget,
         rate,
@@ -494,7 +510,12 @@ def run_live(
         "LLM_CONNECTION_MODE": "runpod",
         "LLM_MODEL": "orcarouter-qwen38-27b-q5km",
         "RUNPOD_API_KEY": key,
-        "RUNPOD_NETWORK_VOLUME_ID": "uwgeaie5b0",
+        # The placement the probe proved is available *and* holds a verified copy of the model.
+        # Without these two the backend would keep scheduling in the configured default volume's
+        # datacenter, which is exactly the single-datacenter assumption this run removes.
+        "RUNPOD_NETWORK_VOLUME_ID": placement["volume_id"],
+        "RUNPOD_DATACENTER": placement["datacenter"],
+        "RUNPOD_STORAGE_MODE": placement["storage_mode"],
         "COMPUTE_BACKGROUND_ENABLED": "true",
         "ALLOW_USER_COMPUTE_START": "true",
         "TINYFISH_API_KEY": "",
@@ -538,6 +559,7 @@ def run_live(
         "budget_usd": budget,
         "hourly_rate_usd": rate,
         "gpu": selection.get("selected"),
+        "placement": placement,
         "volume": selection.get("volume"),
         "policy": policy.to_dict(),
         "balance_before_usd": pods.get("balance_usd"),

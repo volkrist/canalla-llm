@@ -2,11 +2,33 @@
 
 **Статус:** подготовка завершена. Платный запуск **не выполнялся**.
 **Разрешение владельца:** требуется отдельно; текст задания им не является.
-**Внешний блокер на 2026-11-14:** в дата-центре Network Volume нет ни одной подходящей GPU.
+**Обновлено 2026-11-14:** одиночная привязка к дата-центру устранена. Прогон больше не зависит от
+того, есть ли GPU в US-TX-3.
 
 Исполнитель: `artifacts/acceptance-127/live-qwen/live_acceptance.py`.
-Подготовка: `--prepare` (read-only). Выбор GPU: `gpu_probe.py` (read-only).
+Подготовка: `--prepare` (read-only). Выбор GPU: `gpu_probe.py` (read-only, **по всем размещениям**).
 Страховка: `scripts/live_qwen_watchdog.py` (внешний процесс, `SetThreadExecutionState`).
+
+## Что изменилось в выборе размещения
+
+`gpu_probe.py` больше не знает один том. Он читает:
+
+1. **все** Network Volumes аккаунта и дата-центр каждого (`GET /v2/network-volumes`);
+2. реестр реплик (`docs/replica-*.json`) и спрашивает `app.compute.replicas`, содержит ли **этот**
+   добавленный том именно эту модель, хеш и runtime;
+3. каталог GPU один раз и отдаёт его продуктовой политике `app.compute.candidates`, где
+   отказанная реплика пропускается, а причина остаётся в аудите.
+
+Проверенные размещения на 2026-11-14:
+
+| Том | DC | Реплика | Доступные совместимые GPU (на момент чтения) |
+|---|---|---|---|
+| `uwgeaie5b0` (`orcarouter-storage`) | US-TX-3 | первичная, продуктовая | в 03:52 — **нет**; в 04:15 — L40S LOW |
+| `y92bt25ru8` (`orcarouter-storage-mo1`) | US-MO-1 | **verified**, real GPU answer 2026-10-13 | L40S LOW, A100 PCIe, A100 SXM, H100 SXM |
+
+Доступность «дышит»: за 23 минуты L40S вернулся в US-TX-3. Поэтому прогон не полагается на
+конкретный DC: выбирается самое дешёвое совместимое предложение среди размещений с проверенной
+копией модели, а цена и доступность перечитываются **непосредственно перед** созданием Pod.
 
 ## Сценарий (один запрос, без подсказок по ходу)
 
@@ -48,30 +70,23 @@ target_work   = min(4800, hard_wall)
 При $2.99 и дороже допустимое окно становится меньше 45 минут → `NO_MEANINGFUL_WORK_WINDOW`,
 Pod не создаётся.
 
-## Внешний блокер (проверено read-only 2026-11-14)
+## Global volume: состояние на 2026-11-14
 
-- Network Volume `uwgeaie5b0` (`orcarouter-storage`, 50 GB) — **US-TX-3**, type `STANDARD`
-  (региональный, монтируется только в своём DC).
-- В каталоге сейчас **нет ни одной NVIDIA Secure GPU ≥48 GB с ненулевой доступностью в US-TX-3**.
-- L40S $1.09 доступен только в **US-TX-4**, A40 $0.59 — в CA-MTL-1/EU-SE-1, RTX 6000 Ada — в
-  US-IL-1/US-KS-2/US-WA-1.
-- Следовательно продукт ответит `no_compatible_gpu` / `gpu_unavailable`. Это **внешний**
-  блокер: второй Volume и перезаливка ~20 GB весов не выполняются без отдельного решения.
+Провайдер **открыл** программный путь: в живом контракте есть `/v2/global-volumes`,
+`/v2/global-volumes/{id}` и вид монтирования `global` (до 1 глобального тома на Pod, без привязки
+к DC, и для GPU, и для CPU Pod). Это отменяет вывод от 25.09.2026, где API отвечал
+`Network volume "<id>" not found`.
 
-`--live` проверяет это до создания Pod и завершается `CAPACITY_UNAVAILABLE` за секунды, без
-ожидания мощности.
+Но совместимость с llama.cpp **не доказана**, а статический анализ говорит «сейчас нет»:
 
-## Критерии PASS
+* измеренный `start-llm.sh` пишет `llama-server.log` и `llama-server.pid` в корень тома — на
+  объектном хранилище это нежелательная запись;
+* у глобального тома нет блокировок, atomic rename, hard links и permission bits;
+* mmap 20.8 GB GGUF поверх объектного слоя и startup latency **не измерялись**.
 
-1. `provenance.classify(...) == REAL_MODEL_CONFIRMED`.
-2. `COMPLETED` + `verification.evidence_ok`.
-3. Реальные файлы приложения.
-4. Был проваленный тестовый прогон, затем прошедший (detect → fix → retest).
-5. HTTP 200 и SQLite с непустой таблицей задач.
-6. GUI-скриншоты: от модели (`browser_gui`) и независимый от harness (Playwright).
-7. Нет дублей tool payload.
-8. `pods == []` после прогона, расход ≤ $2.00.
-9. Production 1.2.6 и device identity не изменились.
+Поэтому `app.compute.storage.check_compatibility` для глобального режима возвращает
+`storage_unverified` (или `storage_incompatible_runtime`, пока launch path пишет в том), а не
+«готово». Путь к глобальному тому описан и оценён, но не выбран для этого прогона.
 
 ## Команды
 
@@ -85,6 +100,8 @@ python artifacts\acceptance-127\live-qwen\live_acceptance.py --live --budget-usd
 ```
 
 Без `--budget-usd` и без точной фразы `--live` не запускается; бюджет выше $2.00 отклоняется.
+Выбранное размещение передаётся изолированному backend как `RUNPOD_NETWORK_VOLUME_ID` +
+`RUNPOD_DATACENTER` + `RUNPOD_STORAGE_MODE`, поэтому backend не возвращается к дефолтному DC.
 
 ## Изоляция
 
@@ -92,6 +109,18 @@ python artifacts\acceptance-127\live-qwen\live_acceptance.py --live --budget-usd
 `DATABASE_URL`, workspace, backend, host, журналы. Родительский процесс harness получает тот же
 изолированный `DATABASE_URL` **до** импорта приложения, поэтому чтение журнала не может попасть в
 production БД.
+
+## Критерии PASS
+
+1. `provenance.classify(...) == REAL_MODEL_CONFIRMED`.
+2. `COMPLETED` + `verification.evidence_ok`.
+3. Реальные файлы приложения.
+4. Был проваленный тестовый прогон, затем прошедший (detect → fix → retest).
+5. HTTP 200 и SQLite с непустой таблицей задач.
+6. GUI-скриншоты: от модели (`browser_gui`) и независимый от harness (Playwright).
+7. Нет дублей tool payload.
+8. `pods == []` после прогона, расход ≤ $2.00.
+9. Production 1.2.6 и device identity не изменились.
 
 ## Evidence (`final-live/`)
 

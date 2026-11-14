@@ -17,6 +17,28 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+# The mount the model source resolves to, and the GGUF on it. Both are relative to the mount on
+# purpose: a global volume mounted at `/workspace-global` must not be read through a hardcoded
+# `/workspace` path. The default is byte-for-byte the historic production layout.
+DEFAULT_ROOT = "/workspace"
+MODEL_RELATIVE_PATH = "models/orcarouter-qwen38/orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf"
+DEFAULT_MODEL_PATH = "/workspace/models/orcarouter-qwen38/orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf"
+
+
+def model_root():
+    root = (os.environ.get("ALEX_LLM_ROOT") or DEFAULT_ROOT).rstrip("/")
+    return root or DEFAULT_ROOT
+
+
+def model_path(root):
+    """The GGUF the Pod must load: the configured path, or the provider's default layout."""
+    configured = os.environ.get("ALEX_LLM_MODEL_PATH")
+    if configured:
+        return configured
+    if root == DEFAULT_ROOT:
+        return DEFAULT_MODEL_PATH
+    return root + "/" + MODEL_RELATIVE_PATH
+
 
 def gateway_server(key, llm_port, port):
     if len(key) < 32:
@@ -112,9 +134,9 @@ def _tail(path, limit=60):
     return "\n".join(lines[-limit:])
 
 
-def _dump_logs():
+def _dump_logs(root=DEFAULT_ROOT):
     """Mirror the container-side logs to stdout, so the VPS collector can keep them."""
-    for path in ("/tmp/alex-llm-start.log", "/tmp/alex-llm-check.log", "/workspace/llama-server.log"):
+    for path in ("/tmp/alex-llm-start.log", "/tmp/alex-llm-check.log", root + "/llama-server.log"):
         text = _tail(path)
         if text:
             print("ALEX_LLM_LOG=" + path, flush=True)
@@ -151,6 +173,8 @@ def main():
     gateway_port = int(os.environ.get("ALEX_GATEWAY_PORT", "9000"))
     model = os.environ["ALEX_LLM_MODEL"]
     timeout = int(os.environ.get("ALEX_STARTUP_TIMEOUT", "900"))
+    root = model_root()
+    gguf = model_path(root)
     with open("/tmp/alex-llm-runtime.lock", "w") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -158,9 +182,9 @@ def main():
             return  # Another wrapper owns startup; never start a second model process.
         phase("mounting_storage")
         for path in (
-            "/workspace/start-llm.sh",
-            "/workspace/check-llm.sh",
-            "/workspace/models/orcarouter-qwen38/orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf",
+            root + "/start-llm.sh",
+            root + "/check-llm.sh",
+            gguf,
         ):
             if not Path(path).is_file():
                 print("ALEX_LLM_MISSING=" + path, flush=True)
@@ -172,9 +196,9 @@ def main():
             phase("starting_llm")
             environment = {name: value for name, value in os.environ.items() if name != "ALEX_GATEWAY_KEY"}
             with open("/tmp/alex-llm-start.log", "ab") as log:
-                subprocess.Popen(["bash", "/workspace/start-llm.sh"], stdout=log, stderr=log, env=environment)
+                subprocess.Popen(["bash", root + "/start-llm.sh"], stdout=log, stderr=log, env=environment)
         phase("loading_model")
-        _dump_logs()
+        _dump_logs(root)
         deadline = time.monotonic() + timeout
         next_dump = time.monotonic() + 30
         ready = False
@@ -182,14 +206,14 @@ def main():
             while True:
                 state = model_state(port, model)
                 if time.monotonic() >= next_dump and not ready:
-                    _dump_logs()
+                    _dump_logs(root)
                     next_dump = time.monotonic() + 30
                 if state == "ready":
                     if not ready:
                         try:
                             with open("/tmp/alex-llm-check.log", "ab") as log:
                                 checked = subprocess.run(
-                                    ["bash", "/workspace/check-llm.sh"],
+                                    ["bash", root + "/check-llm.sh"],
                                     stdout=log,
                                     stderr=log,
                                     timeout=20,
@@ -201,19 +225,19 @@ def main():
                                 )
                             if checked.returncode != 0:
                                 print("ALEX_LLM_CHECK_FAILED=" + str(checked.returncode), flush=True)
-                                _dump_logs()
+                                _dump_logs(root)
                                 phase("error")
                                 return
                         except subprocess.TimeoutExpired:
                             print("ALEX_LLM_CHECK_TIMEOUT", flush=True)
-                            _dump_logs()
+                            _dump_logs(root)
                             phase("error")
                             return
                     ready = True
                     phase("ready")
                 elif ready or state == "wrong_model" or time.monotonic() >= deadline:
                     print("ALEX_LLM_STATE=" + state, flush=True)
-                    _dump_logs()
+                    _dump_logs(root)
                     phase("error")
                     return
                 time.sleep(3)

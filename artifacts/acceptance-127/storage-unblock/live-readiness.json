@@ -1,0 +1,40 @@
+{
+ "generated_at": "2026-11-14T04:16:01+00:00",
+ "budget_usd": "2.00",
+ "verified_placements": [
+  "uwgeaie5b0",
+  "y92bt25ru8"
+ ],
+ "placement_at_last_probe": {
+  "datacenter": "US-TX-3",
+  "volume_id": "uwgeaie5b0",
+  "storage_mode": "regional_network_volume",
+  "gpu": "NVIDIA L40S",
+  "hourly_price_usd": 1.09,
+  "observed_at": "2026-11-14T04:15:39+00:00"
+ },
+ "placement_rule": "the cheapest compatible card in any placement whose copy of the model is verified; a regional volume pins its datacenter, so the probe re-reads availability immediately before the run instead of trusting this file",
+ "gpu": {
+  "name": "NVIDIA L40S",
+  "vram_gb": 48,
+  "hourly_rate_usd": "1.09",
+  "worst_case_usd_90_min": "1.635",
+  "budget_headroom_usd": "0.365",
+  "min_work_seconds": 2700,
+  "target_work_seconds": 4800
+ },
+ "guards": {
+  "one_pod": true,
+  "second_pod_forbidden": true,
+  "capacity_wait_seconds": 60,
+  "watchdog_self_test": "PASS",
+  "provider_state": "0 pods"
+ },
+ "production": {
+  "version": "1.2.6",
+  "untouched": true,
+  "device_identity": "6413489d-6cae-4183-8446-a3b2339137dc"
+ },
+ "verdict": "READY_FOR_OWNER_AUTHORIZATION",
+ "paid_actions_taken": 0
+}

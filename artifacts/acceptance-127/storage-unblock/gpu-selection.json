@@ -1,0 +1,104 @@
+{
+ "generated_at": "2026-11-14T04:16:01+00:00",
+ "read_only": true,
+ "minimum_vram_gb": 48,
+ "budget_usd": "2.00",
+ "regional_plan": {
+  "placements": [
+   {
+    "datacenter": "US-MO-1",
+    "volume_id": "y92bt25ru8",
+    "community_capable": false,
+    "storage_type": "regional_network_volume",
+    "pins_datacenter": true
+   },
+   {
+    "datacenter": "US-TX-3",
+    "volume_id": "uwgeaie5b0",
+    "community_capable": false,
+    "storage_type": "regional_network_volume",
+    "pins_datacenter": true
+   }
+  ],
+  "plan": {
+   "planned": 1,
+   "considered": 19,
+   "reason": null,
+   "strategy": "balanced",
+   "replica_refusals": {},
+   "candidates": [
+    {
+     "gpu": "NVIDIA L40S",
+     "vram_gb": 48,
+     "hourly_rate": "1.09",
+     "cloud": "SECURE",
+     "datacenter": "US-MO-1",
+     "volume_id": "y92bt25ru8",
+     "availability": "LOW",
+     "storage_type": "regional_network_volume"
+    }
+   ]
+  },
+  "reason": null
+ },
+ "global_plan": {
+  "placements": [
+   {
+    "datacenter": "",
+    "volume_id": "cmugq2bsv000007js3sa47w6j",
+    "community_capable": false,
+    "storage_type": "global_volume",
+    "pins_datacenter": false
+   }
+  ],
+  "plan": {
+   "planned": 3,
+   "considered": 19,
+   "reason": null,
+   "strategy": "balanced",
+   "replica_refusals": {},
+   "candidates": [
+    {
+     "gpu": "NVIDIA A40",
+     "vram_gb": 48,
+     "hourly_rate": "0.59",
+     "cloud": "SECURE",
+     "datacenter": "CA-MTL-1",
+     "volume_id": "cmugq2bsv000007js3sa47w6j",
+     "availability": "LOW",
+     "storage_type": "global_volume"
+    },
+    {
+     "gpu": "NVIDIA RTX A6000",
+     "vram_gb": 48,
+     "hourly_rate": "0.69",
+     "cloud": "SECURE",
+     "datacenter": "EU-SE-1",
+     "volume_id": "cmugq2bsv000007js3sa47w6j",
+     "availability": "LOW",
+     "storage_type": "global_volume"
+    },
+    {
+     "gpu": "NVIDIA L40S",
+     "vram_gb": 48,
+     "hourly_rate": "1.09",
+     "cloud": "SECURE",
+     "datacenter": "EU-NL-1",
+     "volume_id": "cmugq2bsv000007js3sa47w6j",
+     "availability": "LOW",
+     "storage_type": "global_volume"
+    }
+   ]
+  },
+  "reason": null
+ },
+ "selected_for_live": {
+  "gpu": "NVIDIA L40S",
+  "vram_gb": 48,
+  "hourly_rate_usd": 1.09,
+  "datacenter": "US-MO-1",
+  "volume_id": "y92bt25ru8",
+  "storage_mode": "regional_network_volume"
+ },
+ "note": "the regional plan is the product's own candidate policy over the live catalogue; the global plan shows what would be bookable with a global placement (no datacenter pin)"
+}

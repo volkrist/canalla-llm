@@ -1,0 +1,77 @@
+{
+ "generated_at": "2026-11-14T04:16:01+00:00",
+ "read_only": true,
+ "question": "where should one canonical copy of the weights live so a GPU can always be booked?",
+ "facts": {
+  "observed_at": "2026-11-14T03:52:50+00:00",
+  "volatility_note": "per-datacenter availability is a live pool: the first read of this stage saw zero compatible cards in US-TX-3 and an L40S in US-MO-1; a read 23 minutes later saw an L40S back in US-TX-3. Exactly why one datacenter is not a plan.",
+  "primary_volume": {
+   "id": "uwgeaie5b0",
+   "datacenter": "US-TX-3",
+   "compatible_gpus_available_now": []
+  },
+  "replica_volume": {
+   "id": "y92bt25ru8",
+   "datacenter": "US-MO-1",
+   "verified_replica": true,
+   "compatible_gpus_available_now": [
+    "L40S",
+    "A100 PCIe",
+    "A100 SXM",
+    "H100 SXM"
+   ]
+  },
+  "global_volume": {
+   "id": "cmugq2bsv000007js3sa47w6j",
+   "exists": true,
+   "content": "unknown",
+   "api_attachable": true,
+   "mount_kind": "global (max 1 per Pod, no datacenter constraint, GPU and CPU)"
+  }
+ },
+ "architectures": {
+  "A_regional_tx3_only": {
+   "summary": "keep only uwgeaie5b0 and wait for capacity in US-TX-3",
+   "compatible_gpus_available_now": [],
+   "monthly_storage_usd": "3.50 (already billed)",
+   "migration_cost_usd": "0",
+   "verdict": "BLOCKED",
+   "why": "zero compatible cards with availability in US-TX-3 at the time of the read"
+  },
+  "B_regional_replica_mo1": {
+   "summary": "use the verified copy on y92bt25ru8 in US-MO-1",
+   "compatible_gpus_available_now": [
+    "L40S",
+    "A100 PCIe",
+    "A100 SXM",
+    "H100 SXM"
+   ],
+   "monthly_storage_usd": "7.03 for both volumes (already billed)",
+   "migration_cost_usd": "0 (the copy exists and is verified)",
+   "verdict": "READY_NOW",
+   "why": "a real GPU answer was produced from this volume on 2026-10-13 and L40S 48 GB is available there now at $1.09/h"
+  },
+  "C_global_volume_whole_tree": {
+   "summary": "copy the whole /workspace tree to the global volume and mount it at /workspace",
+   "compatible_gpus_available_now": "every datacenter in the catalogue (no pin)",
+   "monthly_storage_usd": "global rate NOT PUBLISHED; scenarios in monthly-storage-cost.json",
+   "migration_cost_usd": "≈0.06 one-time (CPU Pod + request classes), see migration-cost.json",
+   "verdict": "POSSIBLE_UNVERIFIED",
+   "why": "the public API can attach it, but the launch script writes to the mount and mmap/startup on object-backed storage has not been measured"
+  },
+  "D_global_weights_local_runtime": {
+   "summary": "global volume holds only the GGUF; llama.cpp runs from local storage",
+   "compatible_gpus_available_now": "every datacenter in the catalogue (no pin)",
+   "monthly_storage_usd": "global rate NOT PUBLISHED; scenarios in monthly-storage-cost.json",
+   "migration_cost_usd": "≈0.06 one-time + a local runtime delivery step per start",
+   "verdict": "POSSIBLE_UNVERIFIED",
+   "why": "avoids object-storage small-file reads, but requires the runtime to be shipped in the image or fetched at every start (adds startup time and cost)"
+  }
+ },
+ "recommendation": {
+  "immediate_live": "B_regional_replica_mo1",
+  "why": "zero migration, zero new infrastructure, a verified copy, and capacity right now",
+  "strategic": "C_global_volume_whole_tree, then D if C's startup latency is unacceptable",
+  "guard": "neither global option may be called compatible before one GPU Pod loads the GGUF from it; that Pod is a paid action and is NOT part of the $2 LIVE envelope"
+ }
+}

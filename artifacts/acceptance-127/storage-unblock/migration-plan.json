@@ -1,0 +1,69 @@
+{
+ "generated_at": "2026-11-14T04:16:01+00:00",
+ "status": "DRAFT_REQUIRES_OWNER_APPROVAL",
+ "target": {
+  "storage": "existing global volume",
+  "id": "cmugq2bsv000007js3sa47w6j",
+  "why": "region-independent; already exists; no new paid storage would be created"
+ },
+ "source": {
+  "volume_id": "y92bt25ru8",
+  "datacenter": "US-MO-1",
+  "why": "the verified copy; reading it avoids re-downloading ~20.8 GB"
+ },
+ "preconditions": [
+  "owner approval for one short CPU Pod (mounts.global is API-only for CPU pods)",
+  "the source volume is mounted read-only in spirit: nothing is deleted or edited",
+  "both volumes attach to ONE Pod (one network + one global)"
+ ],
+ "steps": {
+  "A_inventory": {
+   "done": true,
+   "evidence": "model-inventory.json",
+   "files": 6377,
+   "bytes": 22902211482,
+   "gguf_sha256": "4ad98832b3d376dd274df5bba59dd34834f0f401593e1463f38fd5fa219293b1"
+  },
+  "B_destination": {
+   "layout": "/workspace/ (global) mirrors the source layout",
+   "expected_paths": [
+    "models/orcarouter-qwen38/orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf",
+    "llama.cpp/build/bin/llama-server",
+    "start-llm.sh",
+    "check-llm.sh"
+   ]
+  },
+  "C_transfer": {
+   "command": "rsync --archive --human-readable --info=progress2 /workspace/ /workspace-global/",
+   "runs_in": "one CPU Pod in US-MO-1 with both volumes attached",
+   "not_executed": true
+  },
+  "D_verify": {
+   "commands": [
+    "find /workspace-global -type f | wc -l",
+    "du -sb /workspace-global",
+    "sha256sum /workspace-global/models/orcarouter-qwen38/orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf"
+   ],
+   "must_match": {
+    "gguf_sha256": "4ad98832b3d376dd274df5bba59dd34834f0f401593e1463f38fd5fa219293b1",
+    "gguf_bytes": 20752787712
+   }
+  },
+  "E_model_loading": {
+   "status": "NOT_RUN",
+   "requires": "one GPU Pod with the global mount; proves or disproves mmap"
+  },
+  "F_cutover": {
+   "status": "NOT_RUN",
+   "rule": "no production cutover in this task; the regional volume stays the default"
+  }
+ },
+ "rollback": [
+  "nothing is deleted or moved: the source volume stays untouched",
+  "the global volume can be deleted by an explicit owner decision, priced below"
+ ],
+ "old_volume": {
+  "id": "uwgeaie5b0",
+  "rule": "never deleted or altered without a separate owner decision and a verified backup"
+ }
+}

@@ -1,0 +1,1771 @@
+{
+ "generated_at": "2026-11-14T03:52:50+00:00",
+ "read_only": true,
+ "min_vram_gb": 48,
+ "pods": {
+  "status": 200,
+  "count": 0,
+  "rows": []
+ },
+ "balance": {
+  "status": 404,
+  "payload": {
+   "detail": "The requested path was not found.",
+   "status": 404,
+   "title": "Not Found"
+  }
+ },
+ "network_volumes": {
+  "status": 200,
+  "count": 2,
+  "rows": [
+   {
+    "id": "y92bt25ru8",
+    "name": "orcarouter-storage-mo1",
+    "size_gb": 50,
+    "type": "STANDARD",
+    "data_center": "US-MO-1"
+   },
+   {
+    "id": "uwgeaie5b0",
+    "name": "orcarouter-storage",
+    "size_gb": 50,
+    "type": "STANDARD",
+    "data_center": "US-TX-3"
+   }
+  ]
+ },
+ "global_volumes": {
+  "status": 200,
+  "count": 1,
+  "rows": [
+   {
+    "id": "cmugq2bsv000007js3sa47w6j",
+    "name": "physical_olive_yak",
+    "createdAt": "2026-09-25T08:51:57.814Z"
+   }
+  ]
+ },
+ "network_volume_billing": {
+  "status": 200,
+  "payload": {
+   "metadata": {
+    "query": {
+     "bucketSize": "day",
+     "endTime": "2026-11-15T00:00:00Z",
+     "startTime": "2026-10-15T00:00:00Z"
+    },
+    "recordCount": 62,
+    "totals": {
+     "highPerformanceAmount": 0,
+     "standardAmount": 7.029166921041906,
+     "totalAmount": 7.029166921041906
+    },
+    "uniqueNetworkVolumeCount": 2
+   },
+   "records": [
+    {
+     "endTime": "2026-10-16T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-15T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-16T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-15T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-17T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-16T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-17T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-16T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-18T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-17T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-18T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-17T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-19T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-18T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-19T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-18T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-20T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-19T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-20T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-19T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-21T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-20T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-21T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-20T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-22T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-21T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-22T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-21T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-23T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-22T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-23T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-22T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-24T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-23T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-24T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-23T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-25T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-24T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-25T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-24T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-26T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-25T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-26T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-25T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-27T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-26T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-27T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-26T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-28T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-27T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-28T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-27T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-29T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-28T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-29T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-28T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-30T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-29T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-30T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-29T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-31T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-30T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-10-31T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-30T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-01T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-31T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-01T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-10-31T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-02T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-01T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-02T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-01T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-03T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-02T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-03T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-02T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-04T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-03T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-04T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-03T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-05T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-04T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-05T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-04T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-06T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-05T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-06T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-05T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-07T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-06T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-07T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-06T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-08T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-07T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-08T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-07T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-09T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-08T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-09T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-08T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-10T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-09T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-10T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-09T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-11T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-10T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-11T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-10T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-12T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-11T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-12T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-11T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-13T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-12T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-13T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-12T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-14T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-13T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-14T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.11666667088866234,
+     "startTime": "2026-11-13T00:00:00Z",
+     "totalAmount": 0.11666667088866234
+    },
+    {
+     "endTime": "2026-11-15T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "uwgeaie5b0",
+     "standardAmount": 0.014583333861082792,
+     "startTime": "2026-11-14T00:00:00Z",
+     "totalAmount": 0.014583333861082792
+    },
+    {
+     "endTime": "2026-11-15T00:00:00Z",
+     "highPerformanceAmount": 0,
+     "networkVolumeId": "y92bt25ru8",
+     "standardAmount": 0.014583333861082792,
+     "startTime": "2026-11-14T00:00:00Z",
+     "totalAmount": 0.014583333861082792
+    }
+   ]
+  }
+ },
+ "billing": {
+  "status": 200,
+  "payload": {
+   "metadata": {
+    "query": {
+     "bucketSize": "day",
+     "endTime": "2026-11-15T00:00:00Z",
+     "startTime": "2026-10-15T00:00:00Z"
+    },
+    "recordCount": 31,
+    "totals": {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0.00821758986421628,
+     "podGpuAmount": 8.588478044883232,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 7.029166921041906,
+     "totalAmount": 15.625862555789354
+    }
+   },
+   "records": [
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-10-16T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-15T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.23333334177732468
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-10-17T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-16T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.23333334177732468
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-10-18T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-17T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.23333334177732468
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-10-19T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-18T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.23333334177732468
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-10-20T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0.002083332641632296,
+     "podGpuAmount": 1.9363598978379741,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-19T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 2.171776572256931
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-10-21T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0.00011574070231290534,
+     "podGpuAmount": 0.30587125569581985,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-20T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.5393203381754574
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-10-22T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0.00023148140462581068,
+     "podGpuAmount": 0.21822527050971985,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-21T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.45179009369167034
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-10-23T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-22T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.23333334177732468
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-10-24T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-23T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.23333334177732468
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-10-25T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0.000694444213877432,
+     "podGpuAmount": 0.6009463681839406,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-24T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.8349741541751428
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-10-26T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0.0017361105346935801,
+     "podGpuAmount": 1.645463692897465,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-25T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 1.8805331452094833
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-10-27T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0.000347222106938716,
+     "podGpuAmount": 0.48493193089962006,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-26T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.7186124947838834
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-10-28T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0.000347222106938716,
+     "podGpuAmount": 0.5098193287849426,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-27T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.743499892669206
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-10-29T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0.000694444213877432,
+     "podGpuAmount": 0.5307699146069353,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-28T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.7647977005981375
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-10-30T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-29T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.23333334177732468
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-10-31T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0.0009259256185032427,
+     "podGpuAmount": 0.729517019353807,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-30T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.9637762867496349
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-11-01T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-10-31T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.23333334177732468
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-11-02T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-11-01T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.23333334177732468
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-11-03T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0.00023148140462581068,
+     "podGpuAmount": 0.4949260577559471,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-11-02T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.7284908809378976
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-11-04T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-11-03T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.23333334177732468
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-11-05T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-11-04T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.23333334177732468
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-11-06T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-11-05T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.23333334177732468
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-11-07T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-11-06T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.23333334177732468
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-11-08T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-11-07T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.23333334177732468
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-11-09T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0.000347222106938716,
+     "podGpuAmount": 0.2836858229711652,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-11-08T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.5173663868554286
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-11-10T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-11-09T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.23333334177732468
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-11-11T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0.00011574070231290534,
+     "podGpuAmount": 0.31323556788265705,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-11-10T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.5466846503622946
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-11-12T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0.00023148140462581068,
+     "podGpuAmount": 0.39088346622884274,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-11-11T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.6244482894107932
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-11-13T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0.00011574070231290534,
+     "podGpuAmount": 0.143842451274395,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-11-12T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.37729153375403257
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-11-14T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-11-13T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.23333334177732468,
+     "totalAmount": 0.23333334177732468
+    },
+    {
+     "clusterDiskAmount": 0,
+     "clusterGpuAmount": 0,
+     "clusterNetworkingAmount": 0,
+     "endTime": "2026-11-15T00:00:00Z",
+     "endpointAmount": 0,
+     "podCpuAmount": 0,
+     "podDiskAmount": 0,
+     "podGpuAmount": 0,
+     "serverlessCpuAmount": 0,
+     "serverlessDiskAmount": 0,
+     "serverlessFeeAmount": 0,
+     "serverlessGpuAmount": 0,
+     "startTime": "2026-11-14T00:00:00Z",
+     "storageHighPerformanceAmount": 0,
+     "storageStandardAmount": 0.029166667722165585,
+     "totalAmount": 0.029166667722165585
+    }
+   ]
+  }
+ },
+ "gpu_catalog": {
+  "status": 200,
+  "compatible_count": 19,
+  "offers": [
+   {
+    "gpu_id": "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition",
+    "name": "RTX PRO 6000 MaxQ",
+    "vram_gb": 96,
+    "price_secure_usd_hr": 0.5,
+    "price_community_usd_hr": 1.64,
+    "secure": false,
+    "available_centers": [],
+    "datacenters": {}
+   },
+   {
+    "gpu_id": "NVIDIA A40",
+    "name": "A40",
+    "vram_gb": 48,
+    "price_secure_usd_hr": 0.59,
+    "price_community_usd_hr": 0.35,
+    "secure": true,
+    "available_centers": [
+     "CA-MTL-1",
+     "EU-SE-1"
+    ],
+    "datacenters": {
+     "CA-MTL-1": "LOW",
+     "EU-SE-1": "LOW"
+    }
+   },
+   {
+    "gpu_id": "NVIDIA RTX A6000",
+    "name": "RTX A6000",
+    "vram_gb": 48,
+    "price_secure_usd_hr": 0.69,
+    "price_community_usd_hr": 0.33,
+    "secure": true,
+    "available_centers": [
+     "EU-SE-1"
+    ],
+    "datacenters": {
+     "EU-SE-1": "LOW"
+    }
+   },
+   {
+    "gpu_id": "NVIDIA L40",
+    "name": "L40",
+    "vram_gb": 48,
+    "price_secure_usd_hr": 0.82,
+    "price_community_usd_hr": 0.69,
+    "secure": true,
+    "available_centers": [],
+    "datacenters": {}
+   },
+   {
+    "gpu_id": "NVIDIA RTX PRO 5000 Blackwell",
+    "name": "RTX PRO 5000",
+    "vram_gb": 48,
+    "price_secure_usd_hr": 0.96,
+    "price_community_usd_hr": 0.82,
+    "secure": true,
+    "available_centers": [],
+    "datacenters": {}
+   },
+   {
+    "gpu_id": "NVIDIA L40S",
+    "name": "L40S",
+    "vram_gb": 48,
+    "price_secure_usd_hr": 1.09,
+    "price_community_usd_hr": 0.79,
+    "secure": true,
+    "available_centers": [
+     "EU-NL-1",
+     "EUR-IS-2",
+     "US-MO-1",
+     "US-NC-1",
+     "US-TX-4"
+    ],
+    "datacenters": {
+     "EU-NL-1": "LOW",
+     "EUR-IS-2": "LOW",
+     "US-MO-1": "LOW",
+     "US-NC-1": "LOW",
+     "US-TX-4": "LOW"
+    }
+   },
+   {
+    "gpu_id": "NVIDIA RTX 6000 Ada Generation",
+    "name": "RTX 6000 Ada",
+    "vram_gb": 48,
+    "price_secure_usd_hr": 1.09,
+    "price_community_usd_hr": 0.74,
+    "secure": true,
+    "available_centers": [
+     "US-IL-1",
+     "US-WA-1"
+    ],
+    "datacenters": {
+     "US-IL-1": "LOW",
+     "US-WA-1": "LOW"
+    }
+   },
+   {
+    "gpu_id": "NVIDIA RTX PRO 6000 Blackwell Server Edition MIG 2g.48gb",
+    "name": "PRO 6000 MIG 48GB",
+    "vram_gb": 48,
+    "price_secure_usd_hr": 1.39,
+    "price_community_usd_hr": 1.0,
+    "secure": true,
+    "available_centers": [
+     "US-PA-1"
+    ],
+    "datacenters": {
+     "US-PA-1": "LOW"
+    }
+   },
+   {
+    "gpu_id": "NVIDIA A100 80GB PCIe",
+    "name": "A100 PCIe",
+    "vram_gb": 80,
+    "price_secure_usd_hr": 2.09,
+    "price_community_usd_hr": 1.19,
+    "secure": true,
+    "available_centers": [
+     "EU-RO-1",
+     "US-MO-1"
+    ],
+    "datacenters": {
+     "EU-RO-1": "LOW",
+     "US-MO-1": "LOW"
+    }
+   },
+   {
+    "gpu_id": "NVIDIA A100-SXM4-80GB",
+    "name": "A100 SXM",
+    "vram_gb": 80,
+    "price_secure_usd_hr": 2.19,
+    "price_community_usd_hr": 1.39,
+    "secure": true,
+    "available_centers": [
+     "EUR-IS-1",
+     "US-KS-2",
+     "US-MD-1",
+     "US-MO-1",
+     "US-WA-1"
+    ],
+    "datacenters": {
+     "EUR-IS-1": "LOW",
+     "US-KS-2": "LOW",
+     "US-MD-1": "LOW",
+     "US-MO-1": "LOW",
+     "US-WA-1": "LOW"
+    }
+   },
+   {
+    "gpu_id": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "name": "RTX PRO 6000",
+    "vram_gb": 96,
+    "price_secure_usd_hr": 2.69,
+    "price_community_usd_hr": 1.69,
+    "secure": true,
+    "available_centers": [
+     "EU-CZ-1",
+     "EU-NL-1",
+     "EU-RO-1",
+     "EUR-IS-1",
+     "EUR-IS-2",
+     "US-KS-2",
+     "US-MO-2",
+     "US-NC-1",
+     "US-NC-2",
+     "US-NE-1",
+     "US-PA-1"
+    ],
+    "datacenters": {
+     "EU-CZ-1": "LOW",
+     "EU-NL-1": "LOW",
+     "EU-RO-1": "LOW",
+     "EUR-IS-1": "LOW",
+     "EUR-IS-2": "LOW",
+     "US-KS-2": "LOW",
+     "US-MO-2": "LOW",
+     "US-NC-1": "LOW",
+     "US-NC-2": "LOW",
+     "US-NE-1": "LOW",
+     "US-PA-1": "LOW"
+    }
+   },
+   {
+    "gpu_id": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+    "name": "RTX PRO 6000 WK",
+    "vram_gb": 96,
+    "price_secure_usd_hr": 2.79,
+    "price_community_usd_hr": 1.69,
+    "secure": true,
+    "available_centers": [
+     "EU-CZ-1",
+     "EU-RO-1",
+     "EUR-IS-1"
+    ],
+    "datacenters": {
+     "EU-CZ-1": "LOW",
+     "EU-RO-1": "LOW",
+     "EUR-IS-1": "LOW"
+    }
+   },
+   {
+    "gpu_id": "NVIDIA H100 PCIe",
+    "name": "H100 PCIe",
+    "vram_gb": 80,
+    "price_secure_usd_hr": 2.89,
+    "price_community_usd_hr": 1.99,
+    "secure": true,
+    "available_centers": [
+     "US-KS-2"
+    ],
+    "datacenters": {
+     "US-KS-2": "LOW"
+    }
+   },
+   {
+    "gpu_id": "NVIDIA H100 NVL",
+    "name": "H100 NVL",
+    "vram_gb": 94,
+    "price_secure_usd_hr": 3.19,
+    "price_community_usd_hr": 2.59,
+    "secure": true,
+    "available_centers": [
+     "US-GA-2"
+    ],
+    "datacenters": {
+     "US-GA-2": "LOW"
+    }
+   },
+   {
+    "gpu_id": "NVIDIA H200 NVL",
+    "name": "H200 NVL",
+    "vram_gb": 143,
+    "price_secure_usd_hr": 3.79,
+    "price_community_usd_hr": 0.5,
+    "secure": true,
+    "available_centers": [],
+    "datacenters": {}
+   },
+   {
+    "gpu_id": "NVIDIA H100 80GB HBM3",
+    "name": "H100 SXM",
+    "vram_gb": 80,
+    "price_secure_usd_hr": 4.39,
+    "price_community_usd_hr": 2.69,
+    "secure": true,
+    "available_centers": [
+     "AP-IN-1",
+     "CA-MTL-1",
+     "EU-FR-1",
+     "EUR-IS-3",
+     "EUR-NO-2",
+     "US-CA-2",
+     "US-GA-2",
+     "US-MO-1",
+     "US-NE-1"
+    ],
+    "datacenters": {
+     "AP-IN-1": "LOW",
+     "CA-MTL-1": "LOW",
+     "EU-FR-1": "LOW",
+     "EUR-IS-3": "LOW",
+     "EUR-NO-2": "LOW",
+     "US-CA-2": "LOW",
+     "US-GA-2": "LOW",
+     "US-MO-1": "LOW",
+     "US-NE-1": "LOW"
+    }
+   },
+   {
+    "gpu_id": "NVIDIA H200",
+    "name": "H200 SXM",
+    "vram_gb": 141,
+    "price_secure_usd_hr": 5.29,
+    "price_community_usd_hr": 3.59,
+    "secure": true,
+    "available_centers": [
+     "AP-JP-1",
+     "CA-MTL-3",
+     "CA-MTL-4",
+     "EUR-IS-4",
+     "EUR-IS-5",
+     "US-CA-2",
+     "US-CO-1"
+    ],
+    "datacenters": {
+     "AP-JP-1": "LOW",
+     "CA-MTL-3": "LOW",
+     "CA-MTL-4": "LOW",
+     "EUR-IS-4": "LOW",
+     "EUR-IS-5": "LOW",
+     "US-CA-2": "LOW",
+     "US-CO-1": "LOW"
+    }
+   },
+   {
+    "gpu_id": "NVIDIA B200",
+    "name": "B200",
+    "vram_gb": 180,
+    "price_secure_usd_hr": 7.99,
+    "price_community_usd_hr": 5.98,
+    "secure": true,
+    "available_centers": [
+     "EU-RO-1",
+     "US-NC-2",
+     "US-NE-1"
+    ],
+    "datacenters": {
+     "EU-RO-1": "LOW",
+     "US-NC-2": "LOW",
+     "US-NE-1": "LOW"
+    }
+   },
+   {
+    "gpu_id": "NVIDIA B300 SXM6 AC",
+    "name": "B300",
+    "vram_gb": 288,
+    "price_secure_usd_hr": 8.99,
+    "price_community_usd_hr": 6.94,
+    "secure": true,
+    "available_centers": [
+     "EU-NL-1",
+     "EUR-IS-1",
+     "US-WA-2"
+    ],
+    "datacenters": {
+     "EU-NL-1": "LOW",
+     "EUR-IS-1": "LOW",
+     "US-WA-2": "LOW"
+    }
+   }
+  ]
+ },
+ "gpu_catalog_compact": [
+  {
+   "name": "RTX PRO 6000 MaxQ",
+   "vram_gb": 96,
+   "price_secure_usd_hr": 0.5,
+   "available_centers": []
+  },
+  {
+   "name": "A40",
+   "vram_gb": 48,
+   "price_secure_usd_hr": 0.59,
+   "available_centers": [
+    "CA-MTL-1",
+    "EU-SE-1"
+   ]
+  },
+  {
+   "name": "RTX A6000",
+   "vram_gb": 48,
+   "price_secure_usd_hr": 0.69,
+   "available_centers": [
+    "EU-SE-1"
+   ]
+  },
+  {
+   "name": "L40",
+   "vram_gb": 48,
+   "price_secure_usd_hr": 0.82,
+   "available_centers": []
+  },
+  {
+   "name": "RTX PRO 5000",
+   "vram_gb": 48,
+   "price_secure_usd_hr": 0.96,
+   "available_centers": []
+  },
+  {
+   "name": "L40S",
+   "vram_gb": 48,
+   "price_secure_usd_hr": 1.09,
+   "available_centers": [
+    "EU-NL-1",
+    "EUR-IS-2",
+    "US-MO-1",
+    "US-NC-1",
+    "US-TX-4"
+   ]
+  },
+  {
+   "name": "RTX 6000 Ada",
+   "vram_gb": 48,
+   "price_secure_usd_hr": 1.09,
+   "available_centers": [
+    "US-IL-1",
+    "US-WA-1"
+   ]
+  },
+  {
+   "name": "PRO 6000 MIG 48GB",
+   "vram_gb": 48,
+   "price_secure_usd_hr": 1.39,
+   "available_centers": [
+    "US-PA-1"
+   ]
+  },
+  {
+   "name": "A100 PCIe",
+   "vram_gb": 80,
+   "price_secure_usd_hr": 2.09,
+   "available_centers": [
+    "EU-RO-1",
+    "US-MO-1"
+   ]
+  },
+  {
+   "name": "A100 SXM",
+   "vram_gb": 80,
+   "price_secure_usd_hr": 2.19,
+   "available_centers": [
+    "EUR-IS-1",
+    "US-KS-2",
+    "US-MD-1",
+    "US-MO-1",
+    "US-WA-1"
+   ]
+  },
+  {
+   "name": "RTX PRO 6000",
+   "vram_gb": 96,
+   "price_secure_usd_hr": 2.69,
+   "available_centers": [
+    "EU-CZ-1",
+    "EU-NL-1",
+    "EU-RO-1",
+    "EUR-IS-1",
+    "EUR-IS-2",
+    "US-KS-2",
+    "US-MO-2",
+    "US-NC-1",
+    "US-NC-2",
+    "US-NE-1",
+    "US-PA-1"
+   ]
+  },
+  {
+   "name": "RTX PRO 6000 WK",
+   "vram_gb": 96,
+   "price_secure_usd_hr": 2.79,
+   "available_centers": [
+    "EU-CZ-1",
+    "EU-RO-1",
+    "EUR-IS-1"
+   ]
+  },
+  {
+   "name": "H100 PCIe",
+   "vram_gb": 80,
+   "price_secure_usd_hr": 2.89,
+   "available_centers": [
+    "US-KS-2"
+   ]
+  },
+  {
+   "name": "H100 NVL",
+   "vram_gb": 94,
+   "price_secure_usd_hr": 3.19,
+   "available_centers": [
+    "US-GA-2"
+   ]
+  },
+  {
+   "name": "H200 NVL",
+   "vram_gb": 143,
+   "price_secure_usd_hr": 3.79,
+   "available_centers": []
+  },
+  {
+   "name": "H100 SXM",
+   "vram_gb": 80,
+   "price_secure_usd_hr": 4.39,
+   "available_centers": [
+    "AP-IN-1",
+    "CA-MTL-1",
+    "EU-FR-1",
+    "EUR-IS-3",
+    "EUR-NO-2",
+    "US-CA-2",
+    "US-GA-2",
+    "US-MO-1",
+    "US-NE-1"
+   ]
+  },
+  {
+   "name": "H200 SXM",
+   "vram_gb": 141,
+   "price_secure_usd_hr": 5.29,
+   "available_centers": [
+    "AP-JP-1",
+    "CA-MTL-3",
+    "CA-MTL-4",
+    "EUR-IS-4",
+    "EUR-IS-5",
+    "US-CA-2",
+    "US-CO-1"
+   ]
+  },
+  {
+   "name": "B200",
+   "vram_gb": 180,
+   "price_secure_usd_hr": 7.99,
+   "available_centers": [
+    "EU-RO-1",
+    "US-NC-2",
+    "US-NE-1"
+   ]
+  },
+  {
+   "name": "B300",
+   "vram_gb": 288,
+   "price_secure_usd_hr": 8.99,
+   "available_centers": [
+    "EU-NL-1",
+    "EUR-IS-1",
+    "US-WA-2"
+   ]
+  }
+ ],
+ "allocation_plans": {
+  "regional_placements": {
+   "placements": [
+    {
+     "datacenter": "US-MO-1",
+     "volume_id": "y92bt25ru8",
+     "community_capable": false,
+     "storage_type": "regional_network_volume",
+     "pins_datacenter": true
+    },
+    {
+     "datacenter": "US-TX-3",
+     "volume_id": "uwgeaie5b0",
+     "community_capable": false,
+     "storage_type": "regional_network_volume",
+     "pins_datacenter": true
+    }
+   ],
+   "plan": {
+    "planned": 1,
+    "considered": 19,
+    "reason": null,
+    "strategy": "balanced",
+    "replica_refusals": {},
+    "candidates": [
+     {
+      "gpu": "NVIDIA L40S",
+      "vram_gb": 48,
+      "hourly_rate": "1.09",
+      "cloud": "SECURE",
+      "datacenter": "US-MO-1",
+      "volume_id": "y92bt25ru8",
+      "availability": "LOW",
+      "storage_type": "regional_network_volume"
+     }
+    ]
+   },
+   "reason": null
+  },
+  "global_placement": {
+   "placements": [
+    {
+     "datacenter": "",
+     "volume_id": "cmugq2bsv000007js3sa47w6j",
+     "community_capable": false,
+     "storage_type": "global_volume",
+     "pins_datacenter": false
+    }
+   ],
+   "plan": {
+    "planned": 3,
+    "considered": 19,
+    "reason": null,
+    "strategy": "balanced",
+    "replica_refusals": {},
+    "candidates": [
+     {
+      "gpu": "NVIDIA A40",
+      "vram_gb": 48,
+      "hourly_rate": "0.59",
+      "cloud": "SECURE",
+      "datacenter": "CA-MTL-1",
+      "volume_id": "cmugq2bsv000007js3sa47w6j",
+      "availability": "LOW",
+      "storage_type": "global_volume"
+     },
+     {
+      "gpu": "NVIDIA RTX A6000",
+      "vram_gb": 48,
+      "hourly_rate": "0.69",
+      "cloud": "SECURE",
+      "datacenter": "EU-SE-1",
+      "volume_id": "cmugq2bsv000007js3sa47w6j",
+      "availability": "LOW",
+      "storage_type": "global_volume"
+     },
+     {
+      "gpu": "NVIDIA L40S",
+      "vram_gb": 48,
+      "hourly_rate": "1.09",
+      "cloud": "SECURE",
+      "datacenter": "EU-NL-1",
+      "volume_id": "cmugq2bsv000007js3sa47w6j",
+      "availability": "LOW",
+      "storage_type": "global_volume"
+     }
+    ]
+   },
+   "reason": null
+  }
+ }
+}

@@ -13,6 +13,7 @@ import httpx
 from pydantic import ValidationError
 
 from ..config import Settings
+from . import storage as storage_layout
 from .schemas import ComputePreferences, GpuOption, PodInfo, VolumeInfo
 
 ERROR_MESSAGES = {
@@ -26,6 +27,13 @@ ERROR_MESSAGES = {
     "malformed_response": "RunPod вернул неподдерживаемый ответ. Операция остановлена.",
     "placement_rejected": "GPU исчезла из доступных или размещение отклонено.",
     "volume_mismatch": "Network Volume несовместим с выбранным дата-центром.",
+    "unsupported_storage": "Выбранный тип хранилища модели не поддерживается этим запуском.",
+    "unsupported_storage_kind": "Выбранный тип хранилища модели не поддерживается этим запуском.",
+    "mount_path_conflict": "Пути монтирования хранилища конфликтуют. Pod не создан.",
+    "no_storage": "Не выбрано хранилище модели. Pod не создан.",
+    "model_not_found": "Ни одно хранилище не содержит модель. Pod не создан.",
+    "ambiguous_model_source": "Модель найдена на двух хранилищах одновременно. Pod не создан.",
+    "multiple_global_volumes": "Pod поддерживает только один Global Volume. Pod не создан.",
     "no_compatible_gpu": "Подходящих GPU сейчас нет.",
     "gpu_unavailable": "Подходящих GPU сейчас нет в наличии. Поиск можно повторить.",
     "price_limit": "Подходящий GPU существует, но превышает ваш лимит.",
@@ -72,21 +80,25 @@ class RunPodError(Exception):
         super().__init__(ERROR_MESSAGES.get(code, ERROR_MESSAGES["runpod_unavailable"]))
 
 
-def startup_command(port: int, timeout: int) -> str:
+def startup_command(port: int, timeout: int, root: str = storage_layout.DEFAULT_MOUNT) -> str:
     # Only trusted backend constants enter this command. Existing volume data is never modified.
+    # ``root`` is the resolved mount of the model source, so a global volume mounted elsewhere
+    # cannot silently run the script of a different mount.
+    start = storage_layout.join(root, storage_layout.START_SCRIPT)
+    check = storage_layout.join(root, storage_layout.CHECK_SCRIPT)
     script = f"""set -eu
 echo ALEX_LLM_PHASE=mounting_storage
-test -f /workspace/start-llm.sh || {{ echo ALEX_LLM_PHASE=error; exit 1; }}
-test -f /workspace/check-llm.sh || {{ echo ALEX_LLM_PHASE=error; exit 1; }}
+test -f {start} || {{ echo ALEX_LLM_PHASE=error; exit 1; }}
+test -f {check} || {{ echo ALEX_LLM_PHASE=error; exit 1; }}
 echo ALEX_LLM_PHASE=starting_llm
-bash /workspace/start-llm.sh >/tmp/alex-llm-start.log 2>&1 &
+bash {start} >/tmp/alex-llm-start.log 2>&1 &
 echo ALEX_LLM_PHASE=loading_model
 deadline=$((SECONDS+{timeout}))
 until curl --silent --fail --max-time 3 http://127.0.0.1:{port}/health >/dev/null; do
   if [ "$SECONDS" -ge "$deadline" ]; then echo ALEX_LLM_PHASE=error; exit 1; fi
   sleep 3
 done
-bash /workspace/check-llm.sh >/tmp/alex-llm-check.log 2>&1 || {{ echo ALEX_LLM_PHASE=error; exit 1; }}
+bash {check} >/tmp/alex-llm-check.log 2>&1 || {{ echo ALEX_LLM_PHASE=error; exit 1; }}
 while true; do
   if curl --silent --fail --max-time 3 http://127.0.0.1:{port}/health >/dev/null; then
     echo ALEX_LLM_PHASE=ready
@@ -377,6 +389,7 @@ class RunPodAPI:
         cloud: str | None = None,
         datacenter: str | None = None,
         volume_id: str | None = None,
+        storage_type: str | None = None,
         timeout: float | None = None,
     ):
         """Create one Pod for one *candidate* placement.
@@ -385,12 +398,50 @@ class RunPodAPI:
         and the Volume it mounts are the candidate's, not a process-wide constant. Defaults keep
         the historic direct-mode call shape (Secure Cloud, the configured datacenter, the
         configured Volume).
+
+        ``storage_type`` is the candidate's storage kind. A regional Network Volume mounts at
+        ``/workspace`` exactly as before; a global volume mounts at the provider's default for the
+        attachment set (``/workspace``, or ``/workspace-global`` next to a network volume), and the
+        model root is passed to the Pod as ``ALEX_LLM_ROOT`` so llama.cpp is never pointed at a
+        hardcoded path that this placement does not have. A combination that cannot be mounted is
+        refused *before* the provider call: nothing is created, so nothing can be left billing.
         """
+        mode = storage_type or getattr(
+            self.settings, "runpod_storage_mode", storage_layout.REGIONAL_VOLUME
+        )
+        # Shared mode passes its own settings class. Reading these with a default keeps the
+        # Gateway's behaviour exactly as it is until that deployment opts into another storage
+        # kind - an AttributeError here would surface as a misleading `create_unknown`.
+        global_volume_id = getattr(self.settings, "runpod_global_volume_id", "")
+        global_mount_path = getattr(self.settings, "runpod_global_mount_path", "")
+        plan = storage_layout.resolve(
+            (
+                storage_layout.Attachment(
+                    mode=mode,
+                    volume_id=(
+                        global_volume_id
+                        if mode == storage_layout.GLOBAL_VOLUME
+                        else volume_id or self.settings.runpod_network_volume_id
+                    ),
+                    mount_path=(global_mount_path if mode == storage_layout.GLOBAL_VOLUME else ""),
+                    has_model=True,
+                    has_runtime=True,
+                ),
+            )
+        )
+        if not plan:
+            raise RunPodError(plan.verdict if plan.verdict in ERROR_MESSAGES else "unsupported_storage", 422)
         real = self.settings.llm_provider == "llamacpp"
         if real and len(self.settings.llm_api_key) < 32:
             raise RunPodError("llm_key_missing", 422)
-        args = startup_command(self.settings.runpod_llm_port, self.settings.runpod_startup_timeout)
-        environment = {}
+        args = startup_command(
+            self.settings.runpod_llm_port, self.settings.runpod_startup_timeout, plan.model_root
+        )
+        environment = {
+            # Read by the container bootstrap: the resolved mount and the exact GGUF on it.
+            "ALEX_LLM_ROOT": plan.model_root,
+            "ALEX_LLM_MODEL_PATH": plan.model_path,
+        }
         if real:
             from ..packaging import package_file
 
@@ -401,12 +452,20 @@ class RunPodAPI:
                 "import base64; exec(compile(base64.b64decode('" + runtime + "'), 'alex-runtime', 'exec'))"
             )
             environment = {
+                **environment,
                 "ALEX_GATEWAY_KEY": self.settings.llm_api_key,
                 "ALEX_LLM_PORT": str(self.settings.runpod_llm_port),
                 "ALEX_GATEWAY_PORT": str(self.settings.runpod_gateway_port),
                 "ALEX_LLM_MODEL": self.settings.llm_model,
                 "ALEX_STARTUP_TIMEOUT": str(self.settings.runpod_startup_timeout),
             }
+        mounts: dict = {}
+        network = [mount for mount in plan.mounts if mount.kind == "network"]
+        globals_ = [mount for mount in plan.mounts if mount.kind == "global"]
+        if network:
+            mounts["network"] = [{"volumeId": mount.volume_id, "path": mount.path} for mount in network]
+        if globals_:
+            mounts["global"] = [{"volumeId": mount.volume_id, "path": mount.path} for mount in globals_]
         data = await self.request(
             "POST",
             "/pods",
@@ -418,14 +477,7 @@ class RunPodAPI:
                 "gpu": {"id": gpu.id, "count": 1, "minCudaVersion": self.settings.runpod_min_cuda_version},
                 "dataCenterIds": [datacenter or self.settings.runpod_datacenter],
                 "disk": 10,
-                "mounts": {
-                    "network": [
-                        {
-                            "volumeId": volume_id or self.settings.runpod_network_volume_id,
-                            "path": "/workspace",
-                        }
-                    ]
-                },
+                "mounts": mounts,
                 "ports": [f"{self.settings.runpod_gateway_port}/http"] if real else [],
                 "env": environment,
                 "startJupyter": False,

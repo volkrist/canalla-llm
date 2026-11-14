@@ -240,6 +240,35 @@ exactly why production keeps regional placements. Reproduce with
 (one bounded CPU-pod probe, dry-run by default); the full record is in
 [report-2026-09-25-global-volume-api-attachment-proof.md](report-2026-09-25-global-volume-api-attachment-proof.md).
 
+### 14 Nov 2026: the provider opened the programmatic path (supersedes the paragraph above)
+
+The live contract now exposes `/v2/global-volumes` (list/create/patch/delete) and a `global` mount
+kind. `Mounts` allows **up to 4 network volumes and exactly 1 global volume**, refuses `persistent`
+together with either, and the global mount has **no datacenter constraint** and works on GPU **and
+CPU** pods. The earlier `400 not found` was a property of the old contract, not of the volume.
+
+So "one canonical copy of the weights, any datacenter" is now addressable in code. What has *not*
+changed is the file system: global volumes are object-backed — no file locks, no atomic rename, no
+hard links, no permission bits, eventual consistency — which the provider documents as suited to
+"model weights read whole" and unsuited to "the code you run".
+
+`app/compute/storage.py` turns an attachment set into mounts and paths (`/workspace`, or
+`/workspace-global` beside a network volume; `/workspace-2` for the network volume when the global
+mount path is edited), and derives the GGUF and runtime paths from the resolved root instead of
+hardcoding `/workspace`. Its verdicts are deliberately honest:
+
+| Storage | Verdict | Why |
+|---|---|---|
+| `regional_network_volume` | `ready` | proven by a real GPU answer |
+| `global_volume`, launch path writes to it | `storage_incompatible_runtime` | the measured `start-llm.sh` writes `llama-server.log` and `.pid` next to the model |
+| `global_volume`, read-only launch path | `storage_unverified` | `mmap` and startup latency on object storage have not been measured |
+| `local_model_copy` | `ready` when the container disk fits the model + reserve | no dependence on the storage's semantics |
+
+A global volume is therefore **not** called compatible from static checks, and no LIVE run uses one
+until a Pod has actually loaded the GGUF from it. The immediate LIVE run uses the verified regional
+replica in US-MO-1 (`y92bt25ru8`), which costs nothing extra and removes the single-datacenter
+assumption from the *run* without pretending the *architecture* question is closed.
+
 ### Replica validation (`app/compute/replicas.py`)
 
 A second placement is only usable when the copy of the model on it is *provably this model*:

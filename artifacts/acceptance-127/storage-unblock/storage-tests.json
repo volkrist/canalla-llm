@@ -1,0 +1,35 @@
+{
+ "generated_at": "2026-11-14T04:16:01+00:00",
+ "new_suite": {
+  "file": "apps/backend/tests/test_storage_modes.py",
+  "result": "31 passed"
+ },
+ "regression_runs": {
+  "services": "108 passed (test_compute, test_allocation_candidates, test_model_replicas, test_launch_scripts_contract)",
+  "gateway": "262 passed",
+  "backend_full": "1160 passed, 1 skipped (sidecar stamp rebuilt afterwards; test_sidecar_stamp 11 passed)"
+ },
+ "required_cases": {
+  "gpu_catalog_parsing": "test_storage_modes.py + provider_inventory.py (live catalogue read)",
+  "multi_dc_selection": "test_the_status_payload_reports_storage_and_its_verdict",
+  "storage_mode_selection": "test_a_regional_volume_mounts_where_it_always_did / test_a_global_volume_alone_takes_the_provider_default_mount",
+  "global_volume_detection": "test_an_unknown_storage_kind_is_refused_instead_of_treated_as_regional",
+  "model_path_construction": "test_a_regional_volume_mounts_where_it_always_did",
+  "region_compatibility": "test_the_status_payload_reports_storage_and_its_verdict (pins_datacenter)",
+  "missing_storage": "test_a_kind_without_a_volume_is_refused / test_no_attachment_at_all_is_refused",
+  "missing_model_file": "test_a_model_source_must_be_stated",
+  "corrupt_model_manifest": "apps/backend/tests/test_model_replicas.py",
+  "incorrect_digest": "apps/backend/tests/test_model_replicas.py",
+  "insufficient_local_disk": "test_a_local_copy_needs_room_for_the_model_and_a_reserve",
+  "unexpected_gpu_price": "apps/backend/tests/test_127_cost_policy.py",
+  "unsupported_gpu": "apps/backend/tests/test_allocation_candidates.py",
+  "gpu_capacity_unavailable": "apps/backend/tests/test_allocation_candidates.py",
+  "failed_volume_mount": "test_duplicate_mount_paths_are_a_conflict_not_a_coin_toss",
+  "incomplete_file_transfer": "apps/backend/tests/test_model_replicas.py (partial)",
+  "retry_after_interrupted_transfer": "apps/backend/tests/test_model_replicas.py (unverified)",
+  "cost_limit_exceeded": "apps/backend/tests/test_127_cost_policy.py",
+  "provider_unreachable": "artifacts/acceptance-127/final-readiness/watchdog-dry-run.json",
+  "cleanup_after_failed_preparation": "test_an_impossible_storage_is_refused_before_the_provider_call"
+ },
+ "mock_policy": "the storage decisions are pure functions with no provider call; the only mocks are the HTTP transports that prove no request is sent when a combination is refused"
+}

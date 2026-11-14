@@ -19,6 +19,7 @@ from ..models import Message, User, now
 from ..providers import LlamaCppProvider
 from ..security import can_start_compute
 from . import candidates as candidate_policy
+from . import storage as storage_layout
 from .models import (
     ComputeControl,
     ComputeEvent,
@@ -332,6 +333,59 @@ class RunPodController:
     get_current_compute = get_compute_status
     get_cost_status = get_compute_status
 
+    def primary_placement(self) -> candidate_policy.Placement:
+        """The placement this deployment runs on, from the *storage* it is configured with.
+
+        A regional Network Volume can only be mounted in its own datacenter, so the datacenter is
+        the volume's. A global volume belongs to none, so its declared home is only a preference
+        and the allocator may book the card wherever the catalogue reports stock.
+        """
+        if self.settings.runpod_storage_mode == storage_layout.GLOBAL_VOLUME:
+            return candidate_policy.Placement(
+                datacenter=self.settings.runpod_datacenter,
+                volume_id=self.settings.runpod_global_volume_id,
+                storage_type=storage_layout.GLOBAL_VOLUME,
+            )
+        return candidate_policy.Placement(
+            datacenter=self.settings.runpod_datacenter,
+            volume_id=self.settings.runpod_network_volume_id,
+            storage_type=storage_layout.REGIONAL_VOLUME,
+        )
+
+    def storage_payload(self) -> dict:
+        """Where the model is mounted, derived from the configured storage, plus its verdict.
+
+        READ-ONLY and never secret. The measured ``start-llm.sh`` writes its log and pid file next
+        to the model, so a global (object-backed) mount is reported as an incompatible launch path
+        until the script is changed to write elsewhere. Saying so here is the point: a switch that
+        silently creates a Pod that cannot serve the model is worse than an honest refusal.
+        """
+        mode = self.settings.runpod_storage_mode
+        is_global = mode == storage_layout.GLOBAL_VOLUME
+        plan = storage_layout.resolve(
+            (
+                storage_layout.Attachment(
+                    mode=mode,
+                    volume_id=(
+                        self.settings.runpod_global_volume_id
+                        if is_global
+                        else self.settings.runpod_network_volume_id
+                    ),
+                    mount_path=self.settings.runpod_global_mount_path if is_global else "",
+                    has_model=True,
+                    has_runtime=True,
+                ),
+            )
+        )
+        verdict, reasons = storage_layout.check_compatibility(plan)
+        return {
+            **plan.audit(),
+            "compatibility": verdict,
+            "compatibility_reasons": list(reasons),
+            "launch_path_writes_to_storage": True,
+            "runtime_on_storage": True,
+        }
+
     def allocation_policy_payload(self) -> dict:
         """The allocation policy of this deployment, in the product's own words.
 
@@ -341,10 +395,7 @@ class RunPodController:
         """
         placements = candidate_policy.parse_placements(
             self.settings.runpod_datacenters,
-            primary=candidate_policy.Placement(
-                datacenter=self.settings.runpod_datacenter,
-                volume_id=self.settings.runpod_network_volume_id,
-            ),
+            primary=self.primary_placement(),
         )
         allow = bool(self.settings.runpod_allow_community_cloud)
         blocked = candidate_policy.community_blocked_by(allow_community=allow, placements=placements)
@@ -356,6 +407,7 @@ class RunPodController:
             "candidate_limit": candidate_policy.MAX_CANDIDATE_ATTEMPTS,
             "candidate_call_timeout_seconds": candidate_policy.CANDIDATE_CALL_TIMEOUT_SECONDS,
             "allocation_timeout_seconds": candidate_policy.ALLOCATION_WINDOW_SECONDS,
+            "storage": self.storage_payload(),
         }
 
     async def list_gpu_options(self, user_id):
@@ -656,6 +708,7 @@ class RunPodController:
                     cloud=candidate.cloud,
                     datacenter=candidate.datacenter,
                     volume_id=candidate.volume_id,
+                    storage_type=candidate.storage_type,
                     timeout=min(float(candidate_policy.CANDIDATE_CALL_TIMEOUT_SECONDS), max(1.0, remaining)),
                 )
             except RunPodError as error:
@@ -716,10 +769,7 @@ class RunPodController:
         """
         placements = candidate_policy.parse_placements(
             self.settings.runpod_datacenters,
-            primary=candidate_policy.Placement(
-                datacenter=self.settings.runpod_datacenter,
-                volume_id=self.settings.runpod_network_volume_id,
-            ),
+            primary=self.primary_placement(),
         )
         plan = candidate_policy.build_plan(
             rows,

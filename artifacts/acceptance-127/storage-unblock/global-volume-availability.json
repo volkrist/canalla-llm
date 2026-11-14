@@ -1,0 +1,19 @@
+{
+ "generated_at": "2026-11-14T03:52:50+00:00",
+ "source": "/v2/global-volumes",
+ "status": 200,
+ "count": 1,
+ "rows": [
+  {
+   "createdAt": "2026-09-25T08:51:57.814Z",
+   "createdByUserId": "user_3JGHAsvh6a58RlfXAQu7RSF8geB",
+   "id": "cmugq2bsv000007js3sa47w6j",
+   "name": "physical_olive_yak"
+  }
+ ],
+ "raw_keys": [
+  "globalVolumes",
+  "pagination"
+ ],
+ "note": "A global volume has no datacenter by design. Its file inventory is only readable from inside a Pod (no S3 API), so content stays unverified until a Pod is allowed."
+}

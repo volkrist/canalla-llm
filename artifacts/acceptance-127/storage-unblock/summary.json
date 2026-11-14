@@ -1,0 +1,45 @@
+{
+ "generated_at": "2026-11-14T04:16:01+00:00",
+ "stage": "storage unblock",
+ "existing_volume": {
+  "primary": {
+   "id": "uwgeaie5b0",
+   "datacenter": "US-TX-3",
+   "compatible_gpus_now": []
+  },
+  "replica": {
+   "id": "y92bt25ru8",
+   "datacenter": "US-MO-1",
+   "compatible_gpus_now": [
+    "L40S",
+    "A100 PCIe",
+    "A100 SXM",
+    "H100 SXM"
+   ]
+  }
+ },
+ "global_volume_available": true,
+ "global_volume_api_attachable": true,
+ "chosen_architecture": "B_regional_replica_mo1 for the immediate LIVE; C/D documented as strategic",
+ "model_compatibility": {
+  "regional": "COMPATIBLE_PROVEN",
+  "global": "INCOMPATIBLE_AS_IS + UNVERIFIED (mmap/latency unmeasured)",
+  "local_copy": "COMPATIBLE_WITH_DISK_BUDGET"
+ },
+ "gpu_availability": "NVIDIA L40S 48 GB at $1.09/h was bookable in at least one verified placement at the last probe; per-datacenter stock changes, which is why the probe re-reads it",
+ "migration_method": "rsync inside one CPU Pod with both volumes attached (draft, not executed)",
+ "migration_cost_usd": {
+  "floor": "0.0117",
+  "ceiling": "0.0701"
+ },
+ "monthly_cost_usd": "7.029166921041906",
+ "live_gpu_budget_usd": "2.00",
+ "production_integrity": "unchanged",
+ "real_qwen_status": "NOT RUN in this stage",
+ "paid_actions": {
+  "pods_created": 0,
+  "storage_created": 0,
+  "spend_usd": "0.00"
+ },
+ "next_action": "owner approval for one LIVE Pod on the verified US-MO-1 replica: python artifacts/acceptance-127/live-qwen/live_acceptance.py --live --budget-usd 2.00 --confirm \"I AUTHORIZE ONE PAID POD\""
+}

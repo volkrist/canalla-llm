@@ -1,0 +1,169 @@
+{
+ "generated_at": "2026-11-14T03:51:58+00:00",
+ "source": "https://api.runpod.io/v2/openapi.json",
+ "read_only": true,
+ "openapi": "3.1.0",
+ "title": "Runpod REST API",
+ "path_count": 67,
+ "volume_paths": [
+  "/v2/billing/network-volumes",
+  "/v2/global-volumes",
+  "/v2/global-volumes/{id}",
+  "/v2/network-volumes",
+  "/v2/network-volumes/{id}"
+ ],
+ "pod_create": {
+  "pod_create_accepts_fields": [],
+  "mounts_schema": [],
+  "mounts_raw": {},
+  "pod_models": [],
+  "data_centers_field": false
+ },
+ "global_volume_endpoints": {
+  "/v2/global-volumes": {
+   "get": {
+    "summary": "List global volumes",
+    "parameters": [
+     null,
+     null
+    ],
+    "request_schema": []
+   },
+   "post": {
+    "summary": "Create a global volume",
+    "parameters": [],
+    "request_schema": [
+     "content",
+     "required"
+    ]
+   }
+  },
+  "/v2/global-volumes/{id}": {
+   "get": {
+    "summary": "Get a global volume",
+    "parameters": [],
+    "request_schema": []
+   },
+   "patch": {
+    "summary": "Update a global volume",
+    "parameters": [],
+    "request_schema": [
+     "content",
+     "required"
+    ]
+   },
+   "delete": {
+    "summary": "Delete a global volume",
+    "parameters": [],
+    "request_schema": []
+   }
+  }
+ },
+ "mount_schemas": {
+  "Mounts": {
+   "description": "Storage mounts attached to a pod. `persistent` (the volume disk) is\nmutually exclusive with both `network` and `global` (enforced at the\nhandler with 400 if combined). A pod takes up to 4 network volumes\nand 1 global volume. Every network volume must be in the pod's data\ncenter, each volume may be listed once, and mount paths must not\noverlap; a request that breaks one of these is rejected. To change a\npod's mounts after creation, see `UpdatePodMounts`.\n",
+   "allOf": [
+    {
+     "$ref": "#/components/schemas/BaseMounts"
+    },
+    {
+     "type": "object",
+     "properties": {
+      "network": {
+       "type": "array",
+       "maxItems": 4,
+       "description": "Up to 4 network volumes, all in the pod's data center.\n",
+       "items": {
+        "$ref": "#/components/schemas/NetworkMount"
+       }
+      },
+      "global": {
+       "type": "array",
+       "maxItems": 1,
+       "description": "At most one global volume, on GPU and CPU pods, with no data\ncenter constraint. Combinable with `network` but not with\n`persistent` (rejected with 400): a persistent disk is dropped\nwhenever a volume is attached. Same PATCH rules as `network`.\n",
+       "items": {
+        "$ref": "#/components/schemas/GlobalMount"
+       }
+      }
+     }
+    }
+   ],
+   "unevaluatedProperties": false
+  },
+  "GlobalMount": {
+   "type": "object",
+   "required": [
+    "volumeId"
+   ],
+   "additionalProperties": false,
+   "description": "Reference to a GlobalVolume. Usage-billed, so it has no size. On a\npod, the volume can be mounted, moved, or unmounted after creation\n(see `UpdatePodMounts`).\n",
+   "properties": {
+    "volumeId": {
+     "type": "string",
+     "description": "ID of an existing GlobalVolume.",
+     "examples": [
+      "gsb_abc"
+     ]
+    },
+    "path": {
+     "type": "string",
+     "description": "Mount path inside the container. Optional; a default is chosen for you when omitted.",
+     "examples": [
+      "/data"
+     ]
+    }
+   }
+  },
+  "NetworkMount": {
+   "type": "object",
+   "required": [
+    "volumeId",
+    "path"
+   ],
+   "additionalProperties": false,
+   "description": "Reference to a NetworkVolume. Custom paths are honored at runtime on\nboth GPU and CPU pods. On a pod, the volume can be mounted, moved,\nor unmounted after creation (see `UpdatePodMounts`).\n",
+   "properties": {
+    "volumeId": {
+     "type": "string",
+     "description": "ID of an existing NetworkVolume in the same data center as the pod.",
+     "examples": [
+      "vol_xyz"
+     ]
+    },
+    "path": {
+     "type": "string",
+     "description": "Mount path inside the container. No default — must be specified explicitly.",
+     "examples": [
+      "/runpod-volume"
+     ]
+    }
+   }
+  },
+  "PersistentMount": {
+   "type": "object",
+   "required": [
+    "size",
+    "path"
+   ],
+   "additionalProperties": false,
+   "description": "Host-local persistent storage. Pinned to the pod's host machine — data\ndoes not survive a host failure. Disallowed on CPU pods. Mutually\nexclusive with NetworkMount. Deprecated: prefer NetworkMount for any\ndata you cannot recreate.\n",
+   "properties": {
+    "size": {
+     "type": "integer",
+     "minimum": 10,
+     "description": "Host-local persistent storage in GB. Minimum 10 GB.",
+     "examples": [
+      20
+     ]
+    },
+    "path": {
+     "type": "string",
+     "description": "Mount path inside the container. May be changed via PATCH.",
+     "examples": [
+      "/workspace"
+     ]
+    }
+   }
+  }
+ }
+}

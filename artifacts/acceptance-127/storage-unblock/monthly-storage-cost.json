@@ -1,0 +1,34 @@
+{
+ "generated_at": "2026-11-14T04:16:01+00:00",
+ "measured": {
+  "source": "GET /v2/billing/network-volumes (30 days)",
+  "volumes": {
+   "highPerformanceAmount": 0,
+   "standardAmount": 7.029166921041906,
+   "totalAmount": 7.029166921041906
+  },
+  "per_volume_usd_per_day": "0.11666667088866234",
+  "per_volume_usd_per_month": "3.5000",
+  "rate_usd_per_gb_month": "0.07",
+  "volume_size_gb": 50
+ },
+ "current": {
+  "network_volumes_usd_per_window": "7.029166921041906",
+  "window": "30 days (GET /v2/billing/network-volumes)",
+  "network_volumes_usd_per_month": "7.0000",
+  "note": "the monthly figure is 2 x 50 GB at the measured $0.07/GB-month; the billed window figure is what the provider actually charged",
+  "global_volume_usd_per_month": "rate unpublished; usage-based"
+ },
+ "after_migration_scenarios": {
+  "note": "the provider has not published a global per-GB rate on the pages this build reads, so these are scenarios, not quotes",
+  "keep_both_regional": "7.0300 (measured)",
+  "global_only_at_0.07": "1.6030",
+  "global_only_at_0.10": "2.2900",
+  "saving_vs_current_at_0.07": "5.4270",
+  "saving_vs_current_at_0.10": "4.7400"
+ },
+ "not_included": [
+  "request costs (see migration-cost.json)",
+  "GPU hours"
+ ]
+}

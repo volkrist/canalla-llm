@@ -1,0 +1,339 @@
+{
+ "generated_at": "2026-11-14T03:52:50+00:00",
+ "read_only": true,
+ "minimum_vram_gb": 48,
+ "compatible": [
+  {
+   "gpu_id": "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition",
+   "name": "RTX PRO 6000 MaxQ",
+   "vram_gb": 96,
+   "price_secure_usd_hr": 0.5,
+   "price_community_usd_hr": 1.64,
+   "secure": false,
+   "available_centers": [],
+   "datacenters": {}
+  },
+  {
+   "gpu_id": "NVIDIA A40",
+   "name": "A40",
+   "vram_gb": 48,
+   "price_secure_usd_hr": 0.59,
+   "price_community_usd_hr": 0.35,
+   "secure": true,
+   "available_centers": [
+    "CA-MTL-1",
+    "EU-SE-1"
+   ],
+   "datacenters": {
+    "CA-MTL-1": "LOW",
+    "EU-SE-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA RTX A6000",
+   "name": "RTX A6000",
+   "vram_gb": 48,
+   "price_secure_usd_hr": 0.69,
+   "price_community_usd_hr": 0.33,
+   "secure": true,
+   "available_centers": [
+    "EU-SE-1"
+   ],
+   "datacenters": {
+    "EU-SE-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA L40",
+   "name": "L40",
+   "vram_gb": 48,
+   "price_secure_usd_hr": 0.82,
+   "price_community_usd_hr": 0.69,
+   "secure": true,
+   "available_centers": [],
+   "datacenters": {}
+  },
+  {
+   "gpu_id": "NVIDIA RTX PRO 5000 Blackwell",
+   "name": "RTX PRO 5000",
+   "vram_gb": 48,
+   "price_secure_usd_hr": 0.96,
+   "price_community_usd_hr": 0.82,
+   "secure": true,
+   "available_centers": [],
+   "datacenters": {}
+  },
+  {
+   "gpu_id": "NVIDIA L40S",
+   "name": "L40S",
+   "vram_gb": 48,
+   "price_secure_usd_hr": 1.09,
+   "price_community_usd_hr": 0.79,
+   "secure": true,
+   "available_centers": [
+    "EU-NL-1",
+    "EUR-IS-2",
+    "US-MO-1",
+    "US-NC-1",
+    "US-TX-4"
+   ],
+   "datacenters": {
+    "EU-NL-1": "LOW",
+    "EUR-IS-2": "LOW",
+    "US-MO-1": "LOW",
+    "US-NC-1": "LOW",
+    "US-TX-4": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA RTX 6000 Ada Generation",
+   "name": "RTX 6000 Ada",
+   "vram_gb": 48,
+   "price_secure_usd_hr": 1.09,
+   "price_community_usd_hr": 0.74,
+   "secure": true,
+   "available_centers": [
+    "US-IL-1",
+    "US-WA-1"
+   ],
+   "datacenters": {
+    "US-IL-1": "LOW",
+    "US-WA-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA RTX PRO 6000 Blackwell Server Edition MIG 2g.48gb",
+   "name": "PRO 6000 MIG 48GB",
+   "vram_gb": 48,
+   "price_secure_usd_hr": 1.39,
+   "price_community_usd_hr": 1.0,
+   "secure": true,
+   "available_centers": [
+    "US-PA-1"
+   ],
+   "datacenters": {
+    "US-PA-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA A100 80GB PCIe",
+   "name": "A100 PCIe",
+   "vram_gb": 80,
+   "price_secure_usd_hr": 2.09,
+   "price_community_usd_hr": 1.19,
+   "secure": true,
+   "available_centers": [
+    "EU-RO-1",
+    "US-MO-1"
+   ],
+   "datacenters": {
+    "EU-RO-1": "LOW",
+    "US-MO-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA A100-SXM4-80GB",
+   "name": "A100 SXM",
+   "vram_gb": 80,
+   "price_secure_usd_hr": 2.19,
+   "price_community_usd_hr": 1.39,
+   "secure": true,
+   "available_centers": [
+    "EUR-IS-1",
+    "US-KS-2",
+    "US-MD-1",
+    "US-MO-1",
+    "US-WA-1"
+   ],
+   "datacenters": {
+    "EUR-IS-1": "LOW",
+    "US-KS-2": "LOW",
+    "US-MD-1": "LOW",
+    "US-MO-1": "LOW",
+    "US-WA-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+   "name": "RTX PRO 6000",
+   "vram_gb": 96,
+   "price_secure_usd_hr": 2.69,
+   "price_community_usd_hr": 1.69,
+   "secure": true,
+   "available_centers": [
+    "EU-CZ-1",
+    "EU-NL-1",
+    "EU-RO-1",
+    "EUR-IS-1",
+    "EUR-IS-2",
+    "US-KS-2",
+    "US-MO-2",
+    "US-NC-1",
+    "US-NC-2",
+    "US-NE-1",
+    "US-PA-1"
+   ],
+   "datacenters": {
+    "EU-CZ-1": "LOW",
+    "EU-NL-1": "LOW",
+    "EU-RO-1": "LOW",
+    "EUR-IS-1": "LOW",
+    "EUR-IS-2": "LOW",
+    "US-KS-2": "LOW",
+    "US-MO-2": "LOW",
+    "US-NC-1": "LOW",
+    "US-NC-2": "LOW",
+    "US-NE-1": "LOW",
+    "US-PA-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+   "name": "RTX PRO 6000 WK",
+   "vram_gb": 96,
+   "price_secure_usd_hr": 2.79,
+   "price_community_usd_hr": 1.69,
+   "secure": true,
+   "available_centers": [
+    "EU-CZ-1",
+    "EU-RO-1",
+    "EUR-IS-1"
+   ],
+   "datacenters": {
+    "EU-CZ-1": "LOW",
+    "EU-RO-1": "LOW",
+    "EUR-IS-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA H100 PCIe",
+   "name": "H100 PCIe",
+   "vram_gb": 80,
+   "price_secure_usd_hr": 2.89,
+   "price_community_usd_hr": 1.99,
+   "secure": true,
+   "available_centers": [
+    "US-KS-2"
+   ],
+   "datacenters": {
+    "US-KS-2": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA H100 NVL",
+   "name": "H100 NVL",
+   "vram_gb": 94,
+   "price_secure_usd_hr": 3.19,
+   "price_community_usd_hr": 2.59,
+   "secure": true,
+   "available_centers": [
+    "US-GA-2"
+   ],
+   "datacenters": {
+    "US-GA-2": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA H200 NVL",
+   "name": "H200 NVL",
+   "vram_gb": 143,
+   "price_secure_usd_hr": 3.79,
+   "price_community_usd_hr": 0.5,
+   "secure": true,
+   "available_centers": [],
+   "datacenters": {}
+  },
+  {
+   "gpu_id": "NVIDIA H100 80GB HBM3",
+   "name": "H100 SXM",
+   "vram_gb": 80,
+   "price_secure_usd_hr": 4.39,
+   "price_community_usd_hr": 2.69,
+   "secure": true,
+   "available_centers": [
+    "AP-IN-1",
+    "CA-MTL-1",
+    "EU-FR-1",
+    "EUR-IS-3",
+    "EUR-NO-2",
+    "US-CA-2",
+    "US-GA-2",
+    "US-MO-1",
+    "US-NE-1"
+   ],
+   "datacenters": {
+    "AP-IN-1": "LOW",
+    "CA-MTL-1": "LOW",
+    "EU-FR-1": "LOW",
+    "EUR-IS-3": "LOW",
+    "EUR-NO-2": "LOW",
+    "US-CA-2": "LOW",
+    "US-GA-2": "LOW",
+    "US-MO-1": "LOW",
+    "US-NE-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA H200",
+   "name": "H200 SXM",
+   "vram_gb": 141,
+   "price_secure_usd_hr": 5.29,
+   "price_community_usd_hr": 3.59,
+   "secure": true,
+   "available_centers": [
+    "AP-JP-1",
+    "CA-MTL-3",
+    "CA-MTL-4",
+    "EUR-IS-4",
+    "EUR-IS-5",
+    "US-CA-2",
+    "US-CO-1"
+   ],
+   "datacenters": {
+    "AP-JP-1": "LOW",
+    "CA-MTL-3": "LOW",
+    "CA-MTL-4": "LOW",
+    "EUR-IS-4": "LOW",
+    "EUR-IS-5": "LOW",
+    "US-CA-2": "LOW",
+    "US-CO-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA B200",
+   "name": "B200",
+   "vram_gb": 180,
+   "price_secure_usd_hr": 7.99,
+   "price_community_usd_hr": 5.98,
+   "secure": true,
+   "available_centers": [
+    "EU-RO-1",
+    "US-NC-2",
+    "US-NE-1"
+   ],
+   "datacenters": {
+    "EU-RO-1": "LOW",
+    "US-NC-2": "LOW",
+    "US-NE-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA B300 SXM6 AC",
+   "name": "B300",
+   "vram_gb": 288,
+   "price_secure_usd_hr": 8.99,
+   "price_community_usd_hr": 6.94,
+   "secure": true,
+   "available_centers": [
+    "EU-NL-1",
+    "EUR-IS-1",
+    "US-WA-2"
+   ],
+   "datacenters": {
+    "EU-NL-1": "LOW",
+    "EUR-IS-1": "LOW",
+    "US-WA-2": "LOW"
+   }
+  }
+ ]
+}

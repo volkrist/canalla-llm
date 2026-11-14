@@ -188,6 +188,15 @@ class Settings(BaseSettings):
     runpod_graphql_url: str = "https://api.runpod.io/graphql"
     runpod_network_volume_id: str = "uwgeaie5b0"
     runpod_datacenter: str = "US-TX-3"
+    # Where the model lives. `regional_network_volume` is the proven path and stays the default: one
+    # datacenter, full POSIX semantics, the GGUF and the llama.cpp runtime on one mount. `global_volume`
+    # is region-independent and object-backed, so it stops pinning the datacenter to the storage — but
+    # llama.cpp loading a GGUF from it has not been measured, so it is opt-in and never inferred.
+    runpod_storage_mode: Literal["regional_network_volume", "global_volume"] = "regional_network_volume"
+    runpod_global_volume_id: str = ""
+    # Empty means the provider's own default: `/workspace`, or `/workspace-global` when a network
+    # volume is also attached (`app.compute.storage.resolve`).
+    runpod_global_mount_path: str = ""
     # Multi-placement scheduling. The Volume's own datacenter (read from the provider) is always
     # the first placement; this setting only *adds* datacenters, each with the Network Volume it
     # mounts there, as ``DC:VOLUME`` pairs (optionally ``:community`` when that placement can be
@@ -241,6 +250,21 @@ class Settings(BaseSettings):
     gateway_status_active_seconds: float = Field(default=5, ge=1, le=300)
     gateway_status_idle_seconds: float = Field(default=15, ge=1, le=600)
     balance_background_enabled: bool = True
+
+    @model_validator(mode="after")
+    def validate_storage(self):
+        """A global volume without an id, or a relative mount path, is a startup error.
+
+        Both would otherwise become a Pod with no model on it (or with llama.cpp pointed at a path
+        that does not exist), which is a paid wait for a failure that was readable in the config.
+        """
+        from .compute import storage
+
+        if self.runpod_storage_mode == storage.GLOBAL_VOLUME and not self.runpod_global_volume_id.strip():
+            raise ValueError("RUNPOD_GLOBAL_VOLUME_ID is required when RUNPOD_STORAGE_MODE=global_volume")
+        if self.runpod_global_mount_path and not self.runpod_global_mount_path.startswith("/"):
+            raise ValueError("RUNPOD_GLOBAL_MOUNT_PATH must be an absolute container path")
+        return self
 
     @model_validator(mode="after")
     def validate_security(self):

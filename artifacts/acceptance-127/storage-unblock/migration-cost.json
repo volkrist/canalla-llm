@@ -1,0 +1,57 @@
+{
+ "generated_at": "2026-11-14T04:16:01+00:00",
+ "currency": "USD",
+ "one_time": {
+  "cpu_pod": {
+   "flavour": "cpu5c",
+   "vcpu": 2,
+   "hourly_rate_usd": "0.07",
+   "minutes": {
+    "fast": "10",
+    "slow": "30"
+   },
+   "cost_usd": {
+    "fast": "0.0117",
+    "slow": "0.0350"
+   }
+  },
+  "request_classes": {
+   "bytes": 20752787712,
+   "files": 6377,
+   "class_a_requests": {
+    "floor": 1,
+    "per_file": 6377
+   },
+   "class_b_requests": {
+    "floor": 1,
+    "per_file": 6377
+   },
+   "request_cost_usd": {
+    "floor": "0.000006",
+    "per_file": "0.035074"
+   },
+   "note": "rates are the provider's documented Class A/B prices; storage rate must be supplied"
+  },
+  "total_usd": {
+   "floor": "0.0117",
+   "ceiling": "0.0701"
+  }
+ },
+ "verification_gpu": {
+  "status": "NEEDED_ONLY_IF_THE_GLOBAL_VOLUME_IS_CHOSEN",
+  "gpu": "NVIDIA L40S",
+  "hourly_rate_usd": "1.09",
+  "minutes": 15,
+  "cost_usd": "0.2725",
+  "note": "one Pod, one load attempt, then terminate"
+ },
+ "storage_while_copying": {
+  "rate": "NOT_PUBLISHED by the provider on the pages this build reads",
+  "scenarios_usd_per_30_days": {
+   "0.07_per_gb_month": "1.6030",
+   "0.10_per_gb_month": "2.2900"
+  }
+ },
+ "spent_in_this_stage_usd": "0.00",
+ "not_authorized": true
+}
