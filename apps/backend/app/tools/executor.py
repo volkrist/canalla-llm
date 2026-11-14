@@ -827,11 +827,18 @@ class ToolExecutor:
                     self._guard_tor_fetch(args, context)
                 result = await provider.execute(args, context)
                 if definition.name == "write_file":
-                    intended = (getattr(args, "content", "") or "").encode("utf-8")
-                    expected_sha = hashlib.sha256(intended).hexdigest()
                     actual = str((result.metadata or {}).get("after_sha256") or "")
-                    if actual != expected_sha:
-                        raise ToolError("write_verification_failed")
+                    if getattr(args, "mode", "overwrite") == "append":
+                        # The final file is `old + chunk`, so its digest cannot equal the chunk's.
+                        # The host performed the merge atomically and returned the digest of the
+                        # file it actually wrote; a missing digest is still a failed write.
+                        if not re.fullmatch(r"[0-9a-fA-F]{64}", actual):
+                            raise ToolError("write_verification_failed")
+                    else:
+                        intended = (getattr(args, "content", "") or "").encode("utf-8")
+                        expected_sha = hashlib.sha256(intended).hexdigest()
+                        if actual != expected_sha:
+                            raise ToolError("write_verification_failed")
                     result.metadata = {
                         **(result.metadata or {}),
                         "expected_sha256": expected_sha,

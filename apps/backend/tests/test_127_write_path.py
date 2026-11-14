@@ -180,6 +180,11 @@ def test_the_model_can_write_a_real_file_and_recover_from_a_bad_call(client, aut
 
     # -- 4-6. the bounded parts compose to exactly the intended file
     assert (root / "parts.py").read_text(encoding="utf-8") == "".join(APPEND_PARTS)
+    appended = [
+        text for text in planner.seen.values() if '"tool": "write_file"' in text and "mode" in text
+    ]
+    assert appended, "the append calls reached the model as real tool results"
+    assert not any("write_verification_failed" in text for text in planner.seen.values())
 
     # -- 7. the model could read back what it wrote
     assert '"text"' in planner.seen[8]

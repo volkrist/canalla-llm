@@ -116,7 +116,9 @@ SCENARIO = (
     "приложение не работает и все обязательные требования не подтверждены проверками.\n\n"
     "Один ответ модели ограничен по длине, поэтому файлы пиши небольшими частями: первый "
     "вызов write_file создаёт файл, а следующие вызовы с mode=\"append\" дописывают "
-    "продолжение в конец. Не пытайся записать весь файл одним вызовом."
+    "продолжение в конец. Не пытайся записать весь файл одним вызовом.\n\n"
+    "Необходимые библиотеки уже установлены в рабочем Python: Flask, FastAPI, uvicorn, "
+    "pytest, httpx, SQLAlchemy. Не устанавливай пакеты — используй то, что есть."
 )
 
 
@@ -134,7 +136,7 @@ def _venv_can_build() -> tuple[bool, str]:
     """The Computer host's interpreter must be able to run the tests the model writes."""
     try:
         completed = subprocess.run(
-            [venv_python(), "-c", "import fastapi, httpx, pytest, uvicorn"],
+            [venv_python(), "-c", "import fastapi, flask, httpx, pytest, uvicorn"],
             capture_output=True,
             text=True,
             timeout=60,
