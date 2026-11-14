@@ -357,6 +357,7 @@ class ToolPolicy:
         explicit=False,
         confirmed=False,
         args=None,
+        scratch="",
     ):
         capability = definition.capability
         if capability in WEB_CAPABILITIES and mode == "off":
@@ -396,6 +397,18 @@ class ToolPolicy:
                 return "allowed"
             if risk == RiskLevel.NORMAL_CHANGE and (
                 inside_trusted_scope(definition, args, settings.workspace_roots)
+                # The task's own scratch directory is Alex-owned and removed when the task ends.
+                # Writing a verification helper there is what it exists for; asking for a click
+                # on it stopped a real build for five minutes.
+                or (
+                    computer_mode == "trusted"
+                    and bool(scratch)
+                    and bool(_scope_paths(definition, args))
+                    and all(
+                        inside_trusted(path, [scratch])
+                        for path in _scope_paths(definition, args) or []
+                    )
+                )
                 or (
                     computer_mode == "trusted"
                     and definition.capability == "local_process"

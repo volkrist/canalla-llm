@@ -130,6 +130,20 @@ def _run_row(db: Session, run_id: str) -> ToolRun:
     return row
 
 
+def _task_scratch(context) -> str:
+    """The Alex-owned scratch directory of this task, if it has one.
+
+    It lives under the app data root, is created with the task and removed when the task ends, so
+    a helper written there is neither the user's project nor a system change.
+    """
+    task_id = getattr(context, "task_id", None)
+    if not task_id or task_id == "pending":
+        return ""
+    from .local.scope import scratch_dir
+
+    return scratch_dir(str(task_id), create=False)
+
+
 def _web_accounting(definition, args, result):
     """What this call asked for and what actually came back.
 
@@ -395,6 +409,7 @@ class ToolExecutor:
                 network_route=getattr(context, "network_route", "") or "",
                 explicit=context.explicit,
                 args=args,
+                scratch=_task_scratch(context),
             )
             reservation = 0
             if definition.cost_class == "paid":
@@ -771,6 +786,7 @@ class ToolExecutor:
                             explicit=context.explicit,
                             confirmed=row.confirmed_at is not None,
                             args=args,
+                            scratch=_task_scratch(context),
                         )
                         != "allowed"
                     ):

@@ -77,6 +77,48 @@ def test_registry_schema_and_unknown():
         registry.get("send_secrets")
 
 
+def test_a_helper_in_the_task_scratch_is_not_a_system_change(tmp_path):
+    """The task's own scratch is Alex-owned: a helper there needs no click.
+
+    A live build asked to confirm a `live_api_check.py` written into its scratch directory and
+    waited five minutes for an answer nobody was there to give.
+    """
+    from app.tools.local.provider import WriteArgs
+
+    policy = ToolPolicy()
+    write = replace(
+        definition(),
+        name="write_file",
+        risk_level=RiskLevel.NORMAL_CHANGE,
+        capability="local_fs",
+    )
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    settings = WebSettings(
+        computer_mode="trusted", workspace_roots=[str(workspace)], default_mode="off"
+    )
+    helper = WriteArgs.model_validate({"path": str(scratch / "check.py"), "content": "x"})
+    project = WriteArgs.model_validate({"path": str(workspace / "main.py"), "content": "x"})
+    outside = WriteArgs.model_validate({"path": str(tmp_path / "outside.py"), "content": "x"})
+
+    def decide(args, scratch_root=""):
+        return policy.validate(
+            write,
+            settings,
+            mode="off",
+            computer_mode="trusted",
+            args=args,
+            scratch=scratch_root,
+        )
+
+    assert decide(helper, str(scratch)) == "allowed"
+    assert decide(project) == "allowed"
+    assert decide(helper) == "confirmation_required"
+    assert decide(outside, str(scratch)) == "confirmation_required"
+
+
 def test_policy_cannot_be_overridden_by_model():
     policy = ToolPolicy()
     write = replace(definition(), risk_level=RiskLevel.NORMAL_CHANGE)
