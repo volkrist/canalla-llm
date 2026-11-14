@@ -714,6 +714,7 @@ def run_pass(
     dry_run: bool = False,
     launch=None,
     sleep=None,
+    warm: bool = True,
 ) -> list[dict]:
     """One scheduled pass: two checks whose *starts* are ``gap`` seconds apart, under one lock.
 
@@ -725,6 +726,14 @@ def run_pass(
     """
     sleeper = sleep or time.sleep
     results: list[dict] = []
+    if warm and load_state(rdir).get("last_gpu_status") == "AVAILABLE":
+        # A card was seen recently, so the next sighting may start a paid run. Refresh the free
+        # preflight cache now, while nothing is being raced, instead of paying ~3 s for it between
+        # "the card is free" and "ask for the Pod". It is a no-op while the cache is fresh.
+        try:
+            cached_preflight(rdir)
+        except Exception:  # noqa: BLE001 - a failed warm-up must not break the pass
+            pass
     previous_start: float | None = None
     for index in range(max(1, int(checks))):
         if previous_start is not None:
@@ -749,12 +758,20 @@ def run_pass(
     return results
 
 
-def _live_command(grant: dict, chosen: dict) -> list[str]:
+def _live_command(
+    grant: dict,
+    chosen: dict,
+    prepared_path: Path | None = None,
+    run_id: str | None = None,
+) -> list[str]:
     """The prepared harness, bound to the placement this pass proved and to its own proof level.
 
     ``--self-test-mode`` is not a weaker run: it is the same single Pod proving the model with a
     real answer before TaskDesk starts. It is added exactly when the chosen copy's record is not a
     verified real-model answer.
+
+    ``--prepared`` carries the observation this pass just made, so the harness does not repeat the
+    free checks or re-read the same catalogue while the card is still bookable.
     """
     command = [
         sys.executable,
@@ -767,13 +784,138 @@ def _live_command(grant: dict, chosen: dict) -> list[str]:
         "--volume",
         str(chosen["volume_id"]),
     ]
+    if prepared_path is not None:
+        command += ["--prepared", str(prepared_path)]
+    if run_id:
+        command += ["--run-id", run_id]
     if chosen.get("requires_selftest"):
         command.append("--self-test-mode")
     return command
 
 
+PREFLIGHT_TTL_SECONDS = 900
+
+
+def cached_preflight(rdir: Path, now: datetime | None = None) -> tuple[dict, bool]:
+    """The free preflight, reused while its facts can still be true.
+
+    Every item it checks changes on a human scale (installed build, production database, disk,
+    watchdog, provenance, account pod count). Re-running it between "a card is free" and "ask for
+    the Pod" was the largest avoidable delay in the previous attempts. It is never trusted past its
+    TTL, and a non-READY answer is never cached over a READY one.
+    """
+    now = now or datetime.now(timezone.utc)
+    path = rdir / "preflight-cache.json"
+    cached = _read_json(path)
+    checked = parse(cached.get("checked_at"))
+    report = cached.get("report") if isinstance(cached.get("report"), dict) else {}
+    if (
+        report.get("verdict") == "READY"
+        and checked is not None
+        and (now - checked).total_seconds() <= PREFLIGHT_TTL_SECONDS
+    ):
+        return report, True
+    report = _run_json([sys.executable, str(PREFLIGHT)], timeout=300)
+    if report.get("verdict") == "READY":
+        save_json(path, {"checked_at": utcnow(), "report": report})
+    return report, False
+
+
+def prepared_payload(
+    observation: dict, chosen: dict, grant: dict, preflight: dict, run_id: str
+) -> dict:
+    """What the harness needs, taken from this pass's own provider read."""
+    return {
+        "schema": 1,
+        "run_id": run_id,
+        "generated_at": utcnow(),
+        "observed_at": observation.get("observed_at"),
+        "pod_count": observation.get("pod_count"),
+        "placement": {
+            "datacenter": chosen.get("datacenter"),
+            "volume_id": chosen.get("volume_id"),
+            "storage_mode": "regional_network_volume",
+        },
+        "rate_usd_per_hour": observation.get("gpu", {}).get("price_usd_per_hour"),
+        "budget_usd": grant.get("budget_usd"),
+        "model_state": chosen.get("model"),
+        "requires_selftest": bool(chosen.get("requires_selftest")),
+        "preflight": {
+            "verdict": preflight.get("verdict"),
+            "checked_at": preflight.get("checked_at") or utcnow(),
+            "blockers": preflight.get("blockers") or [],
+            "report": preflight,
+        },
+    }
+
+
+def resolve_run_accounting(
+    *,
+    run_id: str,
+    record: dict,
+    final: dict,
+    billing: dict,
+    rate: float,
+    pod_id: str | None,
+) -> dict:
+    """What a finished attempt actually bought, from evidence that can be attributed to it.
+
+    Three independent signals, strongest first: the run-scoped record written while the isolated
+    database still existed, a Pod id in the lifecycle evidence, and the account balance movement.
+    A shared ``final-summary.json`` is only used when it names this run; a summary left by another
+    process must never restore a permission that a real Pod has consumed.
+    """
+    trusted = bool(record.get("run_id")) and record.get("run_id") == run_id
+    same_summary = bool(final.get("run_id")) and final.get("run_id") == run_id
+
+    pods_created = 0
+    spend = 0.0
+    verdict = "UNKNOWN"
+    if trusted:
+        raw = record.get("pods_created")
+        pods_created = int(raw) if isinstance(raw, int) else 0
+        spend = float(record.get("spend_usd") or 0.0)
+        verdict = str(record.get("verdict") or "INCOMPLETE")
+    elif same_summary:
+        pods_created = int(final.get("pods_created") or 0)
+        spend = float(final.get("spend_usd") or 0.0)
+        verdict = str(final.get("verdict") or "UNKNOWN")
+
+    if pod_id:
+        pods_created = max(pods_created, 1)
+
+    before, after = billing.get("balance_before_usd"), billing.get("balance_after_usd")
+    billed: float | None = None
+    if (
+        isinstance(before, (int, float))
+        and isinstance(after, (int, float))
+        and rate > 0
+    ):
+        billed = round(float(before) - float(after), 4)
+        if billed >= rate / 60:  # one billing minute is the smallest amount a Pod can cost
+            pods_created = max(pods_created, 1)
+
+    if pods_created == 0 and billed is None:
+        # No money truth, so only an accounting record that positively counts zero Pods is clean.
+        recorded_zero = trusted and isinstance(record.get("pods_created"), int)
+        summary_zero = same_summary and int(final.get("pods_created") or 0) == 0
+        if not (recorded_zero or summary_zero):
+            # Nothing attributable and no money truth: the run is unknown, not clean. A second Pod
+            # needs a human decision, so this is treated as an attempt.
+            pods_created = 1
+            verdict = "UNKNOWN"
+
+    return {
+        "trusted": trusted or same_summary,
+        "pods_created": pods_created,
+        "spend_usd": spend,
+        "verdict": verdict,
+        "billed_usd": billed,
+    }
+
+
 def launch_live(*, rdir: Path, state: dict, grant: dict, observation: dict) -> dict:
-    """Run the prepared acceptance exactly once, after the full preflight passes.
+    """Run the prepared acceptance exactly once, after the free checks are satisfied.
 
     The state and the grant are written *before* the harness starts: if this process dies mid-run,
     the next scheduled pass sees an attempted run and a consumed grant and refuses to buy a second
@@ -781,7 +923,9 @@ def launch_live(*, rdir: Path, state: dict, grant: dict, observation: dict) -> d
     race does not burn the owner's permission.
     """
     run_id = uuid.uuid4().hex
-    preflight = _run_json([sys.executable, str(PREFLIGHT)], timeout=300)
+    detected_at = observation.get("observed_at")
+    preflight, reused = cached_preflight(rdir)
+    preflight_at = utcnow()
     if preflight.get("verdict") != "READY":
         payload = {
             "generated_at": utcnow(),
@@ -800,6 +944,8 @@ def launch_live(*, rdir: Path, state: dict, grant: dict, observation: dict) -> d
     volume_id = str(chosen.get("volume_id") or "")
     if not volume_id:
         raise RuntimeError("no placement was chosen for the paid run")
+    prepared_path = rdir / "live-prepared.json"
+    save_json(prepared_path, prepared_payload(observation, chosen, grant, preflight, run_id))
     state["paid_run_already_attempted"] = True
     state["live_execution_state"] = (
         "AUTO_LIVE_WITH_MODEL_SELFTEST"
@@ -810,12 +956,14 @@ def launch_live(*, rdir: Path, state: dict, grant: dict, observation: dict) -> d
     state["authorization_grant_id"] = grant.get("grant_id")
     save_json(rdir / "state.json", state)
     mark_grant(rdir, used=True, run_id=run_id)
+    claimed_at = utcnow()
 
     log_path = rdir / "live-run.log"
+    launched_at = utcnow()
     started = time.monotonic()
     try:
         completed = subprocess.run(
-            _live_command(grant, chosen),
+            _live_command(grant, chosen, prepared_path, run_id),
             cwd=str(REPO),
             capture_output=True,
             text=True,
@@ -833,28 +981,60 @@ def launch_live(*, rdir: Path, state: dict, grant: dict, observation: dict) -> d
         )
         code = -9
     elapsed = round(time.monotonic() - started, 1)
+    detected_clock, launched_clock = parse(detected_at), parse(launched_at)
+    detection_to_launch = (
+        round((launched_clock - detected_clock).total_seconds(), 3)
+        if detected_clock and launched_clock
+        else None
+    )
+    timings = {
+        "detected_at": detected_at,
+        "preflight_at": preflight_at,
+        "preflight_reused": reused,
+        "claimed_at": claimed_at,
+        "launched_at": launched_at,
+        "detection_to_launch_seconds": detection_to_launch,
+        "harness_elapsed_seconds": elapsed,
+        "finished_at": utcnow(),
+    }
     log_path.write_text(
-        f"# run {run_id} exit={code} elapsed_s={elapsed}\n## stdout\n{stdout}\n## stderr\n{stderr}\n",
+        f"# run {run_id} exit={code} elapsed_s={elapsed}\n"
+        f"# detected={detected_at} claimed={claimed_at} preflight_reused={reused}\n"
+        f"## stdout\n{stdout}\n## stderr\n{stderr}\n",
         encoding="utf-8",
     )
 
     final = _read_json(EVIDENCE / "final-summary.json") or {}
     cleanup = _read_json(EVIDENCE / "cleanup.json") or {}
-    pods_created = int(final.get("pods_created") or 0)
-    if pods_created == 0 and _pod_id_from_evidence():
-        # A run whose lifecycle record names a Pod bought one, whatever the summary did or did not
-        # count. Restoring the permission in that case would authorise a second Pod.
-        pods_created = 1
-    spend = float(final.get("spend_usd") or final.get("estimated_spend_usd") or 0.0)
+    harness_timings = _read_json(EVIDENCE / "startup-timings.json") or {}
+    record = _read_json(EVIDENCE / f"run-{run_id}.json") or {}
+    billing = _read_json(EVIDENCE / "billing-summary.json") or {}
+    rate = float((observation.get("gpu") or {}).get("price_usd_per_hour") or 0)
+    accounting = resolve_run_accounting(
+        run_id=run_id,
+        record=record,
+        final=final,
+        billing=billing,
+        rate=rate,
+        pod_id=_pod_id_from_evidence(),
+    )
+    pods_created = accounting["pods_created"]
+    spend = accounting["spend_usd"]
 
     payload = {
         "generated_at": utcnow(),
         "run_id": run_id,
         "exit_code": code,
         "elapsed_seconds": elapsed,
-        "verdict": final.get("verdict") or ("HARNESS_EXIT_" + str(code)),
+        "verdict": accounting["verdict"],
         "pods_created": pods_created,
         "spend_usd": spend,
+        "billed_usd": accounting["billed_usd"],
+        "evidence_trusted": accounting["trusted"],
+        "path": final.get("path") or ("prepared" if harness_timings else None),
+        "prepared_observed_at": final.get("prepared_observed_at"),
+        "timings": timings,
+        "harness_timings": harness_timings,
         "cleanup": cleanup,
         "final_result": final,
     }
@@ -880,6 +1060,8 @@ def _apply_run_payload(
         "pods_created": pods_created,
         "exit_code": payload.get("exit_code"),
     }
+    state["last_run_path"] = payload.get("path")
+    state["last_run_timings"] = payload.get("timings")
     if verdict == "PREFLIGHT_BLOCKED":
         state["paid_run_already_attempted"] = False
         state["live_execution_state"] = "PREFLIGHT_BLOCKED"
@@ -1040,6 +1222,8 @@ def build_status(state: dict, observation, grant) -> dict:
         "selected_volume": state.get("selected_volume"),
         "scheduler_task": state.get("scheduler_task"),
         "final_result": state.get("final_result"),
+        "last_run_path": state.get("last_run_path"),
+        "last_run_timings": state.get("last_run_timings"),
         "updated_at": state.get("updated_at"),
         "gpu": (observation or {}).get("gpu"),
         "volume": (observation or {}).get("volume"),

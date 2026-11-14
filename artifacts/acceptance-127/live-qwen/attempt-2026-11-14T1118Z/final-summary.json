@@ -1,0 +1,72 @@
+{
+ "started_at": "2026-11-14T11:23:29+00:00",
+ "budget_usd": 2.0,
+ "hourly_rate_usd": 1.09,
+ "gpu": {
+  "gpu": "NVIDIA L40S",
+  "datacenter": "US-MO-1",
+  "volume_id": "y92bt25ru8",
+  "storage_type": "regional_network_volume",
+  "hourly_price_usd": 1.09,
+  "name": "L40S"
+ },
+ "placement": {
+  "datacenter": "US-MO-1",
+  "volume_id": "y92bt25ru8",
+  "storage_mode": "regional_network_volume"
+ },
+ "model_state": "VERIFIED",
+ "model_reason": "replica_ready_with_real_model_answer",
+ "selftest_required": false,
+ "volume": {
+  "id": "y92bt25ru8",
+  "datacenter": "US-MO-1"
+ },
+ "policy": {
+  "budget_usd": 2.0,
+  "hourly_rate_usd": 1.09,
+  "billing_granularity_seconds": 60,
+  "termination_grace_seconds": 30,
+  "watchdog_margin_seconds": 10,
+  "watchdog_poll_seconds": 5,
+  "capacity_timeout_seconds": 60,
+  "requested_max_billed_seconds": 5400,
+  "max_billed_seconds": 5400,
+  "hard_wall_seconds": 5370,
+  "stop_request_seconds": 5360,
+  "target_work_seconds": 4800,
+  "worst_case_usd": 1.635,
+  "budget_headroom_usd": 0.365,
+  "budget_limited": false,
+  "time_limited": true,
+  "min_work_seconds": 2700,
+  "feasible": true,
+  "sufficient": true,
+  "reasons": []
+ },
+ "balance_before_usd": null,
+ "path": "prepared",
+ "prepared_observed_at": "2026-11-14T11:23:28+00:00",
+ "prepared_rejected": null,
+ "database": {
+  "mode": "template",
+  "head": "0017",
+  "seconds": 0.031
+ },
+ "timings": {
+  "started_at": "2026-11-14T11:23:28+00:00",
+  "prepared_loaded_at": "2026-11-14T11:23:28+00:00",
+  "selected_at": "2026-11-14T11:23:28+00:00",
+  "database_at": "2026-11-14T11:23:29+00:00",
+  "database": {
+   "mode": "template",
+   "head": "0017",
+   "seconds": 0.031
+  },
+  "backend_ready_at": "2026-11-14T11:23:35+00:00",
+  "backend_healthy": true,
+  "session_ready_at": "2026-11-14T11:23:35+00:00"
+ },
+ "verdict": "STARTUP_PROBE",
+ "reason": "measured the path to the first request without sending it"
+}

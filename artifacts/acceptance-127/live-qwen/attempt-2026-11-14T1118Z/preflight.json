@@ -1,0 +1,88 @@
+{
+ "checked_at": "2026-11-14T09:12:49+00:00",
+ "budget_usd": 2.0,
+ "gateway": {
+  "status": 200,
+  "ready": true,
+  "ok": true
+ },
+ "updater_untouched": {
+  "status": 204,
+  "ok": true
+ },
+ "runpod": {
+  "pods": [],
+  "pod_count": 0,
+  "balance_usd": 8.3686040624,
+  "ok": true
+ },
+ "installed_app": {
+  "status": 200,
+  "version": "1.2.6",
+  "running": true,
+  "version_source": "health",
+  "ok": true
+ },
+ "data": {
+  "ok": true,
+  "counts": {
+   "users": 2,
+   "chats": 54,
+   "messages": 120,
+   "paired_devices": 63
+  },
+  "integrity": "ok",
+  "device_id": "6413489d-6cae-4183-8446-a3b2339137dc",
+  "device_row": "6413489d-6cae-4183-8446-a3b2339137dc",
+  "device_online": true,
+  "device_matches_local": true
+ },
+ "disk": {
+  "free_gb": 70.4,
+  "ok": true
+ },
+ "budget": {
+  "cap_usd": 2.0,
+  "balance_usd": 8.3686,
+  "policy": {
+   "budget_usd": 2.0,
+   "hourly_rate_usd": 1.09,
+   "billing_granularity_seconds": 60,
+   "termination_grace_seconds": 30,
+   "watchdog_margin_seconds": 10,
+   "watchdog_poll_seconds": 5,
+   "capacity_timeout_seconds": 60,
+   "requested_max_billed_seconds": 5400,
+   "max_billed_seconds": 5400,
+   "hard_wall_seconds": 5370,
+   "stop_request_seconds": 5360,
+   "target_work_seconds": 4800,
+   "worst_case_usd": 1.635,
+   "budget_headroom_usd": 0.365,
+   "budget_limited": false,
+   "time_limited": true,
+   "min_work_seconds": 2700,
+   "feasible": true,
+   "sufficient": true,
+   "reasons": []
+  },
+  "ok": true
+ },
+ "watchdog": {
+  "ok": true,
+  "self_test": "PASS"
+ },
+ "provenance": {
+  "ok": true,
+  "real_providers": [
+   "canalla-cloud",
+   "llamacpp"
+  ]
+ },
+ "coordinator": {
+  "backend_on_8000": true,
+  "note": "no paid runner is started here"
+ },
+ "verdict": "READY",
+ "blockers": []
+}

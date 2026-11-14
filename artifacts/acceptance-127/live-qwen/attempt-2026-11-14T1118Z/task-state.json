@@ -1,0 +1,10 @@
+{
+ "id": "ddb56e72-16c7-4a5e-977b-56a42f62bcd5",
+ "status": "WAITING_LLM",
+ "verification_ok": false,
+ "workspace": "",
+ "files_changed": 0,
+ "tool_calls_used": 0,
+ "last_error": "price_limit",
+ "completion_summary": ""
+}

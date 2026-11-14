@@ -17,6 +17,7 @@ import tempfile
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import monitor as M
 
@@ -344,6 +345,196 @@ def run_self_test() -> int:
             and result["state"]["live_execution_state"] == "LIVE_RETEST_REQUIRED",
         )
 
+        # ---- the observation this pass made is what the harness is given -----------------------
+        rdir = root / "case_prepared"
+        _write_grant(rdir)
+        result = M.run_check(
+            provider=_provider(availability_by_dc={"US-MO-1": "LOW", "US-TX-3": "NONE"}),
+            rdir=rdir,
+            dry_run=True,
+        )
+        observation = result["observation"]
+        chosen = observation["chosen"]
+        payload = M.prepared_payload(
+            observation,
+            chosen,
+            M.read_grant(rdir)["grant"],
+            {"verdict": "READY", "checked_at": M.utcnow(), "blockers": [], "report": {}},
+            "run-test",
+        )
+        check(
+            "the_prepared_payload_carries_this_pass_observation",
+            payload["observed_at"] == observation["observed_at"]
+            and payload["placement"]["volume_id"] == chosen["volume_id"]
+            and payload["rate_usd_per_hour"] == observation["gpu"]["price_usd_per_hour"]
+            and payload["pod_count"] == 0,
+        )
+        command = M._live_command(
+            M.read_grant(rdir)["grant"], chosen, rdir / "live-prepared.json"
+        )
+        check(
+            "the_fast_path_command_passes_the_prepared_payload",
+            "--prepared" in command
+            and str(rdir / "live-prepared.json") in command
+            and "--self-test-mode" not in command,
+        )
+
+        # ---- a fresh READY preflight is reused, a stale one is re-run ---------------------------
+        rdir = root / "case_preflight_cache"
+        calls: list[int] = []
+        original_run_json = M._run_json
+        M._run_json = lambda *_a, **_k: (calls.append(1), {"verdict": "READY"})[1]
+        try:
+            first, first_reused = M.cached_preflight(rdir)
+            second, second_reused = M.cached_preflight(rdir)
+            M.save_json(
+                rdir / "preflight-cache.json",
+                {
+                    "checked_at": (
+                        datetime.now(timezone.utc) - timedelta(seconds=M.PREFLIGHT_TTL_SECONDS + 5)
+                    ).isoformat(timespec="seconds"),
+                    "report": {"verdict": "READY"},
+                },
+            )
+            third, third_reused = M.cached_preflight(rdir)
+        finally:
+            M._run_json = original_run_json
+        check(
+            "a_fresh_preflight_is_reused_and_a_stale_one_is_rerun",
+            first_reused is False
+            and second_reused is True
+            and third_reused is False
+            and len(calls) == 2,
+            detail=f"calls={len(calls)}",
+        )
+
+        # ---- the real launcher: cached preflight, prepared payload, claim, one command ---------
+        rdir = root / "case_launch"
+        _write_grant(rdir)
+        observation = M.run_check(
+            provider=_provider(availability_by_dc={"US-MO-1": "LOW", "US-TX-3": "NONE"}),
+            rdir=rdir,
+            dry_run=True,
+        )["observation"]
+        evidence_dir = root / "case_launch_evidence"
+        seen: dict = {}
+        original_run_json = M._run_json
+        original_subprocess_run = M.subprocess.run
+        original_evidence = M.EVIDENCE
+
+        def fake_run_json(*_a, **_k):
+            return {
+                "verdict": "READY",
+                "checked_at": M.utcnow(),
+                "blockers": [],
+            }
+
+        def fake_run(command, **_kwargs):
+            seen["command"] = command
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+        M._run_json = fake_run_json
+        M.subprocess.run = fake_run
+        M.EVIDENCE = evidence_dir
+        try:
+            payload = M.launch_live(
+                rdir=rdir,
+                state=M.load_state(rdir),
+                grant=M.read_grant(rdir)["grant"],
+                observation=observation,
+            )
+            command = seen.get("command") or []
+            prepared_file = rdir / "live-prepared.json"
+            prepared = json.loads(prepared_file.read_text(encoding="utf-8"))
+            used = M.read_grant(rdir)["reason"]
+        finally:
+            M._run_json = original_run_json
+            M.subprocess.run = original_subprocess_run
+            M.EVIDENCE = original_evidence
+        check(
+            "the_launcher_claims_before_it_runs_and_passes_the_observation",
+            "--prepared" in command
+            and "--run-id" in command
+            and prepared["placement"]["volume_id"] == observation["chosen"]["volume_id"]
+            and prepared["observed_at"] == observation["observed_at"]
+            and used == "already_used"
+            and payload["timings"]["detection_to_launch_seconds"] is not None
+            and payload["timings"]["preflight_reused"] is False,
+            detail=f"command={command[-3:]}",
+        )
+        check(
+            "the_second_launch_reuses_the_cached_preflight",
+            M.PREFLIGHT_TTL_SECONDS == 900
+            and (rdir / "preflight-cache.json").is_file(),
+        )
+
+        # ---- accounting is attributed to the run, never to "the latest file" -------------------
+        record_ok = {"run_id": "r1", "pods_created": 1, "spend_usd": 0.04, "verdict": "FAIL"}
+        record_none = {"run_id": "r1", "pods_created": 0, "verdict": "CAPACITY_UNAVAILABLE"}
+        foreign = {"run_id": "other", "pods_created": 0, "verdict": "STARTUP_PROBE"}
+        resolved = M.resolve_run_accounting(
+            run_id="r1",
+            record=record_ok,
+            final=foreign,
+            billing={"balance_before_usd": 10.0, "balance_after_usd": 9.96},
+            rate=1.09,
+            pod_id=None,
+        )
+        check(
+            "a_run_scoped_record_reports_the_pod_it_created",
+            resolved["trusted"] is True
+            and resolved["pods_created"] == 1
+            and resolved["billed_usd"] == 0.04,
+        )
+        resolved = M.resolve_run_accounting(
+            run_id="r1",
+            record={},
+            final=foreign,
+            billing={},
+            rate=1.09,
+            pod_id=None,
+        )
+        check(
+            "a_foreign_summary_with_no_money_truth_is_not_clean",
+            resolved["trusted"] is False and resolved["pods_created"] == 1,
+        )
+        resolved = M.resolve_run_accounting(
+            run_id="r1",
+            record={},
+            final=foreign,
+            billing={"balance_before_usd": 10.0, "balance_after_usd": 10.0},
+            rate=1.09,
+            pod_id=None,
+        )
+        check(
+            "an_unchanged_balance_restores_after_a_nothing_bought",
+            resolved["pods_created"] == 0 and resolved["billed_usd"] == 0.0,
+        )
+        resolved = M.resolve_run_accounting(
+            run_id="r1",
+            record=record_none,
+            final=foreign,
+            billing={"balance_before_usd": 10.0, "balance_after_usd": 9.98},
+            rate=1.09,
+            pod_id=None,
+        )
+        check(
+            "a_balance_drop_means_a_pod_even_if_the_summary_says_zero",
+            resolved["pods_created"] == 1,
+        )
+        resolved = M.resolve_run_accounting(
+            run_id="r1",
+            record=record_none,
+            final=record_none,
+            billing={},
+            rate=1.09,
+            pod_id=None,
+        )
+        check(
+            "a_run_that_counted_zero_restores_without_a_balance_read",
+            resolved["pods_created"] == 0 and resolved["trusted"] is True,
+        )
+
         # ---- the evidence, not the summary, decides whether a Pod was bought -------------------
         rdir = root / "case_evidence"
         original_evidence = M.EVIDENCE
@@ -386,6 +577,30 @@ def run_self_test() -> int:
             and len(delays) == 1
             and 25.0 <= delays[0] <= 30.0,
             detail=str(delays),
+        )
+
+        # ---- a pass after a sighting keeps the free preflight warm -------------------------------
+        rdir = root / "case_warm"
+        state = M.load_state(rdir)
+        state["last_gpu_status"] = "AVAILABLE"
+        M.save_json(rdir / "state.json", state)
+        original_run_json = M._run_json
+        M._run_json = lambda *_a, **_k: {"verdict": "READY", "checked_at": M.utcnow()}
+        try:
+            M.run_pass(
+                provider_factory=lambda: _provider(
+                    availability_by_dc={"US-MO-1": "NONE", "US-TX-3": "NONE"}
+                ),
+                rdir=rdir,
+                checks=1,
+                gap=0,
+                sleep=lambda _seconds: None,
+            )
+        finally:
+            M._run_json = original_run_json
+        check(
+            "a_pass_after_a_sighting_warms_the_preflight_cache",
+            (rdir / "preflight-cache.json").is_file(),
         )
 
         # ---- one instance, one journal line per distinct observation ---------------------------

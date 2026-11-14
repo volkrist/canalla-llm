@@ -1,0 +1,20 @@
+{
+ "captured_at": "2026-11-14T11:25:48+00:00",
+ "database_present": true,
+ "data_root": "C:\\Users\\Volkr\\AppData\\Local\\Alex LLM",
+ "local_device_id": "6413489d-6cae-4183-8446-a3b2339137dc",
+ "counts": {
+  "users": 2,
+  "chats": 54,
+  "messages": 120,
+  "paired_devices": 63,
+  "local_tasks": 30
+ },
+ "integrity": "ok",
+ "foreign_key_violations": 0,
+ "active_device_id": "6413489d-6cae-4183-8446-a3b2339137dc",
+ "installed_app": {
+  "status": 200,
+  "version": "1.2.6"
+ }
+}

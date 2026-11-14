@@ -1,0 +1,30 @@
+Start the paid attempt before the card disappears
+
+Two independent delays sat between "a card is free" and "ask for the Pod",
+and the cap on them is a capacity window of seconds.
+
+The first was a logging filter. `RedactTicket` flattened the message and
+emptied `record.args`, but uvicorn's access formatter unpacks five fields from
+those args afterwards. Every access record raised `ValueError`, and logging
+printed a full traceback per request: one attempt produced 152k lines of
+logging errors while the backend should have been starting compute. Access
+records now keep their five fields and are redacted individually.
+
+The second was repeated free work. The monitor re-ran the whole preflight, the
+harness re-ran it again and re-read the same catalogue twice more. Now the
+monitor keeps the preflight in a bounded cache (900 s, refreshed on a pass that
+followed a sighting), hands the harness its own fresh observation in
+`--prepared`, and the harness validates only the facts that could change the
+money or the placement. Migrations come from a template database whose recorded
+revision must equal the directory head, so a later migration invalidates it.
+
+Measured on a real automatic attempt: detection to launch 0.0 s, first request
+6 s after detection, template migrations 16 ms, 0 logging errors. Before, the
+same path took ~13 s and used a catalogue read taken seconds earlier.
+
+Accounting is now attributed to the run that produced it. The harness writes
+`run-<id>.json` while its isolated database still exists; the monitor reads that
+record, a Pod id, or the balance movement - never a shared summary that another
+process may have replaced. A summary that names another run is not evidence of
+anything, and with no money truth at all the attempt is treated as unknown
+rather than clean. `authorize.py --consume` records that a paid Pod was used.

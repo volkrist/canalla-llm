@@ -1,0 +1,50 @@
+{
+ "verdict": "CAPACITY_UNAVAILABLE",
+ "plan": {
+  "budget_usd": 2.0,
+  "hourly_rate_usd": 0.59,
+  "billing_granularity_seconds": 60,
+  "termination_grace_seconds": 30,
+  "watchdog_margin_seconds": 10,
+  "watchdog_poll_seconds": 5,
+  "capacity_timeout_seconds": 60,
+  "requested_max_billed_seconds": 5400,
+  "max_billed_seconds": 5400,
+  "hard_wall_seconds": 5370,
+  "stop_request_seconds": 5360,
+  "target_work_seconds": 4800,
+  "worst_case_usd": 0.885,
+  "budget_headroom_usd": 1.115,
+  "budget_limited": false,
+  "time_limited": true,
+  "min_work_seconds": 2700,
+  "feasible": true,
+  "sufficient": true,
+  "reasons": []
+ },
+ "events": [
+  {
+   "at_seconds": 0.49,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 5.86,
+   "kind": "no-pod",
+   "detail": ""
+  }
+ ],
+ "billed_seconds": 0.0,
+ "estimated_cost_usd": 0.0,
+ "stop_requested_at": null,
+ "termination_confirmed": false,
+ "pods_remaining": 0,
+ "reasons": [
+  "no Pod exists: nothing to supervise and nothing to spend"
+ ],
+ "balance_before_usd": 8.44638184,
+ "balance_after_usd": 8.44638184,
+ "sleep_prevented": true,
+ "runner_pid": 0,
+ "observed_at": "2026-11-14T01:17:59+00:00"
+}

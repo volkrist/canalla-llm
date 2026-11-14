@@ -129,6 +129,12 @@ def main(argv: list[str] | None = None) -> int:
         "--days", type=int, default=30, help="how long a new permission stays valid"
     )
     parser.add_argument("--revoke", action="store_true")
+    parser.add_argument(
+        "--consume",
+        action="store_true",
+        help="record that a Pod was created: the one paid attempt is spent",
+    )
+    parser.add_argument("--reason", default="", help="why the permission is being consumed")
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--state-dir", default=None)
     args = parser.parse_args(argv)
@@ -157,6 +163,38 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
         return 0 if verdict["valid"] else 1
+
+    if args.consume:
+        if not path.is_file():
+            print(json.dumps({"consumed": False, "reason": "no_grant"}))
+            return 1
+        grant = json.loads(path.read_text(encoding="utf-8"))
+        if grant.get("used"):
+            print(
+                json.dumps(
+                    {"consumed": True, "already": True, "grant_id": grant.get("grant_id")}
+                )
+            )
+            return 0
+        grant["used"] = True
+        grant["used_at"] = utcnow()
+        grant["consumed_reason"] = args.reason or "paid Pod observed"
+        save_json(path, grant)
+        print(
+            json.dumps(
+                {
+                    "consumed": True,
+                    "already": False,
+                    "grant_id": grant.get("grant_id"),
+                    "used_at": grant["used_at"],
+                    "reason": grant["consumed_reason"],
+                    "note": "The monitor can no longer create a Pod. A new attempt needs a new owner decision.",
+                },
+                ensure_ascii=False,
+                indent=1,
+            )
+        )
+        return 0
 
     if args.revoke:
         if not path.is_file():

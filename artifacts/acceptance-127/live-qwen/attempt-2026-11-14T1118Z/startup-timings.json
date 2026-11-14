@@ -1,0 +1,15 @@
+{
+ "started_at": "2026-11-14T11:25:31+00:00",
+ "prepared_loaded_at": "2026-11-14T11:25:31+00:00",
+ "selected_at": "2026-11-14T11:25:31+00:00",
+ "database_at": "2026-11-14T11:25:32+00:00",
+ "database": {
+  "mode": "template",
+  "head": "0017",
+  "seconds": 0.016
+ },
+ "backend_ready_at": "2026-11-14T11:25:36+00:00",
+ "backend_healthy": true,
+ "session_ready_at": "2026-11-14T11:25:36+00:00",
+ "first_request_at": "2026-11-14T11:25:36+00:00"
+}

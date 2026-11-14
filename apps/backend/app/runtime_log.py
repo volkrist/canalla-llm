@@ -63,6 +63,15 @@ class RedactTicket(logging.Filter):
                 return value
             return redact_text(value)
 
+        # uvicorn's access formatter unpacks ``record.args`` into five fields *after* filters run.
+        # Flattening the message into ``msg`` and emptying ``args`` (what this filter used to do)
+        # made it raise ``ValueError: not enough values to unpack`` for every access record, and
+        # logging then printed a full traceback per request to stderr. A run that should take
+        # seconds produced 152k lines of logging errors and starved the acceptance.
+        if record.name == "uvicorn.access" and isinstance(record.args, tuple) and len(record.args) == 5:
+            record.args = tuple(redact(value) for value in record.args)
+            return True
+
         try:
             message = record.getMessage()
         except Exception:

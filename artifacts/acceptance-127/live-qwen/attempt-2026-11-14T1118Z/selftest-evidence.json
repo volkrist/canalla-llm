@@ -1,0 +1,48 @@
+{
+ "verdict": "FAIL",
+ "problems": [
+  "no_real_answer",
+  "no_pod_id"
+ ],
+ "answer_chars": 0,
+ "answer_preview": "",
+ "delta_events": 0,
+ "errors": [],
+ "checked_at": "2026-11-14T10:49:20+00:00",
+ "chat_id": "84847599-45b0-491d-8b6c-da60747d108b",
+ "identity": {
+  "provider": "llamacpp",
+  "model": "orcarouter-qwen38-27b-q5km",
+  "pod_id": null,
+  "gpu": null,
+  "datacenter": null,
+  "available": false
+ },
+ "llm_status_code": 200,
+ "raw_events": [
+  {
+   "line": "event: meta"
+  },
+  {
+   "line": "data: {\"user\": {\"id\": \"b44ebcef-5a6b-4ab1-b697-f98cce350950\", \"chat_id\": \"84847599-45b0-491d-8b6c-da60747d108b\", \"role\": \"user\", \"content\": \"Ответь одним коротким предложением, подтвердив, что ты готов выполнять задачи. Не вызывай инструменты.\", \"created_at\": \"2026-11-14T10:49:17.244198Z\", \"status\": \"complete\", \"edited_at\": null, \"generation_started_at\": null, \"first_token_at\": null, \"completed_at"
+  },
+  {
+   "line": "event: progress"
+  },
+  {
+   "line": "data: {\"state\": \"error\", \"text\": \"AI Unavailable\", \"code\": \"gpu_unavailable\"}"
+  },
+  {
+   "line": "event: done"
+  },
+  {
+   "line": "data: {\"parked\": true, \"message_id\": \"4a94ff73-5b8d-4daf-ab8e-31fe71f6be0b\"}"
+  }
+ ],
+ "mode": "self_test",
+ "placement": {
+  "datacenter": "US-TX-3",
+  "volume_id": "uwgeaie5b0",
+  "storage_mode": "regional_network_volume"
+ }
+}

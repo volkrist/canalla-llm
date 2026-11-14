@@ -1,0 +1,286 @@
+{
+ "generated_at": "2026-11-14T11:18:12+00:00",
+ "read_only": true,
+ "budget_usd": 2.0,
+ "minimum_vram_gb": 48,
+ "model": {
+  "id": "orcarouter-qwen38-27b-q5km",
+  "sha256": "4ad98832b3d376dd274df5bba59dd34834f0f401593e1463f38fd5fa219293b1",
+  "bytes": 20752787712,
+  "runtime_version": "b11565",
+  "context_window": 32768
+ },
+ "volumes": [
+  {
+   "id": "uwgeaie5b0",
+   "name": "orcarouter-storage",
+   "size_gb": 50,
+   "type": "STANDARD",
+   "datacenter": "US-TX-3",
+   "primary": true
+  },
+  {
+   "id": "y92bt25ru8",
+   "name": "orcarouter-storage-mo1",
+   "size_gb": 50,
+   "type": "STANDARD",
+   "datacenter": "US-MO-1",
+   "primary": false
+  }
+ ],
+ "required_gpu": "NVIDIA L40S",
+ "approved_volumes": [
+  "uwgeaie5b0",
+  "y92bt25ru8"
+ ],
+ "serving_evidence": {
+  "source": "artifacts/acceptance-127/live-qwen/placement_records.py",
+  "records": {
+   "uwgeaie5b0": {
+    "datacenter": "US-TX-3",
+    "model_state": "UNVERIFIED_NEEDS_LIVE_CHECK",
+    "reason": "recorded_selftest_was_malformed_assets_intact",
+    "usable": true,
+    "requires_live_selftest": true
+   },
+   "y92bt25ru8": {
+    "datacenter": "US-MO-1",
+    "model_state": "VERIFIED",
+    "reason": "replica_ready_with_real_model_answer",
+    "usable": true,
+    "requires_live_selftest": false
+   }
+  },
+  "refusals": {}
+ },
+ "replicas": [
+  {
+   "volume_id": "y92bt25ru8",
+   "datacenter": "US-MO-1",
+   "model_id": "orcarouter-qwen38-27b-q5km",
+   "model_path": "/workspace/models/orcarouter-qwen38/orcarouter_Qwen3.8-27B-Uncensored-Q5_K_M.gguf",
+   "model_bytes": 20752787712,
+   "model_sha256": "4ad98832b3d376dd274df5bba59dd34834f0f401593e1463f38fd5fa219293b1",
+   "runtime_version": "b11565",
+   "bootstrap_version": "1.2.3",
+   "last_verified": "2026-10-13T12:23:41Z",
+   "ready": true,
+   "source": "replica-us-mo-1.json"
+  }
+ ],
+ "placements": [
+  {
+   "datacenter": "US-TX-3",
+   "volume_id": "uwgeaie5b0",
+   "community_capable": false,
+   "storage_type": "regional_network_volume",
+   "pins_datacenter": true
+  },
+  {
+   "datacenter": "US-MO-1",
+   "volume_id": "y92bt25ru8",
+   "community_capable": false,
+   "storage_type": "regional_network_volume",
+   "pins_datacenter": true
+  }
+ ],
+ "replica_refusals": {},
+ "verified_placements": [
+  "uwgeaie5b0",
+  "y92bt25ru8"
+ ],
+ "catalogue_offers": 19,
+ "candidates": [
+  {
+   "gpu": "NVIDIA L40S",
+   "vram_gb": 48,
+   "hourly_rate": "1.09",
+   "cloud": "SECURE",
+   "datacenter": "US-MO-1",
+   "volume_id": "y92bt25ru8",
+   "availability": "LOW",
+   "storage_type": "regional_network_volume",
+   "name": "L40S",
+   "hourly_price_usd": 1.09,
+   "storage_mode": "regional_network_volume",
+   "model_state": "VERIFIED",
+   "requires_live_selftest": false
+  }
+ ],
+ "selected": {
+  "gpu": "NVIDIA L40S",
+  "vram_gb": 48,
+  "hourly_rate": "1.09",
+  "cloud": "SECURE",
+  "datacenter": "US-MO-1",
+  "volume_id": "y92bt25ru8",
+  "availability": "LOW",
+  "storage_type": "regional_network_volume",
+  "name": "L40S",
+  "hourly_price_usd": 1.09,
+  "storage_mode": "regional_network_volume",
+  "model_state": "VERIFIED",
+  "requires_live_selftest": false
+ },
+ "requires_live_selftest": false,
+ "volume": {
+  "id": "y92bt25ru8",
+  "datacenter": "US-MO-1",
+  "type": "STANDARD",
+  "size_gb": 50
+ },
+ "compatible_but_not_in_any_verified_placement": [
+  {
+   "gpu_id": "NVIDIA A100 80GB PCIe",
+   "name": "A100 PCIe",
+   "vram_gb": 80,
+   "hourly_price_usd": 2.09,
+   "tier": "secure",
+   "datacenters": {
+    "CA-MTL-3": "LOW",
+    "EU-RO-1": "LOW",
+    "US-KS-2": "LOW",
+    "US-MO-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA A100-SXM4-80GB",
+   "name": "A100 SXM",
+   "vram_gb": 80,
+   "hourly_price_usd": 2.19,
+   "tier": "secure",
+   "datacenters": {
+    "US-KS-2": "LOW",
+    "US-MD-1": "MEDIUM",
+    "US-MO-1": "LOW",
+    "US-WA-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA A40",
+   "name": "A40",
+   "vram_gb": 48,
+   "hourly_price_usd": 0.59,
+   "tier": "secure",
+   "datacenters": {
+    "CA-MTL-1": "LOW",
+    "EU-SE-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA B200",
+   "name": "B200",
+   "vram_gb": 180,
+   "hourly_price_usd": 7.99,
+   "tier": "secure",
+   "datacenters": {
+    "EU-RO-1": "LOW",
+    "US-CA-2": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA B300 SXM6 AC",
+   "name": "B300",
+   "vram_gb": 288,
+   "hourly_price_usd": 8.99,
+   "tier": "secure",
+   "datacenters": {
+    "US-WA-2": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA H100 80GB HBM3",
+   "name": "H100 SXM",
+   "vram_gb": 80,
+   "hourly_price_usd": 4.39,
+   "tier": "secure",
+   "datacenters": {
+    "AP-IN-1": "LOW",
+    "AP-JP-1": "LOW",
+    "CA-MTL-1": "LOW",
+    "EU-FR-1": "LOW",
+    "EUR-IS-3": "LOW",
+    "EUR-NO-2": "LOW",
+    "US-GA-2": "LOW",
+    "US-MO-1": "LOW",
+    "US-NE-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA H100 NVL",
+   "name": "H100 NVL",
+   "vram_gb": 94,
+   "hourly_price_usd": 3.19,
+   "tier": "secure",
+   "datacenters": {
+    "US-KS-2": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA H200",
+   "name": "H200 SXM",
+   "vram_gb": 141,
+   "hourly_price_usd": 5.29,
+   "tier": "secure",
+   "datacenters": {
+    "CA-MTL-3": "LOW",
+    "CA-MTL-4": "LOW",
+    "EUR-IS-4": "LOW",
+    "EUR-IS-5": "LOW",
+    "US-CA-2": "LOW",
+    "US-CO-1": "LOW",
+    "US-GA-2": "LOW",
+    "US-NC-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA L40",
+   "name": "L40",
+   "vram_gb": 48,
+   "hourly_price_usd": 0.82,
+   "tier": "secure",
+   "datacenters": {
+    "US-KS-2": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA L40S",
+   "name": "L40S",
+   "vram_gb": 48,
+   "hourly_price_usd": 1.09,
+   "tier": "secure",
+   "datacenters": {
+    "EUR-IS-2": "LOW",
+    "OC-AU-1": "LOW",
+    "US-MO-1": "LOW",
+    "US-TX-4": "LOW"
+   }
+  }
+ ],
+ "reference": null,
+ "plan_reason": null,
+ "ok": true,
+ "policy": {
+  "budget_usd": 2.0,
+  "hourly_rate_usd": 1.09,
+  "billing_granularity_seconds": 60,
+  "termination_grace_seconds": 30,
+  "watchdog_margin_seconds": 10,
+  "watchdog_poll_seconds": 5,
+  "capacity_timeout_seconds": 60,
+  "requested_max_billed_seconds": 5400,
+  "max_billed_seconds": 5400,
+  "hard_wall_seconds": 5370,
+  "stop_request_seconds": 5360,
+  "target_work_seconds": 4800,
+  "worst_case_usd": 1.635,
+  "budget_headroom_usd": 0.365,
+  "budget_limited": false,
+  "time_limited": true,
+  "min_work_seconds": 2700,
+  "feasible": true,
+  "sufficient": true,
+  "reasons": []
+ },
+ "verdict": "READY"
+}

@@ -1,0 +1,64 @@
+{
+ "generated_at": "2026-11-14T07:45:53+00:00",
+ "read_only": true,
+ "volume_id": "y92bt25ru8",
+ "datacenter": "US-MO-1",
+ "gpu_id": "NVIDIA L40S",
+ "window_seconds": 42.8,
+ "reads": [
+  {
+   "at": "2026-11-14T07:45:10+00:00",
+   "elapsed_s": 0.0,
+   "ok": true,
+   "found": true,
+   "price_secure_usd_hr": 1.09,
+   "memory_gb": 48,
+   "datacenter_availability": "NONE",
+   "bookable_datacenters": [
+    "OC-AU-1",
+    "US-IL-1",
+    "US-NC-1",
+    "US-TX-4"
+   ],
+   "skus_available_in_datacenter": [
+    "NVIDIA H100 80GB HBM3"
+   ]
+  },
+  {
+   "at": "2026-11-14T07:45:31+00:00",
+   "elapsed_s": 21.0,
+   "ok": true,
+   "found": true,
+   "price_secure_usd_hr": 1.09,
+   "memory_gb": 48,
+   "datacenter_availability": "NONE",
+   "bookable_datacenters": [
+    "OC-AU-1",
+    "US-IL-1",
+    "US-TX-4"
+   ],
+   "skus_available_in_datacenter": [
+    "NVIDIA H100 80GB HBM3"
+   ]
+  },
+  {
+   "at": "2026-11-14T07:45:52+00:00",
+   "elapsed_s": 41.9,
+   "ok": true,
+   "found": true,
+   "price_secure_usd_hr": 1.09,
+   "memory_gb": 48,
+   "datacenter_availability": "NONE",
+   "bookable_datacenters": [
+    "OC-AU-1",
+    "US-IL-1",
+    "US-TX-4"
+   ],
+   "skus_available_in_datacenter": [
+    "NVIDIA H100 80GB HBM3"
+   ]
+  }
+ ],
+ "verdict": "CAPACITY_UNAVAILABLE",
+ "reason": "NVIDIA L40S has no availability in US-MO-1 for the verified replica y92bt25ru8; no Pod was created and no capacity wait was started"
+}

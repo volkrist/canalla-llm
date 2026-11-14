@@ -1,0 +1,16 @@
+{
+ "status": "INCOMPLETE_TRACE",
+ "ok": false,
+ "reasons": [
+  "no model response and no tool execution in the trace"
+ ],
+ "providers": [],
+ "models": [],
+ "model_responses": 0,
+ "live_responses": 0,
+ "tool_calls": 0,
+ "linked_results": 0,
+ "verified": false,
+ "tampered": 0,
+ "chain": []
+}

@@ -38,7 +38,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -57,6 +57,10 @@ WATCHDOG = REPO / "scripts" / "live_qwen_watchdog.py"
 GPU_PROBE = Path(__file__).resolve().parent / "gpu_probe.py"
 OUT = Path(__file__).resolve().parent
 LIVE = OUT / "final-live"
+# The monitor names each attempt so its evidence can never be mistaken for another run's. A shared
+# `final-summary.json` was read by a later attempt after a probe had overwritten it, and a real Pod
+# then looked like "nothing was created". Every summary now carries the run that wrote it.
+RUN_ID = ""
 
 sys.path.insert(0, str(BACKEND))
 from app.compute import cost_policy
@@ -66,7 +70,12 @@ CONFIRMATION_RU = (
     "Разрешаю один платный LIVE-прогон Qwen с бюджетом не более $2.00 и одним GPU Pod."
 )
 sys.path.insert(0, str(OUT))
-from placement_records import PLACEMENTS, VERIFIED, model_status  # noqa: E402
+from placement_records import (  # noqa: E402
+    PLACEMENTS,
+    VERIFIED,
+    model_status,
+    placement_for,
+)
 
 # Both paid volumes are approved placements. A placement whose record is not a verified real-model
 # answer is still usable - but only through `--self-test-mode`, where the one Pod proves the model
@@ -453,6 +462,8 @@ def authorization_problem(confirm: str, budget: float | None) -> str:
 
 def _write_json(name: str, payload) -> None:
     LIVE.mkdir(parents=True, exist_ok=True)
+    if RUN_ID and isinstance(payload, dict):
+        payload = {**payload, "run_id": RUN_ID}
     (LIVE / name).write_text(
         json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8"
     )
@@ -501,6 +512,183 @@ def _sse_stream(url: str, token: str, body: dict, deadline: float, on_event=None
 
 
 APPROVALS: list[dict] = []
+
+# How fresh the monitor's own observation must be before the harness will skip its own reads.
+# The monitor checks every 30 seconds, so a payload older than this is not "the same moment" any
+# more and the full path is used instead. The preflight report may be older because every fact in
+# it (installed build, production database, disk, watchdog, provenance) changes on a human scale.
+PREPARED_MAX_AGE_SECONDS = 120
+PREFLIGHT_MAX_AGE_SECONDS = 900
+
+
+def _parse_iso(value) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def prepared_problem(
+    prepared,
+    budget: float,
+    *,
+    max_billable_minutes: int = MAX_BILLABLE_MINUTES,
+    target_work_minutes: int = TARGET_WORK_MINUTES,
+    min_work_minutes: int = MIN_WORK_MINUTES,
+    now: datetime | None = None,
+) -> str | None:
+    """Every reason the monitor's prepared observation must not be used. Empty means usable.
+
+    This is the fast path's whole safety case: the *critical* facts are re-validated here, from a
+    payload the monitor built seconds ago after reading the provider. Nothing that could change the
+    money or the placement is taken on trust, and a stale payload falls back to the full path
+    rather than being used.
+    """
+    now = now or datetime.now(timezone.utc)
+    if not isinstance(prepared, dict):
+        return "not_a_payload"
+    if prepared.get("schema") != 1:
+        return "unknown_schema"
+
+    observed = _parse_iso(prepared.get("observed_at"))
+    if observed is None:
+        return "missing_observed_at"
+    age = (now - observed).total_seconds()
+    if age > PREPARED_MAX_AGE_SECONDS:
+        return f"stale_observation_{int(age)}s"
+    if age < -120:
+        return "observation_in_the_future"
+
+    if int(prepared.get("pod_count") or 0) != 0:
+        return "existing_pod"
+
+    placement = prepared.get("placement") if isinstance(prepared.get("placement"), dict) else {}
+    volume_id = str(placement.get("volume_id") or "")
+    if volume_id not in APPROVED_VOLUMES:
+        return "placement_not_approved"
+    spec = placement_for(volume_id)
+    if spec is None or spec["datacenter"] != placement.get("datacenter"):
+        return "placement_mismatch"
+
+    preflight = prepared.get("preflight") if isinstance(prepared.get("preflight"), dict) else {}
+    if preflight.get("verdict") != "READY":
+        return "preflight_not_ready"
+    checked = _parse_iso(preflight.get("checked_at"))
+    if checked is None:
+        return "preflight_missing_age"
+    if (now - checked).total_seconds() > PREFLIGHT_MAX_AGE_SECONDS:
+        return "preflight_too_old"
+
+    try:
+        rate = float(prepared.get("rate_usd_per_hour"))
+    except (TypeError, ValueError):
+        return "missing_rate"
+    if rate <= 0:
+        return "invalid_rate"
+    declared = prepared.get("budget_usd")
+    if declared is not None:
+        try:
+            if float(declared) > MAX_BUDGET_USD + 1e-9:
+                return "prepared_budget_above_cap"
+        except (TypeError, ValueError):
+            return "invalid_prepared_budget"
+
+    policy = cost_policy.plan(
+        budget,
+        rate,
+        max_billable_seconds=max_billable_minutes * 60,
+        target_work_seconds=target_work_minutes * 60,
+        min_work_seconds=min_work_minutes * 60,
+    )
+    if not policy.feasible or not policy.sufficient:
+        return "no_work_window"
+    return None
+
+
+def prepared_selection(prepared: dict) -> dict:
+    """The shape the rest of run_live already consumes, built without a provider read."""
+    placement = prepared["placement"]
+    rate = float(prepared["rate_usd_per_hour"])
+    return {
+        "verdict": "READY",
+        "prepared": True,
+        "observed_at": prepared.get("observed_at"),
+        "selected": {
+            "gpu": "NVIDIA L40S",
+            "datacenter": placement["datacenter"],
+            "volume_id": placement["volume_id"],
+            "storage_type": placement.get("storage_mode") or "regional_network_volume",
+            "hourly_price_usd": rate,
+            "name": "L40S",
+        },
+        "volume": {
+            "id": placement["volume_id"],
+            "datacenter": placement["datacenter"],
+        },
+        "model_state": prepared.get("model_state"),
+    }
+
+
+def _alembic_head() -> str | None:
+    try:
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+
+        config = Config(str(BACKEND / "alembic.ini"))
+        # `alembic.ini` names the directory relatively; pin it so the head can be read from any cwd.
+        config.set_main_option("script_location", str(BACKEND / "alembic"))
+        return ScriptDirectory.from_config(config).get_current_head()
+    except Exception:  # noqa: BLE001 - an unreadable head simply disables the template
+        return None
+
+
+def _template_is_current(path: Path, head: str | None) -> bool:
+    if not head or not path.is_file():
+        return False
+    try:
+        import sqlite3
+
+        connection = sqlite3.connect("file:" + path.as_posix() + "?mode=ro", uri=True)
+        try:
+            row = connection.execute("select version_num from alembic_version").fetchone()
+        finally:
+            connection.close()
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(row and row[0] == head)
+
+
+def prepare_database(work: Path, env: dict) -> dict:
+    """A migrated isolated database, from a verified template when the schema has not moved.
+
+    Alembic costs ~2.7 s and is on the path between "a card is free" and "a Pod is requested".
+    The template is only used when its recorded revision equals the directory's current head, so a
+    migration added by a later change invalidates it automatically.
+    """
+    live_db = work / "live.db"
+    head = _alembic_head()
+    template = Path(tempfile.gettempdir()) / "canalla-live-template" / "live-template.db"
+    started = time.monotonic()
+    if _template_is_current(template, head):
+        shutil.copy2(template, live_db)
+        return {"mode": "template", "head": head, "seconds": round(time.monotonic() - started, 3)}
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=str(BACKEND),
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    elapsed = round(time.monotonic() - started, 3)
+    if head:
+        try:
+            template.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(live_db, template)
+        except OSError:
+            pass
+    return {"mode": "migrated", "head": head, "seconds": elapsed}
 
 
 def approve_compute_start(*, base: str, token: str, seen: set):
@@ -659,6 +847,8 @@ def run_live(
     min_work_minutes: int,
     volume: str | None = DEFAULT_VOLUME,
     self_test_mode: bool = False,
+    prepared: dict | None = None,
+    startup_probe: bool = False,
 ) -> int:
     problem = authorization_problem(confirm, budget)
     if problem:
@@ -670,17 +860,50 @@ def run_live(
         )
     assert budget is not None
 
-    before = preflight()
-    if before.get("verdict") != "READY":
-        raise SystemExit(f"preflight is not READY: {before.get('blockers')}")
-    pods = pods_state()
-    if pods.get("ok") is not True or pods.get("pod_count") != 0:
-        raise SystemExit(
-            "refusing: the provider state is not a confirmed zero-Pod account "
-            f"(ok={pods.get('ok')}, pods={pods.get('pod_count')})"
+    timings: dict = {"started_at": utcnow()}
+    prepared_reason = None
+    prepared_used = False
+    if prepared is not None:
+        # Fast path: the monitor read the provider moments ago. Only the facts that could change
+        # the money or the placement are re-checked, and they are checked against the payload's
+        # own timestamps - a stale observation falls through to the full path below.
+        prepared_reason = prepared_problem(
+            prepared,
+            budget,
+            max_billable_minutes=max_billable_minutes,
+            target_work_minutes=target_work_minutes,
+            min_work_minutes=min_work_minutes,
         )
+        if prepared_reason is None:
+            prepared_used = True
 
-    selection = gpu_probe()
+    if prepared_used:
+        timings["prepared_loaded_at"] = utcnow()
+        before = prepared["preflight"]["report"]
+        pods = {
+            "ok": True,
+            "pod_count": prepared["pod_count"],
+            "pods": [],
+            "balance_usd": prepared.get("balance_usd"),
+            "fast_path": True,
+        }
+        selection = prepared_selection(prepared)
+    else:
+        if prepared is not None:
+            timings["prepared_rejected"] = prepared_reason
+        before = preflight()
+        timings["preflight_at"] = utcnow()
+        if before.get("verdict") != "READY":
+            raise SystemExit(f"preflight is not READY: {before.get('blockers')}")
+        pods = pods_state()
+        if pods.get("ok") is not True or pods.get("pod_count") != 0:
+            raise SystemExit(
+                "refusing: the provider state is not a confirmed zero-Pod account "
+                f"(ok={pods.get('ok')}, pods={pods.get('pod_count')})"
+            )
+
+        selection = gpu_probe()
+    timings["selected_at"] = utcnow()
     _write_json(
         "authorization.json",
         {
@@ -696,6 +919,9 @@ def run_live(
             "blocked_by": None
             if selection.get("verdict") == "READY"
             else selection.get("verdict"),
+            "path": "prepared" if prepared_used else "full",
+            "prepared_observed_at": prepared.get("observed_at") if prepared_used else None,
+            "prepared_rejected": prepared_reason,
         },
     )
     if selection.get("verdict") != "READY" or not selection.get("selected"):
@@ -774,7 +1000,11 @@ def run_live(
     model_state, model_reason = model_status(placement["volume_id"])
     # A copy whose record is not a verified real-model answer is proved *in this same Pod* before
     # any TaskDesk work. The explicit flag can only add the proof, never remove it.
-    selftest_required = bool(self_test_mode or model_state != VERIFIED)
+    selftest_required = bool(
+        self_test_mode
+        or model_state != VERIFIED
+        or (prepared_used and prepared.get("requires_selftest"))
+    )
     policy = cost_policy.plan(
         budget,
         rate,
@@ -829,13 +1059,9 @@ def run_live(
     # The parent reads the task journal itself. Without this its SessionLocal would resolve the
     # parent's DATABASE_URL, which is not the isolated database the child backend uses.
     os.environ.update(env)
-    subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
-        cwd=str(BACKEND),
-        env=env,
-        check=True,
-        capture_output=True,
-    )
+    database = prepare_database(work, env)
+    timings["database_at"] = utcnow()
+    timings["database"] = database
     backend_log = (work / "backend.log").open("w", encoding="utf-8", errors="replace")
     backend = subprocess.Popen(
         [
@@ -869,16 +1095,25 @@ def run_live(
         "volume": selection.get("volume"),
         "policy": policy.to_dict(),
         "balance_before_usd": pods.get("balance_usd"),
+        "path": "prepared" if prepared_used else "full",
+        "prepared_observed_at": prepared.get("observed_at") if prepared_used else None,
+        "prepared_rejected": prepared_reason,
+        "database": database,
+        "timings": timings,
     }
     _write_json("production-before.json", before)
     try:
+        healthy = False
         for _ in range(300):
             try:
                 if http("GET", base + "/health")[0] == 200:
+                    healthy = True
                     break
             except OSError:
                 pass
             time.sleep(0.2)
+        timings["backend_ready_at"] = utcnow()
+        timings["backend_healthy"] = healthy
         email = f"live-{nonce}@example.com"
         _, registered = http(
             "POST",
@@ -913,6 +1148,16 @@ def run_live(
             },
             token=token,
         )
+        timings["session_ready_at"] = utcnow()
+        if startup_probe:
+            # Free measurement: everything a paid attempt needs *before* the request that can create
+            # a Pod. No chat message is sent, so no compute exists afterwards.
+            summary["verdict"] = "STARTUP_PROBE"
+            summary["reason"] = "measured the path to the first request without sending it"
+            _write_json("startup-timings.json", timings)
+            _write_json("final-summary.json", summary)
+            print(json.dumps({"verdict": "STARTUP_PROBE", "timings": timings}, ensure_ascii=False))
+            return 0
         host_env = {
             **env,
             "ALEX_ACCEPTANCE_RUN": "1",
@@ -959,6 +1204,8 @@ def run_live(
             + policy.hard_wall_seconds
             + policy.termination_grace_seconds
         )
+        timings["first_request_at"] = utcnow()
+        _write_json("startup-timings.json", timings)
         APPROVALS.clear()
         approve = approve_compute_start(base=base, token=token, seen=set())
         if selftest_required:
@@ -1203,6 +1450,26 @@ def run_live(
                 encoding="utf-8",
             )
         except OSError:
+            pass
+        # The authoritative accounting for *this* run, written while its isolated database still
+        # exists. The monitor reads this record, not a shared "latest summary" that a later process
+        # (or a probe) may have replaced.
+        try:
+            evidence = pod_evidence()
+            accounting = {
+                "run_id": RUN_ID or None,
+                "verdict": summary.get("verdict") or "INCOMPLETE",
+                "pods_created": evidence.get("pods_created"),
+                "pod_ids": evidence.get("pod_ids") or [],
+                "spend_usd": evidence.get("estimated_spend_usd") or 0.0,
+                "balance_after_usd": balance_after,
+                "hourly_rate_usd": rate,
+                "finished_at": utcnow(),
+                "error": evidence.get("error"),
+            }
+            if RUN_ID:
+                _write_json(f"run-{RUN_ID}.json", accounting)
+        except Exception:  # noqa: BLE001 - accounting must never mask the run's own result
             pass
         shutil.rmtree(work, ignore_errors=True)
         print(json.dumps(summary, ensure_ascii=False, indent=1)[-4000:])
@@ -1489,6 +1756,7 @@ def independent_gui(url: str, checks: list[dict]) -> None:
 
 
 def main() -> int:
+    global RUN_ID, LIVE
     parser = argparse.ArgumentParser()
     parser.add_argument("--preflight", action="store_true")
     parser.add_argument("--prepare", action="store_true")
@@ -1505,11 +1773,30 @@ def main() -> int:
         help="prove the model with a real answer in the same Pod before the acceptance",
     )
     parser.add_argument(
+        "--prepared",
+        default="",
+        help="the monitor's fresh observation: skips the repeated free checks",
+    )
+    parser.add_argument(
+        "--startup-probe",
+        action="store_true",
+        help="measure the path to the first request and stop before sending it",
+    )
+    parser.add_argument("--run-id", default="", help="the monitor's attempt id")
+    parser.add_argument(
+        "--evidence-dir",
+        default="",
+        help="write evidence here instead of final-live (probes must never clobber a live run)",
+    )
+    parser.add_argument(
         "--max-billable-minutes", type=int, default=MAX_BILLABLE_MINUTES
     )
     parser.add_argument("--target-work-minutes", type=int, default=TARGET_WORK_MINUTES)
     parser.add_argument("--min-work-minutes", type=int, default=MIN_WORK_MINUTES)
     args = parser.parse_args()
+    RUN_ID = args.run_id or RUN_ID
+    if args.evidence_dir:
+        LIVE = Path(args.evidence_dir)
 
     if args.gpu_probe:
         print(json.dumps(gpu_probe(), ensure_ascii=False, indent=1)[:4000])
@@ -1569,6 +1856,85 @@ def main() -> int:
                 {"line": 'data: {"content": "частичный ответ модели"}'},
             ]
         )
+        fresh_prepared = {
+            "schema": 1,
+            "observed_at": utcnow(),
+            "pod_count": 0,
+            "placement": {
+                "datacenter": "US-MO-1",
+                "volume_id": "y92bt25ru8",
+                "storage_mode": "regional_network_volume",
+            },
+            "rate_usd_per_hour": 1.09,
+            "budget_usd": 2.00,
+            "requires_selftest": False,
+            "preflight": {"verdict": "READY", "checked_at": utcnow(), "report": {}},
+        }
+
+        def prepared_variant(**changes):
+            return {**fresh_prepared, **changes}
+
+        def aged(seconds: int) -> str:
+            return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat(
+                timespec="seconds"
+            )
+
+        checks += [
+            {
+                "check": "a_prepared_fast_path",
+                "ok": prepared_problem(fresh_prepared, 2.00) is None,
+            },
+            {
+                "check": "a_stale_observation_falls_back",
+                "ok": str(
+                    prepared_problem(
+                        prepared_variant(observed_at=aged(PREPARED_MAX_AGE_SECONDS + 5)), 2.00
+                    )
+                ).startswith("stale_observation"),
+            },
+            {
+                "check": "a_prepared_placement_must_match_its_datacenter",
+                "ok": prepared_problem(
+                    prepared_variant(
+                        placement={
+                            "datacenter": "US-MO-1",
+                            "volume_id": "uwgeaie5b0",
+                            "storage_mode": "regional_network_volume",
+                        }
+                    ),
+                    2.00,
+                )
+                == "placement_mismatch",
+            },
+            {
+                "check": "a_prepared_payload_with_an_existing_pod_is_refused",
+                "ok": prepared_problem(prepared_variant(pod_count=1), 2.00) == "existing_pod",
+            },
+            {
+                "check": "a_prepared_rate_without_a_work_window_is_refused",
+                "ok": prepared_problem(prepared_variant(rate_usd_per_hour=9.99), 2.00)
+                == "no_work_window",
+            },
+            {
+                "check": "a_stale_preflight_falls_back",
+                "ok": prepared_problem(
+                    prepared_variant(
+                        preflight={
+                            "verdict": "READY",
+                            "checked_at": aged(PREFLIGHT_MAX_AGE_SECONDS + 5),
+                            "report": {},
+                        }
+                    ),
+                    2.00,
+                )
+                == "preflight_too_old",
+            },
+            {
+                "check": "a_prepared_payload_above_the_budget_is_refused",
+                "ok": prepared_problem(prepared_variant(budget_usd=3.00), 2.00)
+                == "prepared_budget_above_cap",
+            },
+        ]
         checks += [
             {
                 "check": "ninety_minute_billable_ceiling",
@@ -1622,6 +1988,12 @@ def main() -> int:
         print(json.dumps(preflight(), ensure_ascii=False, indent=1))
         return 0
     if args.live:
+        prepared = None
+        if args.prepared:
+            try:
+                prepared = json.loads(Path(args.prepared).read_text(encoding="utf-8"))
+            except (OSError, ValueError) as error:
+                raise SystemExit(f"refusing: prepared payload is unreadable: {error}") from None
         return run_live(
             confirm=args.confirm,
             budget=args.budget_usd,
@@ -1630,6 +2002,8 @@ def main() -> int:
             min_work_minutes=args.min_work_minutes,
             volume=args.volume,
             self_test_mode=args.self_test_mode,
+            prepared=prepared,
+            startup_probe=args.startup_probe,
         )
     parser.print_help()
     return 0

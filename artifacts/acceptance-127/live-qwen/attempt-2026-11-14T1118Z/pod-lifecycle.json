@@ -1,0 +1,130 @@
+{
+ "verdict": "CAPACITY_UNAVAILABLE",
+ "plan": {
+  "budget_usd": 2.0,
+  "hourly_rate_usd": 1.09,
+  "billing_granularity_seconds": 60,
+  "termination_grace_seconds": 30,
+  "watchdog_margin_seconds": 10,
+  "watchdog_poll_seconds": 5,
+  "capacity_timeout_seconds": 60,
+  "requested_max_billed_seconds": 5400,
+  "max_billed_seconds": 5400,
+  "hard_wall_seconds": 5370,
+  "stop_request_seconds": 5360,
+  "target_work_seconds": 4800,
+  "worst_case_usd": 1.635,
+  "budget_headroom_usd": 0.365,
+  "budget_limited": false,
+  "time_limited": true,
+  "min_work_seconds": 2700,
+  "feasible": true,
+  "sufficient": true,
+  "reasons": []
+ },
+ "events": [
+  {
+   "at_seconds": 0.38,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 6.08,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 11.72,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 17.05,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 22.38,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 27.7,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 33.0,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 38.33,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 43.69,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 49.44,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 54.75,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 60.08,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 65.39,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 71.02,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 76.81,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 82.55,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 87.94,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 93.27,
+   "kind": "no-pod",
+   "detail": ""
+  }
+ ],
+ "billed_seconds": 0.0,
+ "estimated_cost_usd": 0.0,
+ "stop_requested_at": null,
+ "termination_confirmed": false,
+ "pods_remaining": 0,
+ "reasons": [
+  "no Pod exists: nothing to supervise and nothing to spend"
+ ],
+ "balance_before_usd": 7.2886862365,
+ "balance_after_usd": 7.2886862365,
+ "sleep_prevented": true,
+ "runner_pid": 0,
+ "observed_at": "2026-11-14T11:10:19+00:00"
+}
