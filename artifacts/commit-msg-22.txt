@@ -1,0 +1,12 @@
+Recover a lost stream against the same paid Pod
+
+A read timeout on the SSE client does not prove the model stopped working: the
+backend continues a turn detached when its client disconnects. The harness now
+waits a bounded 90 seconds against the same Pod for a terminal task state
+before it collects evidence and stops compute, so a network hiccup cannot turn
+a working paid generation into a discarded one.
+
+The self-test covers a delayed first token, a stalled stream, the global
+deadline (typed and bounded), and a progress heartbeat that must never count as
+a model response. A loopback connection abort is retried once in the test
+client only; the production client never replays a generation.

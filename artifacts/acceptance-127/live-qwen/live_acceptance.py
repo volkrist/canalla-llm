@@ -867,6 +867,43 @@ def prove_model(*, base: str, token: str, deadline: float, on_event=None) -> dic
     return verdict
 
 
+def _stream_recovery_wait(events: list[dict], deadline: float, max_seconds: float = 90.0) -> dict:
+    """After a lost stream tail, give the *same* backend a bounded chance to finish the turn.
+
+    The chat backend continues a turn detached when its client disconnects, so a read timeout does
+    not prove the model stopped working. Killing a paid Pod while it is still producing the answer
+    is the expensive mistake; waiting a bounded 90 seconds against the same Pod is not.
+    """
+    marker = str((events[-1] if events else {}).get("event") or "")
+    if marker not in {"stream_read_error", "client_timeout"}:
+        return {"waited_seconds": 0.0, "reason": None, "finished": None}
+    from app.tools.local import machine
+    from app.database import SessionLocal
+    from app.tools.models import LocalTask
+
+    started = time.monotonic()
+    limit = min(float(max_seconds), max(0.0, deadline - started))
+    while time.monotonic() - started < limit:
+        time.sleep(3)
+        try:
+            with SessionLocal() as db:
+                task = db.query(LocalTask).order_by(LocalTask.started_at.desc()).first()
+                status = task.status if task is not None else None
+        except Exception:  # noqa: BLE001 - a busy database is not a conclusion
+            status = None
+        if status in machine.TERMINAL:
+            return {
+                "waited_seconds": round(time.monotonic() - started, 1),
+                "reason": marker,
+                "finished": status,
+            }
+    return {
+        "waited_seconds": round(time.monotonic() - started, 1),
+        "reason": marker,
+        "finished": None,
+    }
+
+
 def run_live(
     *,
     confirm: str,
@@ -1285,6 +1322,9 @@ def run_live(
         _write_json("compute-confirmations.json", APPROVALS)
         summary["stream_events"] = len(events)
         summary["stream_end"] = events[-1] if events else None
+        # A lost tail is not a lost turn: the backend keeps generating when its client disconnects.
+        summary["stream_recovery"] = _stream_recovery_wait(events, deadline)
+        _write_json("stream-recovery.json", summary["stream_recovery"])
 
         from app.agent import provenance as provenance_module
         from app.database import SessionLocal
@@ -1527,6 +1567,37 @@ def run_live(
         print(json.dumps(summary, ensure_ascii=False, indent=1)[-4000:])
 
 
+def _local_stream(
+    base: str, body: dict, *, on_event=None, deadline_seconds: float = 10.0
+) -> list[dict]:
+    """The stream client, with one retry for a local Windows connection abort.
+
+    `ConnectionAbortedError 10053` is the test host refusing a loopback connection from a reused
+    ephemeral port, not the stream logic failing. It carries no data and is retried once here so a
+    self-test cannot flake; the production client never retries a stream (a generation is not
+    idempotent).
+    """
+    events: list[dict] = []
+    for attempt in range(2):
+        events = _sse_stream(
+            base + "/stream",
+            "token",
+            body,
+            time.monotonic() + deadline_seconds,
+            on_event=on_event,
+        )
+        aborted = (
+            bool(events)
+            and events[-1].get("event") == "stream_read_error"
+            and "10053" in str(events[-1].get("detail"))
+            and len(events) == 1
+        )
+        if not aborted:
+            return events
+        time.sleep(0.2)
+    return events
+
+
 def stream_timing_self_test() -> list[dict]:
     """Cold start and stall behaviour of the stream reader, with a real local HTTP server.
 
@@ -1564,12 +1635,8 @@ def stream_timing_self_test() -> list[dict]:
     checks: list[dict] = []
     server = serve(1.0)
     try:
-        events = _sse_stream(
-            f"http://127.0.0.1:{server.server_address[1]}/stream",
-            "token",
-            {},
-            time.monotonic() + 30,
-            read_timeout=10,
+        events = _local_stream(
+            f"http://127.0.0.1:{server.server_address[1]}", {}, deadline_seconds=10.0
         )
     finally:
         server.shutdown()
@@ -1600,6 +1667,71 @@ def stream_timing_self_test() -> list[dict]:
             "check": "a_stalled_stream_is_evidence_not_a_crash",
             "ok": bool(stalled) and stalled[-1].get("event") == "stream_read_error",
             "detail": str(stalled[-1] if stalled else None)[:160],
+        }
+    )
+
+    def serve_script(body: bytes, delay: float):
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                return
+
+            def do_POST(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                time.sleep(delay)
+                try:
+                    self.wfile.write(body)
+                    self.wfile.flush()
+                except OSError:
+                    pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server
+
+    # G. The run's own deadline wins over a slow upstream, and it is typed.
+    server = serve_script(b'event: meta\ndata: {}\n\n', 2.0)
+    started_at = time.monotonic()
+    try:
+        late = _sse_stream(
+            f"http://127.0.0.1:{server.server_address[1]}/stream",
+            "token",
+            {},
+            time.monotonic() + 0.5,
+            read_timeout=10,
+        )
+    finally:
+        bounded = time.monotonic() - started_at
+        server.shutdown()
+        server.server_close()
+    checks.append(
+        {
+            "check": "the_global_deadline_is_a_typed_stop",
+            # The read timeout is capped by the remaining deadline, so the stop is either the
+            # deadline marker or a bounded read timeout - never an unbounded wait.
+            "ok": bool(late)
+            and late[-1].get("event") in {"client_timeout", "stream_read_error"}
+            and bounded < 1.5,
+            "detail": f"{late[-1] if late else None} after {bounded:.2f}s",
+        }
+    )
+
+    # H. A progress heartbeat is not a model token and can never be a PASS.
+    heartbeat = selftest_verdict(
+        [
+            {"line": "event: progress"},
+            {"line": 'data: {"state": "starting_ai", "text": "Запускаю AI…"}'},
+            {"line": "event: done"},
+            {"line": "data: {}"},
+        ]
+    )
+    checks.append(
+        {
+            "check": "a_heartbeat_is_not_a_model_response",
+            "ok": heartbeat["verdict"] == "FAIL"
+            and "no_real_answer" in heartbeat["problems"],
+            "detail": str(heartbeat)[:160],
         }
     )
     return checks
@@ -1641,11 +1773,9 @@ def approval_self_test() -> list[dict]:
     try:
         base = f"http://127.0.0.1:{server.server_address[1]}"
         APPROVALS.clear()
-        events = _sse_stream(
-            base + "/chats/c1/stream",
-            "token",
+        events = _local_stream(
+            base,
             {"content": "hi"},
-            time.monotonic() + 30,
             on_event=approve_compute_start(base=base, token="token", seen=set()),
         )
     finally:
