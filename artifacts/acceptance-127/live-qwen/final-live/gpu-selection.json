@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-14T07:48:02+00:00",
+ "generated_at": "2026-11-14T07:48:35+00:00",
  "read_only": true,
  "budget_usd": 2.0,
  "minimum_vram_gb": 48,
@@ -89,8 +89,7 @@
    "hourly_price_usd": 2.09,
    "tier": "secure",
    "datacenters": {
-    "CA-MTL-3": "LOW",
-    "EU-RO-1": "LOW"
+    "CA-MTL-3": "LOW"
    }
   },
   {
@@ -185,7 +184,8 @@
    "hourly_price_usd": 1.09,
    "tier": "secure",
    "datacenters": {
-    "EUR-IS-2": "LOW"
+    "EUR-IS-2": "LOW",
+    "US-TX-4": "LOW"
    }
   },
   {
