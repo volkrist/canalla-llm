@@ -1869,21 +1869,11 @@ def run_independent_checks(workspace: Path, summary: dict) -> tuple[list[dict], 
     tests = [name for name in python_files if name.startswith("test_")]
     check("tests_were_written", bool(tests), tests)
 
-    completed = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q"],
-        cwd=str(workspace),
-        capture_output=True,
-        text=True,
-        timeout=900,
-        # The harness itself imported `app` from the backend. Without an explicit PYTHONPATH the
-        # child inherited that path, and the model's own `app.py` was shadowed by the product's
-        # `app` package: a correct test module failed with `cannot import name create_app from
-        # app`. The workspace is the only import root for the application under test.
-        env={**os.environ, "PYTHONPATH": str(workspace), "PYTHONDONTWRITEBYTECODE": "1"},
-    )
+    completed, _test_cwd = _run_workspace_tests(workspace)
     payloads["http-check.json"] = {
         "pytest_exit_code": completed.returncode,
         "pytest_tail": (completed.stdout or "")[-1000:],
+        "pytest_cwd": str(_test_cwd),
     }
     check("tests_pass", completed.returncode == 0, (completed.stdout or "")[-300:])
 
@@ -2048,6 +2038,45 @@ def _serve_script() -> Path:
     path.write_text(SERVE_APP_SOURCE, encoding="utf-8")
     _SERVE_SCRIPT = path
     return path
+
+
+def _run_workspace_tests(workspace: Path):
+    """Run the project's tests the way its own layout expects.
+
+    A package layout (`taskdesk/app/__init__.py` + `taskdesk/tests/`) imports `app` from the
+    package directory: `cd taskdesk && pytest` is green (14 passed in the e1845955 run), while the
+    same suite from the workspace root cannot import `app` at all. The verifier used to run only
+    from the root and failed a passing suite. The workspace root is tried first, then each
+    immediate child that holds a `tests/` directory, bounded.
+
+    The backend is installed editable in this venv, so `app` is always importable as the product's
+    own package; the child's cwd must win. `PYTHONPATH` also contains the workspace so a test can
+    import the project by its package name.
+    """
+    candidates = [workspace]
+    for child in sorted(workspace.iterdir()):
+        if child.is_dir() and (child / "tests").is_dir():
+            candidates.append(child)
+            if len(candidates) >= 4:
+                break
+    last = None
+    for cwd in candidates:
+        completed = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q"],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=900,
+            env={
+                **os.environ,
+                "PYTHONPATH": os.pathsep.join([str(cwd), str(workspace)]),
+                "PYTHONDONTWRITEBYTECODE": "1",
+            },
+        )
+        if completed.returncode == 0:
+            return completed, cwd
+        last = (completed, cwd)
+    return last
 
 
 def _app_candidates(workspace: Path) -> list[str]:
