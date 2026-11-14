@@ -950,6 +950,11 @@ class ToolExecutor:
             raise ToolError(code) from None
 
     async def wait_confirmation(self, run_id, context):
+        # A person may take minutes to answer. The chat stream is the same SSE connection, and a
+        # client that sees no event for its read budget closes it: a live acceptance then recorded
+        # INTERRUPTED while the task was only waiting for a click. One bounded progress event is
+        # enough to keep the turn alive without pretending the tool ran.
+        last_notice = time.monotonic()
         while True:
             with SessionLocal() as db:
                 row = db.get(ToolRun, run_id)
@@ -959,6 +964,18 @@ class ToolExecutor:
                     raise ToolError("confirmation_expired")
                 if row.status == "approved":
                     return
+            if time.monotonic() - last_notice >= 15:
+                last_notice = time.monotonic()
+                try:
+                    await context.emit(
+                        "progress",
+                        {
+                            "state": "waiting_confirmation",
+                            "text": "Ожидаю подтверждение действия",
+                        },
+                    )
+                except Exception:  # noqa: BLE001 - a notice is never a reason to fail the wait
+                    pass
             await asyncio.sleep(0.25)
 
     async def wait_host(self, run_id, context):
