@@ -753,8 +753,8 @@ def run_pass(
         state = result.get("state") or {}
         if state.get("retry_after_seconds"):
             break
-        if _is_terminal(state):
-            break
+        # A terminal outcome ends the *paid* path, not the checks. The owner asked for a 30-second
+        # cadence that never stops, and a second check per pass is what keeps it at 30 s.
     return results
 
 

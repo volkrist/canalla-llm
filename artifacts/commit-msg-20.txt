@@ -1,0 +1,11 @@
+Survive a cold model load in the live stream
+
+The SSE reader used a 30-second socket timeout as if it were the run's
+deadline. The first token after loading a 27B model on a fresh Pod takes
+longer than that, so a paid attempt died with TimeoutError at the moment its
+model became ready - after the Pod had been created and billed.
+
+The read timeout is now a 300-second stall detector, a lost stream tail is
+recorded as evidence instead of raised, and any unexpected exception writes a
+CRASHED verdict with its reason before the cleanup runs. The watchdog is given
+the runner's pid, and a terminal outcome no longer halves the check cadence.

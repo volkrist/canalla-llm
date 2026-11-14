@@ -579,6 +579,30 @@ def run_self_test() -> int:
             detail=str(delays),
         )
 
+        # ---- a terminal outcome does not stop the 30-second cadence -----------------------------
+        rdir = root / "case_terminal_pass"
+        state = M.load_state(rdir)
+        state["live_execution_state"] = "FAILED"
+        state["paid_run_already_attempted"] = True
+        state["last_gpu_status"] = "UNAVAILABLE"
+        M.save_json(rdir / "state.json", state)
+        results = M.run_pass(
+            provider_factory=lambda: _provider(
+                availability_by_dc={"US-MO-1": "NONE", "US-TX-3": "NONE"}
+            ),
+            rdir=rdir,
+            checks=2,
+            gap=30,
+            sleep=lambda _seconds: None,
+            warm=False,
+        )
+        rows = (rdir / "checks.jsonl").read_text(encoding="utf-8").strip().splitlines()
+        check(
+            "a_terminal_outcome_keeps_two_checks_per_pass",
+            len(results) == 2 and len(rows) == 2,
+            detail=f"rows={len(rows)}",
+        )
+
         # ---- a pass after a sighting keeps the free preflight warm -------------------------------
         rdir = root / "case_warm"
         state = M.load_state(rdir)

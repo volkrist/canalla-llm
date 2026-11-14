@@ -1,0 +1,15 @@
+{
+ "captured_at": "2026-11-14T11:33:44+00:00",
+ "placement": {
+  "datacenter": "US-MO-1",
+  "volume_id": "y92bt25ru8",
+  "storage_mode": "regional_network_volume"
+ },
+ "model_state": "VERIFIED",
+ "model_reason": "replica_ready_with_real_model_answer",
+ "selftest_required": false,
+ "budget_usd": 2.0,
+ "hourly_rate_usd": 1.09,
+ "verdict": null,
+ "reasons": null
+}

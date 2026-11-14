@@ -1,0 +1,13 @@
+{
+ "run_id": "daa28fd1b40a4c119d14af523383ff22",
+ "verdict": "INCOMPLETE",
+ "pods_created": 1,
+ "pod_ids": [
+  "enrm4o02n87wkq"
+ ],
+ "spend_usd": 0.0957,
+ "balance_after_usd": 7.1111568689,
+ "hourly_rate_usd": 1.09,
+ "finished_at": "2026-11-14T11:33:45+00:00",
+ "error": null
+}

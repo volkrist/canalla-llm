@@ -26,6 +26,7 @@ the approved budget. An external watchdog starts before the request and stops th
 from __future__ import annotations
 
 import argparse
+import http.client as http_client
 import json
 import os
 import secrets
@@ -91,6 +92,10 @@ MAX_BILLABLE_MINUTES = 90
 TARGET_WORK_MINUTES = 80
 MIN_WORK_MINUTES = 45
 SELFTEST_TIMEOUT_SECONDS = 900
+# A read timeout is a *stall detector*, not the run's deadline: the first token after a cold model
+# load can take far longer than 30 s, and the run's own deadline plus the watchdog already bound the
+# attempt. The old 30-second value killed a paid run the moment its model became ready.
+SSE_READ_TIMEOUT_SECONDS = 300
 SCENARIO = (
     "Создай полноценное локальное веб-приложение TaskDesk для управления задачами.\n\n"
     "Приложение должно иметь:\n"
@@ -488,26 +493,36 @@ def _sse_stream(url: str, token: str, body: dict, deadline: float, on_event=None
     )
     events: list[dict] = []
     current = None
-    with urllib.request.urlopen(request, timeout=30) as response:
-        for raw in response:
-            if time.monotonic() > deadline:
-                events.append({"event": "client_timeout"})
-                break
-            line = raw.decode("utf-8", "replace").strip()
-            if not line or line.startswith(":"):
-                continue
-            events.append({"line": line[:400]})
-            if line.startswith("event: "):
-                current = line[len("event: ") :].strip()
-            elif line.startswith("data: ") and on_event is not None:
-                try:
-                    payload = json.loads(line[len("data: ") :])
-                except ValueError:
+    try:
+        with urllib.request.urlopen(request, timeout=SSE_READ_TIMEOUT_SECONDS) as response:
+            for raw in response:
+                if time.monotonic() > deadline:
+                    events.append({"event": "client_timeout"})
+                    break
+                line = raw.decode("utf-8", "replace").strip()
+                if not line or line.startswith(":"):
                     continue
-                try:
-                    on_event(current, payload)
-                except Exception:  # noqa: BLE001 - a failed reaction must not kill the stream
-                    continue
+                events.append({"line": line[:400]})
+                if line.startswith("event: "):
+                    current = line[len("event: ") :].strip()
+                elif line.startswith("data: ") and on_event is not None:
+                    try:
+                        payload = json.loads(line[len("data: ") :])
+                    except ValueError:
+                        continue
+                    try:
+                        on_event(current, payload)
+                    except Exception:  # noqa: BLE001 - a failed reaction must not kill the stream
+                        continue
+    except (TimeoutError, OSError, http_client.HTTPException) as error:
+        # A lost tail is evidence, not a crash. Whatever the server already persisted stays
+        # inspectable, and the verdict is still computed from the database and the workspace.
+        events.append(
+            {
+                "event": "stream_read_error",
+                "detail": f"{type(error).__name__}: {error}"[:200],
+            }
+        )
     return events
 
 
@@ -1190,6 +1205,8 @@ def run_live(
                 str(max_billable_minutes),
                 "--wait-for-pod-seconds",
                 "90",
+                "--runner-pid",
+                str(os.getpid()),
                 "--out",
                 str(watchdog_out),
             ],
@@ -1379,6 +1396,23 @@ def run_live(
         summary.update(pod_evidence())
         _write_json("final-summary.json", summary)
         return 0 if summary["verdict"] == "PASS" else 1
+    except SystemExit:
+        raise
+    except Exception as error:  # noqa: BLE001 - a typed verdict, never a silent death
+        # A crash after the Pod exists must still leave a verdict and the accounting. Without this,
+        # the run wrote only `run-<id>.json` with `INCOMPLETE`, and the reason lived in a log nobody
+        # read. This is the path that the 30-second SSE timeout took.
+        summary["verdict"] = "CRASHED"
+        summary["reasons"] = [f"{type(error).__name__}: {error}"[:300]]
+        try:
+            summary.update(pod_evidence())
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            _write_json("final-summary.json", summary)
+        except Exception:  # noqa: BLE001 - the finally block still records the accounting
+            pass
+        return 1
     finally:
         # The watchdog owns the Pod stop; the harness only confirms it and stops anything it can.
         if watchdog is not None:
@@ -1933,6 +1967,24 @@ def main() -> int:
                 "check": "a_prepared_payload_above_the_budget_is_refused",
                 "ok": prepared_problem(prepared_variant(budget_usd=3.00), 2.00)
                 == "prepared_budget_above_cap",
+            },
+        ]
+
+        # A lost stream tail is evidence, never an exception: the 30-second read timeout killed a
+        # paid run at the moment its model became ready.
+        lost = _sse_stream(
+            "http://127.0.0.1:1/none", "token", {"content": "x"}, time.monotonic() + 5
+        )
+        checks += [
+            {
+                "check": "a_lost_stream_is_evidence_not_a_crash",
+                "ok": bool(lost) and lost[-1].get("event") == "stream_read_error",
+                "detail": str(lost[-1] if lost else None)[:160],
+            },
+            {
+                "check": "the_stream_read_timeout_outlives_a_cold_first_token",
+                "ok": SSE_READ_TIMEOUT_SECONDS >= 180,
+                "detail": str(SSE_READ_TIMEOUT_SECONDS),
             },
         ]
         checks += [
