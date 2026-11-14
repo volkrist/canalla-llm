@@ -850,16 +850,18 @@ class ToolExecutor:
                         # file it actually wrote; a missing digest is still a failed write.
                         if not re.fullmatch(r"[0-9a-fA-F]{64}", actual):
                             raise ToolError("write_verification_failed")
+                        expected_sha256 = actual
                     else:
                         intended = (getattr(args, "content", "") or "").encode("utf-8")
-                        expected_sha = hashlib.sha256(intended).hexdigest()
-                        if actual != expected_sha:
+                        expected_sha256 = hashlib.sha256(intended).hexdigest()
+                        if actual != expected_sha256:
                             raise ToolError("write_verification_failed")
                     result.metadata = {
                         **(result.metadata or {}),
-                        "expected_sha256": expected_sha,
+                        "expected_sha256": expected_sha256,
                         "actual_sha256": actual,
                         "verified": True,
+                        "mode": getattr(args, "mode", "overwrite"),
                         "content_excerpt": (getattr(args, "content", "") or "")[:1500],
                     }
                 result.text = sanitized(

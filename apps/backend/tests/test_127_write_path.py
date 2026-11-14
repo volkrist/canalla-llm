@@ -185,6 +185,12 @@ def test_the_model_can_write_a_real_file_and_recover_from_a_bad_call(client, aut
     ]
     assert appended, "the append calls reached the model as real tool results"
     assert not any("write_verification_failed" in text for text in planner.seen.values())
+    # The host writes the merged file before the executor's own bookkeeping runs. A crash in that
+    # bookkeeping (an undefined expected digest) still left the right bytes on disk and reported
+    # `provider_unavailable`, so the file assertion alone cannot catch it.
+    assert not any("provider_unavailable" in text for text in planner.seen.values()), [
+        text for text in planner.seen.values() if "provider_unavailable" in text
+    ]
 
     # -- 7. the model could read back what it wrote
     assert '"text"' in planner.seen[8]
