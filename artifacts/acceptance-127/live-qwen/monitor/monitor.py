@@ -1539,16 +1539,27 @@ def _pod_id_from_evidence(run_id: str | None = None) -> str | None:
 def _remaining_pods() -> list[dict] | None:
     """A read-only confirmation after the run. ``None`` means the answer is unknown, not clean.
 
+    A *single* empty list is not proof. The provider's read path is eventually consistent, and the
+    4a6f3cb settlement saw zero Pods while a live one was still billing; the monitor then looked
+    free to start another. Empty is confirmed by a second read.
+
     Termination itself belongs to the harness and its external watchdog; this monitor never kills a
     Pod it cannot attribute, because the provider account is shared with other installations.
     """
-    try:
-        provider = RealProvider()
-        return provider.pods()
-    except ProviderUnavailable:
+    def read() -> list[dict] | None:
+        try:
+            return RealProvider().pods()
+        except (ProviderUnavailable, OSError):
+            return None
+
+    first = read()
+    if first is None or first:
+        return first
+    time.sleep(2)
+    second = read()
+    if second is None:
         return None
-    except OSError:
-        return None
+    return second
 
 
 def _run_json(command: list[str], *, timeout: float) -> dict:

@@ -1527,6 +1527,12 @@ def run_live(
             pass
         time.sleep(3)
         final_pods = pods_state()
+        if not final_pods.get("pod_count"):
+            # One empty read is not evidence of termination: the provider's read path is
+            # eventually consistent and one attempt reported CLEAN while its Pod was still
+            # billing. A second read, a few seconds later, is the confirmation.
+            time.sleep(6)
+            final_pods = pods_state()
         _write_json(
             "cleanup.json",
             {
@@ -1930,20 +1936,106 @@ def run_independent_checks(workspace: Path, summary: dict) -> tuple[list[dict], 
     }
     check("no_duplicate_tool_payloads", not duplicates, list(duplicates)[:5])
 
-    # SQLite: the application's own database must contain rows after the GUI/API work.
+    # SQLite: presence first, rows after the verifier itself has used the API. A fresh
+    # application legitimately has an empty table, so "no rows yet" is not a failure - "no row
+    # after a successful create" is.
     databases = [path for path in workspace.rglob("*.db") if path.is_file()]
     database_check: dict = {
         "databases": [str(path.name) for path in databases],
         "tables": {},
     }
-    rows_found = False
-    for path in databases[:5]:
-        import sqlite3
+    check("sqlite_database_present", bool(databases), database_check["databases"])
 
-        try:
-            connection = sqlite3.connect(
-                "file:" + path.as_posix() + "?mode=ro", uri=True
+    # The contract is "a working app", not one filename. A real model named its module `app.py`
+    # (the conventional Flask name), and the verifier then reported `main.py missing` about an app
+    # it never tried to start. Try the conventional module and attribute names, bounded.
+    modules = [
+        name[:-3] for name in ("main.py", "app.py", "server.py") if (workspace / name).is_file()
+    ]
+    http_check: dict = {"started_by_harness": False, "status": None, "module": None}
+    if modules:
+        served = False
+        for module in modules:
+            for attribute in ("app", "application"):
+                port = free_port()
+                process = subprocess.Popen(
+                    [
+                        sys.executable,
+                        "-m",
+                        "uvicorn",
+                        f"{module}:{attribute}",
+                        "--host",
+                        "127.0.0.1",
+                        "--port",
+                        str(port),
+                        "--log-level",
+                        "warning",
+                    ],
+                    cwd=str(workspace),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                try:
+                    ok = False
+                    for _ in range(150):
+                        try:
+                            status, _ = http("GET", f"http://127.0.0.1:{port}/")
+                            http_check.update(
+                                {
+                                    "status": status,
+                                    "url": f"http://127.0.0.1:{port}/",
+                                    "module": f"{module}:{attribute}",
+                                }
+                            )
+                            if status == 200:
+                                ok = True
+                                break
+                        except OSError:
+                            pass
+                        time.sleep(0.2)
+                    if ok:
+                        check("application_serves_http", True, f"127.0.0.1:{port}")
+                        http_check["started_by_harness"] = True
+                        independent_gui(f"http://127.0.0.1:{port}/", checks)
+                        _create_task_over_http(f"http://127.0.0.1:{port}/", http_check)
+                        served = True
+                finally:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                if served:
+                    break
+            if served:
+                break
+        if not served:
+            check(
+                "application_serves_http",
+                False,
+                "no module/attribute answered 200: " + ", ".join(modules),
             )
+    else:
+        check("application_serves_http", False, "no ASGI module (main.py/app.py/server.py)")
+    payloads["http-check.json"].update(http_check)
+    rows_found = _scan_databases(workspace, database_check)
+    payloads["database-check.json"] = database_check
+    check(
+        "database_contains_task_rows",
+        bool(rows_found and http_check.get("created_task", {}).get("status", 0) // 100 == 2),
+        database_check["tables"],
+    )
+    return checks, payloads
+
+
+def _scan_databases(workspace: Path, database_check: dict) -> bool:
+    """Read every workspace database read-only; True when a task table has a row."""
+    import sqlite3
+
+    rows_found = False
+    for path in [item for item in workspace.rglob("*.db") if item.is_file()][:5]:
+        try:
+            connection = sqlite3.connect("file:" + path.as_posix() + "?mode=ro", uri=True)
         except sqlite3.Error:
             continue
         try:
@@ -1965,57 +2057,28 @@ def run_independent_checks(workspace: Path, summary: dict) -> tuple[list[dict], 
                     rows_found = True
         finally:
             connection.close()
-    payloads["database-check.json"] = database_check
-    check("database_contains_task_rows", rows_found, database_check["tables"])
+    return rows_found
 
-    main = workspace / "main.py"
-    http_check: dict = {"started_by_harness": False, "status": None}
-    if main.is_file():
-        port = free_port()
-        process = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "uvicorn",
-                "main:app",
-                "--host",
-                "127.0.0.1",
-                "--port",
-                str(port),
-                "--log-level",
-                "warning",
-            ],
-            cwd=str(workspace),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+
+def _create_task_over_http(base: str, http_check: dict) -> None:
+    """The verifier creates a real row through the app's own API before looking at SQLite."""
+    for path in ("/tasks", "/api/tasks"):
         try:
-            ok = False
-            for _ in range(150):
-                try:
-                    status, _ = http("GET", f"http://127.0.0.1:{port}/")
-                    http_check.update(
-                        {"status": status, "url": f"http://127.0.0.1:{port}/"}
-                    )
-                    if status == 200:
-                        ok = True
-                        break
-                except OSError:
-                    pass
-                time.sleep(0.2)
-            check("application_serves_http", ok, f"127.0.0.1:{port}")
-            http_check["started_by_harness"] = True
-            independent_gui(f"http://127.0.0.1:{port}/", checks)
-        finally:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-    else:
-        check("application_serves_http", False, "main.py missing")
-    payloads["http-check.json"].update(http_check)
-    return checks, payloads
+            status, payload = http(
+                "POST",
+                base.rstrip("/") + path,
+                {"title": "Canalla independent check", "description": "created by the verifier"},
+                timeout=10,
+            )
+        except OSError:
+            continue
+        http_check["created_task"] = {
+            "path": path,
+            "status": status,
+            "payload": payload if isinstance(payload, dict) else {},
+        }
+        if 200 <= status < 300:
+            return
 
 
 def independent_gui(url: str, checks: list[dict]) -> None:
