@@ -1445,7 +1445,16 @@ class LocalTaskController:
             verdict = SecurityAssessment(None).verdict(row)
             if not verdict["ok"]:
                 missing.append(verdict["reason"] or "security_assessment_required")
-        if needs_research(row.original_user_request) and not (
+        # A research *hint* in a coding request is not a deliverable, and with the web disabled it
+        # is not even possible. The 71a9f3db build wrote, ran and browser-verified its app and was
+        # still refused completion with `sources_missing` because the request contained the word
+        # «документацию». Sources are required when research was used, or when the task itself is a
+        # research task - never as an impossible condition inside a build.
+        research_used = any(
+            str(item.get("tool") or "").startswith(("web_", "tor_"))
+            for item in ((row.checkpoint or {}).get("commands") or [])
+        )
+        if (research_used or not coding) and needs_research(row.original_user_request) and not (
             facts.get("source_count")
             or any(item.get("kind") == "RESEARCH_SOURCE" for item in facts.get("verified") or [])
         ):

@@ -1875,6 +1875,11 @@ def run_independent_checks(workspace: Path, summary: dict) -> tuple[list[dict], 
         capture_output=True,
         text=True,
         timeout=900,
+        # The harness itself imported `app` from the backend. Without an explicit PYTHONPATH the
+        # child inherited that path, and the model's own `app.py` was shadowed by the product's
+        # `app` package: a correct test module failed with `cannot import name create_app from
+        # app`. The workspace is the only import root for the application under test.
+        env={**os.environ, "PYTHONPATH": str(workspace), "PYTHONDONTWRITEBYTECODE": "1"},
     )
     payloads["http-check.json"] = {
         "pytest_exit_code": completed.returncode,
@@ -1946,77 +1951,58 @@ def run_independent_checks(workspace: Path, summary: dict) -> tuple[list[dict], 
     }
     check("sqlite_database_present", bool(databases), database_check["databases"])
 
-    # The contract is "a working app", not one filename. A real model named its module `app.py`
-    # (the conventional Flask name), and the verifier then reported `main.py missing` about an app
-    # it never tried to start. Try the conventional module and attribute names, bounded.
-    modules = [
-        name[:-3] for name in ("main.py", "app.py", "server.py") if (workspace / name).is_file()
-    ]
+    # The contract is "a working app", not one filename or one construction style. Real models
+    # produced a Flask app in `taskdesk/app.py` with a `create_app()` factory, and the verifier
+    # reported `main.py missing` about an app it never tried to start. Candidates are discovered
+    # from the sources, and the launcher accepts a module-level app or a factory, ASGI or WSGI.
+    candidates = _app_candidates(workspace)
     http_check: dict = {"started_by_harness": False, "status": None, "module": None}
-    if modules:
-        served = False
-        for module in modules:
-            for attribute in ("app", "application"):
-                port = free_port()
-                process = subprocess.Popen(
-                    [
-                        sys.executable,
-                        "-m",
-                        "uvicorn",
-                        f"{module}:{attribute}",
-                        "--host",
-                        "127.0.0.1",
-                        "--port",
-                        str(port),
-                        "--log-level",
-                        "warning",
-                    ],
-                    cwd=str(workspace),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+    served = False
+    for module in candidates:
+        port = free_port()
+        process = subprocess.Popen(
+            [sys.executable, str(_serve_script()), module, str(port)],
+            cwd=str(workspace),
+            env={**os.environ, "PYTHONPATH": str(workspace), "PYTHONDONTWRITEBYTECODE": "1"},
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            for _ in range(150):
                 try:
-                    ok = False
-                    for _ in range(150):
-                        try:
-                            status, _ = http("GET", f"http://127.0.0.1:{port}/")
-                            http_check.update(
-                                {
-                                    "status": status,
-                                    "url": f"http://127.0.0.1:{port}/",
-                                    "module": f"{module}:{attribute}",
-                                }
-                            )
-                            if status == 200:
-                                ok = True
-                                break
-                        except OSError:
-                            pass
-                        time.sleep(0.2)
-                    if ok:
-                        check("application_serves_http", True, f"127.0.0.1:{port}")
-                        http_check["started_by_harness"] = True
-                        independent_gui(f"http://127.0.0.1:{port}/", checks)
-                        _create_task_over_http(f"http://127.0.0.1:{port}/", http_check)
+                    status, _ = http("GET", f"http://127.0.0.1:{port}/")
+                    http_check.update(
+                        {
+                            "status": status,
+                            "url": f"http://127.0.0.1:{port}/",
+                            "module": module,
+                        }
+                    )
+                    if status == 200:
                         served = True
-                finally:
-                    process.terminate()
-                    try:
-                        process.wait(timeout=10)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                if served:
-                    break
+                        break
+                except OSError:
+                    pass
+                time.sleep(0.2)
             if served:
-                break
-        if not served:
-            check(
-                "application_serves_http",
-                False,
-                "no module/attribute answered 200: " + ", ".join(modules),
-            )
-    else:
-        check("application_serves_http", False, "no ASGI module (main.py/app.py/server.py)")
+                check("application_serves_http", True, f"127.0.0.1:{port} via {module}")
+                http_check["started_by_harness"] = True
+                independent_gui(f"http://127.0.0.1:{port}/", checks)
+                _create_task_over_http(f"http://127.0.0.1:{port}/", http_check)
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        if served:
+            break
+    if not served:
+        check(
+            "application_serves_http",
+            False,
+            "no app started: " + (", ".join(candidates) or "no app module discovered"),
+        )
     payloads["http-check.json"].update(http_check)
     rows_found = _scan_databases(workspace, database_check)
     payloads["database-check.json"] = database_check
@@ -2026,6 +2012,64 @@ def run_independent_checks(workspace: Path, summary: dict) -> tuple[list[dict], 
         database_check["tables"],
     )
     return checks, payloads
+
+
+SERVE_APP_SOURCE = '''
+"""Start the app under test: module-level app or create_app(), ASGI or WSGI."""
+import importlib
+import sys
+
+module_name = sys.argv[1]
+port = int(sys.argv[2])
+module = importlib.import_module(module_name)
+app = getattr(module, "app", None) or getattr(module, "application", None)
+if app is None and hasattr(module, "create_app"):
+    app = module.create_app()
+if app is None:
+    raise SystemExit(3)
+if hasattr(app, "router"):
+    import uvicorn
+
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+else:
+    from werkzeug.serving import run_simple
+
+    run_simple("127.0.0.1", port, app, use_reloader=False, use_debugger=False)
+'''
+
+_SERVE_SCRIPT: Path | None = None
+
+
+def _serve_script() -> Path:
+    global _SERVE_SCRIPT
+    if _SERVE_SCRIPT is not None and _SERVE_SCRIPT.is_file():
+        return _SERVE_SCRIPT
+    path = Path(tempfile.gettempdir()) / "canalla_serve_app.py"
+    path.write_text(SERVE_APP_SOURCE, encoding="utf-8")
+    _SERVE_SCRIPT = path
+    return path
+
+
+def _app_candidates(workspace: Path) -> list[str]:
+    """Modules that plausibly construct an app, from the sources themselves.
+
+    A real model used the conventional Flask factory layout (`taskdesk/app.py` with
+    `create_app()`), which no fixed filename list covers.
+    """
+    candidates: list[str] = []
+    for path in sorted(workspace.rglob("*.py")):
+        parts = path.relative_to(workspace).parts
+        if any(part in {"tests", "test", "__pycache__", ".venv", "venv"} for part in parts):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")[:20000]
+        except OSError:
+            continue
+        if "create_app" in text or "Flask(" in text or "FastAPI(" in text or "Starlette(" in text:
+            module = ".".join(path.relative_to(workspace).with_suffix("").parts)
+            if module not in candidates:
+                candidates.append(module)
+    return candidates[:6]
 
 
 def _scan_databases(workspace: Path, database_check: dict) -> bool:

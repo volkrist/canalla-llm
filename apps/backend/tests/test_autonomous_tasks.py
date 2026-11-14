@@ -1354,3 +1354,45 @@ def test_retry_then_succeeds(setup):
     )
     assert "return a + b" in app_file.read_text(encoding="utf-8")
     assert attempts["n"] >= 2
+
+
+def _review_row(**overrides):
+    return LocalTask(
+        user_id="u",
+        chat_id="c",
+        status=machine.EXECUTING,
+        original_user_request=overrides.pop("prompt", ""),
+        tool_calls_used=overrides.pop("tool_calls_used", 3),
+        workspace=overrides.pop("workspace", ""),
+        checkpoint={
+            "commands": overrides.pop("commands", [{"tool": "write_file"}])
+        },
+        verification={"tests": "passed", **overrides.pop("verification", {})},
+        facts={"file_hashes": {"a": "b"}, **overrides.pop("facts", {})},
+        success_criteria={"all": ["deliverable"]},
+        updated_at=now(),
+    )
+
+
+def test_a_coding_task_is_not_blocked_by_a_research_hint():
+    """«При необходимости исследуй документацию» must not make a build uncompletable.
+
+    The 71a9f3db run wrote, ran and browser-verified its app and was still refused COMPLETED
+    with `sources_missing`; with the web disabled that condition could never be satisfied.
+    """
+    controller = LocalTaskController()
+    coding = _review_row(
+        prompt="Создай приложение TaskDesk и при необходимости исследуй документацию"
+    )
+    assert controller.final_review(coding)["ok"] is True
+
+    research = _review_row(
+        prompt="Исследуй документацию FastAPI и собери источники", commands=[]
+    )
+    review = controller.final_review(research)
+    assert review["ok"] is False and review["reason"] == "sources_missing"
+
+    used = _review_row(
+        prompt="Создай приложение и исследуй документацию", commands=[{"tool": "web_search"}]
+    )
+    assert controller.final_review(used)["reason"] == "sources_missing"
