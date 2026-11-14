@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-14T01:22:42+00:00",
+ "generated_at": "2026-11-14T01:26:44+00:00",
  "read_only": true,
  "volume": {
   "id": "uwgeaie5b0",
@@ -21,7 +21,6 @@
    "datacenter": "US-TX-3",
    "tier": "secure",
    "datacenters": {
-    "CA-MTL-1": "LOW",
     "EU-SE-1": "LOW"
    }
   },
@@ -66,8 +65,7 @@
    "datacenter": "US-TX-3",
    "tier": "secure",
    "datacenters": {
-    "EUR-IS-2": "LOW",
-    "US-TX-4": "LOW"
+    "EU-NL-1": "LOW"
    }
   },
   {
@@ -104,7 +102,8 @@
    "datacenter": "US-TX-3",
    "tier": "secure",
    "datacenters": {
-    "CA-MTL-3": "LOW"
+    "CA-MTL-3": "LOW",
+    "US-KS-2": "LOW"
    }
   },
   {
@@ -116,10 +115,9 @@
    "datacenter": "US-TX-3",
    "tier": "secure",
    "datacenters": {
-    "EU-RO-1": "LOW",
     "EUR-IS-1": "LOW",
     "US-KS-2": "LOW",
-    "US-MD-1": "LOW",
+    "US-MD-1": "MEDIUM",
     "US-MO-1": "LOW",
     "US-WA-1": "LOW"
    }
@@ -135,8 +133,9 @@
    "datacenters": {
     "EU-CZ-1": "LOW",
     "EU-RO-1": "LOW",
+    "EUR-IS-1": "LOW",
     "EUR-IS-2": "LOW",
-    "US-CO-1": "LOW",
+    "US-MO-2": "LOW",
     "US-NC-2": "LOW",
     "US-PA-1": "LOW"
    }
@@ -151,7 +150,6 @@
   "datacenter": "US-TX-3",
   "tier": "secure",
   "datacenters": {
-   "CA-MTL-1": "LOW",
    "EU-SE-1": "LOW"
   }
  },

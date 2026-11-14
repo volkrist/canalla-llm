@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-14T01:22:44+00:00",
+ "generated_at": "2026-11-14T01:26:46+00:00",
  "status": "BLOCKED",
  "blocked_by": [
   "CAPACITY_UNAVAILABLE"
@@ -22,7 +22,6 @@
   "datacenter": "US-TX-3",
   "tier": "secure",
   "datacenters": {
-   "CA-MTL-1": "LOW",
    "EU-SE-1": "LOW"
   }
  },
@@ -60,7 +59,7 @@
  "balance_usd": 8.44638184,
  "command": "python artifacts\\acceptance-127\\live-qwen\\live_acceptance.py --live --budget-usd 2.00 --confirm \"I AUTHORIZE ONE PAID POD\"",
  "production": {
-  "captured_at": "2026-11-14T01:22:44+00:00",
+  "captured_at": "2026-11-14T01:26:46+00:00",
   "database_present": true,
   "data_root": "C:\\Users\\Volkr\\AppData\\Local\\Alex LLM",
   "local_device_id": "6413489d-6cae-4183-8446-a3b2339137dc",

@@ -3,6 +3,7 @@
 **Дата проверки:** 14 ноября 2026.
 **Ветка:** `feature/canalla-1.2.7-autonomous-agent`.
 **Исходный SHA:** `054decc` (CI 7/7 + Linux gate на `cfd7e14`).
+**Итоговый SHA с зелёным CI:** `57e09dc` — **CI 7/7 success + Linux gate success**.
 **Версия Canalla:** 1.2.6 (публичная, не изменялась).
 **Статус LIVE:** **НЕ ЗАПУЩЕН** — нет подтверждения владельца на платный запуск и нет доступной
 GPU в дата-центре модели. Платный Pod не создавался, расход **$0.00**.
@@ -145,6 +146,8 @@ Dry-run (fake provider) — **23/23 PASS**, включая новые случа
 - `tests/test_sidecar_stamp.py` — PASS после пересборки sidecar.
 - Rust host — 40/40 PASS (не менялся в этом этапе).
 - Ruff check/format — чисто.
+- **CI на `57e09dc`: 7/7 success** (developer-gate, native-gate, frontend-e2e, installer-build,
+  tor-runtime, llama-runtime, llama-runtime-image) + **Linux gate success**.
 
 ---
 

@@ -138,6 +138,7 @@ def main() -> int:
     (OUT / "gpu-selection.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8"
     )
+    effective = policy.to_dict() if policy else report.get("reference_policy")
     (OUT / "cost-policy.json").write_text(
         json.dumps(
             {
@@ -147,7 +148,10 @@ def main() -> int:
                 "policy": (policy.to_dict() if policy else None),
                 "reference": report.get("reference"),
                 "reference_policy": report.get("reference_policy"),
-                "worst_case_within_budget": bool(policy and policy.worst_case_usd <= BUDGET_USD),
+                "worst_case_within_budget": bool(
+                    effective and effective["worst_case_usd"] <= BUDGET_USD
+                ),
+                "worst_case_basis": "selected" if policy else "reference",
                 "verdict": report["verdict"],
             },
             ensure_ascii=False,

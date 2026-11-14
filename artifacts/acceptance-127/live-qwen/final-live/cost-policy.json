@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-14T01:22:42+00:00",
+ "generated_at": "2026-11-14T01:26:44+00:00",
  "budget_usd": 2.0,
  "selected_rate_usd": null,
  "policy": null,
@@ -12,7 +12,6 @@
   "datacenter": "US-TX-3",
   "tier": "secure",
   "datacenters": {
-   "CA-MTL-1": "LOW",
    "EU-SE-1": "LOW"
   }
  },
@@ -38,6 +37,7 @@
   "sufficient": true,
   "reasons": []
  },
- "worst_case_within_budget": false,
+ "worst_case_within_budget": true,
+ "worst_case_basis": "reference",
  "verdict": "CAPACITY_UNAVAILABLE"
 }
