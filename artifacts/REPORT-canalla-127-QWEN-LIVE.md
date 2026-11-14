@@ -1,5 +1,11 @@
 # Canalla 1.2.7 — отчёт о REAL QWEN LIVE ACCEPTANCE
 
+> **Обновление 14.11.2026:** блокер «нет GPU в US-TX-3» больше не является блокером этого прогона.
+> Найден и проверен второй региональный том (`y92bt25ru8`, US-MO-1) с **verified** копией модели,
+> harness научился выбирать размещение по всем проверенным репликам, а провайдер открыл API
+> глобальных томов. Подробности и цены — `artifacts/REPORT-canalla-127-storage-unblock.md`;
+> актуальный план — `artifacts/acceptance-127/live-qwen/PLAN.md`.
+
 **Дата проверки:** 14 ноября 2026.
 **Ветка:** `feature/canalla-1.2.7-autonomous-agent`.
 **Исходный SHA:** `054decc` (CI 7/7 + Linux gate на `cfd7e14`).
