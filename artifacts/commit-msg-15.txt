@@ -1,0 +1,5 @@
+Drop legacy placement keys from an upgraded grant
+
+Schema 2 expresses the scope once, as a list. Leaving the schema-1
+single-placement fields beside it invites a reader to think the narrower value
+is still in force.

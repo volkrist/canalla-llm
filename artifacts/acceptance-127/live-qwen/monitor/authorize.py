@@ -269,9 +269,12 @@ def main(argv: list[str] | None = None) -> int:
         grant["used"] = False
         grant["used_at"] = None
         grant["revoked"] = False
-        grant.setdefault("schema", GRANT_SCHEMA)
-        if str(grant.get("schema")) == "1":
-            grant["schema"] = GRANT_SCHEMA
+        # Schema 2 expresses the scope once, as a list. Leaving the schema-1 single-placement keys
+        # next to it would invite a reader (or a future validator) to think the narrower value is
+        # still in force.
+        grant.pop("allowed_volume", None)
+        grant.pop("allowed_datacenter", None)
+        grant["schema"] = GRANT_SCHEMA
         verdict = _atomic_replace(path, grant)
         mode = "upgraded"
 
