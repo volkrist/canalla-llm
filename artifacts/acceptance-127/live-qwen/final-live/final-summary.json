@@ -1,6 +1,6 @@
 {
- "started_at": "2026-11-14T12:15:32+00:00",
- "budget_usd": 2.0,
+ "started_at": "2026-11-14T16:23:00+00:00",
+ "budget_usd": 0.5,
  "hourly_rate_usd": 1.09,
  "gpu": {
   "gpu": "NVIDIA L40S",
@@ -23,7 +23,7 @@
   "datacenter": "US-TX-3"
  },
  "policy": {
-  "budget_usd": 2.0,
+  "budget_usd": 0.5,
   "hourly_rate_usd": 1.09,
   "billing_granularity_seconds": 60,
   "termination_grace_seconds": 30,
@@ -31,59 +31,59 @@
   "watchdog_poll_seconds": 5,
   "capacity_timeout_seconds": 60,
   "requested_max_billed_seconds": 5400,
-  "max_billed_seconds": 5400,
-  "hard_wall_seconds": 5370,
-  "stop_request_seconds": 5360,
-  "target_work_seconds": 4800,
-  "worst_case_usd": 1.635,
-  "budget_headroom_usd": 0.365,
-  "budget_limited": false,
-  "time_limited": true,
-  "min_work_seconds": 2700,
+  "max_billed_seconds": 1620,
+  "hard_wall_seconds": 1590,
+  "stop_request_seconds": 1580,
+  "target_work_seconds": 1590,
+  "worst_case_usd": 0.4905,
+  "budget_headroom_usd": 0.0095,
+  "budget_limited": true,
+  "time_limited": false,
+  "min_work_seconds": 1200,
   "feasible": true,
   "sufficient": true,
   "reasons": []
  },
  "balance_before_usd": null,
  "path": "prepared",
- "prepared_observed_at": "2026-11-14T12:15:30+00:00",
+ "prepared_observed_at": "2026-11-14T16:23:00+00:00",
  "prepared_rejected": null,
  "database": {
   "mode": "template",
   "head": "0017",
-  "seconds": 0.016
+  "seconds": 0.015
  },
  "timings": {
-  "started_at": "2026-11-14T12:15:31+00:00",
-  "prepared_loaded_at": "2026-11-14T12:15:31+00:00",
-  "selected_at": "2026-11-14T12:15:31+00:00",
-  "database_at": "2026-11-14T12:15:32+00:00",
+  "started_at": "2026-11-14T16:23:00+00:00",
+  "prepared_loaded_at": "2026-11-14T16:23:00+00:00",
+  "selected_at": "2026-11-14T16:23:00+00:00",
+  "database_at": "2026-11-14T16:23:00+00:00",
   "database": {
    "mode": "template",
    "head": "0017",
-   "seconds": 0.016
+   "seconds": 0.015
   },
-  "backend_ready_at": "2026-11-14T12:15:36+00:00",
+  "backend_ready_at": "2026-11-14T16:23:03+00:00",
   "backend_healthy": true,
-  "session_ready_at": "2026-11-14T12:15:36+00:00",
-  "first_request_at": "2026-11-14T12:15:36+00:00"
+  "session_ready_at": "2026-11-14T16:23:03+00:00",
+  "first_request_at": "2026-11-14T16:23:04+00:00"
  },
  "model_selftest": {
   "verdict": "PASS",
   "problems": [],
-  "answer_chars": 26,
+  "answer_chars": 25,
   "identity": {
    "provider": "llamacpp",
    "model": "orcarouter-qwen38-27b-q5km",
-   "pod_id": "w1cflixatbtw7q",
+   "pod_id": "mjo8ak4ys9igdw",
    "gpu": "NVIDIA L40S",
    "datacenter": "US-TX-3",
    "available": true
   }
  },
- "stream_events": 50,
+ "stream_events": 152,
  "stream_end": {
-  "line": "data: {\"message_id\": \"bf71b697-876a-4c88-9dc7-1d72e1ebb95e\"}"
+  "line": "data: {\"message_id\": \"1dfb5868-b2ff-41a0-a015-b0a6ea5277de\"}"
  },
  "stream_recovery": {
   "waited_seconds": 0.0,
@@ -91,11 +91,11 @@
   "finished": null
  },
  "task": {
-  "id": "ec3ab5e1-7a19-44a7-8e2b-699fd59e95af",
-  "status": "FAILED",
+  "id": "98853366-9fa9-427a-ac63-3c08d503be97",
+  "status": "COMPLETED",
   "verification_ok": false,
-  "last_error": "tests_not_verified",
-  "workspace": "C:\\Users\\Volkr\\AppData\\Local\\Temp\\canalla-live-fxqvoq6a\\workspace"
+  "last_error": null,
+  "workspace": "C:\\Users\\Volkr\\AppData\\Local\\Temp\\canalla-live-s0z1ngci\\workspace"
  },
  "provenance": {
   "status": "INCOMPLETE_TRACE",
@@ -109,60 +109,289 @@
   "models": [
    "orcarouter-qwen38-27b-q5km"
   ],
-  "model_responses": 2,
-  "live_responses": 2,
-  "tool_calls": 2,
-  "linked_results": 1,
+  "model_responses": 18,
+  "live_responses": 18,
+  "tool_calls": 17,
+  "linked_results": 17,
   "verified": false,
   "tampered": 0,
   "chain": [
    {
     "kind": "MODEL_RESPONSE",
-    "model_request_id": "9e8224e8724145f99a2556166f98f31f"
+    "model_request_id": "20e4386ecd4a4859ac19de174299cb8f"
    },
    {
     "kind": "MODEL_TOOL_CALL",
-    "model_request_id": "9e8224e8724145f99a2556166f98f31f",
-    "tool_call_id": "TKRCKgKBxuTuBl0Se2E1l6j6exexeNes",
+    "model_request_id": "20e4386ecd4a4859ac19de174299cb8f",
+    "tool_call_id": "XWoQcoLTsevQuToWZ9A53Dfd5d6fJ0B6",
     "tool": "list_directory"
    },
    {
     "kind": "TOOL_RESULT",
-    "tool_call_id": "TKRCKgKBxuTuBl0Se2E1l6j6exexeNes",
-    "tool_run_id": "7ad3f48e-9a4c-4262-aa58-e44c89f4b501"
+    "tool_call_id": "XWoQcoLTsevQuToWZ9A53Dfd5d6fJ0B6",
+    "tool_run_id": "858922ce-cfe6-4682-8f6f-d5c256778cf3"
    },
    {
     "kind": "MODEL_RESPONSE",
-    "model_request_id": "eef120d428e3413394d537f5f66071b4"
+    "model_request_id": "862f33b81f124618b8a6ee304a3deead"
    },
    {
     "kind": "MODEL_TOOL_CALL",
-    "model_request_id": "eef120d428e3413394d537f5f66071b4",
-    "tool_call_id": "M7EHuD2uDbl0jimumInWJIv5gbNoE7xH",
+    "model_request_id": "862f33b81f124618b8a6ee304a3deead",
+    "tool_call_id": "ZL4W4foIGq5xDjGp2PKw3Ev5jsdsFwG2",
+    "tool": "run_process"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "ZL4W4foIGq5xDjGp2PKw3Ev5jsdsFwG2",
+    "tool_run_id": "1190e581-4c62-4f3d-b215-36ec57bfdd9f"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "92c5950273464828bf5efd5399c79945"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "92c5950273464828bf5efd5399c79945",
+    "tool_call_id": "GBO9UYsuvRlyQELTLpltePDRuzfjdXd9",
     "tool": "write_file"
    },
    {
     "kind": "TOOL_RESULT",
-    "tool_call_id": "M7EHuD2uDbl0jimumInWJIv5gbNoE7xH",
-    "tool_run_id": null
+    "tool_call_id": "GBO9UYsuvRlyQELTLpltePDRuzfjdXd9",
+    "tool_run_id": "abec2281-9076-4161-94c1-fa6da136fd3a"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "a4581e28422849c2b5a941086111e75b"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "a4581e28422849c2b5a941086111e75b",
+    "tool_call_id": "K8LTuPP5xNpncNtrtmcfm241aVtkFIj4",
+    "tool": "write_file"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "K8LTuPP5xNpncNtrtmcfm241aVtkFIj4",
+    "tool_run_id": "c26e6d5f-5e3d-42e0-a5d7-d631eeab4242"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "2066419a10f345a3a73c3a2a63753182"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "2066419a10f345a3a73c3a2a63753182",
+    "tool_call_id": "cDLDAObAae4SOmRiQy97oWu8ujnUGWQF",
+    "tool": "write_file"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "cDLDAObAae4SOmRiQy97oWu8ujnUGWQF",
+    "tool_run_id": "5ebc0a46-35b4-4435-9298-5259982afb06"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "34042b01819a4bfcaf88f1b2b695535b"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "34042b01819a4bfcaf88f1b2b695535b",
+    "tool_call_id": "1RAvE3eoL29X68FD9OOjzE2zlSW2Kgq8",
+    "tool": "write_file"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "1RAvE3eoL29X68FD9OOjzE2zlSW2Kgq8",
+    "tool_run_id": "b2e66605-0922-414c-adce-d4e69dfa08a5"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "7f66200f92684342af53ed59857f6596"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "7f66200f92684342af53ed59857f6596",
+    "tool_call_id": "5W10TNP3kjKnhIBfQ86GtYSZcYHLf1PS",
+    "tool": "write_file"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "5W10TNP3kjKnhIBfQ86GtYSZcYHLf1PS",
+    "tool_run_id": "6978e55d-7d5d-41d3-8b28-bbb689b8880b"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "a05ce591a10648458e5feb26b833ce98"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "a05ce591a10648458e5feb26b833ce98",
+    "tool_call_id": "aBWZoWl5MfmMP34ISeFHkLJiQywz6BkZ",
+    "tool": "write_file"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "aBWZoWl5MfmMP34ISeFHkLJiQywz6BkZ",
+    "tool_run_id": "1a5ef056-b4cf-4542-a040-1e1d764a6463"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "22b844212b1f4228a5b4ce858ce57211"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "22b844212b1f4228a5b4ce858ce57211",
+    "tool_call_id": "skzUvq2Je0yHq8J9x9zvUzaZv4KClcXS",
+    "tool": "write_file"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "skzUvq2Je0yHq8J9x9zvUzaZv4KClcXS",
+    "tool_run_id": "b5697a44-5b4a-42c7-bf14-004bbfe18527"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "6a56f9aaae0045fbb580f32f251359b2"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "6a56f9aaae0045fbb580f32f251359b2",
+    "tool_call_id": "nUjqraljWWQ99uLylo59girZpfl2aAan",
+    "tool": "write_file"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "nUjqraljWWQ99uLylo59girZpfl2aAan",
+    "tool_run_id": "f5aeb695-3e30-4497-b9ff-2fe9ae94e97c"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "7339feb7c07d48429b684f86c81712b7"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "7339feb7c07d48429b684f86c81712b7",
+    "tool_call_id": "HByfzPqgWvN7PcRl9YVzxH1IT9U7sFQf",
+    "tool": "write_file"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "HByfzPqgWvN7PcRl9YVzxH1IT9U7sFQf",
+    "tool_run_id": "71a94441-1638-45d5-bbe6-71eef74202b5"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "6c673941da5c495a9c98cfd0b4c3d4c5"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "6c673941da5c495a9c98cfd0b4c3d4c5",
+    "tool_call_id": "8izCDpUwXgQ8PjluUDcSqiMvchIxxJ6e",
+    "tool": "write_file"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "8izCDpUwXgQ8PjluUDcSqiMvchIxxJ6e",
+    "tool_run_id": "fc03b570-6267-4cc8-a65d-58cd07c065bb"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "dabcf00fe44e49338c0562d8c450f5cc"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "dabcf00fe44e49338c0562d8c450f5cc",
+    "tool_call_id": "aP5fpIK3qszGonJ4e4FS9jRoYKTyNfwR",
+    "tool": "write_file"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "aP5fpIK3qszGonJ4e4FS9jRoYKTyNfwR",
+    "tool_run_id": "e290ccea-7d47-4457-ac54-ddf5a914492b"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "cbd947e6c1a54fceb0d711d704892cdd"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "cbd947e6c1a54fceb0d711d704892cdd",
+    "tool_call_id": "M6EVhH6c13jAiODcqN3c3VzqTqAGsSwa",
+    "tool": "write_file"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "M6EVhH6c13jAiODcqN3c3VzqTqAGsSwa",
+    "tool_run_id": "e72a3b35-c803-4688-8675-ee4d1317b119"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "aa2d0cc4863740b19a70e3a0884c376b"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "aa2d0cc4863740b19a70e3a0884c376b",
+    "tool_call_id": "yGTJBX9ByiiclIknHlCQAyHYCZNNcbCt",
+    "tool": "run_python"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "yGTJBX9ByiiclIknHlCQAyHYCZNNcbCt",
+    "tool_run_id": "d5970e70-f7cc-4ecb-9a4e-383f4f1d327c"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "26abf7d528ad4df291c2fc275d3db952"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "26abf7d528ad4df291c2fc275d3db952",
+    "tool_call_id": "VaBrUBPCdfuiLIa3MT1bTjJ1D8LXSXCy",
+    "tool": "run_process"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "VaBrUBPCdfuiLIa3MT1bTjJ1D8LXSXCy",
+    "tool_run_id": "2b911087-8d11-4176-83fa-83ccc9a771ee"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "94441f8232244629910b705b2c70dffa"
+   },
+   {
+    "kind": "MODEL_TOOL_CALL",
+    "model_request_id": "94441f8232244629910b705b2c70dffa",
+    "tool_call_id": "YUpis3rbAMCRngZ4H1JuWdqPGRxKaiAq",
+    "tool": "run_process"
+   },
+   {
+    "kind": "TOOL_RESULT",
+    "tool_call_id": "YUpis3rbAMCRngZ4H1JuWdqPGRxKaiAq",
+    "tool_run_id": "6db1913c-ab93-41fd-9539-56790186ef95"
+   },
+   {
+    "kind": "MODEL_RESPONSE",
+    "model_request_id": "e7b3ffab7c1748a0a61cae63b96abd15"
    }
   ]
  },
  "checks": [
   {
    "check": "application_files_exist",
-   "ok": false,
-   "detail": "[]"
+   "ok": true,
+   "detail": "['__init__.py', 'api.py', 'conftest.py', 'models.py', 'run.py', 'test_api.py', 'test_persistence.py', 'test_views.py', 'views.py']"
   },
   {
    "check": "tests_were_written",
-   "ok": false,
-   "detail": "[]"
+   "ok": true,
+   "detail": "['test_api.py', 'test_persistence.py', 'test_views.py']"
   },
   {
    "check": "tests_pass",
    "ok": false,
-   "detail": "\nno tests ran in 0.01s\n"
+   "detail": "ts\\alex-llm\\apps\\backend\\app\\__init__.py)\n=========================== short test summary info ===========================\nERROR taskdesk/tests - ImportError: cannot import name 'create_app' from 'app...\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.21s\n"
   },
   {
    "check": "gui_screenshot_exists",
@@ -172,43 +401,53 @@
   {
    "check": "a_failure_preceded_a_pass",
    "ok": false,
-   "detail": "[]"
+   "detail": "[('run_process', 0, datetime.datetime(2026, 11, 14, 16, 25, 20, 274834)), ('run_python', 0, datetime.datetime(2026, 11, 14, 16, 29, 44, 479362)), ('run_process', None, datetime.datetime(2026, 11, 14, 16, 29, 52, 136505)), ('run_process', 0, datetime.datetime(2026, 11, 14, 16, 29, 59, 60087))]"
   },
   {
    "check": "no_duplicate_tool_payloads",
-   "ok": false,
-   "detail": "[('web_search', 'ca1adf6a626e1a02135ad33b6237fda9e2ce59f6a325c52a157652c2a94485b7')]"
+   "ok": true,
+   "detail": "[]"
   },
   {
-   "check": "database_contains_task_rows",
-   "ok": false,
-   "detail": "{}"
+   "check": "sqlite_database_present",
+   "ok": true,
+   "detail": "['taskdesk.db']"
   },
   {
    "check": "application_serves_http",
-   "ok": false,
-   "detail": "main.py missing"
+   "ok": true,
+   "detail": "127.0.0.1:30865 via taskdesk.app.__init__"
+  },
+  {
+   "check": "independent_gui_load",
+   "ok": true,
+   "detail": "screenshot=independent-page.png search_input=False"
+  },
+  {
+   "check": "database_contains_task_rows",
+   "ok": true,
+   "detail": "{'taskdesk.db:tasks': 1}"
   }
  ],
- "balance_after_usd": 7.0525486726,
+ "balance_after_usd": 5.3452026969,
  "verdict": "FAIL",
  "pods_created": 1,
  "pod_ids": [
-  "w1cflixatbtw7q"
+  "mjo8ak4ys9igdw"
  ],
  "compute_sessions": [
   {
-   "pod_id": "w1cflixatbtw7q",
+   "pod_id": "mjo8ak4ys9igdw",
    "status": "ready",
    "datacenter": "US-TX-3",
    "gpu": "NVIDIA L40S",
    "hourly_rate_usd": 1.09,
-   "estimated_cost_usd": 0.049656,
-   "started_at": "2026-11-14T12:15:54.917000",
-   "ready_at": "2026-11-14T12:17:06.882481",
+   "estimated_cost_usd": 0.142003,
+   "started_at": "2026-11-14T16:23:15.878000",
+   "ready_at": "2026-11-14T16:24:50.002608",
    "stopped_at": null
   }
  ],
- "estimated_spend_usd": 0.0497,
- "run_id": "c89661185a0d4768a96ff4f511ad5448"
+ "estimated_spend_usd": 0.142,
+ "run_id": "e184595544d24f14a140bd9298e81ea1"
 }

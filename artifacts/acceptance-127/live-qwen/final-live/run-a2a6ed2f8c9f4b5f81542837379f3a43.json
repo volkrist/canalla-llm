@@ -1,0 +1,13 @@
+{
+ "run_id": "a2a6ed2f8c9f4b5f81542837379f3a43",
+ "verdict": "CRASHED",
+ "pods_created": 1,
+ "pod_ids": [
+  "dvg008bsozv5wi"
+ ],
+ "spend_usd": 0.2283,
+ "balance_after_usd": 6.5047725754,
+ "hourly_rate_usd": 1.09,
+ "finished_at": "2026-11-14T14:40:28+00:00",
+ "error": null
+}

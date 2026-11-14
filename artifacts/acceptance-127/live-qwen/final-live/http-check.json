@@ -1,7 +1,21 @@
 {
- "pytest_exit_code": 5,
- "pytest_tail": "\nno tests ran in 0.01s\n",
- "started_by_harness": false,
- "status": null,
- "run_id": "c89661185a0d4768a96ff4f511ad5448"
+ "pytest_exit_code": 2,
+ "pytest_tail": "], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n<frozen importlib._bootstrap>:1387: in _gcd_import\n    ???\n<frozen importlib._bootstrap>:1360: in _find_and_load\n    ???\n<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked\n    ???\n<frozen importlib._bootstrap>:935: in _load_unlocked\n    ???\nC:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\apps\\backend\\.venv\\Lib\\site-packages\\_pytest\\assertion\\rewrite.py:188: in exec_module\n    exec(co, module.__dict__)\ntaskdesk\\tests\\conftest.py:5: in <module>\n    from app import create_app\nE   ImportError: cannot import name 'create_app' from 'app' (C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\apps\\backend\\app\\__init__.py)\n=========================== short test summary info ===========================\nERROR taskdesk/tests - ImportError: cannot import name 'create_app' from 'app...\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.21s\n",
+ "started_by_harness": true,
+ "status": 200,
+ "module": "taskdesk.app.__init__",
+ "url": "http://127.0.0.1:30865/",
+ "created_task": {
+  "path": "/api/tasks",
+  "status": 201,
+  "payload": {
+   "created_at": "2026-11-14T16:31:07.417609+00:00",
+   "description": "created by the verifier",
+   "id": 1,
+   "status": "open",
+   "title": "Canalla independent check",
+   "updated_at": "2026-11-14T16:31:07.417609+00:00"
+  }
+ },
+ "run_id": "e184595544d24f14a140bd9298e81ea1"
 }

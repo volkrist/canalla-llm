@@ -1,5 +1,5 @@
 {
- "captured_at": "2026-11-14T12:22:17+00:00",
+ "captured_at": "2026-11-14T16:31:20+00:00",
  "placement": {
   "datacenter": "US-TX-3",
   "volume_id": "uwgeaie5b0",
@@ -8,7 +8,7 @@
  "model_state": "UNVERIFIED_NEEDS_LIVE_CHECK",
  "model_reason": "recorded_selftest_was_malformed_assets_intact",
  "selftest_required": true,
- "budget_usd": 2.0,
+ "budget_usd": 0.5,
  "hourly_rate_usd": 1.09,
  "verdict": "FAIL",
  "reasons": null

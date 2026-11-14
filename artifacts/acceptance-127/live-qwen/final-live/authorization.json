@@ -1,14 +1,14 @@
 {
- "generated_at": "2026-11-14T12:15:31+00:00",
+ "generated_at": "2026-11-14T16:23:00+00:00",
  "confirmation_phrase": "I AUTHORIZE ONE PAID POD",
  "owner_phrase_expected_ru": "Разрешаю один платный LIVE-прогон Qwen с бюджетом не более $2.00 и одним GPU Pod.",
- "budget_usd": 2.0,
+ "budget_usd": 0.5,
  "max_billable_minutes": 90,
  "gpu_verdict": "READY",
  "status": "AUTHORIZED",
  "blocked_by": null,
  "path": "prepared",
- "prepared_observed_at": "2026-11-14T12:15:30+00:00",
+ "prepared_observed_at": "2026-11-14T16:23:00+00:00",
  "prepared_rejected": null,
- "run_id": "c89661185a0d4768a96ff4f511ad5448"
+ "run_id": "e184595544d24f14a140bd9298e81ea1"
 }

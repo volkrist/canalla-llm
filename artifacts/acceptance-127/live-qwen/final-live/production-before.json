@@ -1,5 +1,5 @@
 {
- "checked_at": "2026-11-14T12:01:28+00:00",
+ "checked_at": "2026-11-14T16:18:31+00:00",
  "budget_usd": 2.0,
  "gateway": {
   "status": 200,
@@ -13,7 +13,7 @@
  "runpod": {
   "pods": [],
   "pod_count": 0,
-  "balance_usd": 7.0970879967,
+  "balance_usd": 5.4292332988,
   "ok": true
  },
  "installed_app": {
@@ -38,12 +38,12 @@
   "device_matches_local": true
  },
  "disk": {
-  "free_gb": 70.3,
+  "free_gb": 70.2,
   "ok": true
  },
  "budget": {
   "cap_usd": 2.0,
-  "balance_usd": 7.0971,
+  "balance_usd": 5.4292,
   "policy": {
    "budget_usd": 2.0,
    "hourly_rate_usd": 1.09,
@@ -85,5 +85,5 @@
  },
  "verdict": "READY",
  "blockers": [],
- "run_id": "c89661185a0d4768a96ff4f511ad5448"
+ "run_id": "e184595544d24f14a140bd9298e81ea1"
 }
