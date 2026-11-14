@@ -28,7 +28,9 @@ from app.compute import cost_policy  # noqa: E402
 
 
 def http_json(url: str, timeout: float = 10.0) -> tuple[int, dict | None]:
-    request = urllib.request.Request(url, headers={"User-Agent": "canalla-preflight/1.2.7"})
+    request = urllib.request.Request(
+        url, headers={"User-Agent": "canalla-preflight/1.2.7"}
+    )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.status, json.loads(response.read() or b"{}")
@@ -41,7 +43,9 @@ def http_json(url: str, timeout: float = 10.0) -> tuple[int, dict | None]:
 def runpod_state() -> dict:
     completed = subprocess.run(
         [sys.executable, str(REPO / "artifacts" / "readonly-runpod-state.py")],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     try:
         return json.loads(completed.stdout)
@@ -67,7 +71,9 @@ def data_state() -> dict:
         device_json = Path(os.environ["LOCALAPPDATA"]) / "Alex LLM" / "device.json"
         local_id = ""
         if device_json.is_file():
-            local_id = json.loads(device_json.read_text(encoding="utf-8")).get("device_id", "")
+            local_id = json.loads(device_json.read_text(encoding="utf-8")).get(
+                "device_id", ""
+            )
     finally:
         connection.close()
     online = False
@@ -88,15 +94,63 @@ def data_state() -> dict:
     }
 
 
+def installed_app_state() -> dict:
+    """The installed package version, whether or not its UI is running.
+
+    The real precondition for an isolated LIVE run is that the installed product is 1.2.6: the run
+    uses its own backend and a headless browser, and reads production data read-only. Requiring the
+    user's window to be open was an unnecessary harness dependency - it would stall an unattended
+    run for a reason that has nothing to do with the test. The build stamp is the installed
+    package's own record, so it answers the real question when the process is closed.
+    """
+    status, local = http_json(
+        os.environ.get("CANALLA_INSTALLED_HEALTH_URL", "http://127.0.0.1:8000/health")
+    )
+    stamp = (
+        Path(os.environ.get("LOCALAPPDATA", ""))
+        / "Programs"
+        / "Canalla LLM"
+        / "sidecar"
+        / "alex-backend"
+        / "build-stamp.json"
+    )
+    stamp_version = None
+    if stamp.is_file():
+        try:
+            stamp_version = json.loads(stamp.read_text(encoding="utf-8")).get(
+                "product_version"
+            )
+        except (OSError, ValueError):
+            stamp_version = None
+    running_version = (local or {}).get("version")
+    version = running_version or stamp_version
+    return {
+        "status": status,
+        "version": version,
+        "running": status == 200,
+        "version_source": "health"
+        if running_version
+        else ("build-stamp" if stamp_version else "missing"),
+        "ok": version == "1.2.6",
+    }
+
+
 def main() -> int:
-    report: dict = {"checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                    "budget_usd": BUDGET_USD}
+    report: dict = {
+        "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "budget_usd": BUDGET_USD,
+    }
 
     status, health = http_json(GATEWAY + "/health")
-    report["gateway"] = {"status": status, "ready": bool(health and health.get("ready")),
-                         "ok": status == 200 and bool(health and health.get("ready"))}
+    report["gateway"] = {
+        "status": status,
+        "ready": bool(health and health.get("ready")),
+        "ok": status == 200 and bool(health and health.get("ready")),
+    }
 
-    status, _ = http_json(GATEWAY + "/updates/latest?target=windows&arch=x86_64&current_version=1.2.6")
+    status, _ = http_json(
+        GATEWAY + "/updates/latest?target=windows&arch=x86_64&current_version=1.2.6"
+    )
     report["updater_untouched"] = {"status": status, "ok": status == 204}
 
     pods = runpod_state()
@@ -107,9 +161,7 @@ def main() -> int:
         "ok": pods.get("pod_count") == 0,
     }
 
-    status, local = http_json("http://127.0.0.1:8000/health")
-    report["installed_app"] = {"status": status, "version": (local or {}).get("version"),
-                               "ok": status == 200 and (local or {}).get("version") == "1.2.6"}
+    report["installed_app"] = installed_app_state()
 
     data = data_state()
     report["data"] = data
@@ -138,12 +190,19 @@ def main() -> int:
 
     # A paid run cannot be executed if the free parts of the harness are broken.
     watchdog = subprocess.run(
-        [sys.executable, str(REPO / "scripts" / "live_qwen_watchdog.py"), "--self-test"],
+        [
+            sys.executable,
+            str(REPO / "scripts" / "live_qwen_watchdog.py"),
+            "--self-test",
+        ],
         capture_output=True,
         text=True,
         timeout=300,
     )
-    report["watchdog"] = {"ok": watchdog.returncode == 0, "self_test": "PASS" if watchdog.returncode == 0 else "FAIL"}
+    report["watchdog"] = {
+        "ok": watchdog.returncode == 0,
+        "self_test": "PASS" if watchdog.returncode == 0 else "FAIL",
+    }
     try:
         from app.agent import provenance
 
@@ -157,7 +216,10 @@ def main() -> int:
 
     with socket.socket() as sock:
         busy = sock.connect_ex(("127.0.0.1", 8000)) == 0
-    report["coordinator"] = {"backend_on_8000": busy, "note": "no paid runner is started here"}
+    report["coordinator"] = {
+        "backend_on_8000": busy,
+        "note": "no paid runner is started here",
+    }
 
     blockers = []
     for name, item in report.items():
@@ -166,8 +228,9 @@ def main() -> int:
     report["verdict"] = "BLOCKED" if blockers else "READY"
     report["blockers"] = blockers
 
-    (OUT / "preflight.json").write_text(json.dumps(report, ensure_ascii=False, indent=1),
-                                        encoding="utf-8")
+    (OUT / "preflight.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8"
+    )
     print(json.dumps(report, ensure_ascii=False, indent=1))
     return 0 if not blockers else 1
 

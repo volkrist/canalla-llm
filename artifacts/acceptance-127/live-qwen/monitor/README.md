@@ -105,11 +105,20 @@ default (`--days`), and a budget above `$2.00` or more than one Pod is refused.
 * **One instance:** Task Scheduler's `MultipleInstances=IgnoreNew` plus the file lock. A second
   process exits with `{"skipped": "another_instance_running"}` and writes nothing.
 * **Logon type:** `InteractiveToken`, because the RunPod credential lives in the user's Credential
-  Manager and the provider call needs the user's network token. Checks therefore run while this
-  Windows account is logged on; after a reboot they resume at the next scheduled pass.
+  Manager and the provider call needs the user's network token. Checks run while this Windows
+  account is logged on (a locked screen is fine); after a reboot they resume at the next scheduled
+  pass. They cannot run while the user is logged out - that is the real limitation of a per-user
+  credential, and the alternative (storing the key for a non-interactive logon) would be worse.
 * **No wake-ups:** the task does not wake a sleeping machine. The *paid* run is protected separately
   by the watchdog's `SetThreadExecutionState`, which is what must not sleep for those 90 minutes.
-* **Preflight needs the installed 1.2.6 running** for its version/health check. If Canalla is
-  closed, the monitor records `PREFLIGHT_BLOCKED` and retries every 10 minutes without spending.
+  A pass missed during sleep runs when the machine wakes (`StartWhenAvailable`).
+* **The installed UI does not need to be open.** The real precondition is that the installed
+  package is 1.2.6, which `preflight.py` reads from the installed sidecar's `build-stamp.json`; the
+  LIVE run uses its own backend and a headless browser. `/health` is still reported (and used when
+  the app happens to be running), but a closed window no longer blocks an unattended run.
+* **The grant is scoped and protected:** it names the model, GPU, volume and datacenter as well as
+  the phrase, budget and Pod count; a record that names anything else is refused. It holds no
+  secret, and the monitor directory's ACL grants it only to the current user, SYSTEM and
+  Administrators (no inherited entries).
 * **No Pods for monitoring:** every scheduled pass is read-only. The only write to the provider is
   the one LIVE attempt the authorization names.

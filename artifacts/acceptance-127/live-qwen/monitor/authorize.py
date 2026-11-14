@@ -22,8 +22,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from monitor import (
     BUDGET_USD,
+    DATACENTER,
+    GPU_ID,
+    MODEL_ID,
     PHRASE,
     SCHEMA,
+    VOLUME_ID,
     grant_path,
     read_grant,
     runtime_dir,
@@ -108,6 +112,13 @@ def main(argv: list[str] | None = None) -> int:
         "phrase": PHRASE,
         "budget_usd": round(float(args.budget_usd), 2),
         "max_pods": 1,
+        # The exact run this permission covers. A different card, volume or datacenter is not a
+        # wider permission; the monitor refuses a record that names another scope.
+        "allowed_model": MODEL_ID,
+        "allowed_gpu": GPU_ID,
+        "allowed_volume": VOLUME_ID,
+        "allowed_datacenter": DATACENTER,
+        "scope": "one LIVE Qwen acceptance: TaskDesk, one Pod, 90 billable minutes",
         "created_at": now.isoformat(timespec="seconds"),
         "expires_at": (now + timedelta(days=args.days)).isoformat(timespec="seconds"),
         "used": False,
@@ -122,6 +133,9 @@ def main(argv: list[str] | None = None) -> int:
                 "path": str(grant_path(rdir)),
                 "budget_usd": grant["budget_usd"],
                 "max_pods": 1,
+                "scope": grant["scope"],
+                "allowed_gpu": grant["allowed_gpu"],
+                "allowed_volume": grant["allowed_volume"],
                 "expires_at": grant["expires_at"],
                 "note": "The monitor will start exactly one paid Pod when the GPU is available.",
             },

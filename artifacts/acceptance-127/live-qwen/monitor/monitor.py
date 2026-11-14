@@ -56,6 +56,7 @@ SCRIPTS = REPO / "scripts"
 VOLUME_ID = "y92bt25ru8"
 DATACENTER = "US-MO-1"
 GPU_ID = "NVIDIA L40S"
+MODEL_ID = "orcarouter-qwen38-27b-q5km"
 BUDGET_USD = 2.00
 INTERVAL_MINUTES = 10
 PHRASE = "I AUTHORIZE ONE PAID POD"
@@ -377,6 +378,16 @@ def read_grant(rdir: Path, now: datetime | None = None) -> dict:
         return {"valid": False, "reason": "budget_out_of_range", "grant": grant}
     if int(grant.get("max_pods") or 0) != 1:
         return {"valid": False, "reason": "pod_count_not_one", "grant": grant}
+    # The grant names the exact run it permits. A record for a different model, card, volume or
+    # datacenter is not a wider permission and is not silently applied to this one.
+    for field, expected in (
+        ("allowed_model", MODEL_ID),
+        ("allowed_gpu", GPU_ID),
+        ("allowed_volume", VOLUME_ID),
+        ("allowed_datacenter", DATACENTER),
+    ):
+        if grant.get(field) != expected:
+            return {"valid": False, "reason": "scope_mismatch", "grant": grant}
     if grant.get("used"):
         return {"valid": False, "reason": "already_used", "grant": grant}
     expires = parse(grant.get("expires_at"))
@@ -750,6 +761,7 @@ def build_status(state: dict, observation, grant) -> dict:
         "gpu_monitor": monitor,
         "gpu_availability": availability,
         "live": state.get("live_execution_state"),
+        "automatic_live": automatic_live(state),
         "last_check": state.get("last_check_time"),
         "next_check": state.get("next_scheduled_check"),
         "current_gpu_price": state.get("last_gpu_price"),
@@ -768,6 +780,20 @@ def build_status(state: dict, observation, grant) -> dict:
         "volume": (observation or {}).get("volume"),
         "policy": (observation or {}).get("policy"),
     }
+
+
+def automatic_live(state: dict) -> str:
+    """Whether a paid run may start without another human decision.
+
+    ARMED means: a valid, unused grant exists, no paid attempt has been made and the task is not in
+    a terminal state. GPU availability is deliberately not part of it - the monitor keeps checking
+    and starts the run the moment the card appears.
+    """
+    if _is_terminal(state) or state.get("paid_run_already_attempted"):
+        return "DISARMED"
+    if not state.get("monitoring_enabled", True):
+        return "DISARMED"
+    return "ARMED" if state.get("paid_run_authorized") else "WAITING_AUTHORIZATION"
 
 
 def append_check(rdir: Path, state: dict, observation, grant) -> None:
@@ -1183,7 +1209,7 @@ def self_test() -> int:
         )
         check("authorizer_refuses_over_budget", denied != 0)
 
-        # 13. the authorizer stores a valid grant with an expiry
+        # 13. the authorizer stores a valid grant with an expiry and the exact run it permits
         allowed = authorize.main(
             [
                 "--confirm",
@@ -1197,7 +1223,22 @@ def self_test() -> int:
         stored = read_grant(root / "case12")
         check(
             "authorizer_stores_a_valid_grant",
-            allowed == 0 and stored["valid"] and stored["grant"]["max_pods"] == 1,
+            allowed == 0
+            and stored["valid"]
+            and stored["grant"]["max_pods"] == 1
+            and stored["grant"]["allowed_volume"] == VOLUME_ID
+            and stored["grant"]["allowed_gpu"] == GPU_ID,
+        )
+
+        # 14. a grant for a different run is not a wider permission
+        rdir = root / "case14"
+        grant = _write_grant(rdir)
+        grant["allowed_gpu"] = "NVIDIA A40"
+        save_json(grant_path(rdir), grant)
+        verdict = read_grant(rdir)
+        check(
+            "a_grant_for_another_sku_is_refused",
+            not verdict["valid"] and verdict["reason"] == "scope_mismatch",
         )
     finally:
         shutil.rmtree(root, ignore_errors=True)
@@ -1218,6 +1259,11 @@ def _write_grant(rdir: Path, *, budget: float = 2.00, days: int = 30) -> dict:
         "phrase": PHRASE,
         "budget_usd": budget,
         "max_pods": 1,
+        "allowed_model": MODEL_ID,
+        "allowed_gpu": GPU_ID,
+        "allowed_volume": VOLUME_ID,
+        "allowed_datacenter": DATACENTER,
+        "scope": "one LIVE Qwen acceptance: TaskDesk, one Pod, 90 billable minutes",
         "created_at": utcnow(),
         "expires_at": (datetime.now(timezone.utc) + timedelta(days=days)).isoformat(
             timespec="seconds"
