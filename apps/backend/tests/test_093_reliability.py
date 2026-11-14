@@ -151,6 +151,32 @@ def test_create_in_this_folder_does_not_create_a_folder_named_like_a_file():
     assert select_local_route(f"Создай папку {root}\\reports", context).action == "create_directory"
 
 
+def test_install_is_only_an_explicit_package_request():
+    """Regression: «установи необходимые зависимости» installed OhMyPosh for five minutes.
+
+    The local-intent rule fired on any sentence containing «установи» and picked a package the user
+    never named. In a paid LIVE that server-policy step blocked the first model turn until the
+    client's stream deadline, and the attempt was lost before the model could answer.
+    """
+    root = r"C:\Users\Volkr\Desktop\Alex-LLM-E2E"
+    context = SimpleNamespace(
+        task_scope=SimpleNamespace(primary_root=root), settings=WebSettings(workspace_roots=[root])
+    )
+    build = (
+        "Создай полноценное локальное веб-приложение TaskDesk для управления задачами. "
+        "Создай проект, установи необходимые доступные зависимости, запусти приложение."
+    )
+    assert select_local_route(build, context).action != "install_software"
+    explicit = select_local_route("установи jq", context)
+    assert explicit.action == "install_software"
+    assert explicit.arguments["package"] == "jqlang.jq"
+    winget = select_local_route("winget install OhMyPosh", context)
+    assert winget.action == "install_software"
+    assert winget.arguments["package"] == "JanDeDobbeleer.OhMyPosh"
+    # A package *name* without an install verb is not an install request either.
+    assert select_local_route("Почему jq падает на этом файле?", context).action != "install_software"
+
+
 def test_no_progress_and_duplicate_suppression():
     facts = {"action_signatures": [{"tool": "search_code", "digest": "x", "novelty": False}] * 2}
     from app.tools.local.progress import signature

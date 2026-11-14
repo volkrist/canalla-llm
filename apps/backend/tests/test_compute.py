@@ -33,6 +33,9 @@ class Supplier:
         self.price = 0.48
         self.hidden = set()  # GPUs that vanish from the catalogue between quote and start
         self.phase = "ready"
+        # How many upcoming single-Pod reads answer 404. A bool would not model the real glitch:
+        # the supplier missed a live Pod for a short window and then reported it again.
+        self.pod_reads_missing = 0
 
     def handle(self, request):
         path = request.url.path
@@ -113,6 +116,9 @@ class Supplier:
             }
             return httpx.Response(200, text="data: " + json.dumps(marker) + "\n\n")
         if path.endswith("/pods/pod-test"):
+            if self.pod_reads_missing > 0:
+                self.pod_reads_missing -= 1
+                return httpx.Response(404, json={"error": "not found"})
             return httpx.Response(200, json=self.pods[0])
         raise AssertionError(f"Unexpected supplier request {request.method} {path}")
 
@@ -255,6 +261,47 @@ def test_idle_stop_preserves_volume(compute):
 
     asyncio.run(scenario())
     assert supplier.actions == [{"action": "terminate"}]
+
+
+def test_a_transient_missing_pod_is_not_an_external_stop(compute):
+    """One 404 is not a stopped Pod.
+
+    Regression from the 1f89625c attempt: the supplier stopped reporting a live Pod for a moment,
+    the session was closed as `external_stop`, and the next chat ensure bought a second Pod while
+    the first was still billing. That is a duplicate GPU, not a status glitch.
+    """
+    controller, supplier, user = compute
+
+    async def scenario():
+        await start(controller, user)
+        await controller.tick()
+        supplier.pod_reads_missing = 1
+        await controller.tick()
+        assert controller.get_compute_status(user)["state"] != "stopped"
+        assert supplier.actions == []
+        supplier.time += timedelta(seconds=30)
+        await controller.tick()
+        assert controller.get_compute_status(user)["state"] in {"ready", "starting"}
+
+    asyncio.run(scenario())
+    with SessionLocal() as db:
+        row = require_scalar(db, select(ComputeSession))
+        assert row.stopped_at is None
+
+
+def test_a_confirmed_missing_pod_still_closes_the_session(compute):
+    controller, supplier, user = compute
+
+    async def scenario():
+        await start(controller, user)
+        await controller.tick()
+        supplier.pod_reads_missing = 5
+        await controller.tick()
+
+    asyncio.run(scenario())
+    with SessionLocal() as db:
+        row = require_scalar(db, select(ComputeSession))
+        assert row.stop_reason == "external_stop"
 
 
 def test_session_owner_sees_pod_id_not_volume(compute):

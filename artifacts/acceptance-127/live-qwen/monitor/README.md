@@ -117,7 +117,10 @@ Rules the code enforces (`batch.py`, `monitor.py::_settle_batch`):
   continue until a confirmed zero-Pod read, and never on an unknown provider answer;
 * a settled attempt whose Pod is confirmed gone re-arms the series automatically; when the money is
   spent the state is `PAID_BATCH_EXHAUSTED` and no fourth `create_pod` is attempted;
-* a `COMPLETED` attempt marks the series completed, which is final.
+* a `COMPLETED` attempt marks the series completed, which is final;
+* after a real attempt the next one waits five minutes (`next_attempt_at`): a deterministic
+  failure would otherwise burn the budget in four 30-second retries before the evidence is read.
+  An attempt that created nothing is not throttled.
 
 The 45-minute work target is a target, not a gate on a retry: an attempt is only started when the
 remaining budget covers at least 20 useful minutes plus the termination grace.

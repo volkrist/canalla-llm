@@ -20,6 +20,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import monitor as M
+import batch as B
 
 PAIR_TX = ("US-TX-3", "uwgeaie5b0")
 PAIR_MO = ("US-MO-1", "y92bt25ru8")
@@ -54,6 +55,16 @@ def _write_grant(rdir: Path, *, budget: float = 2.00, days: int = 30, placements
     grant = _grant_payload(budget=budget, days=days, placements=placements)
     M.save_json(M.grant_path(rdir), grant)
     return grant
+
+
+def _end_cooldown(rdir: Path) -> None:
+    """Move the recorded retry window into the past: the test is five minutes later."""
+    state = B.read(rdir)
+    if state.get("next_attempt_at"):
+        state["next_attempt_at"] = (
+            datetime.now(timezone.utc) - timedelta(seconds=1)
+        ).isoformat(timespec="seconds")
+        B.save(rdir, state)
 
 
 def _provider(**gpu) -> M.FixtureProvider:
@@ -973,7 +984,8 @@ def run_self_test() -> int:
             and after_buy["active_run_id"] is None
             and after_buy["reconciliation_status"] == "clean"
             and B.remaining_usd(after_buy) == 1.75
-            and M.automatic_live(bought["state"]) == "ARMED",
+            and after_buy.get("next_attempt_at")
+            and M.automatic_live(bought["state"]) == "WAITING_COOLDOWN",
         )
         journal = [
             json.loads(line)
@@ -987,6 +999,7 @@ def run_self_test() -> int:
             and journal[0]["remaining_usd"] == 1.75,
         )
 
+        _end_cooldown(batch_dir)
         second_child = M.run_check(provider=card, rdir=batch_dir, dry_run=True)
         new_child = M.read_grant(batch_dir).get("grant") or {}
         check(
@@ -1055,12 +1068,15 @@ def run_self_test() -> int:
         cleared = B.reconcile(dict(after_unresolved), 0)
         probe = dict(after_unresolved)
         probe["active_run_id"] = None
+        probe.pop("next_attempt_at", None)
+        cleared_probe = {**cleared, "active_run_id": None}
+        cleared_probe.pop("next_attempt_at", None)
         check(
             "an_unknown_pod_count_is_not_evidence_of_termination",
             still["reconciliation_status"] == "unconfirmed"
             and cleared["reconciliation_status"] == "clean"
             and B.can_start(probe, 1.09)[0] is False
-            and B.can_start({**cleared, "active_run_id": None}, 1.09)[0] is True,
+            and B.can_start(cleared_probe, 1.09)[0] is True,
         )
 
         # A monitor that died after writing the result still settles from durable evidence.
@@ -1081,7 +1097,14 @@ def run_self_test() -> int:
             and after_crash["spent_gpu_usd"] == 0.12
             and after_crash["pods_created"] == 1
             and B.remaining_usd(after_crash) == 1.88
-            and recovered["run"] is not None,
+            and recovered["run"] is None
+            and after_crash.get("next_attempt_at"),
+        )
+        _end_cooldown(crashed_dir)
+        later = M.run_check(provider=card, rdir=crashed_dir, dry_run=True)
+        check(
+            "the_series_continues_after_the_retry_window",
+            later["run"] is not None and later["state"]["live_execution_state"] == "DRY_RUN_OK",
         )
 
         # A terminal outcome from the previous single grant does not block a fresh series.

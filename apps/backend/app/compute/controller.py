@@ -993,6 +993,25 @@ class RunPodController:
         if self.api.configured:
             await self.tick()
 
+    async def _pod_really_gone(self, pod_id: str) -> bool:
+        """Confirm that a Pod is gone before a single read is allowed to close the session.
+
+        The supplier's read path is eventually consistent: one 404 (or one `EXITED`) while a Pod is
+        being registered made a live Pod look gone. The session was closed as `external_stop`, and
+        the next chat ensure bought a *second* Pod while the first was still billing. Two bounded
+        confirmations are cheap compared with a duplicate GPU.
+        """
+        for _ in range(2):
+            await asyncio.sleep(2.0)
+            try:
+                pod = await self.api.get_pod(pod_id)
+            except RunPodError as error:
+                if error.code != "not_found":
+                    raise
+                continue
+            return str(pod.status).upper() in {"EXITED", "TERMINATED", "GONE"}
+        return True
+
     async def tick(self):
         if not self.api.configured:
             return
@@ -1047,6 +1066,10 @@ class RunPodController:
                 else:
                     pod = await self.api.get_pod(row.pod_id)
             except RunPodError as error:
+                if error.code == "not_found" and row.pod_id:
+                    if not await self._pod_really_gone(row.pod_id):
+                        # A transient absence is not a stop: the next tick reads again.
+                        return
                 with self.sessions() as db:
                     saved = session_row(db, row.id)
                     if error.code == "not_found" and row.pod_id:
@@ -1060,6 +1083,8 @@ class RunPodController:
                 saved.pod_id = pod.id
                 self.record_pod(saved, pod)
                 if pod.status in {"EXITED", "TERMINATED"}:
+                    if not await self._pod_really_gone(pod.id):
+                        return
                     self.finish_stopped(db, saved, saved.stop_reason or "external_stop")
                     db.commit()
                     return

@@ -1265,6 +1265,8 @@ def run_live(
                 "90",
                 "--runner-pid",
                 str(os.getpid()),
+                "--run-id",
+                RUN_ID,
                 "--out",
                 str(watchdog_out),
             ],

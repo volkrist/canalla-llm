@@ -30,6 +30,11 @@ BATCH_JOURNAL = "batch-spend.jsonl"
 # *usefulness*, not the owner's fixed 45-minute target.
 MIN_USEFUL_SECONDS = 20 * 60
 SAFETY_MARGIN_USD = 0.05
+# After a real attempt, the next one waits. A deterministic failure (a pre-step that times out, a
+# prompt the product cannot satisfy) would otherwise burn the whole budget in four 30-second
+# retries before anyone could read the evidence. A capacity race that created nothing is not
+# throttled - nothing was spent and the card may be there on the next check.
+BATCH_RETRY_COOLDOWN_SECONDS = 5 * 60
 
 
 class BatchError(Exception):
@@ -163,6 +168,7 @@ def create(
 
 def can_start(batch: dict, rate: float, now: datetime | None = None) -> tuple[bool, str, float]:
     """May another attempt start, and how much must remain for it to be worth starting?"""
+    now = now or _now()
     state = status(batch, now)
     if state in {"completed", "revoked", "expired"}:
         return False, f"batch_{state}", 0.0
@@ -170,6 +176,9 @@ def can_start(batch: dict, rate: float, now: datetime | None = None) -> tuple[bo
         return False, "attempt_in_flight", 0.0
     if batch.get("reconciliation_status") != "clean":
         return False, "previous_outcome_unknown", 0.0
+    cooldown = _parse(batch.get("next_attempt_at"))
+    if cooldown is not None and cooldown > now:
+        return False, "batch_cooldown", 0.0
     need = required_usd(rate)
     left = remaining_usd(batch)
     if state == "exhausted" or left <= 0:
@@ -215,6 +224,9 @@ def record(
     batch["reconciliation_status"] = "clean" if confirmed_pod else "unconfirmed"
     if confirmed_pod:
         batch["pods_created"] = int(batch.get("pods_created") or 0) + 1
+        batch["next_attempt_at"] = (
+            _now() + timedelta(seconds=BATCH_RETRY_COOLDOWN_SECONDS)
+        ).isoformat(timespec="seconds")
     if remaining_usd(batch) <= 0:
         batch["status"] = "exhausted"
     return batch

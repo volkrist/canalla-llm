@@ -128,7 +128,7 @@ def select_local_route(prompt: str, context=None) -> LocalDecision:
         r"(?i)прочитай файл|прочитай .{0,80}\.\w{1,8}|read .{0,80}\.\w{1,8}|"
         r"создай .{0,80}\.\w{1,8}|create .{0,40}file|write .{0,20}file|"
         r"with(?: the)? text|с текстом|sha256|get_system_info|останови процесс|"
-        r"найди в этой папке|перечитай|hash .{0,80}\.\w{1,8}|посчитай.{0,24}хеш",
+        r"найди в этой папке|перечитай|hash .{0,80}\.\w{1,8}|посчитай.{0,24}хеш|winget",
         text,
     ):
         return LocalDecision(None, {}, "not_local")
@@ -256,8 +256,18 @@ def select_local_route(prompt: str, context=None) -> LocalDecision:
             return LocalDecision(
                 "create_directory", {"path": folder, "purpose": "create folder"}, "create_directory"
             )
-    if re.search(r"(?i)установи|install .{0,12}(jq|winget)|winget install", text):
-        package = "jqlang.jq" if re.search(r"(?i)\bjq\b", text) else "JanDeDobbeleer.OhMyPosh"
+    # Only an explicitly named package is an install request. The old rule fired on any sentence
+    # that merely contained "установи" - including "установи необходимые зависимости" - and
+    # decided on its own to install an unrelated tool. That server-policy step blocked a paid LIVE
+    # for five minutes and lost the attempt before the model could answer.
+    explicit = re.search(
+        r"(?i)(?:установи(?:ть)?|install)\s+(?:пакет\s+|package\s+|the\s+)?(jq|oh-?my-?posh)\b",
+        text,
+    ) or re.search(r"(?i)winget\s+install\s+(jq|oh-?my-?posh)\b", text)
+    if explicit:
+        package = (
+            "jqlang.jq" if explicit.group(1).lower() == "jq" else "JanDeDobbeleer.OhMyPosh"
+        )
         return LocalDecision(
             "install_software",
             {"package": package, "purpose": "install requested package"},

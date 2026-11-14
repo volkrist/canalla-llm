@@ -733,6 +733,7 @@ def live_run(args) -> int:
         )
         payload = {
             **result.to_dict(),
+            "run_id": args.run_id or None,
             "balance_before_usd": provider.balance_usd(),
             "balance_after_usd": provider.balance_usd(),
             "sleep_prevented": sleep_prevented,
@@ -765,6 +766,7 @@ def main() -> int:
     parser.add_argument("--min-work-minutes", type=int, default=45)
     parser.add_argument("--wait-for-pod-seconds", type=float, default=0.0)
     parser.add_argument("--runner-pid", type=int, default=0)
+    parser.add_argument("--run-id", default="", help="the attempt this watchdog belongs to")
     parser.add_argument("--out", default="")
     args = parser.parse_args()
 

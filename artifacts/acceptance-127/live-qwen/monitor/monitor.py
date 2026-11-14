@@ -167,6 +167,7 @@ def initial_state() -> dict:
         "batch_reconciliation": None,
         "batch_reason": None,
         "batch_run_id": None,
+        "batch_next_attempt_at": None,
         "terminal_batch_id": None,
     }
 
@@ -724,7 +725,7 @@ def _settle_batch(
     child = read_grant(rdir).get("grant") or {}
     child_id = child.get("grant_id")
     bought = int(pods_created or 0) > 0 or float(spend_usd or 0) > 0
-    pod_id = _pod_id_from_evidence()
+    pod_id = _pod_id_from_evidence(run_id)
     if not bought:
         batch_state = batch_module.restore(batch_state, run_id or "")
         outcome = "not_bought"
@@ -769,6 +770,7 @@ def _settle_batch(
     state["batch_remaining_usd"] = batch_module.remaining_usd(batch_state)
     state["batch_pods_created"] = batch_state.get("pods_created")
     state["batch_reconciliation"] = batch_state.get("reconciliation_status")
+    state["batch_next_attempt_at"] = batch_state.get("next_attempt_at")
     state["batch_run_id"] = None
     state["terminal_batch_id"] = batch_state.get("batch_id")
 
@@ -780,6 +782,9 @@ def _settle_batch(
         state["active_pod_id"] = None
         state["terminal_grant_id"] = None
         state["last_error"] = None
+        state["batch_reason"] = (
+            "batch_cooldown" if batch_state.get("next_attempt_at") else None
+        )
     elif can_continue and batch_module.status(batch_state) != "completed":
         state["live_execution_state"] = "PAID_BATCH_EXHAUSTED"
         state["active_pod_id"] = None
@@ -819,6 +824,8 @@ def run_check(
         state["batch_spent_usd"] = batch_state.get("spent_gpu_usd")
         state["batch_remaining_usd"] = batch_module.remaining_usd(batch_state)
         state["batch_pods_created"] = batch_state.get("pods_created")
+        state["batch_reconciliation"] = batch_state.get("reconciliation_status")
+        state["batch_next_attempt_at"] = batch_state.get("next_attempt_at")
     state["paid_run_authorized"] = bool(grant["valid"])
     state["grant_reason"] = grant["reason"]
     state["allowed_placements"] = [
@@ -1006,6 +1013,8 @@ def run_check(
             state["live_execution_state"] = "PAID_BATCH_EXHAUSTED"
         elif reason == "attempt_in_flight":
             state["live_execution_state"] = "ATTEMPT_IN_FLIGHT"
+        elif reason == "batch_cooldown":
+            state["live_execution_state"] = "BATCH_COOLDOWN"
         else:
             state["live_execution_state"] = "WAITING_AUTHORIZATION"
         _finish(rdir, state, observation, grant, result)
@@ -1381,7 +1390,7 @@ def launch_live(*, rdir: Path, state: dict, grant: dict, observation: dict) -> d
         final=final,
         billing=billing,
         rate=rate,
-        pod_id=_pod_id_from_evidence(),
+        pod_id=_pod_id_from_evidence(run_id),
     )
     pods_created = accounting["pods_created"]
     spend = accounting["spend_usd"]
@@ -1461,7 +1470,7 @@ def _apply_run_payload(
         )
         return
     state["paid_run_already_attempted"] = True
-    state["active_pod_id"] = _pod_id_from_evidence()
+    state["active_pod_id"] = _pod_id_from_evidence(payload.get("run_id"))
     # A run that bought a Pod spends the permission, whichever launcher produced it. The claim was
     # written before the harness started; this is the confirmation, and it can never be undone.
     mark_grant(rdir, used=True, run_id=payload.get("run_id"), confirmed=True)
@@ -1501,9 +1510,21 @@ def _apply_run_payload(
     )
 
 
-def _pod_id_from_evidence() -> str | None:
-    for name in ("pod-lifecycle.json", "watchdog-events.json", "final-summary.json"):
+def _pod_id_from_evidence(run_id: str | None = None) -> str | None:
+    """The Pod this attempt bought, from evidence that belongs to *this* run.
+
+    The shared snapshot files are overwritten by every attempt, so a killed run once settled with
+    the previous run's Pod id and was charged as if it had created one. A file that names a
+    different run is never used.
+    """
+    names = [f"run-{run_id}.json"] if run_id else []
+    names += ["pod-lifecycle.json", "watchdog-events.json", "final-summary.json"]
+    for name in names:
         payload = _read_json(EVIDENCE / name) or {}
+        if run_id and not name.startswith(f"run-{run_id}"):
+            marker = payload.get("run_id")
+            if marker and marker != run_id:
+                continue
         if payload.get("pod_id"):
             return str(payload["pod_id"])
         pod_ids = payload.get("pod_ids")
@@ -1626,6 +1647,7 @@ def build_status(state: dict, observation, grant) -> dict:
         "batch_remaining_usd": state.get("batch_remaining_usd"),
         "batch_pods_created": state.get("batch_pods_created"),
         "batch_reconciliation": state.get("batch_reconciliation"),
+        "batch_next_attempt_at": state.get("batch_next_attempt_at"),
         "monitoring_enabled": enabled,
         "consecutive_failures": failures,
         "last_error": state.get("last_error"),
@@ -1656,7 +1678,9 @@ def automatic_live(state: dict) -> str:
     if state.get("paid_run_authorized"):
         return "ARMED"
     # An active, settled batch is itself the permission: the next GPU sighting starts the next
-    # attempt without another human decision.
+    # attempt without another human decision. A cooling-down series is active but not ready.
+    if state.get("batch_reason") == "batch_cooldown":
+        return "WAITING_COOLDOWN"
     if (
         state.get("batch_status") == "active"
         and state.get("batch_reconciliation", "clean") == "clean"
