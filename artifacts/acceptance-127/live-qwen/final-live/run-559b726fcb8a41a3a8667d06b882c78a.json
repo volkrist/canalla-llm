@@ -1,0 +1,11 @@
+{
+ "run_id": "559b726fcb8a41a3a8667d06b882c78a",
+ "verdict": "MODEL_SELFTEST_FAILED",
+ "pods_created": 0,
+ "pod_ids": [],
+ "spend_usd": 0.0,
+ "balance_after_usd": 7.0873657745,
+ "hourly_rate_usd": 1.09,
+ "finished_at": "2026-11-14T12:14:46+00:00",
+ "error": null
+}

@@ -1,0 +1,88 @@
+{
+ "verdict": "PASS",
+ "problems": [],
+ "answer_chars": 26,
+ "answer_preview": "Яготоввыполнятьвашизадачи.",
+ "delta_events": 6,
+ "errors": [],
+ "checked_at": "2026-11-14T12:17:10+00:00",
+ "chat_id": "296b4c37-8a3b-4122-91a7-4c78c5556640",
+ "identity": {
+  "provider": "llamacpp",
+  "model": "orcarouter-qwen38-27b-q5km",
+  "pod_id": "w1cflixatbtw7q",
+  "gpu": "NVIDIA L40S",
+  "datacenter": "US-TX-3",
+  "available": true
+ },
+ "llm_status_code": 200,
+ "raw_events": [
+  {
+   "line": "event: progress"
+  },
+  {
+   "line": "data: {\"state\": \"starting_ai\", \"text\": \"Запускаю AI…\"}"
+  },
+  {
+   "line": "event: progress"
+  },
+  {
+   "line": "data: {\"state\": \"starting_ai\", \"text\": \"Запускаю AI…\"}"
+  },
+  {
+   "line": "event: progress"
+  },
+  {
+   "line": "data: {\"state\": \"starting_ai\", \"text\": \"Запускаю AI…\"}"
+  },
+  {
+   "line": "event: delta"
+  },
+  {
+   "line": "data: {\"content\": \"Я\"}"
+  },
+  {
+   "line": "event: delta"
+  },
+  {
+   "line": "data: {\"content\": \"готов\"}"
+  },
+  {
+   "line": "event: delta"
+  },
+  {
+   "line": "data: {\"content\": \"выполнять\"}"
+  },
+  {
+   "line": "event: delta"
+  },
+  {
+   "line": "data: {\"content\": \"ваши\"}"
+  },
+  {
+   "line": "event: delta"
+  },
+  {
+   "line": "data: {\"content\": \"задачи\"}"
+  },
+  {
+   "line": "event: delta"
+  },
+  {
+   "line": "data: {\"content\": \".\"}"
+  },
+  {
+   "line": "event: done"
+  },
+  {
+   "line": "data: {\"message_id\": \"beee81d9-da2d-46fd-93a9-6dae92cd8501\"}"
+  }
+ ],
+ "mode": "self_test",
+ "placement": {
+  "datacenter": "US-TX-3",
+  "volume_id": "uwgeaie5b0",
+  "storage_mode": "regional_network_volume"
+ },
+ "run_id": "c89661185a0d4768a96ff4f511ad5448"
+}

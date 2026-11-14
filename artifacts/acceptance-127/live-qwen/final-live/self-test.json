@@ -17,6 +17,44 @@
    "ok": true
   },
   {
+   "check": "a_prepared_fast_path",
+   "ok": true
+  },
+  {
+   "check": "a_stale_observation_falls_back",
+   "ok": true
+  },
+  {
+   "check": "a_prepared_placement_must_match_its_datacenter",
+   "ok": true
+  },
+  {
+   "check": "a_prepared_payload_with_an_existing_pod_is_refused",
+   "ok": true
+  },
+  {
+   "check": "a_prepared_rate_without_a_work_window_is_refused",
+   "ok": true
+  },
+  {
+   "check": "a_stale_preflight_falls_back",
+   "ok": true
+  },
+  {
+   "check": "a_prepared_payload_above_the_budget_is_refused",
+   "ok": true
+  },
+  {
+   "check": "a_lost_stream_is_evidence_not_a_crash",
+   "ok": true,
+   "detail": "{'event': 'stream_read_error', 'detail': 'URLError: <urlopen error [WinError 10061] Подключение не установлено, т.к. конечный компьютер отверг запрос на подключ"
+  },
+  {
+   "check": "the_stream_read_timeout_outlives_a_cold_first_token",
+   "ok": true,
+   "detail": "300"
+  },
+  {
    "check": "ninety_minute_billable_ceiling",
    "ok": true
   },
@@ -53,6 +91,26 @@
    "ok": true
   },
   {
+   "check": "a_delayed_first_token_is_not_a_failure",
+   "ok": true,
+   "detail": "{'verdict': 'PASS', 'problems': [], 'answer_chars': 15, 'answer_preview': 'готово к работе', 'delta_events': 1, 'errors': []}"
+  },
+  {
+   "check": "a_stalled_stream_is_evidence_not_a_crash",
+   "ok": true,
+   "detail": "{'event': 'stream_read_error', 'detail': 'TimeoutError: timed out'}"
+  },
+  {
+   "check": "the_global_deadline_is_a_typed_stop",
+   "ok": true,
+   "detail": "{'event': 'stream_read_error', 'detail': 'TimeoutError: timed out'} after 1.02s"
+  },
+  {
+   "check": "a_heartbeat_is_not_a_model_response",
+   "ok": true,
+   "detail": "{'verdict': 'FAIL', 'problems': ['no_real_answer'], 'answer_chars': 0, 'answer_preview': '', 'delta_events': 0, 'errors': []}"
+  },
+  {
    "check": "the_money_prompt_is_approved_once",
    "ok": true,
    "detail": "[{'allow': True, 'digest': 'd1'}]"
@@ -65,7 +123,7 @@
   {
    "check": "the_approval_is_recorded_for_the_evidence",
    "ok": true,
-   "detail": "[{'at': '2026-11-14T09:14:36+00:00', 'run_id': 'run-1', 'digest_bound': True, 'status': 200, 'answer': {'status': 'approved'}}]"
+   "detail": "[{'at': '2026-11-14T12:22:55+00:00', 'run_id': 'run-1', 'digest_bound': True, 'status': 200, 'answer': {'status': 'approved'}}]"
   }
  ],
  "verdict": "PASS"

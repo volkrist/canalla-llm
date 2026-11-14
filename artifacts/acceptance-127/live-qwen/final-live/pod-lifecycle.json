@@ -24,92 +24,92 @@
  },
  "events": [
   {
-   "at_seconds": 0.75,
+   "at_seconds": 0.45,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 6.38,
+   "at_seconds": 6.11,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 11.75,
+   "at_seconds": 11.81,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 17.06,
+   "at_seconds": 17.14,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 22.38,
+   "at_seconds": 22.86,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 28.02,
+   "at_seconds": 28.53,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 33.67,
+   "at_seconds": 33.92,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 39.02,
+   "at_seconds": 39.22,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 44.34,
+   "at_seconds": 44.91,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 49.64,
+   "at_seconds": 50.62,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 55.3,
+   "at_seconds": 56.08,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 60.91,
+   "at_seconds": 61.75,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 66.3,
+   "at_seconds": 67.47,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 71.67,
+   "at_seconds": 72.81,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 77.34,
+   "at_seconds": 78.56,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 82.66,
+   "at_seconds": 83.88,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 87.97,
+   "at_seconds": 89.2,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 93.3,
+   "at_seconds": 94.91,
    "kind": "no-pod",
    "detail": ""
   }
@@ -122,9 +122,9 @@
  "reasons": [
   "no Pod exists: nothing to supervise and nothing to spend"
  ],
- "balance_before_usd": 8.3783262846,
- "balance_after_usd": 8.3783262846,
+ "balance_before_usd": 7.0873657745,
+ "balance_after_usd": 7.0873657745,
  "sleep_prevented": true,
- "runner_pid": 0,
- "observed_at": "2026-11-14T08:58:03+00:00"
+ "runner_pid": 24512,
+ "observed_at": "2026-11-14T12:14:42+00:00"
 }

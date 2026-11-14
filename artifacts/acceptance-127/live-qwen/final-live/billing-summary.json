@@ -1,6 +1,10 @@
 {
- "checked_at": "2026-11-14T09:12:57+00:00",
- "spend_usd": 0.0,
- "balance_usd": 8.3686040624,
- "note": "No Pod was created; storage charges on the existing volume are independent."
+ "checked_at": "2026-11-14T12:22:17+00:00",
+ "budget_usd": 2.0,
+ "hourly_rate_usd": 1.09,
+ "balance_before_usd": null,
+ "balance_after_usd": 7.0525486726,
+ "estimated_policy_worst_case_usd": 1.6350000000000002,
+ "note": "The balance delta includes background storage charges; Pod cost is the policy figure.",
+ "run_id": "c89661185a0d4768a96ff4f511ad5448"
 }

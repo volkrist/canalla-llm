@@ -1,0 +1,11 @@
+{
+ "id": "ec3ab5e1-7a19-44a7-8e2b-699fd59e95af",
+ "status": "FAILED",
+ "verification_ok": false,
+ "workspace": "C:\\Users\\Volkr\\AppData\\Local\\Temp\\canalla-live-fxqvoq6a\\workspace",
+ "files_changed": 0,
+ "tool_calls_used": 6,
+ "last_error": "tests_not_verified",
+ "completion_summary": "Incomplete: tests_not_verified, sources_missing",
+ "run_id": "c89661185a0d4768a96ff4f511ad5448"
+}

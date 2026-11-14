@@ -1,0 +1,52 @@
+{
+ "status": "INCOMPLETE_TRACE",
+ "ok": false,
+ "reasons": [
+  "no passing independent verification was recorded"
+ ],
+ "providers": [
+  "llamacpp"
+ ],
+ "models": [
+  "orcarouter-qwen38-27b-q5km"
+ ],
+ "model_responses": 2,
+ "live_responses": 2,
+ "tool_calls": 2,
+ "linked_results": 1,
+ "verified": false,
+ "tampered": 0,
+ "chain": [
+  {
+   "kind": "MODEL_RESPONSE",
+   "model_request_id": "9e8224e8724145f99a2556166f98f31f"
+  },
+  {
+   "kind": "MODEL_TOOL_CALL",
+   "model_request_id": "9e8224e8724145f99a2556166f98f31f",
+   "tool_call_id": "TKRCKgKBxuTuBl0Se2E1l6j6exexeNes",
+   "tool": "list_directory"
+  },
+  {
+   "kind": "TOOL_RESULT",
+   "tool_call_id": "TKRCKgKBxuTuBl0Se2E1l6j6exexeNes",
+   "tool_run_id": "7ad3f48e-9a4c-4262-aa58-e44c89f4b501"
+  },
+  {
+   "kind": "MODEL_RESPONSE",
+   "model_request_id": "eef120d428e3413394d537f5f66071b4"
+  },
+  {
+   "kind": "MODEL_TOOL_CALL",
+   "model_request_id": "eef120d428e3413394d537f5f66071b4",
+   "tool_call_id": "M7EHuD2uDbl0jimumInWJIv5gbNoE7xH",
+   "tool": "write_file"
+  },
+  {
+   "kind": "TOOL_RESULT",
+   "tool_call_id": "M7EHuD2uDbl0jimumInWJIv5gbNoE7xH",
+   "tool_run_id": null
+  }
+ ],
+ "run_id": "c89661185a0d4768a96ff4f511ad5448"
+}

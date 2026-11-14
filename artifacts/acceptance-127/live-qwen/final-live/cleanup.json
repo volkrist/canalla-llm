@@ -1,7 +1,8 @@
 {
- "checked_at": "2026-11-14T09:12:57+00:00",
+ "checked_at": "2026-11-14T12:22:17+00:00",
  "pod_count": 0,
  "pods": [],
+ "balance_usd": 7.0525486726,
  "verdict": "CLEAN",
- "note": "No paid run was started; this is the pre-run account state."
+ "run_id": "c89661185a0d4768a96ff4f511ad5448"
 }
