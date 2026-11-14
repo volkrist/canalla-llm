@@ -6,6 +6,55 @@
 > глобальных томов. Подробности и цены — `artifacts/REPORT-canalla-127-storage-unblock.md`;
 > актуальный план — `artifacts/acceptance-127/live-qwen/PLAN.md`.
 
+## Попытка LIVE 2026-11-14 07:44–07:46 UTC
+
+**HEAD:** `676c18d`. **Pod создано:** 0. **Расход:** $0.00.
+**Вердикт:** **CAPACITY_UNAVAILABLE** — единственный непройденный гейт.
+
+Запуск привязан к проверенной реплике `y92bt25ru8` (US-MO-1) и к карте **NVIDIA L40S**; первичный
+том `uwgeaie5b0` (US-TX-3) **исключён** из выбора, потому что его измеренный manifest фиксирует
+`serve_selftest: FAIL`. Тип размещения и SKU — пины, а не подсказки: `gpu_probe.py` отвергает
+другой том (`PLACEMENT_NOT_APPROVED`), `live_acceptance.py` отказывается исполнять прогон на
+другом томе без отдельного `--volume`.
+
+| Гейт | Результат |
+|---|---|
+| Git branch/HEAD | `feature/canalla-1.2.7-autonomous-agent` / `676c18d`, синхронно с origin |
+| RunPod API | доступен (каталог, тома, поды) |
+| GPU в совместимом DC | **НЕТ**: L40S не имеет доступности в US-MO-1 (3 чтения за 42 с) |
+| Цена в бюджете | L40S $1.09/ч, worst case 90 мин = $1.635 ✅ (но карта не бронируется) |
+| Network Volume | `y92bt25ru8` существует, 50 GB, STANDARD, US-MO-1 |
+| Model placement | `ready:true`, `last_verified 2026-10-13T12:23:41Z`, реальный ответ модели |
+| Gateway | `/health` 200, `ready` |
+| Изолированный backend | harness self-test **9/9 PASS** |
+| Computer Connect | устройство online, совпадает с локальным |
+| Production DB baseline | integrity `ok`, FK 0, users 2 / chats 54 / messages 120 / paired_devices 63 / local_tasks 30 |
+| Device identity | `6413489d-6cae-4183-8446-a3b2339137dc` (не изменялась) |
+| Watchdog | self-test **23/23 PASS** |
+| Посторонние Pod | 0 |
+| Stale acceptance процессы | 0 (работает только production sidecar) |
+| Диск | 70.3 GB свободно |
+| Mock вместо модели | нет: `LLM_PROVIDER=llamacpp`, provenance распознаёт live-провайдеров |
+
+### Что именно показал каталог
+
+`final-live/capacity-check.json`, три чтения (07:45:10, 07:45:31, 07:45:52 UTC):
+
+| | |
+|---|---|
+| L40S $1.09 | доступен в **OC-AU-1, US-IL-1, US-TX-4**; в **US-MO-1 — NONE** |
+| Совместимые карты в US-MO-1 | только **H100 80GB HBM3 $4.39/ч** (LOW) |
+| Бюджет на H100 | $2.00 / $4.39 = **27 мин** максимум → ниже минимума 45 мин ⇒ `sufficient=false`, harness отказывается |
+| Первичный том US-TX-3 | не используется: `serve_selftest: FAIL` (измерено 2026-09-26) |
+
+Альтернативные DC с L40S не содержат проверенной копии модели, а Network Volume нельзя смонтировать
+вне своего дата-центра. Поэтому ни один вариант не проходит одновременно «совместимость + готовность
+модели + бюджет».
+
+**Следующее действие:** повторить бесплатный read-only зонд, когда L40S вернётся в US-MO-1 (пул
+менялся дважды за сутки), либо отдельно решить вопрос второй реплики/SKU — это платное
+инфраструктурное действие и в текущем задании не выполняется.
+
 **Дата проверки:** 14 ноября 2026.
 **Ветка:** `feature/canalla-1.2.7-autonomous-agent`.
 **Исходный SHA:** `054decc` (CI 7/7 + Linux gate на `cfd7e14`).

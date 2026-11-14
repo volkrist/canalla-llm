@@ -1,18 +1,10 @@
 {
- "generated_at": "2026-11-14T04:16:01+00:00",
+ "generated_at": "2026-11-14T07:46:40+00:00",
  "budget_usd": "2.00",
  "verified_placements": [
-  "uwgeaie5b0",
   "y92bt25ru8"
  ],
- "placement_at_last_probe": {
-  "datacenter": "US-TX-3",
-  "volume_id": "uwgeaie5b0",
-  "storage_mode": "regional_network_volume",
-  "gpu": "NVIDIA L40S",
-  "hourly_price_usd": 1.09,
-  "observed_at": "2026-11-14T04:15:39+00:00"
- },
+ "placement_at_last_probe": null,
  "placement_rule": "the cheapest compatible card in any placement whose copy of the model is verified; a regional volume pins its datacenter, so the probe re-reads availability immediately before the run instead of trusting this file",
  "gpu": {
   "name": "NVIDIA L40S",
@@ -35,6 +27,7 @@
   "untouched": true,
   "device_identity": "6413489d-6cae-4183-8446-a3b2339137dc"
  },
- "verdict": "READY_FOR_OWNER_AUTHORIZATION",
+ "verdict": "CAPACITY_UNAVAILABLE",
+ "verdict_basis": "the last read-only probe found no bookable pinned SKU in a verified placement",
  "paid_actions_taken": 0
 }

@@ -33,8 +33,19 @@ REPO = Path(__file__).resolve().parents[3]
 BACKEND = REPO / "apps" / "backend"
 OUT = Path(__file__).resolve().parent / "final-live"
 PRIMARY_VOLUME = "uwgeaie5b0"
+# The only placement this run is approved to use: the copy whose real-GPU answer is recorded.
+PREFERRED_VOLUME = "y92bt25ru8"
+# The owner's preferred card for the run. It is a *pin*, not a hint: a cheaper or pricier card is
+# not substituted, because a fallback that quietly changes the approved SKU is exactly what the
+# confirmation is bound against.
+REQUIRED_GPU_ID = "NVIDIA L40S"
 MIN_VRAM_GB = 48
 BUDGET_USD = Decimal("2.00")
+# A volume is only a placement when its *serving* evidence is a pass. The measured manifest of the
+# primary volume records `serve_selftest: FAIL`, so that placement is refused for this run rather
+# than being silently preferred by a price tie.
+SERVING_MANIFEST = REPO / "artifacts" / "runpod-tx3-watcher" / "primary-manifest.json"
+SERVING_PASS = {"PASS", "OK", "READY", "TRUE"}
 
 sys.path.insert(0, str(REPO / "scripts"))
 sys.path.insert(0, str(BACKEND))
@@ -74,6 +85,32 @@ def rows_of(payload, *keys) -> list:
             if isinstance(value, list):
                 return value
     return []
+
+
+def serving_evidence() -> dict:
+    """What the record says about *serving* from each volume, never what we hope it says.
+
+    The primary volume's manifest records ``serve_selftest: FAIL``. That is not proof the volume can
+    never serve - production uses it - but it *is* proof that this build has no passing serving
+    check on it, so a LIVE run must not land there by a price tie. Only a recorded failure is
+    turned into a refusal here; silence is not a verdict.
+    """
+    evidence: dict = {"source": str(SERVING_MANIFEST.relative_to(REPO)), "records": {}}
+    try:
+        manifest = json.loads(SERVING_MANIFEST.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        evidence["note"] = "manifest unreadable; no serving refusal derived"
+        return evidence
+    volume_id = str(manifest.get("volume_id") or "")
+    value = manifest.get("serve_selftest")
+    if volume_id and value is not None:
+        passed = str(value).strip().upper() in SERVING_PASS
+        evidence["records"][volume_id] = {
+            "serve_selftest": value,
+            "passed": passed,
+            "measured_at": manifest.get("measured_at"),
+        }
+    return evidence
 
 
 def replica_records() -> list[dict]:
@@ -152,6 +189,10 @@ def main() -> int:
     refusals = placement_refusals(
         placements, records, EXPECTATION, require_records=require_records
     )
+    served = serving_evidence()
+    for volume_id, record in served.get("records", {}).items():
+        if not record["passed"]:
+            refusals[volume_id] = "serve_selftest_failed"
 
     query = urllib.parse.urlencode(
         {
@@ -209,7 +250,10 @@ def main() -> int:
         if secure <= 0:
             continue
         offers.append(offer)
-        if not any(value.upper() in policy.USABLE_STOCK for value in centers.values()):
+        # A usable card outside the approved placements is useful context ("where else could this
+        # run go"); a card that is unavailable *everywhere* is not, and reporting it as the
+        # reference made the blocked summary name the cheapest dead SKU.
+        if any(value.upper() in policy.USABLE_STOCK for value in centers.values()):
             elsewhere.append(catalogued)
 
     plan = policy.build_plan(
@@ -218,6 +262,9 @@ def main() -> int:
         max_hourly_price=BUDGET_USD,
         placements=placements,
         replica_refusals=refusals,
+        # A pin, not a hint: the approved SKU is this card and no run may silently buy another.
+        selection="manual",
+        gpu_id=REQUIRED_GPU_ID,
         strategy="cheapest",
     )
 
@@ -252,6 +299,9 @@ def main() -> int:
             "context_window": 32768,
         },
         "volumes": volumes,
+        "required_gpu": REQUIRED_GPU_ID,
+        "preferred_volume": PREFERRED_VOLUME,
+        "serving_evidence": served,
         "replicas": records,
         "placements": [item.audit() for item in placements],
         "replica_refusals": dict(refusals),
@@ -279,17 +329,35 @@ def main() -> int:
         "plan_reason": plan.reason,
         "ok": selected is not None,
     }
+    if selected is not None and selected["volume_id"] != PREFERRED_VOLUME:
+        # The owner approved this replica. A different placement is a different decision, so it is
+        # reported as not-ready instead of being used quietly.
+        report["verdict"] = "PLACEMENT_NOT_APPROVED"
+        report["reason"] = (
+            f"the only bookable placement is {selected['volume_id']} "
+            f"({selected['datacenter']}), not the approved verified replica {PREFERRED_VOLUME}; "
+            "no Pod was created"
+        )
+        report["selected"] = None
+        report["ok"] = False
+        (OUT).mkdir(parents=True, exist_ok=True)
+        (OUT / "gpu-selection.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
+        print(json.dumps(report, ensure_ascii=False, indent=1)[:5000])
+        return 1
 
     if selected is None:
         if not report["verified_placements"]:
             report["verdict"] = "NO_VERIFIED_MODEL_COPY"
             report["reason"] = (
-                "no placement holds a verified copy of this model; nothing was created"
+                "no placement holds a verified copy of this model with a passing serving check; "
+                "nothing was created"
             )
         else:
             report["verdict"] = "CAPACITY_UNAVAILABLE"
             report["reason"] = (
-                "no compatible GPU is available in any verified placement ("
+                f"{REQUIRED_GPU_ID} is not bookable in any verified placement ("
                 + ", ".join(report["verified_placements"])
                 + "); no Pod was created and no capacity wait was started"
             )

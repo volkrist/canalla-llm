@@ -42,18 +42,30 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 BACKEND = REPO / "apps" / "backend"
-HOST_EXE = REPO / "apps" / "desktop" / "src-tauri" / "target" / "release" / "alex-host-loop.exe"
+HOST_EXE = (
+    REPO
+    / "apps"
+    / "desktop"
+    / "src-tauri"
+    / "target"
+    / "release"
+    / "alex-host-loop.exe"
+)
 WATCHDOG = REPO / "scripts" / "live_qwen_watchdog.py"
 GPU_PROBE = Path(__file__).resolve().parent / "gpu_probe.py"
 OUT = Path(__file__).resolve().parent
 LIVE = OUT / "final-live"
 
 sys.path.insert(0, str(BACKEND))
-from app.compute import cost_policy  # noqa: E402
+from app.compute import cost_policy
+
 CONFIRMATION = "I AUTHORIZE ONE PAID POD"
 CONFIRMATION_RU = (
     "Разрешаю один платный LIVE-прогон Qwen с бюджетом не более $2.00 и одним GPU Pod."
 )
+# The placement the owner approved for this run: the copy whose real-GPU answer is recorded. A
+# different volume is a different decision, so the run refuses it instead of using it silently.
+PREFERRED_VOLUME = "y92bt25ru8"
 MAX_BUDGET_USD = cost_policy.MAX_LIVE_BUDGET_USD
 MAX_BILLABLE_MINUTES = 90
 TARGET_WORK_MINUTES = 80
@@ -83,7 +95,9 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def http(method: str, url: str, body=None, token: str | None = None, timeout: float = 30.0):
+def http(
+    method: str, url: str, body=None, token: str | None = None, timeout: float = 30.0
+):
     data = json.dumps(body).encode() if body is not None else None
     request = urllib.request.Request(
         url,
@@ -149,7 +163,11 @@ def gpu_probe() -> dict:
     try:
         report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return {"ok": False, "verdict": "PROBE_FAILED", "error": completed.stderr[-300:]}
+        return {
+            "ok": False,
+            "verdict": "PROBE_FAILED",
+            "error": completed.stderr[-300:],
+        }
     report["probe_exit"] = completed.returncode
     return report
 
@@ -166,21 +184,31 @@ def production_snapshot() -> dict:
     }
     if device.is_file():
         try:
-            snapshot["local_device_id"] = json.loads(device.read_text(encoding="utf-8")).get(
-                "device_id", ""
-            )
+            snapshot["local_device_id"] = json.loads(
+                device.read_text(encoding="utf-8")
+            ).get("device_id", "")
         except ValueError:
             snapshot["local_device_id"] = ""
     if database.is_file():
         import sqlite3
 
-        connection = sqlite3.connect("file:" + database.as_posix() + "?mode=ro", uri=True)
+        connection = sqlite3.connect(
+            "file:" + database.as_posix() + "?mode=ro", uri=True
+        )
         try:
             snapshot["counts"] = {
                 table: connection.execute(f"select count(*) from {table}").fetchone()[0]
-                for table in ("users", "chats", "messages", "paired_devices", "local_tasks")
+                for table in (
+                    "users",
+                    "chats",
+                    "messages",
+                    "paired_devices",
+                    "local_tasks",
+                )
             }
-            snapshot["integrity"] = connection.execute("pragma integrity_check").fetchone()[0]
+            snapshot["integrity"] = connection.execute(
+                "pragma integrity_check"
+            ).fetchone()[0]
             snapshot["foreign_key_violations"] = len(
                 connection.execute("pragma foreign_key_check").fetchall()
             )
@@ -195,7 +223,10 @@ def production_snapshot() -> dict:
             connection.close()
     try:
         status, health = http("GET", "http://127.0.0.1:8000/health", timeout=10)
-        snapshot["installed_app"] = {"status": status, "version": (health or {}).get("version")}
+        snapshot["installed_app"] = {
+            "status": status,
+            "version": (health or {}).get("version"),
+        }
     except Exception:
         snapshot["installed_app"] = {"status": 0, "version": None}
     return snapshot
@@ -236,6 +267,7 @@ def prepare() -> int:
         "min_work_minutes": MIN_WORK_MINUTES,
         "model": "orcarouter-qwen38-27b-q5km",
         "context_window": 32768,
+        "expected_volume": PREFERRED_VOLUME,
         "gpu": selection.get("selected"),
         "placement": {
             "datacenter": (selection.get("selected") or {}).get("datacenter"),
@@ -254,7 +286,7 @@ def prepare() -> int:
         "balance_usd": pods.get("balance_usd"),
         "command": (
             "python artifacts\\acceptance-127\\live-qwen\\live_acceptance.py --live "
-            "--budget-usd 2.00 --confirm \"I AUTHORIZE ONE PAID POD\""
+            '--budget-usd 2.00 --confirm "I AUTHORIZE ONE PAID POD"'
         ),
         "production": production_snapshot(),
         "spend_usd": 0.0,
@@ -274,7 +306,9 @@ def prepare() -> int:
                 "blocked_by": blocked,
                 "pods_created": 0,
                 "spend_usd": 0.0,
-                "reason": "Owner authorization is required and the external blocker above exists.",
+                "reason": "No paid run was started: " + ", ".join(blocked),
+                "detail": selection.get("reason"),
+                "authorization": "Owner authorization is a separate prerequisite and was not bypassed.",
             },
         )
         _write_json(
@@ -283,7 +317,9 @@ def prepare() -> int:
                 "checked_at": utcnow(),
                 "pod_count": pods.get("pod_count"),
                 "pods": pods.get("pods"),
-                "verdict": "CLEAN" if pods.get("pod_count") == 0 else "CRITICAL_UNCONFIRMED",
+                "verdict": "CLEAN"
+                if pods.get("pod_count") == 0
+                else "CRITICAL_UNCONFIRMED",
                 "note": "No paid run was started; this is the pre-run account state.",
             },
         )
@@ -338,7 +374,7 @@ def plan_report(budget: float, rate: float) -> dict:
         "abort_rules": [
             "any preflight blocker",
             "an existing Pod before the run",
-            "no compatible GPU in any verified placement (CAPACITY_UNAVAILABLE, no queue)",
+            "no approved L40S in the verified replica's datacenter (CAPACITY_UNAVAILABLE, no queue)",
             "the planned worst case exceeds the approved budget",
             "the watchdog reports MULTIPLE_PODS or TERMINATION_UNCONFIRMED",
             "the provenance verdict is anything other than REAL_MODEL_CONFIRMED",
@@ -364,7 +400,9 @@ def authorization_problem(confirm: str, budget: float | None) -> str:
 
 def _write_json(name: str, payload) -> None:
     LIVE.mkdir(parents=True, exist_ok=True)
-    (LIVE / name).write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
+    (LIVE / name).write_text(
+        json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8"
+    )
 
 
 def _write_jsonl(name: str, rows) -> None:
@@ -379,7 +417,10 @@ def _sse_stream(url: str, token: str, body: dict, deadline: float) -> list[dict]
         url,
         data=json.dumps(body).encode(),
         method="POST",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        },
     )
     events: list[dict] = []
     with urllib.request.urlopen(request, timeout=30) as response:
@@ -401,6 +442,7 @@ def run_live(
     max_billable_minutes: int,
     target_work_minutes: int,
     min_work_minutes: int,
+    volume: str = PREFERRED_VOLUME,
 ) -> int:
     problem = authorization_problem(confirm, budget)
     if problem:
@@ -432,7 +474,9 @@ def run_live(
             "budget_usd": budget,
             "max_billable_minutes": max_billable_minutes,
             "gpu_verdict": selection.get("verdict"),
-            "status": "AUTHORIZED" if selection.get("verdict") == "READY" else "BLOCKED",
+            "status": "AUTHORIZED"
+            if selection.get("verdict") == "READY"
+            else "BLOCKED",
             "blocked_by": None
             if selection.get("verdict") == "READY"
             else selection.get("verdict"),
@@ -444,7 +488,7 @@ def run_live(
             "final-summary.json",
             {
                 "generated_at": utcnow(),
-                "verdict": "CAPACITY_UNAVAILABLE",
+                "verdict": selection.get("verdict") or "CAPACITY_UNAVAILABLE",
                 "live_run": False,
                 "pods_created": 0,
                 "spend_usd": 0.0,
@@ -475,7 +519,14 @@ def run_live(
         ),
     }
     if not placement["volume_id"] or not placement["datacenter"]:
-        raise SystemExit(f"refusing: the selected candidate has no placement: {selection.get('selected')}")
+        raise SystemExit(
+            f"refusing: the selected candidate has no placement: {selection.get('selected')}"
+        )
+    if placement["volume_id"] != volume:
+        raise SystemExit(
+            f"refusing: the selected placement {placement['volume_id']} is not the approved "
+            f"verified replica {volume}; a different placement needs its own approval"
+        )
     policy = cost_policy.plan(
         budget,
         rate,
@@ -485,14 +536,18 @@ def run_live(
     )
     _write_json("cost-policy.json", policy.to_dict())
     if not policy.feasible or not policy.sufficient:
-        raise SystemExit(f"refusing: the selected card leaves no usable window: {policy.to_dict()}")
+        raise SystemExit(
+            f"refusing: the selected card leaves no usable window: {policy.to_dict()}"
+        )
 
     sys.path.insert(0, str(REPO / "scripts"))
     import runpod_api_tools
 
     key = runpod_api_tools.read_provider_secret()
     if not key:
-        raise SystemExit("no RunPod credential in the installed product's credential store")
+        raise SystemExit(
+            "no RunPod credential in the installed product's credential store"
+        )
 
     work = Path(tempfile.mkdtemp(prefix="canalla-live-"))
     workspace = work / "workspace"
@@ -575,7 +630,9 @@ def run_live(
             time.sleep(0.2)
         email = f"live-{nonce}@example.com"
         _, registered = http(
-            "POST", base + "/auth/register", {"email": email, "password": "live-pass-123"}
+            "POST",
+            base + "/auth/register",
+            {"email": email, "password": "live-pass-123"},
         )
         token = registered["access_token"]
         _, chat = http("POST", base + "/chats", {}, token=token)
@@ -617,7 +674,11 @@ def run_live(
         }
         host_log = (work / "host.log").open("w", encoding="utf-8", errors="replace")
         host = subprocess.Popen(
-            [str(HOST_EXE)], env=host_env, stdout=host_log, stderr=subprocess.STDOUT, text=True
+            [str(HOST_EXE)],
+            env=host_env,
+            stdout=host_log,
+            stderr=subprocess.STDOUT,
+            text=True,
         )
         watchdog_out = LIVE / "pod-lifecycle.json"
         watchdog = subprocess.Popen(
@@ -636,15 +697,26 @@ def run_live(
                 "--out",
                 str(watchdog_out),
             ],
-            stdout=(work / "watchdog.log").open("w", encoding="utf-8", errors="replace"),
+            stdout=(work / "watchdog.log").open(
+                "w", encoding="utf-8", errors="replace"
+            ),
             stderr=subprocess.STDOUT,
             text=True,
         )
-        deadline = time.monotonic() + policy.hard_wall_seconds + policy.termination_grace_seconds
+        deadline = (
+            time.monotonic()
+            + policy.hard_wall_seconds
+            + policy.termination_grace_seconds
+        )
         events = _sse_stream(
             f"{base}/chats/{chat_id}/stream",
             token,
-            {"content": SCENARIO, "web_mode": "on", "computer_mode": "trusted", "tor_mode": "off"},
+            {
+                "content": SCENARIO,
+                "web_mode": "on",
+                "computer_mode": "trusted",
+                "tor_mode": "off",
+            },
             deadline,
         )
         summary["stream_events"] = len(events)
@@ -655,7 +727,9 @@ def run_live(
         from app.tools.models import LocalTask, ToolRun
 
         with SessionLocal() as db:
-            tasks = db.query(LocalTask).order_by(LocalTask.started_at.desc()).limit(1).all()
+            tasks = (
+                db.query(LocalTask).order_by(LocalTask.started_at.desc()).limit(1).all()
+            )
             task = tasks[0] if tasks else None
             if task is None:
                 summary["verdict"] = "FAIL"
@@ -791,7 +865,9 @@ def run_live(
                 "pod_count": final_pods.get("pod_count"),
                 "pods": final_pods.get("pods"),
                 "balance_usd": final_pods.get("balance_usd"),
-                "verdict": "CLEAN" if final_pods.get("pod_count") == 0 else "CRITICAL_UNCONFIRMED",
+                "verdict": "CLEAN"
+                if final_pods.get("pod_count") == 0
+                else "CRITICAL_UNCONFIRMED",
             },
         )
         balance_after = final_pods.get("balance_usd")
@@ -841,7 +917,9 @@ def run_independent_checks(workspace: Path, summary: dict) -> tuple[list[dict], 
     }
     check("tests_pass", completed.returncode == 0, (completed.stdout or "")[-300:])
 
-    screenshots = sorted(str(path.relative_to(workspace)) for path in workspace.rglob("*.png"))
+    screenshots = sorted(
+        str(path.relative_to(workspace)) for path in workspace.rglob("*.png")
+    )
     check("gui_screenshot_exists", bool(screenshots), screenshots[:5])
     gui_dir = LIVE / "gui-evidence"
     gui_dir.mkdir(parents=True, exist_ok=True)
@@ -859,11 +937,17 @@ def run_independent_checks(workspace: Path, summary: dict) -> tuple[list[dict], 
     with SessionLocal() as db:
         runs = db.query(ToolRun).order_by(ToolRun.started_at).all()
         codes = [
-            (run.tool_name, (run.result_metadata or {}).get("exit_code"), run.started_at)
+            (
+                run.tool_name,
+                (run.result_metadata or {}).get("exit_code"),
+                run.started_at,
+            )
             for run in runs
             if run.tool_name in {"run_python", "run_process"}
         ]
-    failures = [index for index, (_, code, _) in enumerate(codes) if code not in (None, 0)]
+    failures = [
+        index for index, (_, code, _) in enumerate(codes) if code not in (None, 0)
+    ]
     check(
         "a_failure_preceded_a_pass",
         bool(failures) and any(code in (0,) for _, code, _ in codes[max(failures) :]),
@@ -889,13 +973,18 @@ def run_independent_checks(workspace: Path, summary: dict) -> tuple[list[dict], 
 
     # SQLite: the application's own database must contain rows after the GUI/API work.
     databases = [path for path in workspace.rglob("*.db") if path.is_file()]
-    database_check: dict = {"databases": [str(path.name) for path in databases], "tables": {}}
+    database_check: dict = {
+        "databases": [str(path.name) for path in databases],
+        "tables": {},
+    }
     rows_found = False
     for path in databases[:5]:
         import sqlite3
 
         try:
-            connection = sqlite3.connect("file:" + path.as_posix() + "?mode=ro", uri=True)
+            connection = sqlite3.connect(
+                "file:" + path.as_posix() + "?mode=ro", uri=True
+            )
         except sqlite3.Error:
             continue
         try:
@@ -907,7 +996,9 @@ def run_independent_checks(workspace: Path, summary: dict) -> tuple[list[dict], 
             ]
             for table in tables[:20]:
                 try:
-                    count = connection.execute(f'select count(*) from "{table}"').fetchone()[0]
+                    count = connection.execute(
+                        f'select count(*) from "{table}"'
+                    ).fetchone()[0]
                 except sqlite3.Error:
                     continue
                 database_check["tables"][f"{path.name}:{table}"] = count
@@ -944,7 +1035,9 @@ def run_independent_checks(workspace: Path, summary: dict) -> tuple[list[dict], 
             for _ in range(150):
                 try:
                     status, _ = http("GET", f"http://127.0.0.1:{port}/")
-                    http_check.update({"status": status, "url": f"http://127.0.0.1:{port}/"})
+                    http_check.update(
+                        {"status": status, "url": f"http://127.0.0.1:{port}/"}
+                    )
                     if status == 200:
                         ok = True
                         break
@@ -972,7 +1065,11 @@ def independent_gui(url: str, checks: list[dict]) -> None:
         from playwright.sync_api import sync_playwright
     except Exception:
         checks.append(
-            {"check": "independent_gui_load", "ok": False, "detail": "playwright unavailable"}
+            {
+                "check": "independent_gui_load",
+                "ok": False,
+                "detail": "playwright unavailable",
+            }
         )
         return
     target = LIVE / "gui-evidence" / "independent-page.png"
@@ -1018,7 +1115,10 @@ def main() -> int:
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--confirm", default="")
     parser.add_argument("--budget-usd", type=float, default=None)
-    parser.add_argument("--max-billable-minutes", type=int, default=MAX_BILLABLE_MINUTES)
+    parser.add_argument("--volume", default=PREFERRED_VOLUME)
+    parser.add_argument(
+        "--max-billable-minutes", type=int, default=MAX_BILLABLE_MINUTES
+    )
     parser.add_argument("--target-work-minutes", type=int, default=TARGET_WORK_MINUTES)
     parser.add_argument("--min-work-minutes", type=int, default=MIN_WORK_MINUTES)
     args = parser.parse_args()
@@ -1031,7 +1131,9 @@ def main() -> int:
     if args.plan:
         print(
             json.dumps(
-                plan_report(args.budget_usd or MAX_BUDGET_USD, 1.09), ensure_ascii=False, indent=1
+                plan_report(args.budget_usd or MAX_BUDGET_USD, 1.09),
+                ensure_ascii=False,
+                indent=1,
             )
         )
         return 0
@@ -1056,13 +1158,31 @@ def main() -> int:
         ]
         policy = plan_report(2.00, 1.09)["policy"]
         checks += [
-            {"check": "ninety_minute_billable_ceiling", "ok": policy["requested_max_billed_seconds"] == 5400},
-            {"check": "eighty_minute_work_target", "ok": policy["target_work_seconds"] == 4800},
-            {"check": "worst_case_within_two_dollars", "ok": policy["worst_case_usd"] <= 2.00},
-            {"check": "capacity_wait_is_sixty_seconds", "ok": policy["capacity_timeout_seconds"] == 60},
-            {"check": "no_twenty_minute_capacity_wait", "ok": "1200" not in json.dumps(plan_report(2.00, 1.09))},
+            {
+                "check": "ninety_minute_billable_ceiling",
+                "ok": policy["requested_max_billed_seconds"] == 5400,
+            },
+            {
+                "check": "eighty_minute_work_target",
+                "ok": policy["target_work_seconds"] == 4800,
+            },
+            {
+                "check": "worst_case_within_two_dollars",
+                "ok": policy["worst_case_usd"] <= 2.00,
+            },
+            {
+                "check": "capacity_wait_is_sixty_seconds",
+                "ok": policy["capacity_timeout_seconds"] == 60,
+            },
+            {
+                "check": "no_twenty_minute_capacity_wait",
+                "ok": "1200" not in json.dumps(plan_report(2.00, 1.09)),
+            },
         ]
-        report = {"checks": checks, "verdict": "PASS" if all(item["ok"] for item in checks) else "FAIL"}
+        report = {
+            "checks": checks,
+            "verdict": "PASS" if all(item["ok"] for item in checks) else "FAIL",
+        }
         _write_json("self-test.json", report)
         print(json.dumps(report, ensure_ascii=False))
         return 0 if report["verdict"] == "PASS" else 1
@@ -1076,6 +1196,7 @@ def main() -> int:
             max_billable_minutes=args.max_billable_minutes,
             target_work_minutes=args.target_work_minutes,
             min_work_minutes=args.min_work_minutes,
+            volume=args.volume,
         )
     parser.print_help()
     return 0

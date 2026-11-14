@@ -623,7 +623,16 @@ def main() -> int:
             "untouched": True,
             "device_identity": "6413489d-6cae-4183-8446-a3b2339137dc",
         },
-        "verdict": "READY_FOR_OWNER_AUTHORIZATION",
+        "verdict": (
+            "READY_FOR_OWNER_AUTHORIZATION"
+            if probe and probe.get("selected")
+            else "CAPACITY_UNAVAILABLE"
+        ),
+        "verdict_basis": (
+            "the last read-only probe found no bookable pinned SKU in a verified placement"
+            if not (probe and probe.get("selected"))
+            else "a bookable pinned SKU exists in a verified placement"
+        ),
         "paid_actions_taken": 0,
     }
     write("live-readiness.json", readiness)
