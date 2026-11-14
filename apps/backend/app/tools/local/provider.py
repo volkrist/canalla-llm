@@ -24,6 +24,10 @@ class WriteArgs(BaseModel):
     path: str = Field(min_length=1, max_length=500)
     content: str = Field(default="", max_length=MAX_WRITE_CONTENT_CHARS)
     expected_before_sha256: str | None = Field(default=None, max_length=64)
+    # A model's single response is capped by its own output budget, so a real source file often
+    # arrives in several bounded calls. `append` is the supported way to do that without asking
+    # for a file larger than one response.
+    mode: Literal["overwrite", "append"] = "overwrite"
     purpose: str | None = Field(default=None, max_length=500)
 
 
@@ -316,7 +320,10 @@ def register_local_tools(registry):
             WriteArgs,
             "local_fs",
             RiskLevel.NORMAL_CHANGE,
-            "Atomically write a file. WHEN TO USE: create/overwrite a requested path. WHEN NOT: Desktop helper dumps or listings. RETURNS: after_sha256.",
+            "Atomically write a file. WHEN TO USE: create/overwrite a requested path, or build a "
+            "file larger than one response with mode=append (parts stay in order and the result "
+            "is one atomic file). WHEN NOT: Desktop helper dumps or listings. RETURNS: "
+            "after_sha256.",
             provider,
         ),
         (

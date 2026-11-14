@@ -492,13 +492,37 @@ class ToolExecutor:
     async def _execute(self, name, arguments, context, origin="model"):
         context.origin = origin
         definition, provider = self.registry.get(name)
-        try:
-            if isinstance(arguments, str):
-                if len(arguments) > MAX_TOOL_ARGUMENT_CHARS:
-                    raise ValueError()
+        if isinstance(arguments, str):
+            if len(arguments) > MAX_TOOL_ARGUMENT_CHARS:
+                raise ToolError(
+                    "arguments_too_large",
+                    f"arguments are {len(arguments)} chars; the limit is "
+                    f"{MAX_TOOL_ARGUMENT_CHARS}. Write a smaller file, or create it in "
+                    "parts with several calls.",
+                )
+            try:
                 arguments = json.loads(arguments)
+            except ValueError as error:
+                raise ToolError(
+                    "invalid_json",
+                    f"arguments are not valid JSON ({error.msg}); send one JSON object.",
+                ) from None
+        try:
             args = definition.input_model.model_validate(arguments)
-        except (ValueError, TypeError, ValidationError):
+        except ValidationError as error:
+            fields = ", ".join(
+                f"{'.'.join(str(part) for part in item['loc']) or 'arguments'}: {item['msg']}"
+                for item in error.errors()[:4]
+            )
+            too_long = any(item.get("type") == "string_too_long" for item in error.errors())
+            if too_long:
+                raise ToolError(
+                    "content_too_large",
+                    f"{fields}. Split the file into smaller writes: create it, then patch or "
+                    "append the rest.",
+                ) from None
+            raise ToolError("invalid_arguments", fields[:500]) from None
+        except (ValueError, TypeError):
             raise ToolError("invalid_arguments") from None
         import re
 

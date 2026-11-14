@@ -38,6 +38,10 @@ logger = logging.getLogger(__name__)
 # How far the controller reads on its own: two batches of three pages, then the model thinks.
 RESEARCH_MAX_BATCHES = 2
 RESEARCH_BATCH_SIZE = 3
+# A model's own tool-call arguments are echoed back in the next planning request. A 200 KB file body
+# is useful once, in the workspace; repeating it in every later prompt is pure context cost and can
+# push the next request past the served window. Small calls are echoed verbatim.
+MAX_ECHO_ARGUMENT_CHARS = 8000
 
 
 class ToolOrchestrator:
@@ -476,6 +480,7 @@ class ToolOrchestrator:
                 try:
                     async with asyncio.timeout(context.limits.remaining):
                         decision = await provider.plan_tools(planning, tools, usage)
+                        context.plan_truncated = bool(decision.get("_truncated"))
                         self._record_model_response(context, provider, decision)
                 except asyncio.CancelledError:
                     with SessionLocal() as db:
@@ -552,22 +557,56 @@ class ToolOrchestrator:
                     exit_reason = "goal_satisfied"
                     break
                 assistant_calls = []
+                dispatch_calls = []
                 for i, call in enumerate(calls):
                     if not isinstance(call, dict) or not isinstance(call.get("function"), dict):
                         continue
+                    call_id = str(call.get("id") or f"call_{context.limits.calls}_{i}")[:80]
+                    raw = call["function"].get("arguments")
+                    echo = dict(call["function"])
+                    # Whatever the model produced is echoed back in the next planning request. An
+                    # assistant message whose tool-call arguments are not valid JSON can break the
+                    # server's own template on the *next* request, so the echo is always a valid
+                    # object; the executor still receives the original string and reports the real
+                    # reason.
+                    if isinstance(raw, str) and raw:
+                        try:
+                            decoded = json.loads(raw)
+                        except ValueError:
+                            decoded = None
+                        if not isinstance(decoded, dict):
+                            echo["arguments"] = json.dumps(
+                                {
+                                    "_invalid": (
+                                        "the arguments were not a valid JSON object and were not "
+                                        "executed; see the tool result"
+                                    )
+                                },
+                                ensure_ascii=False,
+                            )
+                        elif len(raw) > MAX_ECHO_ARGUMENT_CHARS:
+                            echo["arguments"] = json.dumps(
+                                {
+                                    "_omitted": (
+                                        f"{len(raw)} characters; the tool result for this call "
+                                        "follows in the next message"
+                                    )
+                                },
+                                ensure_ascii=False,
+                            )
                     assistant_calls.append(
-                        {
-                            "id": str(call.get("id") or f"call_{context.limits.calls}_{i}")[:80],
-                            "type": "function",
-                            "function": call["function"],
-                        }
+                        {"id": call_id, "type": "function", "function": echo}
                     )
-                if not assistant_calls:
+                    dispatch_calls.append(
+                        {"id": call_id, "type": "function", "function": call["function"]}
+                    )
+                if not dispatch_calls:
                     exit_reason = "no_valid_calls"
                     break
                 assistant_calls = assistant_calls[:1]
+                dispatch_calls = dispatch_calls[:1]
                 planning.append({"role": "assistant", "content": None, "tool_calls": assistant_calls})
-                for call in assistant_calls:
+                for call in dispatch_calls:
                     halt = LocalTaskController().blocked(context)
                     if halt:
                         notes.append("Task paused or stopped before the next tool.")
@@ -1783,13 +1822,28 @@ class ToolOrchestrator:
                 "tool": name,
                 "status": error.code,
                 "text": f"tool={name} status={error.code} recommended_next_action="
-                + ("reread_file" if error.code == "conflict" else "inspect_verified_facts"),
+                + (
+                    "split_write"
+                    if error.code in {"content_too_large", "arguments_too_large"}
+                    else "fix_arguments"
+                    if error.code in {"invalid_json", "invalid_arguments"}
+                    else "reread_file"
+                    if error.code == "conflict"
+                    else "inspect_verified_facts"
+                ),
                 "origin": origin,
             }
+            if error.detail:
+                packed["detail"] = error.detail[:500]
+            if error.code == "invalid_json" and getattr(context, "plan_truncated", False):
+                packed["detail"] = (
+                    (packed.get("detail", "") + " " if packed.get("detail") else "")
+                    + "The tool call was cut off at the model's output limit. Write a smaller "
+                    "file, and continue a larger one with write_file mode=append."
+                )[:700]
+                packed["recommended_next_action"] = "split_write"
             if not web:
-                packed["recommended_next_action"] = (
-                    "reread_file" if error.code == "conflict" else "inspect_verified_facts"
-                )
+                packed["recommended_next_action"] = packed["text"].rsplit("=", 1)[-1]
             notes.append(("No web results available: " if web else packed["text"]))
             with SessionLocal() as db:
                 LocalTaskController().observe_tool(db, context, name, packed, error=error.code)

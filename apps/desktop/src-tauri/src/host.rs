@@ -8,6 +8,10 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
+/// The largest file `write_file` will produce, including chunked appends. A generated project is
+/// kilobytes; this only stops an accidental unbounded append from filling the disk.
+const MAX_WRITE_BYTES: usize = 16 * 1024 * 1024;
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DeviceRecord {
     pub device_id: String,
@@ -1050,18 +1054,39 @@ fn fs_write(args: &Value, roots: &[String]) -> LocalOutcome {
         }
     }
     let expected = args.get("expected_before_sha256").and_then(Value::as_str);
-    let before = fs::read(&file).ok().map(|bytes| sha256_hex(&bytes));
+    let before_bytes = fs::read(&file).ok();
+    let before = before_bytes.as_ref().map(|bytes| sha256_hex(bytes));
     if let Some(expected) = expected.filter(|value| !value.is_empty()) {
         match before.as_deref() {
             Some(actual) if actual == expected => {}
             _ => return err_text("conflict"),
         }
     }
+    // `mode: "append"` is the chunked-write primitive: the model's single response is capped by
+    // its own output budget, so a real source file arrives in a few bounded calls. The merge and
+    // the replacement are still one atomic write - a crash leaves the old file, never half of the
+    // new one.
+    let append = args.get("mode").and_then(Value::as_str) == Some("append");
+    let body = if append {
+        match before_bytes {
+            Some(existing) => {
+                if existing.len() + content.len() > MAX_WRITE_BYTES {
+                    return err_text("file_too_large");
+                }
+                let mut merged = existing;
+                merged.extend_from_slice(content.as_bytes());
+                merged
+            }
+            None => return err_text("append_target_missing"),
+        }
+    } else {
+        content.into_bytes()
+    };
     let tmp = file.with_file_name(format!(
         ".{}.alex-tmp",
         file.file_name().unwrap_or_default().to_string_lossy()
     ));
-    if atomic_write(&tmp, content.as_bytes()).is_err() {
+    if atomic_write(&tmp, &body).is_err() {
         return err_text("write_failed");
     }
     if replace_file(&tmp, &file).is_err() {

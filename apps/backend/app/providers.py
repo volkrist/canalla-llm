@@ -19,6 +19,12 @@ from .tools.web_router import classify_web
 
 logger = logging.getLogger(__name__)
 
+# A planner turn must be able to carry a real code change, not just a tool name. 1200 tokens cut a
+# normal source file off mid-JSON, and the model then saw `invalid_arguments` with no way to know
+# why. The bound is clamped to the served window so a long conversation never overflows it.
+PLANNER_MAX_TOKENS = 2048
+PLANNER_MIN_TOKENS = 512
+
 
 async def _first_line(
     iterator: AsyncIterator[str],
@@ -472,6 +478,20 @@ class LlamaCppProvider(LLMProvider):
     provenance_name = "llamacpp"
     live_model = True
 
+    def _planner_tokens(self, messages) -> int:
+        """How much room a tool call may use without pushing the request past the served window."""
+        chars = 0
+        for message in messages or []:
+            if not isinstance(message, dict):
+                continue
+            chars += len(str(message.get("content") or ""))
+            for call in message.get("tool_calls") or []:
+                if isinstance(call, dict):
+                    chars += len(str((call.get("function") or {}).get("arguments") or ""))
+        estimate = max(chars // 3, int(getattr(self, "_last_prompt_tokens", 0) or 0))
+        room = self.context_window - estimate - 512
+        return max(PLANNER_MIN_TOKENS, min(PLANNER_MAX_TOKENS, room))
+
     def _chat_payload(self, messages, **extra):
         payload = {
             "model": self.model,
@@ -493,29 +513,46 @@ class LlamaCppProvider(LLMProvider):
                         stream=False,
                         tools=tools,
                         tool_choice="auto",
-                        max_tokens=1200,
+                        max_tokens=self._planner_tokens(messages),
                     ),
                 )
                 if not response.is_success:
-                    raise LLMError("tools_unsupported" if response.status_code == 400 else "llm_unavailable")
+                    body = " ".join(response.text[:300].split())
+                    logger.warning(
+                        "model_plan_failed status=%s body=%s", response.status_code, body
+                    )
+                    raise LLMError(
+                        "tools_unsupported" if response.status_code == 400 else "llm_unavailable"
+                    )
                 if len(response.content) > 256000:
                     raise LLMError("malformed_response")
                 value = response.json()
-                message = value["choices"][0]["message"]
+                choice = value["choices"][0]
+                message = choice["message"]
                 if not isinstance(message, dict) or not isinstance(message.get("tool_calls", []), list):
                     raise LLMError("malformed_response")
                 usage["_planner_calls"] = usage.get("_planner_calls", 0) + 1
+                finish_reason = str(choice.get("finish_reason") or "")
                 reported = value.get("usage") or {}
                 for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
                     count = reported.get(key)
                     if isinstance(count, int) and count >= 0:
                         usage[key] = usage.get(key, 0) + count
+                        if key == "prompt_tokens":
+                            self._last_prompt_tokens = count
                     else:
                         usage["_planner_usage_incomplete"] = True
+                if finish_reason == "length":
+                    # The response was cut off mid-call. Saying so lets the caller explain the
+                    # failure to the model instead of reporting a bare `invalid_arguments`.
+                    logger.warning(
+                        "model_plan_truncated tool_calls=%s chat_id=?", len(message["tool_calls"])
+                    )
                 # The server's own answer id is the strongest available link to this exact turn.
                 # It is recorded with the decision; the orchestrator seals it into the task journal.
                 return {
                     **message,
+                    **({"_truncated": True} if finish_reason == "length" else {}),
                     "_provenance": {
                         "model_request_id": request_id,
                         "provider": "llamacpp",
@@ -523,6 +560,7 @@ class LlamaCppProvider(LLMProvider):
                         "response_id": str(value.get("id") or request_id),
                         "live": True,
                         "runtime": "llama.cpp",
+                        "finish_reason": finish_reason or None,
                         "endpoint_fingerprint": hashlib.sha256(
                             self.base.encode("utf-8", "replace")
                         ).hexdigest()[:12],
@@ -545,6 +583,8 @@ class LlamaCppProvider(LLMProvider):
         self.transport = transport
         self.stall_seconds = settings.llm_stream_stall_seconds
         self.first_line_seconds = settings.llm_stream_first_line_seconds
+        self.context_window = int(getattr(settings, "llm_context_window", 32768) or 32768)
+        self._last_prompt_tokens = 0
 
     def endpoint(self):
         base = self.target() if self.target else self.base
@@ -622,6 +662,12 @@ class LlamaCppProvider(LLMProvider):
                 if response.status_code in (401, 403):
                     raise LLMError("connection_auth_failed")
                 if not response.is_success:
+                    # A non-2xx here used to vanish into the generic code. The status and a bounded
+                    # body are what tell an over-window request apart from a dead server.
+                    body = " ".join((await response.aread()).decode("utf-8", "replace")[:300].split())
+                    logger.warning(
+                        "model_stream_failed status=%s body=%s", response.status_code, body
+                    )
                     raise LLMError("llm_unavailable")
                 async for line in iter_stream_lines(
                     response.aiter_lines(),

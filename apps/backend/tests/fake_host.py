@@ -182,7 +182,17 @@ class FakeHost:
                     "stderr": "conflict",
                     "metadata": {"error": "conflict", "conflict": True, "before_sha256": before},
                 }
-            path.write_bytes((args.get("content") or "").encode("utf-8"))
+            if args.get("mode") == "append":
+                if before is None:
+                    return {
+                        "status": "failed",
+                        "text": "append_target_missing",
+                        "stderr": "append_target_missing",
+                        "metadata": {"error": "append_target_missing"},
+                    }
+                path.write_bytes(path.read_bytes() + (args.get("content") or "").encode("utf-8"))
+            else:
+                path.write_bytes((args.get("content") or "").encode("utf-8"))
             after = hashlib.sha256(path.read_bytes()).hexdigest()
             return {
                 "text": "ok",

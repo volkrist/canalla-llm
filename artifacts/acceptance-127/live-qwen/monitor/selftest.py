@@ -764,6 +764,7 @@ def run_self_test() -> int:
 
         # ---- the authorizer: exact phrase, exact budget, one grant, atomic scope ---------------
         import authorize
+        import batch as B
 
         denied = authorize.main(
             ["--confirm", M.PHRASE, "--budget-usd", "2.01", "--state-dir", str(root / "case_auth")]
@@ -875,6 +876,281 @@ def run_self_test() -> int:
         check(
             "an_expired_grant_is_not_armed",
             M.validate_grant(expired)["reason"] == "expired",
+        )
+
+        # ---- the bounded series: one budget, one Pod at a time, no reset on failure -----------
+        wrong = authorize.main(
+            ["--batch", "--confirm", "I AUTHORIZE A BATCH", "--budget-usd", "2.00", "--state-dir", str(root / "case_batch_wrong")]
+        )
+        check("the_batch_authorizer_requires_the_exact_phrase", wrong != 0)
+
+        over = authorize.main(
+            [
+                "--batch",
+                "--confirm",
+                B.BATCH_PHRASE,
+                "--budget-usd",
+                "2.01",
+                "--state-dir",
+                str(root / "case_batch_over"),
+            ]
+        )
+        check("the_batch_authorizer_refuses_more_than_two_dollars", over != 0)
+
+        batch_dir = root / "case_batch"
+        made = authorize.main(
+            [
+                "--batch",
+                "--confirm",
+                B.BATCH_PHRASE,
+                "--budget-usd",
+                "2.00",
+                "--scope",
+                "both",
+                "--state-dir",
+                str(batch_dir),
+            ]
+        )
+        created_batch = B.read(batch_dir)
+        second_batch = authorize.main(
+            [
+                "--batch",
+                "--confirm",
+                B.BATCH_PHRASE,
+                "--budget-usd",
+                "2.00",
+                "--state-dir",
+                str(batch_dir),
+            ]
+        )
+        check(
+            "the_batch_series_is_one_record_with_both_placements",
+            made == 0
+            and second_batch != 0
+            and B.status(created_batch) == "active"
+            and created_batch["maximum_total_gpu_spend_usd"] == 2.00
+            and created_batch["maximum_concurrent_pods"] == 1
+            and B.remaining_usd(created_batch) == 2.00
+            and len(created_batch["allowed_placements"]) == 2,
+        )
+
+        # A batch with a bookable card creates exactly one one-shot child and does not spend yet.
+        card = _provider(availability_by_dc={"US-MO-1": "LOW", "US-TX-3": "NONE"})
+        first_child = M.run_check(provider=card, rdir=batch_dir, dry_run=True)
+        child = M.read_grant(batch_dir)
+        held = B.read(batch_dir)
+        check(
+            "a_batch_creates_one_child_grant_for_the_visible_card",
+            first_child["run"] is not None
+            and child["valid"]
+            and (child.get("grant") or {}).get("batch_id") == created_batch["batch_id"]
+            and (child.get("grant") or {}).get("budget_usd") == 2.00
+            and held.get("spent_gpu_usd") == 0.0
+            and M.automatic_live(first_child["state"]) == "ARMED",
+        )
+        first_child_id = (child.get("grant") or {}).get("grant_id")
+
+        # An attempt that bought a Pod spends real money, is counted once, and re-arms the series.
+        bought = M.run_check(
+            provider=card,
+            rdir=batch_dir,
+            launch=lambda **_: {
+                "run_id": "run-batch-1",
+                "verdict": "FAIL",
+                "pods_created": 1,
+                "spend_usd": 0.25,
+                "exit_code": 7,
+            },
+            remaining_reader=list,
+        )
+        after_buy = B.read(batch_dir)
+        check(
+            "a_failed_attempt_records_its_spend_and_may_try_again",
+            bought["state"]["live_execution_state"] == "WAITING_GPU"
+            and bought["state"]["paid_run_already_attempted"] is False
+            and after_buy["spent_gpu_usd"] == 0.25
+            and after_buy["pods_created"] == 1
+            and after_buy["active_run_id"] is None
+            and after_buy["reconciliation_status"] == "clean"
+            and B.remaining_usd(after_buy) == 1.75
+            and M.automatic_live(bought["state"]) == "ARMED",
+        )
+        journal = [
+            json.loads(line)
+            for line in (batch_dir / B.BATCH_JOURNAL).read_text(encoding="utf-8").splitlines()
+        ]
+        check(
+            "the_spend_journal_records_the_attempt_and_its_stop",
+            len(journal) == 1
+            and journal[0]["run_id"] == "run-batch-1"
+            and journal[0]["spend_usd"] == 0.25
+            and journal[0]["remaining_usd"] == 1.75,
+        )
+
+        second_child = M.run_check(provider=card, rdir=batch_dir, dry_run=True)
+        new_child = M.read_grant(batch_dir).get("grant") or {}
+        check(
+            "the_next_attempt_gets_a_new_child_sized_to_the_remainder",
+            new_child.get("grant_id") != first_child_id
+            and new_child.get("budget_usd") == 1.75
+            and new_child.get("batch_id") == created_batch["batch_id"]
+            and second_child["run"] is not None
+            and B.read(batch_dir)["spent_gpu_usd"] == 0.25,
+        )
+
+        # Nothing created means nothing bought: the reservation is released and no Pod is counted.
+        nothing = M.run_check(
+            provider=card,
+            rdir=batch_dir,
+            launch=lambda **_: {
+                "run_id": "run-batch-2",
+                "verdict": "FAIL",
+                "pods_created": 0,
+                "spend_usd": 0.0,
+                "exit_code": 4,
+            },
+            remaining_reader=list,
+        )
+        after_nothing = B.read(batch_dir)
+        check(
+            "an_attempt_that_created_nothing_costs_nothing",
+            nothing["state"]["paid_run_already_attempted"] is False
+            and after_nothing["spent_gpu_usd"] == 0.25
+            and after_nothing["pods_created"] == 1
+            and after_nothing["active_run_id"] is None
+            and after_nothing["reconciliation_status"] == "clean",
+        )
+
+        # A Pod may still exist: the series is unresolved and the next card is not bought.
+        unresolved = M.run_check(
+            provider=card,
+            rdir=batch_dir,
+            launch=lambda **_: {
+                "run_id": "run-batch-3",
+                "verdict": "FAIL",
+                "pods_created": 1,
+                "spend_usd": 0.10,
+                "exit_code": 0,
+            },
+            remaining_reader=lambda: [{"id": "pod-still-there"}],
+        )
+        after_unresolved = B.read(batch_dir)
+        busy = M.FixtureProvider(
+            {
+                "gpu": {"availability_by_dc": {"US-MO-1": "LOW", "US-TX-3": "NONE"}},
+                "pods": [{"id": "pod-still-there", "status": "RUNNING"}],
+            }
+        )
+        blocked_state = M.run_check(provider=busy, rdir=batch_dir, dry_run=True)
+        check(
+            "a_pod_that_may_still_exist_blocks_the_next_attempt",
+            unresolved["state"]["live_execution_state"] == "CRITICAL_TERMINATION_UNCONFIRMED"
+            and after_unresolved["reconciliation_status"] == "unconfirmed"
+            and B.can_start(after_unresolved, 1.09)[0] is False
+            and blocked_state["run"] is None
+            and blocked_state["state"]["pod_count"] == 1,
+        )
+        # A later clean zero-Pod read clears it; an unknown count never does.
+        still = B.reconcile(dict(after_unresolved), 1)
+        cleared = B.reconcile(dict(after_unresolved), 0)
+        probe = dict(after_unresolved)
+        probe["active_run_id"] = None
+        check(
+            "an_unknown_pod_count_is_not_evidence_of_termination",
+            still["reconciliation_status"] == "unconfirmed"
+            and cleared["reconciliation_status"] == "clean"
+            and B.can_start(probe, 1.09)[0] is False
+            and B.can_start({**cleared, "active_run_id": None}, 1.09)[0] is True,
+        )
+
+        # A monitor that died after writing the result still settles from durable evidence.
+        crashed_dir = root / "case_batch_crash"
+        B.save(
+            crashed_dir,
+            {**created_batch, "batch_id": "batch-crash", "active_run_id": "run-crash", "reconciliation_status": "in_flight", "reserved_gpu_usd": 2.0},
+        )
+        M.save_json(
+            crashed_dir / "last-run.json",
+            {"run_id": "run-crash", "verdict": "FAIL", "pods_created": 1, "spend_usd": 0.12},
+        )
+        recovered = M.run_check(provider=card, rdir=crashed_dir, dry_run=True)
+        after_crash = B.read(crashed_dir)
+        check(
+            "a_crash_after_the_result_is_settled_from_disk_not_rebought",
+            after_crash["active_run_id"] is None
+            and after_crash["spent_gpu_usd"] == 0.12
+            and after_crash["pods_created"] == 1
+            and B.remaining_usd(after_crash) == 1.88
+            and recovered["run"] is not None,
+        )
+
+        # A terminal outcome from the previous single grant does not block a fresh series.
+        prior_dir = root / "case_batch_after_terminal"
+        B.save(prior_dir, {**created_batch, "batch_id": "batch-new"})
+        stale = M.initial_state()
+        stale.update(
+            {
+                "live_execution_state": "FAILED",
+                "paid_run_already_attempted": True,
+                "terminal_grant_id": "old-grant",
+                "last_check_time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }
+        )
+        M.save_json(prior_dir / "state.json", stale)
+        revived = M.run_check(provider=card, rdir=prior_dir, dry_run=True)
+        check(
+            "a_fresh_batch_lifts_the_previous_single_grant_outcome_once",
+            revived["run"] is not None
+            and revived["state"]["live_execution_state"] == "DRY_RUN_OK"
+            and revived["state"]["paid_run_already_attempted"] is False
+            and revived["state"]["terminal_batch_id"] == "batch-new",
+        )
+
+        # Concurrency: an attempt in flight is never joined by a second create.
+        flight_dir = root / "case_batch_flight"
+        B.save(flight_dir, {**created_batch, "batch_id": "batch-flight"})
+        in_flight = B.begin(B.read(flight_dir), "run-live", reserved_usd=2.0)
+        B.save(flight_dir, in_flight)
+        flying = M.run_check(provider=card, rdir=flight_dir, dry_run=True)
+        check(
+            "one_attempt_at_a_time_even_after_a_restart",
+            flying["run"] is None
+            and flying["state"]["live_execution_state"] == "ATTEMPT_IN_FLIGHT"
+            and not (flight_dir / "authorization-grant.json").exists(),
+        )
+
+        # The budget is a hard ceiling, independent of how many attempts it takes.
+        spent_dir = root / "case_batch_spent"
+        B.save(spent_dir, {**created_batch, "batch_id": "batch-spent", "spent_gpu_usd": 2.0})
+        exhausted = M.run_check(provider=card, rdir=spent_dir, dry_run=True)
+        check(
+            "a_spent_batch_refuses_another_pod",
+            exhausted["run"] is None
+            and exhausted["state"]["live_execution_state"] == "PAID_BATCH_EXHAUSTED"
+            and not (spent_dir / "authorization-grant.json").exists()
+            and B.status(B.read(spent_dir)) == "exhausted",
+        )
+
+        # Spend only ever grows; a completed series stops for good.
+        ledger = B.create(
+            root / "case_batch_ledger",
+            phrase=B.BATCH_PHRASE,
+            budget_usd=2.00,
+            days=7,
+            placements=[],
+            allowed_gpu=M.GPU_ID,
+            model_id=M.MODEL_ID,
+        )
+        first_record = B.record(ledger, run_id="r1", spend_usd=0.40, pod_ids=["p1"], confirmed_pod=True)
+        second_record = B.record(first_record, run_id="r2", spend_usd=0.35, pod_ids=["p2"], confirmed_pod=True)
+        finished = B.mark_completed(second_record)
+        check(
+            "spend_never_resets_and_completion_is_final",
+            second_record["spent_gpu_usd"] == 0.75
+            and second_record["pods_created"] == 2
+            and B.status(finished) == "completed"
+            and B.can_start(finished, 1.09)[0] is False
+            and B.child_budget(second_record) == 1.25,
         )
     finally:
         shutil.rmtree(root, ignore_errors=True)

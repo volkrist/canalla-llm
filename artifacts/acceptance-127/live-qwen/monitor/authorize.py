@@ -47,6 +47,8 @@ from monitor import (  # noqa: E402
 )
 from placement_records import PLACEMENTS  # noqa: E402
 
+import batch as batch_module  # noqa: E402
+
 SCOPES = {
     "both": tuple((item["datacenter"], item["volume_id"]) for item in PLACEMENTS),
     "mo1": tuple(
@@ -141,14 +143,65 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--reason", default="", help="why the permission is being consumed")
     parser.add_argument("--status", action="store_true")
+    parser.add_argument(
+        "--batch",
+        action="store_true",
+        help="record the owner's bounded *series* of paid attempts (one budget, one Pod at a time)",
+    )
     parser.add_argument("--state-dir", default=None)
     args = parser.parse_args(argv)
     rdir = runtime_dir(args.state_dir)
     path = grant_path(rdir)
 
+    if args.batch:
+        budget = args.budget_usd if args.budget_usd is not None else BUDGET_USD
+        try:
+            record = batch_module.create(
+                rdir,
+                phrase=args.confirm,
+                budget_usd=budget,
+                days=args.days,
+                placements=placements_payload(SCOPES[args.scope]),
+                allowed_gpu=GPU_ID,
+                model_id=MODEL_ID,
+            )
+        except batch_module.BatchError as error:
+            print(
+                json.dumps(
+                    {
+                        "authorized": False,
+                        "reason": str(error),
+                        "expected_phrase": batch_module.BATCH_PHRASE,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return 2
+        print(
+            json.dumps(
+                {
+                    "authorized": True,
+                    "mode": "batch_created",
+                    "batch_id": record["batch_id"],
+                    "maximum_total_gpu_spend_usd": record["maximum_total_gpu_spend_usd"],
+                    "maximum_concurrent_pods": record["maximum_concurrent_pods"],
+                    "placements": record["allowed_placements"],
+                    "expires_at": record["expires_at"],
+                    "note": (
+                        "Each attempt gets its own one-shot child grant; the series stops when "
+                        "the budget is spent. At most one Pod exists at a time."
+                    ),
+                },
+                ensure_ascii=False,
+                indent=1,
+            )
+        )
+        return 0
+
     if args.status:
         verdict = read_grant(rdir)
         grant = verdict.get("grant") or {}
+        batch_state = batch_module.read(rdir)
         print(
             json.dumps(
                 {
@@ -162,12 +215,27 @@ def main(argv: list[str] | None = None) -> int:
                     "expires_at": grant.get("expires_at"),
                     "placements": verdict.get("placements") or [],
                     "grant": grant,
+                    "batch": (
+                        {
+                            "batch_id": batch_state.get("batch_id"),
+                            "status": batch_module.status(batch_state),
+                            "budget_usd": batch_state.get("maximum_total_gpu_spend_usd"),
+                            "spent_usd": batch_state.get("spent_gpu_usd"),
+                            "remaining_usd": batch_module.remaining_usd(batch_state),
+                            "pods_created": batch_state.get("pods_created"),
+                            "active_run_id": batch_state.get("active_run_id"),
+                            "reconciliation": batch_state.get("reconciliation_status"),
+                            "expires_at": batch_state.get("expires_at"),
+                        }
+                        if batch_state
+                        else None
+                    ),
                 },
                 ensure_ascii=False,
                 indent=1,
             )
         )
-        return 0 if verdict["valid"] else 1
+        return 0 if verdict["valid"] or batch_module.status(batch_state) == "active" else 1
 
     if args.consume:
         if not path.is_file():
@@ -202,14 +270,27 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.revoke:
-        if not path.is_file():
+        revoked = []
+        if path.is_file():
+            grant = json.loads(path.read_text(encoding="utf-8"))
+            grant["revoked"] = True
+            grant["revoked_at"] = utcnow()
+            save_json(path, grant)
+            revoked.append("grant")
+        batch_state = batch_module.read(rdir)
+        if batch_state and batch_module.status(batch_state) in {"active", "exhausted"}:
+            batch_state["revoked"] = True
+            batch_state["revoked_at"] = utcnow()
+            batch_module.save(rdir, batch_state)
+            revoked.append("batch")
+        if not revoked:
             print(json.dumps({"revoked": False, "reason": "no_grant"}))
             return 1
-        grant = json.loads(path.read_text(encoding="utf-8"))
-        grant["revoked"] = True
-        grant["revoked_at"] = utcnow()
-        save_json(path, grant)
-        print(json.dumps({"revoked": True, "path": str(path)}, ensure_ascii=False))
+        print(
+            json.dumps(
+                {"revoked": True, "objects": revoked, "path": str(path)}, ensure_ascii=False
+            )
+        )
         return 0
 
     if args.confirm != PHRASE:

@@ -12,14 +12,17 @@ dependency on an editor window, the Canalla backend or the installed app.
 | Path | Role |
 |---|---|
 | `monitor.py` | the scheduled pass, `--status`, `--self-test`, `--dry-run`, `--enable/--disable` |
-| `selftest.py` | the 31-case free lifecycle matrix behind `--self-test` |
-| `authorize.py` | stores, scopes or revokes the owner's one-Pod permission |
+| `selftest.py` | the 64-case free lifecycle matrix behind `--self-test` |
+| `authorize.py` | stores, scopes or revokes the owner's one-Pod permission, or the bounded series |
+| `batch.py` | the owner's series: one total budget, one Pod at a time, durable spend journal |
 | `install_monitor.ps1` | registers/removes the scheduled task |
 | `%LOCALAPPDATA%\CanallaMonitor\state.json` | durable state (survives restarts and reboots) |
 | `%LOCALAPPDATA%\CanallaMonitor\status.json` | the current status block |
 | `%LOCALAPPDATA%\CanallaMonitor\checks.jsonl` | check history (bounded to 3000 rows) |
 | `%LOCALAPPDATA%\CanallaMonitor\events.jsonl` | one line per *changed* observation, never a repeat |
 | `%LOCALAPPDATA%\CanallaMonitor\authorization-grant.json` | the stored permission, outside the repo |
+| `%LOCALAPPDATA%\CanallaMonitor\batch-authorization.json` | the owner's bounded series, when one was authorised |
+| `%LOCALAPPDATA%\CanallaMonitor\batch-spend.jsonl` | one settlement line per attempt, appended, never rewritten |
 | `%LOCALAPPDATA%\CanallaMonitor\monitor.lock` | single-instance lock |
 | `%LOCALAPPDATA%\CanallaMonitor\live-run.log` | stdout/stderr of a real run |
 | `%LOCALAPPDATA%\CanallaMonitor\last-run.json` | the compact outcome of the last paid attempt |
@@ -87,14 +90,60 @@ placements.
 
 If the run proves that nothing was created and nothing was spent, the authorization is restored and
 the monitor returns to `WAITING_GPU`; a capacity race must not burn the owner's permission.
-Anything else is terminal: a second Pod needs a new, separate authorization.
+Anything else is terminal for a *single* grant: a second Pod needs a new, separate authorization.
+Under a **batch** (below) the same settlement keeps the series open - the spend is recorded once,
+the child grant is archived, and the next sighting starts the next attempt.
+
+## The bounded series (paid batch)
+
+A one-shot grant cannot express "keep trying until this works, but never spend more than $2.00".
+`authorize.py --batch` records that owner decision once:
+
+```bat
+python artifacts\acceptance-127\live-qwen\monitor\authorize.py ^
+       --batch --confirm "I AUTHORIZE A PAID LIVE BATCH WITH A TOTAL GPU BUDGET OF USD 2.00" ^
+       --budget-usd 2.00 --scope both
+```
+
+Rules the code enforces (`batch.py`, `monitor.py::_settle_batch`):
+
+* `maximum_total_gpu_spend_usd` is a hard ceiling across every attempt; `spent_gpu_usd` only grows,
+  and the journal is append-only so a restart, a crash or a new run id cannot reset it;
+* at most one attempt is in flight (`active_run_id`, reserved before the harness starts);
+* each attempt gets its own **one-shot child grant** whose budget is the remaining series budget;
+  the child is archived when the attempt is settled and is never revived;
+* an attempt that provably created nothing releases its reservation and costs nothing;
+* a Pod that may still exist keeps `reconciliation_status: unconfirmed`; the series does not
+  continue until a confirmed zero-Pod read, and never on an unknown provider answer;
+* a settled attempt whose Pod is confirmed gone re-arms the series automatically; when the money is
+  spent the state is `PAID_BATCH_EXHAUSTED` and no fourth `create_pod` is attempted;
+* a `COMPLETED` attempt marks the series completed, which is final.
+
+The 45-minute work target is a target, not a gate on a retry: an attempt is only started when the
+remaining budget covers at least 20 useful minutes plus the termination grace.
+
+## What a failing write taught us
+
+The `c8966118` attempt proved the model (two real responses, one executed `list_directory`) and then
+lost the task: `write_file` came back `invalid_arguments`, no file existed, and the next planner turn
+died `llm_unavailable`. The free tests now pin the whole path (`apps/backend/tests/test_127_write_path.py`):
+
+* a >72 KB UTF-8 source file is a valid argument and lands byte for byte;
+* a response cut off at the output limit is `invalid_json` **with an explanation**, the loop keeps
+  going and the corrected call is executed;
+* content over the write bound is `content_too_large` with the instruction to split;
+* `write_file mode="append"` builds a large file from bounded parts atomically;
+* an unknown field is named in the refusal;
+* a relative path (`main.py`) is anchored inside the workspace instead of being refused by the host;
+* the model's own malformed tool-call arguments are never echoed back into the next request.
 
 ## States
 
 `WAITING_GPU` → `WAITING_AUTHORIZATION` → `RUNNING` → `COMPLETED` / `FAILED` /
 `CRITICAL_TERMINATION_UNCONFIRMED` / `LIVE_RETEST_REQUIRED`.
 `PREFLIGHT_BLOCKED` means the GPU and the permission are there but a safety gate said no; the next
-scheduled pass retries automatically.
+scheduled pass retries automatically. `ATTEMPT_IN_FLIGHT` means a previous pass reserved the batch
+slot and has not settled it; `PAID_BATCH_EXHAUSTED` means the owner's total budget is spent.
 
 ## Commands
 

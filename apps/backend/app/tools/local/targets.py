@@ -236,6 +236,25 @@ def resolve_target(
     )
 
 
+def _anchor_relative(candidate: str, workspace_root: str) -> str:
+    """Resolve a relative target inside the workspace the user chose.
+
+    The host refuses a relative path on purpose, because it would resolve against a working
+    directory nobody chose. A model naming ``main.py`` is not wrong - the workspace root is the
+    directory that call belongs in - so the name is anchored there, and ``..`` keeps it out.
+    """
+    if not candidate or not workspace_root:
+        return candidate
+    value = native_path(candidate).strip()
+    if not value:
+        return candidate
+    if os.path.isabs(value) or DRIVE.match(value) or PureWindowsPath(value).is_absolute():
+        return candidate
+    if ".." in PureWindowsPath(value).parts:
+        return candidate
+    return str(Path(workspace_root) / value)
+
+
 def coerce_file_argument(
     tool: str,
     path: str,
@@ -266,9 +285,10 @@ def coerce_file_argument(
         expect="file",
     )
     if resolved.kind == "file" and resolved.path and not is_directory_path(resolved.path, roots):
-        return resolved.path
+        return _anchor_relative(resolved.path, workspace_root)
     if is_directory_path(path, roots):
         raise ToolError("target_is_directory")
     if resolved.kind == "directory" and is_directory_path(path or resolved.path, roots):
         raise ToolError("target_is_directory")
-    return path or resolved.path
+    candidate = path or resolved.path
+    return _anchor_relative(candidate, workspace_root)

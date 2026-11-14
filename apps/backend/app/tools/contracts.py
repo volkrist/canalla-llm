@@ -16,8 +16,16 @@ class RiskLevel(StrEnum):
 
 
 class ToolError(Exception):
-    def __init__(self, code: str):
+    """A typed refusal. `detail` is a short, non-secret explanation for the caller.
+
+    A bare code is not enough for the model to fix its own call: ``invalid_arguments`` can mean a
+    truncated JSON body, an unknown field or content that is too large, and the repair is different
+    in each case. The detail is bounded and never carries user data beyond a length or a field name.
+    """
+
+    def __init__(self, code: str, detail: str = ""):
         self.code = code
+        self.detail = detail
         super().__init__(code)
 
 

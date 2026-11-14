@@ -98,6 +98,8 @@ from placement_records import (  # noqa: E402
     rank,
 )
 
+import batch as batch_module  # noqa: E402
+
 VOLUME_IDS = tuple(item["volume_id"] for item in PLACEMENTS)
 
 
@@ -156,6 +158,16 @@ def initial_state() -> dict:
         "last_notice_at": None,
         "scheduler_task": None,
         "authorization_grant_id": None,
+        "batch_id": None,
+        "batch_status": None,
+        "batch_budget_usd": None,
+        "batch_spent_usd": None,
+        "batch_remaining_usd": None,
+        "batch_pods_created": None,
+        "batch_reconciliation": None,
+        "batch_reason": None,
+        "batch_run_id": None,
+        "terminal_batch_id": None,
     }
 
 
@@ -599,6 +611,181 @@ def mark_grant(
     save_json(path, grant)
 
 
+# --------------------------------------------------------------------------------------------- batch
+def _batch_pairs(batch_state: dict) -> list[tuple[str, str]]:
+    return [
+        (str(entry.get("datacenter") or ""), str(entry.get("volume_id") or ""))
+        for entry in (batch_state.get("allowed_placements") or [])
+        if isinstance(entry, dict)
+    ]
+
+
+def _archive_grant(rdir: Path, grant: dict) -> None:
+    """Move a consumed child aside so exactly one active grant file ever exists."""
+    path = grant_path(rdir)
+    if not grant or not path.is_file():
+        return
+    archive = path.with_name(
+        f"authorization-grant.consumed-{grant.get('grant_id') or 'unknown'}.json"
+    )
+    try:
+        save_json(archive, grant)
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def child_grant_from_batch(
+    rdir: Path, batch_state: dict, *, rate: float
+) -> tuple[dict, dict, str]:
+    """A one-shot child of the owner's batch, reused while it is still unused.
+
+    The child names every allowed placement and carries the remaining budget as its own cap, so the
+    harness can never spend more than the series has left. It is created only when the batch is
+    active, no attempt is in flight, the previous outcome is known, and enough money remains for a
+    useful window.
+    """
+    current = read_grant(rdir)
+    if current["valid"]:
+        return current, batch_state, "existing"
+    ok, reason, _need = batch_module.can_start(batch_state, rate)
+    if not ok:
+        return {"valid": False, "reason": reason, "grant": None}, batch_state, reason
+
+    _archive_grant(rdir, current.get("grant") or {})
+    now = datetime.now(timezone.utc)
+    budget = batch_module.child_budget(batch_state)
+    grant = {
+        "schema": GRANT_SCHEMA,
+        "grant_id": uuid.uuid4().hex,
+        "phrase": PHRASE,
+        "budget_usd": budget,
+        "max_pods": 1,
+        "allowed_model": MODEL_ID,
+        "allowed_gpu": GPU_ID,
+        "allowed_placements": [
+            {"datacenter": dc, "volume_id": vid, "gpu": GPU_ID}
+            for dc, vid in _batch_pairs(batch_state)
+            if (dc, vid) in {(item["datacenter"], item["volume_id"]) for item in PLACEMENTS}
+        ],
+        "scope": "one attempt inside the owner-approved paid batch",
+        "created_at": now.isoformat(timespec="seconds"),
+        "expires_at": batch_state.get("expires_at")
+        or (now + timedelta(days=30)).isoformat(timespec="seconds"),
+        "used": False,
+        "used_at": None,
+        "revoked": False,
+        "batch_id": batch_state.get("batch_id"),
+    }
+    save_json(grant_path(rdir), grant)
+    return read_grant(rdir), batch_state, "created"
+
+
+def _rearm(state: dict, grant: dict) -> None:
+    """A new permission lifts a terminal outcome; the permission that produced it never does."""
+    if not _is_terminal(state) or not grant.get("valid"):
+        return
+    current_grant = (grant.get("grant") or {}).get("grant_id")
+    if current_grant and current_grant != state.get("terminal_grant_id"):
+        state["rearmed_from"] = state.get("live_execution_state")
+        state["live_execution_state"] = "WAITING_GPU"
+        state["paid_run_already_attempted"] = False
+        state["active_pod_id"] = None
+        state["last_error"] = None
+
+
+def _settle_batch(
+    rdir: Path,
+    state: dict,
+    *,
+    run_id: str | None,
+    verdict: str,
+    pods_created: int,
+    spend_usd: float,
+    termination_confirmed: bool,
+) -> str:
+    """Settle one attempt against the owner's series; returns the batch status.
+
+    An attempt that provably bought nothing releases its reservation and may be retried. An attempt
+    that bought a Pod spends real money: the cost is added to the durable total, the child grant is
+    archived, and the series continues only when the Pod is confirmed gone and money remains. A Pod
+    that may still exist keeps the series unresolved - never a second one next to it.
+    """
+    batch_state = batch_module.read(rdir)
+    if not batch_state:
+        return "absent"
+    known = state.get("batch_id") or batch_state.get("batch_id")
+    if known and batch_state.get("batch_id") and known != batch_state.get("batch_id"):
+        return batch_module.status(batch_state)
+    if state.get("batch_run_id") and run_id and state["batch_run_id"] != run_id:
+        # A different attempt owns the batch slot; never settle someone else's accounting.
+        return batch_module.status(batch_state)
+
+    child = read_grant(rdir).get("grant") or {}
+    child_id = child.get("grant_id")
+    bought = int(pods_created or 0) > 0 or float(spend_usd or 0) > 0
+    pod_id = _pod_id_from_evidence()
+    if not bought:
+        batch_state = batch_module.restore(batch_state, run_id or "")
+        outcome = "not_bought"
+    else:
+        batch_state = batch_module.record(
+            batch_state,
+            run_id=run_id or "",
+            spend_usd=spend_usd,
+            pod_ids=[pod_id] if pod_id else [],
+            confirmed_pod=int(pods_created or 0) > 0,
+        )
+        outcome = verdict or "FAILED"
+        if not termination_confirmed:
+            # Billing may still be running: the next attempt waits for a clean zero-Pod read.
+            batch_state["reconciliation_status"] = "unconfirmed"
+        if verdict == "COMPLETED" and termination_confirmed:
+            batch_state = batch_module.mark_completed(batch_state)
+    batch_module.save(rdir, batch_state)
+    batch_module.append_journal(
+        rdir,
+        {
+            "at": utcnow(),
+            "batch_id": batch_state.get("batch_id"),
+            "run_id": run_id,
+            "pod_id": pod_id,
+            "verdict": outcome,
+            "pods_created": int(pods_created or 0),
+            "spend_usd": round(float(spend_usd or 0), 4),
+            "termination_confirmed": bool(termination_confirmed),
+            "spent_total_usd": batch_state.get("spent_gpu_usd"),
+            "remaining_usd": batch_module.remaining_usd(batch_state),
+            "pods_total": batch_state.get("pods_created"),
+            "status": batch_module.status(batch_state),
+        },
+    )
+    if child_id and child.get("batch_id") == batch_state.get("batch_id"):
+        _archive_grant(rdir, child)
+
+    state["batch_id"] = batch_state.get("batch_id")
+    state["batch_status"] = batch_module.status(batch_state)
+    state["batch_spent_usd"] = batch_state.get("spent_gpu_usd")
+    state["batch_remaining_usd"] = batch_module.remaining_usd(batch_state)
+    state["batch_pods_created"] = batch_state.get("pods_created")
+    state["batch_reconciliation"] = batch_state.get("reconciliation_status")
+    state["batch_run_id"] = None
+    state["terminal_batch_id"] = batch_state.get("batch_id")
+
+    can_continue = outcome == "not_bought" or (termination_confirmed and verdict != "COMPLETED")
+    if can_continue and batch_module.status(batch_state) == "active":
+        # The batch is the permission for the next attempt; this child is spent.
+        state["paid_run_already_attempted"] = False
+        state["live_execution_state"] = "WAITING_GPU"
+        state["active_pod_id"] = None
+        state["terminal_grant_id"] = None
+        state["last_error"] = None
+    elif can_continue and batch_module.status(batch_state) != "completed":
+        state["live_execution_state"] = "PAID_BATCH_EXHAUSTED"
+        state["active_pod_id"] = None
+    return batch_module.status(batch_state)
+
+
 # -------------------------------------------------------------------------------------------- checks
 def run_check(
     *,
@@ -624,23 +811,24 @@ def run_check(
         return {"skipped": "monitoring_disabled", "state": state}
 
     grant = read_grant(rdir, now)
+    batch_state = batch_module.read(rdir)
+    state["batch_status"] = batch_module.status(batch_state, now) if batch_state else "absent"
+    if batch_state:
+        state["batch_id"] = batch_state.get("batch_id")
+        state["batch_budget_usd"] = batch_state.get("maximum_total_gpu_spend_usd")
+        state["batch_spent_usd"] = batch_state.get("spent_gpu_usd")
+        state["batch_remaining_usd"] = batch_module.remaining_usd(batch_state)
+        state["batch_pods_created"] = batch_state.get("pods_created")
     state["paid_run_authorized"] = bool(grant["valid"])
     state["grant_reason"] = grant["reason"]
     state["allowed_placements"] = [
         {"datacenter": dc, "volume_id": vid}
-        for dc, vid in (grant.get("placements") or [])
+        for dc, vid in (grant.get("placements") or ())
     ]
     # A terminal outcome belongs to the permission that produced it. A *new*, unused permission is
     # a new owner decision, and it re-arms the automation; the old one can never do that again
     # because it is marked used and `read_grant` refuses it.
-    if _is_terminal(state) and grant["valid"]:
-        current_grant = (grant.get("grant") or {}).get("grant_id")
-        if current_grant and current_grant != state.get("terminal_grant_id"):
-            state["rearmed_from"] = state.get("live_execution_state")
-            state["live_execution_state"] = "WAITING_GPU"
-            state["paid_run_already_attempted"] = False
-            state["active_pod_id"] = None
-            state["last_error"] = None
+    _rearm(state, grant)
     state["checks"] = int(state.get("checks") or 0) + 1
     state["last_check_time"] = now.isoformat(timespec="seconds")
     state["next_scheduled_check"] = (now + timedelta(seconds=next_delay)).isoformat(
@@ -648,7 +836,10 @@ def run_check(
     )
 
     try:
-        observation = inspect(provider, allowed_pairs=grant.get("placements") or ())
+        # Without a child grant the batch's own placements still scope what may be inspected, so a
+        # sighting can create the child that the launch then uses.
+        allowed = grant.get("placements") or _batch_pairs(batch_state)
+        observation = inspect(provider, allowed_pairs=allowed)
         state["consecutive_failures"] = 0
         state["last_successful_check"] = state["last_check_time"]
         state["last_error"] = None
@@ -692,6 +883,88 @@ def run_check(
         "AVAILABLE" if observation["technically_available"] else "UNAVAILABLE"
     )
 
+    if batch_state:
+        reconciled = batch_module.reconcile(batch_state, observation["pod_count"])
+        if reconciled != batch_state:
+            batch_state = reconciled
+            batch_module.save(rdir, batch_state)
+        # A monitor that died between the harness result and the settlement leaves the slot held.
+        # The durable result on disk plus a zero-Pod read is enough evidence to settle it; an
+        # unknown Pod count never is.
+        if batch_state.get("active_run_id") and observation["pod_count"] == 0:
+            last = _read_json(rdir / "last-run.json") or {}
+            if last.get("run_id") == batch_state.get("active_run_id"):
+                pods = int(last.get("pods_created") or 0)
+                batch_state = batch_module.record(
+                    batch_state,
+                    run_id=last["run_id"],
+                    spend_usd=float(last.get("spend_usd") or 0.0),
+                    pod_ids=[],
+                    confirmed_pod=pods > 0,
+                )
+                if last.get("verdict") == "COMPLETED":
+                    batch_state = batch_module.mark_completed(batch_state)
+                batch_module.save(rdir, batch_state)
+                batch_module.append_journal(
+                    rdir,
+                    {
+                        "at": utcnow(),
+                        "batch_id": batch_state.get("batch_id"),
+                        "run_id": last.get("run_id"),
+                        "verdict": last.get("verdict"),
+                        "pods_created": pods,
+                        "spend_usd": float(last.get("spend_usd") or 0.0),
+                        "settled_from": "last-run.json",
+                        "status": batch_module.status(batch_state),
+                    },
+                )
+                if batch_module.status(batch_state) == "active":
+                    state["paid_run_already_attempted"] = False
+                    state["live_execution_state"] = "WAITING_GPU"
+                    state["active_pod_id"] = None
+                    state["terminal_grant_id"] = None
+                    state["batch_run_id"] = None
+        state["batch_status"] = batch_module.status(batch_state, now)
+        state["batch_spent_usd"] = batch_state.get("spent_gpu_usd")
+        state["batch_remaining_usd"] = batch_module.remaining_usd(batch_state)
+        state["batch_pods_created"] = batch_state.get("pods_created")
+        state["batch_reconciliation"] = batch_state.get("reconciliation_status")
+
+    if (
+        batch_state
+        and batch_state.get("reconciliation_status") == "clean"
+        and state.get("live_execution_state")
+        in {"CRITICAL_TERMINATION_UNCONFIRMED", "CRITICAL_MULTIPLE_PODS"}
+        and observation["pod_count"] == 0
+        and batch_module.status(batch_state) == "active"
+    ):
+        # The earlier attempt could not prove termination; a clean zero-Pod read now can. The
+        # series may continue, but a Pod that is merely *unknown* never does.
+        state["rearmed_from"] = state.get("live_execution_state")
+        state["live_execution_state"] = "WAITING_GPU"
+        state["paid_run_already_attempted"] = False
+        state["active_pod_id"] = None
+        state["terminal_grant_id"] = None
+
+    if (
+        batch_state
+        and batch_state.get("reconciliation_status") == "clean"
+        and not batch_state.get("active_run_id")
+        and batch_module.status(batch_state) == "active"
+        and state.get("terminal_batch_id") != batch_state.get("batch_id")
+        and _is_terminal(state)
+    ):
+        # A series is a new owner decision: it lifts a terminal outcome produced outside it
+        # (typically the single grant that ran before), exactly once per batch id. An outcome
+        # produced *by this batch* keeps `terminal_batch_id` and is never lifted here.
+        state["rearmed_from"] = state.get("live_execution_state")
+        state["live_execution_state"] = "WAITING_GPU"
+        state["paid_run_already_attempted"] = False
+        state["active_pod_id"] = None
+        state["terminal_grant_id"] = None
+        state["terminal_batch_id"] = batch_state.get("batch_id")
+        state["last_error"] = None
+
     if _is_terminal(state):
         _finish(rdir, state, observation, grant, result)
         return result
@@ -705,8 +978,36 @@ def run_check(
         _finish(rdir, state, observation, grant, result)
         return result
 
+    if not grant["valid"] and batch_state:
+        # The batch is the authorization; the child grant is its one-shot instrument for this
+        # attempt. Created only when the money, the slot and the previous outcome all allow it.
+        verdict, batch_state, why = child_grant_from_batch(
+            rdir, batch_state, rate=float(price or 0)
+        )
+        state["batch_reason"] = why
+        if verdict["valid"]:
+            grant = verdict
+            state["paid_run_authorized"] = True
+            state["grant_reason"] = "batch_child"
+            state["allowed_placements"] = [
+                {"datacenter": dc, "volume_id": vid}
+                for dc, vid in (grant.get("placements") or ())
+            ]
+            _rearm(state, grant)
+        else:
+            state["paid_run_authorized"] = False
+            state["grant_reason"] = why
+            if why == "attempt_in_flight":
+                state["live_execution_state"] = "ATTEMPT_IN_FLIGHT"
+
     if not grant["valid"]:
-        state["live_execution_state"] = "WAITING_AUTHORIZATION"
+        reason = state.get("batch_reason")
+        if reason == "PAID_BATCH_EXHAUSTED":
+            state["live_execution_state"] = "PAID_BATCH_EXHAUSTED"
+        elif reason == "attempt_in_flight":
+            state["live_execution_state"] = "ATTEMPT_IN_FLIGHT"
+        else:
+            state["live_execution_state"] = "WAITING_AUTHORIZATION"
         _finish(rdir, state, observation, grant, result)
         return result
 
@@ -822,6 +1123,11 @@ def _live_command(
         command += ["--prepared", str(prepared_path)]
     if run_id:
         command += ["--run-id", run_id]
+    # The owner's fixed 45-minute target is a target, not a gate on a retry: when the batch has less
+    # than that left, a smaller but still useful window is honest. The policy still refuses an
+    # attempt that cannot cover the window plus the termination grace.
+    budget = float(grant["budget_usd"])
+    command += ["--min-work-minutes", "45" if budget >= 0.90 else "20"]
     if chosen.get("requires_selftest"):
         command.append("--self-test-mode")
     return command
@@ -978,6 +1284,27 @@ def launch_live(*, rdir: Path, state: dict, grant: dict, observation: dict) -> d
     volume_id = str(chosen.get("volume_id") or "")
     if not volume_id:
         raise RuntimeError("no placement was chosen for the paid run")
+    # The batch slot is reserved before anything is written: an attempt in flight blocks the next
+    # one even if this process dies mid-run, and the whole child budget is held until settlement.
+    batch_state = batch_module.read(rdir)
+    batch_reserved = False
+    if batch_state and grant.get("batch_id"):
+        try:
+            batch_state = batch_module.begin(
+                batch_state, run_id, reserved_usd=float(grant.get("budget_usd") or 0)
+            )
+        except batch_module.BatchError:
+            payload = {
+                "generated_at": utcnow(),
+                "verdict": "PREFLIGHT_BLOCKED",
+                "blocked_by": ["attempt_in_flight"],
+                "pods_created": 0,
+                "spend_usd": 0.0,
+            }
+            save_json(rdir / "last-run.json", payload)
+            return payload
+        batch_module.save(rdir, batch_state)
+        batch_reserved = True
     prepared_path = rdir / "live-prepared.json"
     save_json(prepared_path, prepared_payload(observation, chosen, grant, preflight, run_id))
     state["paid_run_already_attempted"] = True
@@ -988,6 +1315,10 @@ def launch_live(*, rdir: Path, state: dict, grant: dict, observation: dict) -> d
     )
     state["run_started_at"] = utcnow()
     state["authorization_grant_id"] = grant.get("grant_id")
+    if batch_reserved:
+        # The settlement only ever applies to the attempt that reserved the slot.
+        state["batch_id"] = batch_state.get("batch_id")
+        state["batch_run_id"] = run_id
     save_json(rdir / "state.json", state)
     mark_grant(rdir, used=True, run_id=run_id)
     claimed_at = utcnow()
@@ -1065,6 +1396,7 @@ def launch_live(*, rdir: Path, state: dict, grant: dict, observation: dict) -> d
         "spend_usd": spend,
         "billed_usd": accounting["billed_usd"],
         "evidence_trusted": accounting["trusted"],
+        "batch_reserved": batch_reserved,
         "path": final.get("path") or ("prepared" if harness_timings else None),
         "prepared_observed_at": final.get("prepared_observed_at"),
         "timings": timings,
@@ -1103,12 +1435,30 @@ def _apply_run_payload(
             "preflight_blocked: " + ",".join(payload.get("blocked_by") or [])[:200]
         )
         mark_grant(rdir, used=False, run_id=payload.get("run_id"))
+        _settle_batch(
+            rdir,
+            state,
+            run_id=payload.get("run_id"),
+            verdict=verdict,
+            pods_created=pods_created,
+            spend_usd=spend,
+            termination_confirmed=True,
+        )
         return
     if pods_created == 0 and spend == 0.0:
         state["paid_run_already_attempted"] = False
         state["live_execution_state"] = "WAITING_GPU"
         state["active_pod_id"] = None
         mark_grant(rdir, used=False, run_id=payload.get("run_id"))
+        _settle_batch(
+            rdir,
+            state,
+            run_id=payload.get("run_id"),
+            verdict=verdict,
+            pods_created=pods_created,
+            spend_usd=spend,
+            termination_confirmed=True,
+        )
         return
     state["paid_run_already_attempted"] = True
     state["active_pod_id"] = _pod_id_from_evidence()
@@ -1119,6 +1469,15 @@ def _apply_run_payload(
     remaining = (remaining_reader or _remaining_pods)()
     if remaining is None:
         state["live_execution_state"] = "CRITICAL_TERMINATION_UNCONFIRMED"
+        _settle_batch(
+            rdir,
+            state,
+            run_id=payload.get("run_id"),
+            verdict=verdict,
+            pods_created=pods_created,
+            spend_usd=spend,
+            termination_confirmed=False,
+        )
         return
     if not remaining:
         state["live_execution_state"] = (
@@ -1131,6 +1490,15 @@ def _apply_run_payload(
     else:
         state["live_execution_state"] = "CRITICAL_MULTIPLE_PODS"
         state["pod_count"] = len(remaining)
+    _settle_batch(
+        rdir,
+        state,
+        run_id=payload.get("run_id"),
+        verdict=verdict,
+        pods_created=pods_created,
+        spend_usd=spend,
+        termination_confirmed=not remaining,
+    )
 
 
 def _pod_id_from_evidence() -> str | None:
@@ -1251,6 +1619,13 @@ def build_status(state: dict, observation, grant) -> dict:
         "pod_count": state.get("pod_count"),
         "paid_run_authorized": bool(state.get("paid_run_authorized")),
         "grant_reason": state.get("grant_reason"),
+        "batch_id": state.get("batch_id"),
+        "batch_status": state.get("batch_status"),
+        "batch_budget_usd": state.get("batch_budget_usd"),
+        "batch_spent_usd": state.get("batch_spent_usd"),
+        "batch_remaining_usd": state.get("batch_remaining_usd"),
+        "batch_pods_created": state.get("batch_pods_created"),
+        "batch_reconciliation": state.get("batch_reconciliation"),
         "monitoring_enabled": enabled,
         "consecutive_failures": failures,
         "last_error": state.get("last_error"),
@@ -1278,7 +1653,16 @@ def automatic_live(state: dict) -> str:
         return "DISARMED"
     if not state.get("monitoring_enabled", True):
         return "DISARMED"
-    return "ARMED" if state.get("paid_run_authorized") else "WAITING_AUTHORIZATION"
+    if state.get("paid_run_authorized"):
+        return "ARMED"
+    # An active, settled batch is itself the permission: the next GPU sighting starts the next
+    # attempt without another human decision.
+    if (
+        state.get("batch_status") == "active"
+        and state.get("batch_reconciliation", "clean") == "clean"
+    ):
+        return "ARMED"
+    return "WAITING_AUTHORIZATION"
 
 
 def append_check(rdir: Path, state: dict, observation, grant) -> None:

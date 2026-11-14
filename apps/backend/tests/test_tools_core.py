@@ -171,8 +171,12 @@ def test_invalid_args_never_call_provider(setup):
     _, context, _ = setup
     provider, registry = FakeProvider(), ToolRegistry()
     registry.register(definition(), provider)
-    for args in ("{", '{"query":"x","confirmed":true}', '{"query":123}'):
-        with pytest.raises(ToolError, match="invalid_arguments"):
+    for args, code in (
+        ("{", "invalid_json"),
+        ('{"query":"x","confirmed":true}', "invalid_arguments"),
+        ('{"query":123}', "invalid_arguments"),
+    ):
+        with pytest.raises(ToolError, match=code):
             asyncio.run(ToolExecutor(registry).execute("test_read", args, context))
     assert provider.called == 0
 
