@@ -1124,6 +1124,11 @@ def run_live(
         # chat latency budget, not a model-load budget; keeping it would abort the run's very first
         # generation at the moment the model becomes ready.
         "LLM_STREAM_FIRST_LINE_SECONDS": "120",
+        # An application build is a long tool task, not a 3-minute chat turn. The product's own
+        # default (30 min / 40 calls) is a sensible interactive budget but smaller than the owner's
+        # 45-80 minute acceptance window, so the run would be cut off after the money was spent.
+        "TOOLS_TASK_MAX_RUNTIME": "4800",
+        "TOOLS_TASK_MAX_CALLS": "80",
         "TINYFISH_API_KEY": "",
         "ADMIN_EMAILS": "[]",
         "DOCUMENT_STORAGE_DIR": str(work / "documents"),
