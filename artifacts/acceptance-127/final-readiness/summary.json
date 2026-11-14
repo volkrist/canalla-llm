@@ -1,8 +1,8 @@
 {
- "generated_at": "2026-11-13T15:04:50+00:00",
+ "generated_at": "2026-11-14T01:25:49+00:00",
  "git": {
   "branch": "feature/canalla-1.2.7-autonomous-agent",
-  "head": "cfd7e14a0e15f619c5a6099bf51fb6edf64bd9a2"
+  "head": "054decca2be1fd988df5f7ddcea393b46256de5c"
  },
  "verdicts": {
   "identity_isolation": "PASS",

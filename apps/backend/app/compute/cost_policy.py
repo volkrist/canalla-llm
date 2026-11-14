@@ -19,6 +19,17 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+# The largest single acceptance budget the product will ever derive a plan for. The owner approves
+# a specific amount separately; this is only the technical ceiling that stops a typo from becoming
+# a large bill.
+MAX_LIVE_BUDGET_USD = 2.00
+# A single LIVE acceptance may not keep one Pod billable longer than this, whatever the budget.
+MAX_BILLABLE_LIFETIME_SECONDS = 90 * 60
+# The run aims to finish its work inside this window; the rest is termination reserve.
+DEFAULT_TARGET_WORK_SECONDS = 80 * 60
+# Below this much usable time a paid run is not worth starting (the build alone needs minutes).
+MIN_LIVE_WORK_SECONDS = 45 * 60
+
 # RunPod bills a Pod per second but rounds the total to a minute; assuming the minute is the
 # conservative choice and costs nothing when the real granularity is finer.
 DEFAULT_BILLING_GRANULARITY_SECONDS = 60
@@ -42,11 +53,17 @@ class BudgetPlan:
     watchdog_margin_seconds: int
     watchdog_poll_seconds: int
     capacity_timeout_seconds: int
+    requested_max_billed_seconds: int
     max_billed_seconds: int
     hard_wall_seconds: int
     stop_request_seconds: int
+    target_work_seconds: int
     worst_case_usd: float
     feasible: bool
+    budget_limited: bool = False
+    time_limited: bool = False
+    min_work_seconds: int = 0
+    sufficient: bool = True
     reasons: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -58,12 +75,18 @@ class BudgetPlan:
             "watchdog_margin_seconds": self.watchdog_margin_seconds,
             "watchdog_poll_seconds": self.watchdog_poll_seconds,
             "capacity_timeout_seconds": self.capacity_timeout_seconds,
+            "requested_max_billed_seconds": self.requested_max_billed_seconds,
             "max_billed_seconds": self.max_billed_seconds,
             "hard_wall_seconds": self.hard_wall_seconds,
             "stop_request_seconds": self.stop_request_seconds,
+            "target_work_seconds": self.target_work_seconds,
             "worst_case_usd": round(self.worst_case_usd, 6),
             "budget_headroom_usd": round(self.budget_usd - self.worst_case_usd, 6),
+            "budget_limited": self.budget_limited,
+            "time_limited": self.time_limited,
+            "min_work_seconds": self.min_work_seconds,
             "feasible": self.feasible,
+            "sufficient": self.sufficient,
             "reasons": self.reasons,
         }
 
@@ -83,8 +106,17 @@ def plan(
     watchdog_margin_seconds: int = DEFAULT_WATCHDOG_MARGIN_SECONDS,
     watchdog_poll_seconds: int = DEFAULT_WATCHDOG_POLL_SECONDS,
     capacity_timeout_seconds: int = DEFAULT_CAPACITY_TIMEOUT_SECONDS,
+    max_billable_seconds: int = MAX_BILLABLE_LIFETIME_SECONDS,
+    target_work_seconds: int | None = None,
+    min_work_seconds: int = 0,
 ) -> BudgetPlan:
-    """Derive the deadlines for one Pod under one budget, or explain why it is not allowed."""
+    """Derive the deadlines for one Pod under one budget, or explain why it is not allowed.
+
+    Two independent ceilings apply, and the tighter one wins: what the money can buy and what the
+    acceptance policy allows to stay billable. The old $0.15 plan is unchanged because the budget
+    binds there; a $2.00 owner-approved run is bounded by the 90-minute policy unless the selected
+    card is expensive enough for money to bind first.
+    """
     if budget_usd <= 0:
         raise ValueError("budget_usd must be positive")
     if hourly_rate_usd <= 0:
@@ -93,7 +125,11 @@ def plan(
     reason: list[str] = []
 
     affordable = budget_usd / rate_per_second(hourly_rate_usd)
-    max_billed = math.floor(affordable / granularity) * granularity
+    budget_billed = math.floor(affordable / granularity) * granularity
+    requested = math.floor(max(0, int(max_billable_seconds)) / granularity) * granularity
+    max_billed = min(budget_billed, requested)
+    budget_limited = budget_billed < requested
+    time_limited = requested <= budget_billed and requested > 0
     if max_billed <= 0:
         max_billed = 0
         reason.append("budget buys less than one billing interval")
@@ -102,11 +138,21 @@ def plan(
         hard_wall = 0
         reason.append("termination grace alone consumes the budget")
     stop_request = max(0, hard_wall - int(watchdog_margin_seconds))
+    default_target = min(
+        int(DEFAULT_TARGET_WORK_SECONDS if target_work_seconds is None else target_work_seconds),
+        hard_wall,
+    )
     worst_case = (max_billed / 3600.0) * hourly_rate_usd
     feasible = max_billed > 0 and hard_wall > 0 and worst_case <= budget_usd + 1e-12
     if feasible and stop_request <= 0:
         feasible = False
         reason.append("no usable work window before the stop")
+    sufficient = feasible and hard_wall >= max(0, int(min_work_seconds))
+    if feasible and not sufficient:
+        reason.append(
+            f"only {hard_wall}s of usable time at ${hourly_rate_usd:.2f}/h; "
+            f"at least {int(min_work_seconds)}s is required"
+        )
     return BudgetPlan(
         budget_usd=float(budget_usd),
         hourly_rate_usd=float(hourly_rate_usd),
@@ -115,11 +161,17 @@ def plan(
         watchdog_margin_seconds=int(watchdog_margin_seconds),
         watchdog_poll_seconds=max(1, int(watchdog_poll_seconds)),
         capacity_timeout_seconds=max(1, int(capacity_timeout_seconds)),
+        requested_max_billed_seconds=requested,
         max_billed_seconds=max_billed,
         hard_wall_seconds=hard_wall,
         stop_request_seconds=stop_request,
+        target_work_seconds=default_target,
         worst_case_usd=worst_case,
         feasible=feasible,
+        budget_limited=budget_limited,
+        time_limited=time_limited,
+        min_work_seconds=max(0, int(min_work_seconds)),
+        sufficient=sufficient,
         reasons=reason,
     )
 

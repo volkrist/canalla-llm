@@ -1,0 +1,11 @@
+{
+ "generated_at": "2026-11-14T01:22:44+00:00",
+ "verdict": "LIVE NOT RUN",
+ "live_run": false,
+ "blocked_by": [
+  "CAPACITY_UNAVAILABLE"
+ ],
+ "pods_created": 0,
+ "spend_usd": 0.0,
+ "reason": "Owner authorization is required and the external blocker above exists."
+}

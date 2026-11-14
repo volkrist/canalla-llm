@@ -1,121 +1,112 @@
-# Canalla 1.2.7 — план единственного LIVE Qwen прогона
+# Canalla 1.2.7 — план LIVE Qwen прогона (бюджет $2.00)
 
-**Статус:** подготовка завершена, платный запуск **не выполнялся**.
-**Разрешение владельца:** требуется отдельно.
+**Статус:** подготовка завершена. Платный запуск **не выполнялся**.
+**Разрешение владельца:** требуется отдельно; текст задания им не является.
+**Внешний блокер на 2026-11-14:** в дата-центре Network Volume нет ни одной подходящей GPU.
 
-Исполнитель: `artifacts/acceptance-127/live-qwen/live_acceptance.py` (self-test / preflight / plan /
-live). Страховка: `scripts/live_qwen_watchdog.py` (внешний процесс).
-
-## Цель
-
-Доказать, что настоящая Qwen (а не scripted planner) самостоятельно проходит цикл:
-
-```
-RESEARCH → PLAN → BUILD → RUN → TEST → GUI → FIX → RETEST → VERIFY → COMPLETE
-```
-
-на одной пользовательской задаче, с реальными инструментами и реальными side effects.
+Исполнитель: `artifacts/acceptance-127/live-qwen/live_acceptance.py`.
+Подготовка: `--prepare` (read-only). Выбор GPU: `gpu_probe.py` (read-only).
+Страховка: `scripts/live_qwen_watchdog.py` (внешний процесс, `SetThreadExecutionState`).
 
 ## Сценарий (один запрос, без подсказок по ходу)
 
-> «Создай на моём компьютере приложение TaskDesk для управления задачами: локальная база,
-> добавление, поиск, статусы, простой веб-интерфейс и тесты. Запусти его, проверь интерфейс,
-> найди и исправь дефект, подтверди результат.»
+TaskDesk: SQLite, создание/список/поиск без учёта регистра/статусы, веб-интерфейс, API, тесты,
+локальный запуск. Модель сама выбирает архитектуру, инструменты, порядок и исправления.
 
-Всё остальное — дело модели: она выбирает инструменты, план и порядок. Harness задаёт только
-цель, workspace, бюджет и критерии PASS.
+## Рассчитанные пределы (`app/compute/cost_policy.py`)
 
-## Жёсткие пределы (из `app/compute/cost_policy.py`)
+| Параметр | Значение |
+|---|---|
+| Бюджет | **$2.00** (верхний предел, не цель) |
+| Максимальное биллинговое время | **90 минут** (5400 с) |
+| Целевое рабочее время | **80 минут** (4800 с) |
+| Минимум для осмысленного запуска | **45 минут** (2700 с) |
+| Termination grace | 30 с |
+| Watchdog margin | 10 с |
+| Stop request при 90 мин | 5360 с |
+| Ожидание capacity | **60 с**, без `--capacity-timeout 1200` |
 
-| Параметр | Значение | Почему |
-|---|---|---|
-| GPU Pod | **не более 1**, один за раз | правило цикла; второй Pod — аварийная остановка |
-| Тариф | $1.09/ч (L40S 48 GB), проверяется по факту на Pod | каталог может измениться |
-| Биллинговое окно | **480 с** (округление вверх до минуты) | 480/3600 × 1.09 = **$0.14533** ≤ $0.15 |
-| Рабочее окно (hard wall) | **450 с** | 480 − 30 с на подтверждение остановки |
-| Watchdog | stop на **440 с**, проверка каждые 5 с | 10 с запаса до hard wall |
-| Резерв бюджета | $0.004667 | плюс storage тома ~$0.001 за прогон |
-| Ожидание capacity | **не более 60 с**, без `--capacity-timeout 1200` | правило 1.2.6 |
-| Повторный Pod | **запрещён** при FAIL | один прогон |
-
-Проверка модели расходов:
+Две независимые границы, побеждает меньшая:
 
 ```
-budget 0.15 / (1.09/3600) = 495.4 s  -> 480 s (округление вниз до минуты)
-480 s billed = $0.145333
-480 - 30 (termination grace) = 450 s usable
-450 - 10 (watchdog margin)   = 440 s stop request
+budget_billed = floor(2.00 / (rate/3600) / 60) * 60
+max_billed    = min(budget_billed, 5400)
+hard_wall     = max_billed - 30
+stop_request  = hard_wall - 10
+target_work   = min(4800, hard_wall)
 ```
 
-Прежняя формулировка «480 с работы = $0.1453 ≤ $0.15» игнорировала 30 с остановки: при 480 с
-*работы* счёт мог составить 510 с ≈ $0.1545. Теперь 480 с — это **биллинговое** окно, а работать
-можно 450 с.
+Примеры (цена — только для расчёта, реальная берётся из каталога перед запуском):
 
-## Критерии PASS (все обязательны)
+| Карта | Цена/ч | Billed | Работа | Worst case |
+|---|---|---|---|---|
+| A40 48 GB | $0.59 | 5400 с (90 мин, лимит политики) | 80 мин | **$0.885** |
+| L40S 48 GB | $1.09 | 5400 с | 80 мин | **$1.635** |
+| A100 80 GB | $2.09 | 2880 с (48 мин) | 47.5 мин | **$1.986** |
+| H100 80 GB | $2.89 | 2400 с (40 мин) | 39.5 мин | **$1.926** → ниже минимума 45 мин, **отказ** |
 
-1. `provenance.classify(...) == REAL_MODEL_CONFIRMED` — именованный live-провайдер, response id,
-   связанные tool calls, ledger-дайджесты, независимая верификация.
-2. Файлы приложения созданы model-origin вызовами.
-3. `pytest` реально запускался: был **проваленный** прогон и затем **прошедший**.
-4. Приложение реально отвечает по HTTP (harness поднимает его сам и проверяет `/`).
-5. GUI реально управлялся, остались скриншоты.
-6. Задача `COMPLETED`, `verification.evidence_ok = true`.
-7. Нет дублей tool payload (`input_digest`).
-8. Pod остановлен, `pods == []`, расход ≤ $0.15.
-9. Пользовательские данные и device_id установленной 1.2.6 не изменились.
+При $2.99 и дороже допустимое окно становится меньше 45 минут → `NO_MEANINGFUL_WORK_WINDOW`,
+Pod не создаётся.
 
-**FAIL** — если хотя бы один пункт не подтверждён фактом.
+## Внешний блокер (проверено read-only 2026-11-14)
 
-## Что проверяется ДО Pod (бесплатно)
+- Network Volume `uwgeaie5b0` (`orcarouter-storage`, 50 GB) — **US-TX-3**, type `STANDARD`
+  (региональный, монтируется только в своём DC).
+- В каталоге сейчас **нет ни одной NVIDIA Secure GPU ≥48 GB с ненулевой доступностью в US-TX-3**.
+- L40S $1.09 доступен только в **US-TX-4**, A40 $0.59 — в CA-MTL-1/EU-SE-1, RTX 6000 Ada — в
+  US-IL-1/US-KS-2/US-WA-1.
+- Следовательно продукт ответит `no_compatible_gpu` / `gpu_unavailable`. Это **внешний**
+  блокер: второй Volume и перезаливка ~20 GB весов не выполняются без отдельного решения.
 
-`python artifacts/acceptance-127/live-qwen/preflight.py` (read-only):
+`--live` проверяет это до создания Pod и завершается `CAPACITY_UNAVAILABLE` за секунды, без
+ожидания мощности.
 
-- Gateway `/health` = ready, `pods []`;
-- баланс RunPod читается, стартовое значение записано;
-- установленная 1.2.6 жива, `/health` = 200, версия совпадает;
-- device online, Computer Ready, Tor Ready;
-- policy бюджет **feasible** (см. таблицу);
-- watchdog self-test PASS;
-- provenance-модуль импортируется и знает live-провайдеров;
-- свободное место на диске.
+## Критерии PASS
 
-Любой пункт `BLOCKED` → Pod **не создаётся**.
+1. `provenance.classify(...) == REAL_MODEL_CONFIRMED`.
+2. `COMPLETED` + `verification.evidence_ok`.
+3. Реальные файлы приложения.
+4. Был проваленный тестовый прогон, затем прошедший (detect → fix → retest).
+5. HTTP 200 и SQLite с непустой таблицей задач.
+6. GUI-скриншоты: от модели (`browser_gui`) и независимый от harness (Playwright).
+7. Нет дублей tool payload.
+8. `pods == []` после прогона, расход ≤ $2.00.
+9. Production 1.2.6 и device identity не изменились.
 
 ## Команды
 
 ```bat
 python artifacts\acceptance-127\live-qwen\live_acceptance.py --self-test
-python artifacts\acceptance-127\live-qwen\live_acceptance.py --preflight
-python artifacts\acceptance-127\live-qwen\live_acceptance.py --plan
-python artifacts\acceptance-127\live-qwen\live_acceptance.py --live --confirm "I AUTHORIZE ONE PAID POD"
+python artifacts\acceptance-127\live-qwen\gpu_probe.py
+python artifacts\acceptance-127\live-qwen\live_acceptance.py --prepare
+python artifacts\acceptance-127\live-qwen\live_acceptance.py --plan --budget-usd 2.00
+python artifacts\acceptance-127\live-qwen\live_acceptance.py --live --budget-usd 2.00 ^
+       --confirm "I AUTHORIZE ONE PAID POD"
 ```
 
-Без точной фразы `--live` отказывается запускаться. Внешний watchdog запускается harness'ом
-раньше отправки сообщения, ждёт появления Pod не более 90 с и останавливает его на 440 с даже
-если backend завис.
+Без `--budget-usd` и без точной фразы `--live` не запускается; бюджет выше $2.00 отклоняется.
 
 ## Изоляция
 
-- отдельный каталог данных, отдельная БД, свободный порт;
-- `ALEX_ACCEPTANCE_RUN=1`, `ALEX_DEVICE_CREDENTIAL_TARGET=Canalla Acceptance/live-<nonce>`,
-  `ALEX_DEVICE_DIR` во временном каталоге;
-- установленная 1.2.6 не останавливается, не переспаривается и не мигрирует;
-- namespace удаляется после прогона.
+`ALEX_ACCEPTANCE_RUN=1`, отдельные `ALEX_DEVICE_DIR`, `ALEX_DEVICE_CREDENTIAL_TARGET`,
+`DATABASE_URL`, workspace, backend, host, журналы. Родительский процесс harness получает тот же
+изолированный `DATABASE_URL` **до** импорта приложения, поэтому чтение журнала не может попасть в
+production БД.
 
-## Evidence
+## Evidence (`final-live/`)
 
-```
-artifacts/acceptance-127/live-qwen/
-  preflight.json          бесплатная проверка
-  self-test.json          проверка самого harness и бюджета
-  run/summary.json        трейс, provenance verdict, проверки, Pod, расход
-  run/watchdog.json       что видел и когда остановил внешний watchdog
-```
+`preflight.json`, `authorization.json`, `cost-policy.json`, `gpu-selection.json`,
+`watchdog-events.json`, `pod-lifecycle.json`, `model-identity.json`, `model-responses.jsonl`,
+`tool-calls.jsonl`, `tool-execution.jsonl`, `provenance-verdict.json`, `task-state.json`,
+`verification.json`, `database-check.json`, `http-check.json`, `gui-evidence/`,
+`repair-evidence/`, `production-before.json`, `production-after.json`, `cleanup.json`,
+`billing-summary.json`, `final-summary.json`.
+
+Файлов с фиктивными данными нет: при отсутствии прогона `final-summary.json` честно говорит
+`LIVE NOT RUN`.
 
 ## После прогона
 
-- `pods == []` подтверждено;
-- фактический расход = дельта баланса за вычетом фонового storage тома;
-- отчёт `artifacts/REPORT-canalla-127-final-readiness.md` обновляется реальными фактами;
-- статус меняется на `FULL LIVE AUTONOMY = VERIFIED` **только** при `REAL_MODEL_CONFIRMED`
-  и всех критериях PASS.
+- `pods == []` подтверждается провайдером, иначе статус `CRITICAL`, а не `SUCCESS`;
+- отчёт `artifacts/REPORT-canalla-127-QWEN-LIVE.md` заполняется реальными фактами;
+- `FULL LIVE AUTONOMY = VERIFIED` только при `REAL_MODEL_CONFIRMED` и всех критериях.

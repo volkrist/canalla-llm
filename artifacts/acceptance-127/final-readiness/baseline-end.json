@@ -1,11 +1,11 @@
 {
  "label": "end",
- "captured_at": "2026-11-13T15:04:49+00:00",
+ "captured_at": "2026-11-14T01:25:46+00:00",
  "data_root_present": true,
  "database_present": true,
  "git": {
   "branch": "feature/canalla-1.2.7-autonomous-agent",
-  "head": "cfd7e14a0e15f619c5a6099bf51fb6edf64bd9a2"
+  "head": "054decca2be1fd988df5f7ddcea393b46256de5c"
  },
  "local_device_id": "6413489d-6cae-4183-8446-a3b2339137dc",
  "counts": {

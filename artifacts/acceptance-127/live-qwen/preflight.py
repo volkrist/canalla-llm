@@ -18,8 +18,10 @@ REPO = Path(__file__).resolve().parents[3]
 BACKEND = REPO / "apps" / "backend"
 OUT = Path(__file__).resolve().parent
 GATEWAY = "https://gateway.12testers.store"
-BUDGET_USD = 0.15
+BUDGET_USD = 2.00
 HOURLY_RATE = 1.09
+MAX_BILLABLE_MINUTES = 90
+MIN_WORK_MINUTES = 45
 
 sys.path.insert(0, str(BACKEND))
 from app.compute import cost_policy  # noqa: E402
@@ -119,12 +121,19 @@ def main() -> int:
     balance = pods.get("balance_usd")
     if isinstance(balance, (int, float)):
         remaining = round(float(balance), 4)
-    policy = cost_policy.plan(BUDGET_USD, HOURLY_RATE)
+    policy = cost_policy.plan(
+        BUDGET_USD,
+        HOURLY_RATE,
+        max_billable_seconds=MAX_BILLABLE_MINUTES * 60,
+        min_work_seconds=MIN_WORK_MINUTES * 60,
+    )
     report["budget"] = {
         "cap_usd": BUDGET_USD,
         "balance_usd": remaining,
         "policy": policy.to_dict(),
-        "ok": (remaining is None or remaining > BUDGET_USD) and policy.feasible,
+        "ok": (remaining is None or remaining > BUDGET_USD)
+        and policy.feasible
+        and policy.sufficient,
     }
 
     # A paid run cannot be executed if the free parts of the harness are broken.

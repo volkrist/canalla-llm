@@ -62,3 +62,45 @@ def test_remaining_seconds_never_goes_negative():
     plan = cost_policy.plan(0.15, 1.09)
     assert cost_policy.remaining_seconds(plan, 0) == 450
     assert cost_policy.remaining_seconds(plan, 10_000) == 0
+
+
+def test_the_two_dollar_envelope_is_bounded_by_the_ninety_minute_policy():
+    plan = cost_policy.plan(2.00, 1.09)
+    # The 90-minute billable lifetime is the tighter ceiling at this price.
+    assert plan.max_billed_seconds == 90 * 60
+    assert plan.time_limited is True and plan.budget_limited is False
+    assert plan.hard_wall_seconds == 90 * 60 - 30
+    assert plan.stop_request_seconds == 90 * 60 - 40
+    assert plan.target_work_seconds == 80 * 60
+    assert plan.worst_case_usd <= 2.00
+    assert math.isclose(plan.worst_case_usd, 90 / 60 * 1.09, rel_tol=1e-9)
+    assert plan.sufficient is True
+
+
+def test_a_pricier_card_shrinks_the_billable_window_inside_the_budget():
+    plan = cost_policy.plan(2.00, 1.49)
+    assert plan.budget_limited is True
+    assert plan.max_billed_seconds == 4800  # 2.00 / (1.49/3600) = 4832 s → 4800 billed
+    assert plan.hard_wall_seconds == 4770
+    assert plan.worst_case_usd <= 2.00
+    assert plan.sufficient is True
+
+
+def test_a_card_that_leaves_too_little_time_is_refused():
+    plan = cost_policy.plan(2.00, 2.99, min_work_seconds=cost_policy.MIN_LIVE_WORK_SECONDS)
+    assert plan.feasible is True
+    assert plan.sufficient is False
+    assert any("usable time" in reason for reason in plan.reasons)
+
+
+def test_the_live_minimum_is_forty_five_minutes():
+    assert cost_policy.MIN_LIVE_WORK_SECONDS == 45 * 60
+    assert cost_policy.MAX_BILLABLE_LIFETIME_SECONDS == 90 * 60
+    assert cost_policy.DEFAULT_TARGET_WORK_SECONDS == 80 * 60
+    assert cost_policy.MAX_LIVE_BUDGET_USD == 2.00
+
+
+def test_the_old_fifteen_cent_plan_did_not_change():
+    plan = cost_policy.plan(0.15, 1.09)
+    assert (plan.max_billed_seconds, plan.hard_wall_seconds, plan.stop_request_seconds) == (480, 450, 440)
+    assert plan.budget_limited is True

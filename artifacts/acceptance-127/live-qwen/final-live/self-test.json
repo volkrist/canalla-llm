@@ -1,0 +1,41 @@
+{
+ "checks": [
+  {
+   "check": "confirmation_is_required",
+   "ok": true
+  },
+  {
+   "check": "budget_is_explicit",
+   "ok": true
+  },
+  {
+   "check": "budget_ceiling_is_enforced",
+   "ok": true
+  },
+  {
+   "check": "the_approved_envelope_passes",
+   "ok": true
+  },
+  {
+   "check": "ninety_minute_billable_ceiling",
+   "ok": true
+  },
+  {
+   "check": "eighty_minute_work_target",
+   "ok": true
+  },
+  {
+   "check": "worst_case_within_two_dollars",
+   "ok": true
+  },
+  {
+   "check": "capacity_wait_is_sixty_seconds",
+   "ok": true
+  },
+  {
+   "check": "no_twenty_minute_capacity_wait",
+   "ok": true
+  }
+ ],
+ "verdict": "PASS"
+}

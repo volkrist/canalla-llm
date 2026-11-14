@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-13T14:29:03+00:00",
+ "generated_at": "2026-11-14T01:23:35+00:00",
  "method": "targeted pytest nodes plus existing acceptance artifacts; no full-suite rerun",
  "scenarios": [
   {
@@ -11,7 +11,7 @@
     "node": "tests/test_task_status.py::test_a_dead_provider_is_a_model_wait_with_a_real_idle_time",
     "ok": true,
     "returncode": 0,
-    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.30s"
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.39s"
    },
    "status": "PASS"
   },
@@ -24,7 +24,7 @@
     "node": "tests/test_autonomous_tasks.py::test_a_gateway_outage_after_a_tool_keeps_the_result_and_finishes",
     "ok": true,
     "returncode": 0,
-    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 1.61s"
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 3.10s"
    },
    "status": "PASS"
   },
@@ -37,7 +37,7 @@
     "node": "tests/test_autonomous_tasks.py::test_stale_patch_is_conflict",
     "ok": true,
     "returncode": 0,
-    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 1.63s"
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 2.85s"
    },
    "status": "PASS"
   },
@@ -50,7 +50,7 @@
     "node": "tests/test_autonomous_tasks.py::test_device_disconnect_waits",
     "ok": true,
     "returncode": 0,
-    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 9.27s"
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 10.50s"
    },
    "status": "PASS"
   },
@@ -63,7 +63,7 @@
     "node": "tests/test_127_provenance.py::test_a_tampered_record_fails_the_seal",
     "ok": true,
     "returncode": 0,
-    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.30s"
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.67s"
    },
    "status": "PASS"
   },
@@ -76,7 +76,7 @@
     "node": "tests/test_127_agent_core.py::test_verifier_checks_real_files_and_digests",
     "ok": true,
     "returncode": 0,
-    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.35s"
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.51s"
    },
    "status": "PASS"
   },
@@ -89,7 +89,7 @@
     "node": "tests/test_127_recovery_e2e.py::test_a_killed_process_leaves_a_task_that_a_new_process_resumes",
     "ok": true,
     "returncode": 0,
-    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 5.91s"
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 13.26s"
    },
    "status": "PASS"
   },
@@ -102,7 +102,7 @@
     "node": "tests/test_autonomous_tasks.py::test_restart_does_not_rerun_completed_tools",
     "ok": true,
     "returncode": 0,
-    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 2.31s"
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 4.26s"
    },
    "status": "PASS"
   },
@@ -115,7 +115,7 @@
     "node": "tests/test_127_agent_core.py::test_repair_fingerprint_ignores_noise_and_detects_stall",
     "ok": true,
     "returncode": 0,
-    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.30s"
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.49s"
    },
    "status": "PASS"
   },
@@ -128,7 +128,7 @@
     "node": "tests/test_autonomous_tasks.py::test_the_recovery_retry_schedule_is_bounded",
     "ok": true,
     "returncode": 0,
-    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.28s"
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.41s"
    },
    "status": "PASS"
   },
@@ -141,7 +141,7 @@
     "node": "tests/test_context_usage.py::test_summarize_never_hides_an_overflow",
     "ok": true,
     "returncode": 0,
-    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.30s"
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.39s"
    },
    "status": "PASS"
   },
@@ -154,7 +154,7 @@
     "node": "tests/test_long_autonomy.py::test_the_loop_runs_at_least_fifteen_model_calls",
     "ok": true,
     "returncode": 0,
-    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 6.95s"
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 9.27s"
    },
    "status": "PASS"
   },
@@ -167,7 +167,7 @@
     "node": "tests/test_127_cost_policy.py::test_a_pricier_pod_is_refused_before_creation",
     "ok": true,
     "returncode": 0,
-    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.28s"
+    "summary": "    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]] | -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html | 1 passed, 2 warnings in 0.42s"
    },
    "status": "PASS"
   },

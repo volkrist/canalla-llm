@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-13T13:54:39+00:00",
+ "generated_at": "2026-11-14T01:16:41+00:00",
  "mode": "dry_run_fake_provider",
  "note": "A fake provider proves the watchdog's decisions. No Pod was created.",
  "plan": {
@@ -10,12 +10,18 @@
   "watchdog_margin_seconds": 10,
   "watchdog_poll_seconds": 5,
   "capacity_timeout_seconds": 60,
+  "requested_max_billed_seconds": 5400,
   "max_billed_seconds": 480,
   "hard_wall_seconds": 450,
   "stop_request_seconds": 440,
+  "target_work_seconds": 450,
   "worst_case_usd": 0.145333,
   "budget_headroom_usd": 0.004667,
+  "budget_limited": true,
+  "time_limited": false,
+  "min_work_seconds": 0,
   "feasible": true,
+  "sufficient": true,
   "reasons": []
  },
  "scenarios": {
@@ -29,12 +35,18 @@
     "watchdog_margin_seconds": 10,
     "watchdog_poll_seconds": 5,
     "capacity_timeout_seconds": 60,
+    "requested_max_billed_seconds": 5400,
     "max_billed_seconds": 480,
     "hard_wall_seconds": 450,
     "stop_request_seconds": 440,
+    "target_work_seconds": 450,
     "worst_case_usd": 0.145333,
     "budget_headroom_usd": 0.004667,
+    "budget_limited": true,
+    "time_limited": false,
+    "min_work_seconds": 0,
     "feasible": true,
+    "sufficient": true,
     "reasons": []
    },
    "events": [
@@ -71,12 +83,18 @@
     "watchdog_margin_seconds": 10,
     "watchdog_poll_seconds": 5,
     "capacity_timeout_seconds": 60,
+    "requested_max_billed_seconds": 5400,
     "max_billed_seconds": 480,
     "hard_wall_seconds": 450,
     "stop_request_seconds": 440,
+    "target_work_seconds": 450,
     "worst_case_usd": 0.145333,
     "budget_headroom_usd": 0.004667,
+    "budget_limited": true,
+    "time_limited": false,
+    "min_work_seconds": 0,
     "feasible": true,
+    "sufficient": true,
     "reasons": []
    },
    "events": [
@@ -106,12 +124,18 @@
     "watchdog_margin_seconds": 10,
     "watchdog_poll_seconds": 5,
     "capacity_timeout_seconds": 60,
+    "requested_max_billed_seconds": 5400,
     "max_billed_seconds": 480,
     "hard_wall_seconds": 450,
     "stop_request_seconds": 440,
+    "target_work_seconds": 450,
     "worst_case_usd": 0.145333,
     "budget_headroom_usd": 0.004667,
+    "budget_limited": true,
+    "time_limited": false,
+    "min_work_seconds": 0,
     "feasible": true,
+    "sufficient": true,
     "reasons": []
    },
    "events": [
@@ -155,12 +179,18 @@
     "watchdog_margin_seconds": 10,
     "watchdog_poll_seconds": 5,
     "capacity_timeout_seconds": 60,
+    "requested_max_billed_seconds": 5400,
     "max_billed_seconds": 480,
     "hard_wall_seconds": 450,
     "stop_request_seconds": 440,
+    "target_work_seconds": 450,
     "worst_case_usd": 0.145333,
     "budget_headroom_usd": 0.004667,
+    "budget_limited": true,
+    "time_limited": false,
+    "min_work_seconds": 0,
     "feasible": true,
+    "sufficient": true,
     "reasons": []
    },
    "events": [
@@ -194,12 +224,18 @@
     "watchdog_margin_seconds": 10,
     "watchdog_poll_seconds": 5,
     "capacity_timeout_seconds": 60,
+    "requested_max_billed_seconds": 5400,
     "max_billed_seconds": 480,
     "hard_wall_seconds": 450,
     "stop_request_seconds": 440,
+    "target_work_seconds": 450,
     "worst_case_usd": 0.145333,
     "budget_headroom_usd": 0.004667,
+    "budget_limited": true,
+    "time_limited": false,
+    "min_work_seconds": 0,
     "feasible": true,
+    "sufficient": true,
     "reasons": []
    },
    "events": [
@@ -233,12 +269,18 @@
     "watchdog_margin_seconds": 10,
     "watchdog_poll_seconds": 5,
     "capacity_timeout_seconds": 60,
+    "requested_max_billed_seconds": 5400,
     "max_billed_seconds": 480,
     "hard_wall_seconds": 450,
     "stop_request_seconds": 440,
+    "target_work_seconds": 450,
     "worst_case_usd": 0.145333,
     "budget_headroom_usd": 0.004667,
+    "budget_limited": true,
+    "time_limited": false,
+    "min_work_seconds": 0,
     "feasible": true,
+    "sufficient": true,
     "reasons": []
    },
    "events": [
@@ -305,12 +347,18 @@
     "watchdog_margin_seconds": 10,
     "watchdog_poll_seconds": 5,
     "capacity_timeout_seconds": 60,
+    "requested_max_billed_seconds": 5400,
     "max_billed_seconds": 480,
     "hard_wall_seconds": 450,
     "stop_request_seconds": 440,
+    "target_work_seconds": 450,
     "worst_case_usd": 0.145333,
     "budget_headroom_usd": 0.004667,
+    "budget_limited": true,
+    "time_limited": false,
+    "min_work_seconds": 0,
     "feasible": true,
+    "sufficient": true,
     "reasons": []
    },
    "events": [
@@ -338,6 +386,197 @@
    "reasons": [
     "2 Pods exist where at most one is allowed"
    ]
+  },
+  "flaky_provider": {
+   "verdict": "OK",
+   "plan": {
+    "budget_usd": 0.15,
+    "hourly_rate_usd": 1.09,
+    "billing_granularity_seconds": 60,
+    "termination_grace_seconds": 30,
+    "watchdog_margin_seconds": 10,
+    "watchdog_poll_seconds": 5,
+    "capacity_timeout_seconds": 60,
+    "requested_max_billed_seconds": 5400,
+    "max_billed_seconds": 480,
+    "hard_wall_seconds": 450,
+    "stop_request_seconds": 440,
+    "target_work_seconds": 450,
+    "worst_case_usd": 0.145333,
+    "budget_headroom_usd": 0.004667,
+    "budget_limited": true,
+    "time_limited": false,
+    "min_work_seconds": 0,
+    "feasible": true,
+    "sufficient": true,
+    "reasons": []
+   },
+   "events": [
+    {
+     "at_seconds": 0.0,
+     "kind": "provider-read-error",
+     "detail": "transient pod-list failure"
+    },
+    {
+     "at_seconds": 5.0,
+     "kind": "provider-read-error",
+     "detail": "transient pod-list failure"
+    },
+    {
+     "at_seconds": 10.0,
+     "kind": "provider-read-error",
+     "detail": "transient pod-list failure"
+    },
+    {
+     "at_seconds": 15.0,
+     "kind": "pod-observed",
+     "detail": "pod-flaky at $1.0900/h"
+    },
+    {
+     "at_seconds": 440.0,
+     "kind": "stop-requested",
+     "detail": "elapsed=440.0s cost=$0.1332"
+    },
+    {
+     "at_seconds": 450.0,
+     "kind": "pod-gone",
+     "detail": "billed~450.0s"
+    }
+   ],
+   "billed_seconds": 450.0,
+   "estimated_cost_usd": 0.13625,
+   "stop_requested_at": 440.0,
+   "termination_confirmed": true,
+   "pods_remaining": 0,
+   "reasons": []
+  },
+  "dead_provider": {
+   "verdict": "PROVIDER_UNREACHABLE",
+   "plan": {
+    "budget_usd": 0.15,
+    "hourly_rate_usd": 1.09,
+    "billing_granularity_seconds": 60,
+    "termination_grace_seconds": 30,
+    "watchdog_margin_seconds": 10,
+    "watchdog_poll_seconds": 5,
+    "capacity_timeout_seconds": 60,
+    "requested_max_billed_seconds": 5400,
+    "max_billed_seconds": 480,
+    "hard_wall_seconds": 450,
+    "stop_request_seconds": 440,
+    "target_work_seconds": 450,
+    "worst_case_usd": 0.145333,
+    "budget_headroom_usd": 0.004667,
+    "budget_limited": true,
+    "time_limited": false,
+    "min_work_seconds": 0,
+    "feasible": true,
+    "sufficient": true,
+    "reasons": []
+   },
+   "events": [
+    {
+     "at_seconds": 0.0,
+     "kind": "provider-read-error",
+     "detail": "provider is unreachable"
+    },
+    {
+     "at_seconds": 5.0,
+     "kind": "provider-read-error",
+     "detail": "provider is unreachable"
+    },
+    {
+     "at_seconds": 10.0,
+     "kind": "provider-read-error",
+     "detail": "provider is unreachable"
+    },
+    {
+     "at_seconds": 15.0,
+     "kind": "provider-read-error",
+     "detail": "provider is unreachable"
+    },
+    {
+     "at_seconds": 20.0,
+     "kind": "provider-read-error",
+     "detail": "provider is unreachable"
+    },
+    {
+     "at_seconds": 25.0,
+     "kind": "provider-read-error",
+     "detail": "provider is unreachable"
+    },
+    {
+     "at_seconds": 30.0,
+     "kind": "provider-read-error",
+     "detail": "provider is unreachable"
+    },
+    {
+     "at_seconds": 30.0,
+     "kind": "provider-unreachable",
+     "detail": ""
+    }
+   ],
+   "billed_seconds": 0.0,
+   "estimated_cost_usd": 0.0,
+   "stop_requested_at": null,
+   "termination_confirmed": false,
+   "pods_remaining": null,
+   "reasons": [
+    "the provider could not be read, so zero Pods cannot be confirmed"
+   ]
+  },
+  "runner_gone": {
+   "verdict": "OK",
+   "plan": {
+    "budget_usd": 0.15,
+    "hourly_rate_usd": 1.09,
+    "billing_granularity_seconds": 60,
+    "termination_grace_seconds": 30,
+    "watchdog_margin_seconds": 10,
+    "watchdog_poll_seconds": 5,
+    "capacity_timeout_seconds": 60,
+    "requested_max_billed_seconds": 5400,
+    "max_billed_seconds": 480,
+    "hard_wall_seconds": 450,
+    "stop_request_seconds": 440,
+    "target_work_seconds": 450,
+    "worst_case_usd": 0.145333,
+    "budget_headroom_usd": 0.004667,
+    "budget_limited": true,
+    "time_limited": false,
+    "min_work_seconds": 0,
+    "feasible": true,
+    "sufficient": true,
+    "reasons": []
+   },
+   "events": [
+    {
+     "at_seconds": 0.0,
+     "kind": "runner-gone",
+     "detail": "the supervised runner is no longer alive; the wall still applies"
+    },
+    {
+     "at_seconds": 0.0,
+     "kind": "pod-observed",
+     "detail": "pod-runner at $1.0900/h"
+    },
+    {
+     "at_seconds": 440.0,
+     "kind": "stop-requested",
+     "detail": "elapsed=440.0s cost=$0.1332"
+    },
+    {
+     "at_seconds": 450.0,
+     "kind": "pod-gone",
+     "detail": "billed~450.0s"
+    }
+   ],
+   "billed_seconds": 450.0,
+   "estimated_cost_usd": 0.13625,
+   "stop_requested_at": 440.0,
+   "termination_confirmed": true,
+   "pods_remaining": 0,
+   "reasons": []
   }
  },
  "checks": [
@@ -420,6 +659,31 @@
    "check": "a_second_pod_is_stopped",
    "ok": true,
    "detail": "True"
+  },
+  {
+   "check": "a_flaky_read_never_concludes_capacity",
+   "ok": true,
+   "detail": "OK"
+  },
+  {
+   "check": "an_unreadable_provider_is_typed",
+   "ok": true,
+   "detail": "PROVIDER_UNREACHABLE"
+  },
+  {
+   "check": "an_unreadable_provider_never_claims_zero_pods",
+   "ok": true,
+   "detail": "None"
+  },
+  {
+   "check": "a_dead_runner_does_not_stop_the_watchdog",
+   "ok": true,
+   "detail": "OK"
+  },
+  {
+   "check": "the_two_dollar_policy_is_bounded_by_ninety_minutes",
+   "ok": true,
+   "detail": 5400
   },
   {
    "check": "no_long_capacity_wait",

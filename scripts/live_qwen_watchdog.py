@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 import time
 from dataclasses import dataclass, field
@@ -60,6 +61,10 @@ class PodState:
     created_at: float = 0.0
     terminated_at: float | None = None
     gone_at: float | None = None
+
+
+class ProviderError(RuntimeError):
+    """The provider could not answer. Never silently treated as "no Pod exists"."""
 
 
 class Provider:
@@ -138,7 +143,11 @@ class RunPodProvider(Provider):
 
     def list_pods(self) -> list[PodState]:
         status, payload = self.tools.call("/v2/pods", self.key)
-        rows = (payload or {}).get("pods") if status == 200 and isinstance(payload, dict) else []
+        if status != 200 or not isinstance(payload, dict):
+            raise ProviderError(f"pod list failed (status={status})")
+        rows = payload.get("pods")
+        if not isinstance(rows, list):
+            raise ProviderError("pod list was malformed")
         pods = []
         for row in rows or []:
             if not isinstance(row, dict) or not row.get("id"):
@@ -153,7 +162,10 @@ class RunPodProvider(Provider):
         return pods
 
     def terminate(self, pod_id: str) -> bool:
-        result = self.tools.terminate(self.key, pod_id)
+        try:
+            result = self.tools.terminate(self.key, pod_id)
+        except Exception as error:  # noqa: BLE001 - a transport failure is not a refusal
+            raise ProviderError(f"terminate failed: {type(error).__name__}") from None
         return bool(result.get("ok")) if isinstance(result, dict) else bool(result)
 
     def balance_usd(self) -> float | None:
@@ -194,6 +206,29 @@ class WatchResult:
         }
 
 
+def _process_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(pid))
+        if not handle:
+            return False
+        try:
+            code = wintypes.DWORD()
+            ok = ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+            return bool(ok) and code.value == 259  # STILL_ACTIVE
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except OSError:
+        return False
+
+
 def run_watchdog(
     provider: Provider,
     plan_value: cost_policy.BudgetPlan,
@@ -203,6 +238,7 @@ def run_watchdog(
     pod_id: str = "",
     max_wall_seconds: float | None = None,
     wait_for_pod_seconds: float = 0.0,
+    runner_pid: int = 0,
 ) -> WatchResult:
     """Supervise one Pod until it is confirmed gone. Never creates anything."""
     started = clock()
@@ -210,6 +246,8 @@ def run_watchdog(
     result = WatchResult(verdict="FAILED", plan=plan_value.to_dict())
     state = None
     saw_multiple = False
+    read_errors = 0
+    runner_gone = False
 
     def note(kind: str, detail: str = ""):
         result.events.append(WatchEvent(clock() - started, kind, detail))
@@ -224,7 +262,36 @@ def run_watchdog(
         + 30
     )
     while True:
-        pods = provider.list_pods()
+        if runner_pid and not runner_gone and not _process_alive(runner_pid):
+            runner_gone = True
+            note("runner-gone", "the supervised runner is no longer alive; the wall still applies")
+        try:
+            pods = provider.list_pods()
+            read_errors = 0
+        except ProviderError as error:
+            read_errors += 1
+            note("provider-read-error", str(error))
+            if state is not None:
+                # We know a Pod exists. Losing the read path never releases the deadline.
+                if clock() - started > deadline:
+                    result.verdict = "PROVIDER_UNREACHABLE"
+                    result.reasons.append(
+                        "the provider could not be read while a Pod may still be billing"
+                    )
+                    result.pods_remaining = None
+                    return result
+                sleep(poll)
+                continue
+            if clock() < pod_deadline:
+                sleep(poll)
+                continue
+            result.verdict = "PROVIDER_UNREACHABLE"
+            result.reasons.append(
+                "the provider could not be read, so zero Pods cannot be confirmed"
+            )
+            result.pods_remaining = None
+            note("provider-unreachable")
+            return result
         if len(pods) > 1:
             # One managed Pod is the rule; a second one is a spending emergency, not a state to
             # observe politely. Stop them all and report it.
@@ -269,7 +336,12 @@ def run_watchdog(
                         "stop-requested",
                         f"elapsed={elapsed:.1f}s cost=${cost:.4f}",
                     )
-                    if not provider.terminate(state.pod_id):
+                    try:
+                        stopped = provider.terminate(state.pod_id)
+                    except ProviderError as error:
+                        stopped = False
+                        note("terminate-error", str(error))
+                    if not stopped:
                         result.reasons.append("termination request was refused by the provider")
                         note("terminate-refused")
         else:
@@ -293,7 +365,10 @@ def run_watchdog(
             return result
         if clock() - started > deadline:
             result.verdict = "TERMINATION_UNCONFIRMED"
-            result.pods_remaining = len(provider.list_pods())
+            try:
+                result.pods_remaining = len(provider.list_pods())
+            except ProviderError:
+                result.pods_remaining = None
             result.reasons.append(
                 "the Pod was not confirmed gone before the deadline; it may still be billing"
             )
@@ -410,6 +485,59 @@ def scenario_late_pod() -> WatchResult:
     )
 
 
+class FlakyProvider(FakeProvider):
+    """The first reads fail; a later read succeeds. Losing the read path must not free the Pod."""
+
+    def __init__(self, *, clock, fail_first: int = 3):
+        super().__init__(clock=clock, pod=PodState("pod-flaky", 1.09), stop_latency=10.0)
+        self.fail_first = fail_first
+
+    def list_pods(self) -> list[PodState]:
+        if self.fail_first > 0:
+            self.fail_first -= 1
+            raise ProviderError("transient pod-list failure")
+        return super().list_pods()
+
+
+class DeadProvider(Provider):
+    def list_pods(self) -> list[PodState]:
+        raise ProviderError("provider is unreachable")
+
+    def terminate(self, pod_id: str) -> bool:
+        raise ProviderError("provider is unreachable")
+
+
+def scenario_flaky_provider() -> WatchResult:
+    clock = FakeClock()
+    provider = FlakyProvider(clock=clock)
+    plan_value = cost_policy.plan(0.15, 1.09)
+    return run_watchdog(
+        provider, plan_value, clock=clock, sleep=clock.sleep, wait_for_pod_seconds=60.0
+    )
+
+
+def scenario_dead_provider() -> WatchResult:
+    clock = FakeClock()
+    provider = DeadProvider()
+    plan_value = cost_policy.plan(0.15, 1.09)
+    return run_watchdog(
+        provider, plan_value, clock=clock, sleep=clock.sleep, wait_for_pod_seconds=30.0
+    )
+
+
+def scenario_runner_gone() -> WatchResult:
+    clock = FakeClock()
+    provider = FakeProvider(clock=clock, pod=PodState("pod-runner", 1.09), stop_latency=10.0)
+    plan_value = cost_policy.plan(0.15, 1.09)
+    return run_watchdog(
+        provider,
+        plan_value,
+        clock=clock,
+        sleep=clock.sleep,
+        runner_pid=2**31 - 1,
+    )
+
+
 def scenario_multiple_pods() -> WatchResult:
     clock = FakeClock()
     provider = MultiPodProvider(clock=clock)
@@ -462,6 +590,35 @@ def self_test() -> dict:
     check("a_second_pod_is_an_emergency", multiple.verdict == "MULTIPLE_PODS", multiple.verdict)
     check("a_second_pod_is_stopped", multiple.termination_confirmed is True, str(multiple.termination_confirmed))
 
+    flaky = scenario_flaky_provider()
+    check(
+        "a_flaky_read_never_concludes_capacity",
+        flaky.verdict == "OK" and flaky.termination_confirmed,
+        flaky.verdict,
+    )
+    dead = scenario_dead_provider()
+    check("an_unreadable_provider_is_typed", dead.verdict == "PROVIDER_UNREACHABLE", dead.verdict)
+    check(
+        "an_unreadable_provider_never_claims_zero_pods",
+        dead.pods_remaining is None,
+        str(dead.pods_remaining),
+    )
+    gone = scenario_runner_gone()
+    check(
+        "a_dead_runner_does_not_stop_the_watchdog",
+        gone.verdict == "OK"
+        and any(event.kind == "runner-gone" for event in gone.events),
+        gone.verdict,
+    )
+    plan_two = cost_policy.plan(
+        2.00, 1.09, max_billable_seconds=90 * 60, min_work_seconds=45 * 60
+    )
+    check(
+        "the_two_dollar_policy_is_bounded_by_ninety_minutes",
+        plan_two.max_billed_seconds == 5400 and plan_two.sufficient,
+        plan_two.max_billed_seconds,
+    )
+
     plan_value = cost_policy.plan(0.15, 1.09)
     check(
         "no_long_capacity_wait",
@@ -488,33 +645,81 @@ def self_test() -> dict:
             "terminate_refused": refused.to_dict(),
             "late_pod": late.to_dict(),
             "multiple_pods": multiple.to_dict(),
+            "flaky_provider": flaky.to_dict(),
+            "dead_provider": dead.to_dict(),
+            "runner_gone": gone.to_dict(),
         },
         "checks": checks,
         "verdict": "PASS" if all(item["ok"] for item in checks) else "FAIL",
     }
 
 
+def _prevent_sleep() -> bool:
+    """Keep the watchdog's host awake while it is the only thing that can stop the Pod.
+
+    `SetThreadExecutionState` is per-thread and needs no privilege. It is not a guarantee: a user
+    can still sleep or hibernate the machine, which is why the provider read path and the wall are
+    the real protections. The flag is recorded either way.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+
+        ES_CONTINUOUS = 0x80000000
+        ES_SYSTEM_REQUIRED = 0x00000001
+        return bool(ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED))
+    except Exception:
+        return False
+
+
+def _allow_sleep() -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+    except Exception:
+        pass
+
+
 def live_run(args) -> int:
-    plan_value = cost_policy.plan(args.budget_usd, args.hourly_rate)
+    plan_value = cost_policy.plan(
+        args.budget_usd,
+        args.hourly_rate,
+        max_billable_seconds=max(1, args.max_billable_minutes) * 60,
+        min_work_seconds=max(0, args.min_work_minutes) * 60,
+    )
     if not plan_value.feasible:
         print(json.dumps({"verdict": "BUDGET_INFEASIBLE", "plan": plan_value.to_dict()}))
         return 2
+    if not plan_value.sufficient:
+        print(json.dumps({"verdict": "NO_MEANINGFUL_WORK_WINDOW", "plan": plan_value.to_dict()}))
+        return 2
+    sleep_prevented = _prevent_sleep()
     provider = RunPodProvider()
-    result = run_watchdog(
-        provider,
-        plan_value,
-        clock=time.monotonic,
-        sleep=time.sleep,
-        pod_id=args.pod_id,
-        max_wall_seconds=args.max_wall_seconds,
-        wait_for_pod_seconds=args.wait_for_pod_seconds,
-    )
-    payload = {
-        **result.to_dict(),
-        "balance_before_usd": provider.balance_usd(),
-        "balance_after_usd": provider.balance_usd(),
-        "observed_at": utcnow(),
-    }
+    try:
+        result = run_watchdog(
+            provider,
+            plan_value,
+            clock=time.monotonic,
+            sleep=time.sleep,
+            pod_id=args.pod_id,
+            max_wall_seconds=args.max_wall_seconds,
+            wait_for_pod_seconds=args.wait_for_pod_seconds,
+            runner_pid=args.runner_pid,
+        )
+        payload = {
+            **result.to_dict(),
+            "balance_before_usd": provider.balance_usd(),
+            "balance_after_usd": provider.balance_usd(),
+            "sleep_prevented": sleep_prevented,
+            "runner_pid": args.runner_pid,
+            "observed_at": utcnow(),
+        }
+    finally:
+        _allow_sleep()
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -535,7 +740,10 @@ def main() -> int:
     parser.add_argument("--hourly-rate", type=float, default=1.09)
     parser.add_argument("--pod-id", default="")
     parser.add_argument("--max-wall-seconds", type=float, default=None)
+    parser.add_argument("--max-billable-minutes", type=int, default=90)
+    parser.add_argument("--min-work-minutes", type=int, default=45)
     parser.add_argument("--wait-for-pod-seconds", type=float, default=0.0)
+    parser.add_argument("--runner-pid", type=int, default=0)
     parser.add_argument("--out", default="")
     args = parser.parse_args()
 

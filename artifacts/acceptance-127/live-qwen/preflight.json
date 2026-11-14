@@ -1,6 +1,6 @@
 {
- "checked_at": "2026-11-13T13:55:39+00:00",
- "budget_usd": 0.15,
+ "checked_at": "2026-11-14T01:22:36+00:00",
+ "budget_usd": 2.0,
  "gateway": {
   "status": 200,
   "ready": true,
@@ -13,7 +13,7 @@
  "runpod": {
   "pods": [],
   "pod_count": 0,
-  "balance_usd": 8.5630485064,
+  "balance_usd": 8.44638184,
   "ok": true
  },
  "installed_app": {
@@ -36,26 +36,32 @@
   "device_matches_local": true
  },
  "disk": {
-  "free_gb": 70.3,
+  "free_gb": 69.3,
   "ok": true
  },
  "budget": {
-  "cap_usd": 0.15,
-  "balance_usd": 8.563,
+  "cap_usd": 2.0,
+  "balance_usd": 8.4464,
   "policy": {
-   "budget_usd": 0.15,
+   "budget_usd": 2.0,
    "hourly_rate_usd": 1.09,
    "billing_granularity_seconds": 60,
    "termination_grace_seconds": 30,
    "watchdog_margin_seconds": 10,
    "watchdog_poll_seconds": 5,
    "capacity_timeout_seconds": 60,
-   "max_billed_seconds": 480,
-   "hard_wall_seconds": 450,
-   "stop_request_seconds": 440,
-   "worst_case_usd": 0.145333,
-   "budget_headroom_usd": 0.004667,
+   "requested_max_billed_seconds": 5400,
+   "max_billed_seconds": 5400,
+   "hard_wall_seconds": 5370,
+   "stop_request_seconds": 5360,
+   "target_work_seconds": 4800,
+   "worst_case_usd": 1.635,
+   "budget_headroom_usd": 0.365,
+   "budget_limited": false,
+   "time_limited": true,
+   "min_work_seconds": 2700,
    "feasible": true,
+   "sufficient": true,
    "reasons": []
   },
   "ok": true

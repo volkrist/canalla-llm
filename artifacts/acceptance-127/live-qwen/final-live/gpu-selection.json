@@ -1,0 +1,183 @@
+{
+ "generated_at": "2026-11-14T01:22:42+00:00",
+ "read_only": true,
+ "volume": {
+  "id": "uwgeaie5b0",
+  "datacenter": "US-TX-3",
+  "type": "STANDARD"
+ },
+ "minimum_vram_gb": 48,
+ "budget_usd": 2.0,
+ "catalogue_offers": 0,
+ "candidates": [],
+ "selected": null,
+ "compatible_but_not_in_volume_datacenter": [
+  {
+   "gpu_id": "NVIDIA A40",
+   "name": "A40",
+   "vram_gb": 48,
+   "hourly_price_usd": 0.59,
+   "availability": "NONE",
+   "datacenter": "US-TX-3",
+   "tier": "secure",
+   "datacenters": {
+    "CA-MTL-1": "LOW",
+    "EU-SE-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA RTX A6000",
+   "name": "RTX A6000",
+   "vram_gb": 48,
+   "hourly_price_usd": 0.69,
+   "availability": "NONE",
+   "datacenter": "US-TX-3",
+   "tier": "secure",
+   "datacenters": {
+    "EU-SE-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA L40",
+   "name": "L40",
+   "vram_gb": 48,
+   "hourly_price_usd": 0.82,
+   "availability": "NONE",
+   "datacenter": "US-TX-3",
+   "tier": "secure",
+   "datacenters": {}
+  },
+  {
+   "gpu_id": "NVIDIA RTX PRO 5000 Blackwell",
+   "name": "RTX PRO 5000",
+   "vram_gb": 48,
+   "hourly_price_usd": 0.96,
+   "availability": "NONE",
+   "datacenter": "US-TX-3",
+   "tier": "secure",
+   "datacenters": {}
+  },
+  {
+   "gpu_id": "NVIDIA L40S",
+   "name": "L40S",
+   "vram_gb": 48,
+   "hourly_price_usd": 1.09,
+   "availability": "NONE",
+   "datacenter": "US-TX-3",
+   "tier": "secure",
+   "datacenters": {
+    "EUR-IS-2": "LOW",
+    "US-TX-4": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA RTX 6000 Ada Generation",
+   "name": "RTX 6000 Ada",
+   "vram_gb": 48,
+   "hourly_price_usd": 1.09,
+   "availability": "NONE",
+   "datacenter": "US-TX-3",
+   "tier": "secure",
+   "datacenters": {
+    "US-WA-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA RTX PRO 6000 Blackwell Server Edition MIG 2g.48gb",
+   "name": "PRO 6000 MIG 48GB",
+   "vram_gb": 48,
+   "hourly_price_usd": 1.39,
+   "availability": "NONE",
+   "datacenter": "US-TX-3",
+   "tier": "secure",
+   "datacenters": {
+    "EUR-IS-2": "LOW",
+    "US-PA-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA A100 80GB PCIe",
+   "name": "A100 PCIe",
+   "vram_gb": 80,
+   "hourly_price_usd": 2.09,
+   "availability": "NONE",
+   "datacenter": "US-TX-3",
+   "tier": "secure",
+   "datacenters": {
+    "CA-MTL-3": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA A100-SXM4-80GB",
+   "name": "A100 SXM",
+   "vram_gb": 80,
+   "hourly_price_usd": 2.19,
+   "availability": "NONE",
+   "datacenter": "US-TX-3",
+   "tier": "secure",
+   "datacenters": {
+    "EU-RO-1": "LOW",
+    "EUR-IS-1": "LOW",
+    "US-KS-2": "LOW",
+    "US-MD-1": "LOW",
+    "US-MO-1": "LOW",
+    "US-WA-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+   "name": "RTX PRO 6000",
+   "vram_gb": 96,
+   "hourly_price_usd": 2.69,
+   "availability": "NONE",
+   "datacenter": "US-TX-3",
+   "tier": "secure",
+   "datacenters": {
+    "EU-CZ-1": "LOW",
+    "EU-RO-1": "LOW",
+    "EUR-IS-2": "LOW",
+    "US-CO-1": "LOW",
+    "US-NC-2": "LOW",
+    "US-PA-1": "LOW"
+   }
+  }
+ ],
+ "reference": {
+  "gpu_id": "NVIDIA A40",
+  "name": "A40",
+  "vram_gb": 48,
+  "hourly_price_usd": 0.59,
+  "availability": "NONE",
+  "datacenter": "US-TX-3",
+  "tier": "secure",
+  "datacenters": {
+   "CA-MTL-1": "LOW",
+   "EU-SE-1": "LOW"
+  }
+ },
+ "ok": false,
+ "verdict": "CAPACITY_UNAVAILABLE",
+ "reason": "no NVIDIA Secure GPU with at least 48 GB is currently available in the volume's datacenter; no Pod was created and no capacity wait was started",
+ "reference_policy": {
+  "budget_usd": 2.0,
+  "hourly_rate_usd": 0.59,
+  "billing_granularity_seconds": 60,
+  "termination_grace_seconds": 30,
+  "watchdog_margin_seconds": 10,
+  "watchdog_poll_seconds": 5,
+  "capacity_timeout_seconds": 60,
+  "requested_max_billed_seconds": 5400,
+  "max_billed_seconds": 5400,
+  "hard_wall_seconds": 5370,
+  "stop_request_seconds": 5360,
+  "target_work_seconds": 4800,
+  "worst_case_usd": 0.885,
+  "budget_headroom_usd": 1.115,
+  "budget_limited": false,
+  "time_limited": true,
+  "min_work_seconds": 2700,
+  "feasible": true,
+  "sufficient": true,
+  "reasons": []
+ }
+}
