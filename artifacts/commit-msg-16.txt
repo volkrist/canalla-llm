@@ -1,0 +1,4 @@
+Record the account state of a blocked run
+
+A capacity refusal left the previous run's cleanup and billing files in place,
+so the next report described an account state nobody had just observed.

@@ -724,6 +724,29 @@ def run_live(
                 ensure_ascii=False,
             )
         )
+        # A blocked run leaves its own account state, not the previous run's. Nothing was created,
+        # so the cleanup is a read-back confirmation rather than a termination claim.
+        clean = pods.get("pod_count") == 0
+        _write_json(
+            "cleanup.json",
+            {
+                "checked_at": utcnow(),
+                "pod_count": pods.get("pod_count"),
+                "pods": pods.get("pods"),
+                "balance_usd": pods.get("balance_usd"),
+                "verdict": "CLEAN" if clean else "CRITICAL_UNCONFIRMED",
+                "note": "The harness created nothing: the placement was not bookable at re-check.",
+            },
+        )
+        _write_json(
+            "billing-summary.json",
+            {
+                "checked_at": utcnow(),
+                "spend_usd": 0.0,
+                "balance_usd": pods.get("balance_usd"),
+                "note": "No Pod was created; storage charges on the existing volumes are independent.",
+            },
+        )
         return 2
 
     rate = float(selection["selected"]["hourly_price_usd"])

@@ -65,7 +65,7 @@
   {
    "check": "the_approval_is_recorded_for_the_evidence",
    "ok": true,
-   "detail": "[{'at': '2026-11-14T09:06:58+00:00', 'run_id': 'run-1', 'digest_bound': True, 'status': 200, 'answer': {'status': 'approved'}}]"
+   "detail": "[{'at': '2026-11-14T09:14:36+00:00', 'run_id': 'run-1', 'digest_bound': True, 'status': 200, 'answer': {'status': 'approved'}}]"
   }
  ],
  "verdict": "PASS"

@@ -1,91 +1,10 @@
 {
- "generated_at": "2026-11-14T09:12:57+00:00",
- "status": "BLOCKED",
- "blocked_by": [
-  "CAPACITY_UNAVAILABLE"
- ],
- "owner_phrase_ru": "Разрешаю один платный LIVE-прогон Qwen с бюджетом не более $2.00 и одним GPU Pod.",
+ "generated_at": "2026-11-14T09:13:45+00:00",
  "confirmation_phrase": "I AUTHORIZE ONE PAID POD",
+ "owner_phrase_expected_ru": "Разрешаю один платный LIVE-прогон Qwen с бюджетом не более $2.00 и одним GPU Pod.",
  "budget_usd": 2.0,
  "max_billable_minutes": 90,
- "target_work_minutes": 80,
- "min_work_minutes": 45,
- "model": "orcarouter-qwen38-27b-q5km",
- "context_window": 32768,
- "approved_volumes": [
-  "uwgeaie5b0",
-  "y92bt25ru8"
- ],
- "gpu": null,
- "placement": {
-  "datacenter": null,
-  "volume_id": null,
-  "storage_mode": null
- },
- "verified_placements": [
-  "uwgeaie5b0",
-  "y92bt25ru8"
- ],
- "replica_refusals": {},
- "reference_gpu": {
-  "gpu_id": "NVIDIA A40",
-  "name": "A40",
-  "vram_gb": 48,
-  "hourly_price_usd": 0.59,
-  "tier": "secure",
-  "datacenters": {
-   "EU-SE-1": "MEDIUM"
-  }
- },
- "reference_policy": {
-  "budget_usd": 2.0,
-  "hourly_rate_usd": 0.59,
-  "billing_granularity_seconds": 60,
-  "termination_grace_seconds": 30,
-  "watchdog_margin_seconds": 10,
-  "watchdog_poll_seconds": 5,
-  "capacity_timeout_seconds": 60,
-  "requested_max_billed_seconds": 5400,
-  "max_billed_seconds": 5400,
-  "hard_wall_seconds": 5370,
-  "stop_request_seconds": 5360,
-  "target_work_seconds": 4800,
-  "worst_case_usd": 0.885,
-  "budget_headroom_usd": 1.115,
-  "budget_limited": false,
-  "time_limited": true,
-  "min_work_seconds": 2700,
-  "feasible": true,
-  "sufficient": true,
-  "reasons": []
- },
  "gpu_verdict": "CAPACITY_UNAVAILABLE",
- "volume": null,
- "policy": null,
- "preflight_verdict": "READY",
- "pods": 0,
- "balance_usd": 8.3686040624,
- "command": "python artifacts\\acceptance-127\\live-qwen\\live_acceptance.py --live --budget-usd 2.00 --confirm \"I AUTHORIZE ONE PAID POD\"",
- "production": {
-  "captured_at": "2026-11-14T09:12:57+00:00",
-  "database_present": true,
-  "data_root": "C:\\Users\\Volkr\\AppData\\Local\\Alex LLM",
-  "local_device_id": "6413489d-6cae-4183-8446-a3b2339137dc",
-  "counts": {
-   "users": 2,
-   "chats": 54,
-   "messages": 120,
-   "paired_devices": 63,
-   "local_tasks": 30
-  },
-  "integrity": "ok",
-  "foreign_key_violations": 0,
-  "active_device_id": "6413489d-6cae-4183-8446-a3b2339137dc",
-  "installed_app": {
-   "status": 200,
-   "version": "1.2.6"
-  }
- },
- "spend_usd": 0.0,
- "pods_created": 0
+ "status": "BLOCKED",
+ "blocked_by": "CAPACITY_UNAVAILABLE"
 }

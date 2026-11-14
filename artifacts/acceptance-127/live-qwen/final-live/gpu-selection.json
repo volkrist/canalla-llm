@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-14T09:12:55+00:00",
+ "generated_at": "2026-11-14T09:13:45+00:00",
  "read_only": true,
  "budget_usd": 2.0,
  "minimum_vram_gb": 48,
@@ -208,8 +208,7 @@
    "tier": "secure",
    "datacenters": {
     "EU-NL-1": "LOW",
-    "EUR-IS-2": "LOW",
-    "US-NC-1": "LOW"
+    "EUR-IS-2": "LOW"
    }
   },
   {
