@@ -391,3 +391,25 @@ def test_provenance_arguments_digest_matches_the_ledger():
     assert provenance.arguments_digest(args, "write_file") == ledger_digest(args, "write_file")
     other = {"query": "пример", "limit": 3}
     assert provenance.arguments_digest(other, "web_search") == ledger_digest(other, "web_search")
+
+
+def test_the_ledger_hashes_the_call_not_the_schema_defaults():
+    """A typed tool must not break provenance by filling in optional defaults.
+
+    `write_file` grew `mode` (and already had optional `purpose`/`expected_before_sha256`). The
+    ledger hashes the validated payload; the provenance record used to hash the raw JSON, so a
+    live run with 25 genuinely executed tool calls was classified INVALID_PROVENANCE.
+    """
+    from app.tools.local.provider import WriteArgs
+    from app.tools.orchestrator import ToolOrchestrator
+    from app.tools.registry import make_registry
+    from app.tools.security import digest as ledger_digest
+
+    raw = {"path": "a.txt", "content": "hi"}
+    validated = WriteArgs.model_validate(raw)
+    dumped = validated.model_dump(mode="json")
+    assert ledger_digest(dumped, "write_file") == provenance.arguments_digest(dumped, "write_file")
+    assert dumped != raw, "the default-filled payload is exactly the mismatch this test pins apart"
+    orchestrator = ToolOrchestrator(make_registry(), None)
+    assert orchestrator._ledger_digest("write_file", raw) == ledger_digest(dumped, "write_file")
+    assert orchestrator._ledger_digest("write_file", raw) != ledger_digest(raw, "write_file")

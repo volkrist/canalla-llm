@@ -507,6 +507,8 @@ class ToolExecutor:
                     "invalid_json",
                     f"arguments are not valid JSON ({error.msg}); send one JSON object.",
                 ) from None
+        # The digest describes what the model asked for, not the schema's default values: the
+        # provenance journal hashes the parsed call, so the ledger must hash the same material.
         try:
             args = definition.input_model.model_validate(arguments)
         except ValidationError as error:

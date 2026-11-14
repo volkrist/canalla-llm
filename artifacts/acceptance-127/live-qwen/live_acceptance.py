@@ -124,6 +124,26 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def venv_python() -> str:
+    """The project interpreter that has FastAPI, uvicorn, pytest and httpx installed."""
+    candidate = BACKEND / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    return str(candidate if candidate.is_file() else Path(sys.executable))
+
+
+def _venv_can_build() -> tuple[bool, str]:
+    """The Computer host's interpreter must be able to run the tests the model writes."""
+    try:
+        completed = subprocess.run(
+            [venv_python(), "-c", "import fastapi, httpx, pytest, uvicorn"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except Exception as error:  # noqa: BLE001 - a missing interpreter is a typed check
+        return False, str(error)[:200]
+    return completed.returncode == 0, (completed.stdout or completed.stderr).strip()[:200]
+
+
 def http(
     method: str, url: str, body=None, token: str | None = None, timeout: float = 30.0
 ):
@@ -476,7 +496,11 @@ def _write_json(name: str, payload) -> None:
     if RUN_ID and isinstance(payload, dict):
         payload = {**payload, "run_id": RUN_ID}
     (LIVE / name).write_text(
-        json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8"
+        # Evidence may contain datetimes (a task's verification report does). A crash *after* the
+        # model did the work, while writing its evidence, is the worst possible failure: it turned
+        # a run with 26 real responses into `CRASHED` with no independent checks at all.
+        json.dumps(payload, ensure_ascii=False, indent=1, default=str),
+        encoding="utf-8",
     )
 
 
@@ -1245,6 +1269,11 @@ def run_live(
             "ALEX_DEVICE_DIR": str(work / "device"),
             "ALEX_DEVICE_CREDENTIAL_TARGET": f"Canalla Acceptance/live-{nonce}",
             "ALEX_WORKSPACE_ROOTS": str(workspace),
+            # `run_python` on the Computer host must be an interpreter that can actually build and
+            # test the generated app. Without this the host picked the bare system Python, whose
+            # `pip list` has no pytest and no FastAPI: every `python -m pytest` exited 4 and a
+            # written, plausible project could never be verified.
+            "ALEX_PYTHON": venv_python(),
         }
         host_log = (work / "host.log").open("w", encoding="utf-8", errors="replace")
         host = subprocess.Popen(
@@ -1794,6 +1823,7 @@ def approval_self_test() -> list[dict]:
         server.shutdown()
         server.server_close()
     verdict = selftest_verdict(events)
+    interpreter_ok, interpreter_detail = _venv_can_build()
     return [
         {
             "check": "the_money_prompt_is_approved_once",
@@ -1809,6 +1839,11 @@ def approval_self_test() -> list[dict]:
             "check": "the_approval_is_recorded_for_the_evidence",
             "ok": len(APPROVALS) == 1 and APPROVALS[0].get("run_id") == "run-1",
             "detail": str(APPROVALS)[:200],
+        },
+        {
+            "check": "the_host_python_can_build_and_test_the_app",
+            "ok": interpreter_ok,
+            "detail": interpreter_detail,
         },
     ]
 

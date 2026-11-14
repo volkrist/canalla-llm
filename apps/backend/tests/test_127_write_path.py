@@ -160,6 +160,7 @@ def test_the_model_can_write_a_real_file_and_recover_from_a_bad_call(client, aut
         host.close()
 
     # -- 1. the large file is on disk, byte for byte, including Unicode and escapes
+    assert (root / "big.py").is_file(), planner.seen.get(2)
     written = (root / "big.py").read_text(encoding="utf-8")
     assert written == BIG_SOURCE
     assert len(written.encode("utf-8")) > 72 * 1024

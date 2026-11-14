@@ -1504,6 +1504,26 @@ class ToolOrchestrator:
         except Exception:
             logger.debug("verify_provenance_failed task=%s", context.task_id)
 
+    def _ledger_digest(self, name: str, parsed: dict) -> str:
+        """The digest the executor's ledger will record for this call.
+
+        The ledger hashes the *validated* payload, and a typed tool fills optional fields
+        (`write_file` has `purpose`, `expected_before_sha256` and now `mode`). Hashing the raw JSON
+        here made every real `write_file` look tampered: the live run was classified
+        INVALID_PROVENANCE after 25 genuinely linked tool calls. Validation is attempted only to
+        describe the call; a refused call still gets its own (raw) record.
+        """
+        from ..agent.provenance import arguments_digest as provenance_arguments_digest
+
+        material = parsed
+        try:
+            definition, _provider = self.registry.get(name)
+            validated = definition.input_model.model_validate(parsed)
+            material = validated.model_dump(mode="json")
+        except Exception:  # noqa: BLE001 - an invalid call is recorded as it was sent
+            material = parsed
+        return provenance_arguments_digest(material, name)
+
     async def _run(self, name, arguments, context, notes, origin):
         from ..database import SessionLocal
         from .local.progress import apply_block, novelty_from_output, recommended, remember, should_block
@@ -1634,25 +1654,20 @@ class ToolOrchestrator:
                     ):
                         raise ToolError("paid_tool_not_selected")
             if origin == "model" and getattr(context, "current_tool_call_id", ""):
-                from ..agent.provenance import arguments_digest as provenance_arguments_digest
-
-                self._record_tool_call(context, name, provenance_arguments_digest(parsed, name))
+                self._record_tool_call(context, name, self._ledger_digest(name, parsed))
             try:
                 result = await self.executor.execute(name, arguments, context, origin=origin)
             except ToolError as error:
                 if origin == "model" and getattr(context, "current_tool_call_id", ""):
-                    from ..agent.provenance import arguments_digest as provenance_arguments_digest
-
                     self._record_tool_result(
                         context,
                         name,
-                        provenance_arguments_digest(parsed, name),
+                        self._ledger_digest(name, parsed),
                         False,
                         error=error.code,
                     )
                 raise
             if origin == "model" and getattr(context, "current_tool_call_id", ""):
-                from ..agent.provenance import arguments_digest as provenance_arguments_digest
                 from ..agent.provenance import result_digest as provenance_result_digest
 
                 ledger_digest = ""
@@ -1668,7 +1683,7 @@ class ToolOrchestrator:
                 self._record_tool_result(
                     context,
                     name,
-                    provenance_arguments_digest(parsed, name),
+                    self._ledger_digest(name, parsed),
                     True,
                     digest=ledger_digest
                     or provenance_result_digest(result.text, result.metadata, result.errors),
