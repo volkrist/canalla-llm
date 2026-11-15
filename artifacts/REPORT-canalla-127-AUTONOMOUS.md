@@ -190,6 +190,12 @@ Replay сохранённого трейса `e1845955` через текущи�
 17. **Type gate не соответствовал заявленному 0/0** — на HEAD было 389 ошибок BasedPyright.
     Продуктовый код исправлен (0 ошибок / 153 файла), тесты и операционные скрипты вынесены из
     гейта решением о scope (см. `docs/AI-HANDOFF.md` §13) и измерены отдельно: 358 диагностик.
+18. **Права env-файла Gateway ломали operator CLI** — `/etc/alex-gateway/alex-gateway.env`
+    оказался `root:root 0600` вместо документированного `root:alex-gateway 0640`, поэтому
+    `sudo -u alex-gateway` не мог его прочитать и `acceptance-live-rc-final.py --dry-run` падал
+    на `jwt_secret` (сервис при этом работал: systemd читает `EnvironmentFile=` как root).
+    Права восстановлены без правки содержимого и без рестарта; CLI снова выпускает код.
+    Проверка: `--dry-run` PASS, `jwt_len=64`, `db_set=yes` при чтении от имени сервиса.
 
 Все перечисленное покрыто бесплатными тестами; ни одно исправление не проверялось платным прогоном
 повторно без необходимости.
@@ -248,6 +254,8 @@ credential; production не читался и не писался.
 | Live acceptance self-test | **31/31 PASS** (включая реальный интерпретатор проекта и package-layout) |
 | `acceptance-live-rc-final.py --self-test` | **28/28 PASS** |
 | `acceptance-post-release-1.1.0.py --self-test` | **16/16 PASS** |
+| `acceptance-live-rc-final.py --dry-run` против развёрнутого Gateway | **DRY RUN PASS**: свежая установка, `/compute/status`, баланс, типизированный `price_limit`, отказ на некорректную политику, **Pod не создан**; повторный прогон через 95 с видит `offline` (окно поиска закрылось) |
+| Развёрнутый Gateway | `active`, `/health → 200`, Pod `0` |
 | Watchdog self-test | **PASS** |
 | Ruff check / format | **clean** (245 файлов) |
 | BasedPyright (shipped code) | **0 errors, 0 warnings, 153 files** |
