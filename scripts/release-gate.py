@@ -406,6 +406,13 @@ def suite_candidate(python: str, *, installer: Path, version: str, args) -> list
 
 
 def report(results: list[Result]) -> int:
+    # The separator and some evidence details are not ASCII. A console with a legacy code page
+    # (cp1251, cp866) used to turn a finished PASS into a UnicodeEncodeError traceback, so the
+    # stream is pinned to UTF-8 with replacement instead of trusting the host's default.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # pragma: no cover - redirected or closed stream
+        pass
     for result in results:
         print(result.line())
     failed = [r for r in results if r.status == FAIL]
