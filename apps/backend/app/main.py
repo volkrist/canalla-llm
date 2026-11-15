@@ -70,11 +70,13 @@ async def lifespan(application):
         if settings.app_env != "test" and settings.tor_managed_enabled
         else None
     )
-    compute = getattr(application.state, "compute_override", None) or RunPodController(settings)
+    compute: RunPodController = getattr(application.state, "compute_override", None) or RunPodController(
+        settings
+    )
     application.state.compute = compute
     if compute.llm:
         application.state.provider = compute.llm
-    cloud = getattr(application.state, "cloud_override", None) or CloudState(settings)
+    cloud: CloudState = getattr(application.state, "cloud_override", None) or CloudState(settings)
     application.state.cloud = cloud
     if cloud.shared:
         # Production shared mode: inference and balance come from Alex Cloud, and the local
@@ -156,9 +158,9 @@ async def lifespan(application):
                 await tor_task
         with suppress(asyncio.CancelledError):
             await presence_task
-        cloud = getattr(application.state, "cloud", None)
-        if cloud is not None:
-            await cloud.stop()
+        stopping_cloud = getattr(application.state, "cloud", None)
+        if stopping_cloud is not None:
+            await stopping_cloud.stop()
         if queue_task:
             queue_task.cancel()
             with suppress(asyncio.CancelledError):

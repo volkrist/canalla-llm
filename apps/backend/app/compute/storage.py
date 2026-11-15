@@ -34,6 +34,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Iterable
 
 from .candidates import GLOBAL_VOLUME, REGIONAL_VOLUME
 
@@ -175,7 +176,7 @@ def classify(mode: str) -> str:
     return mode if mode in STORAGE_MODES else UNSUPPORTED_STORAGE
 
 
-def resolve(attachments) -> MountPlan:
+def resolve(attachments: Iterable[Attachment] | None = None) -> MountPlan:
     """One attachment set → the exact mounts, mount root and paths a Pod would use.
 
     The order of the checks is the order of danger: an unknown kind or a missing volume is refused
@@ -309,7 +310,7 @@ def check_compatibility(
     if plan.storage_mode == GLOBAL_VOLUME:
         if writes_to_storage:
             return STORAGE_INCOMPATIBLE_RUNTIME, ("launch_path_writes_to_object_storage",)
-        reasons = list(GLOBAL_UNVERIFIED_REASONS)
+        reasons: list[str] = list(GLOBAL_UNVERIFIED_REASONS)
         if runtime_on_storage:
             reasons.append("runtime_small_file_tree_on_object_storage")
         return STORAGE_UNVERIFIED, tuple(reasons)

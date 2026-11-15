@@ -15,6 +15,7 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
@@ -203,6 +204,7 @@ class GatewayProvider(LLMProvider):
         attempts = 3
         message: dict | None = None
         error: LLMError | CloudError | None = None
+        attempt = 0
         for attempt in range(attempts):
             error = None
             attempt_usage: dict = {}
@@ -497,7 +499,7 @@ class GatewayProvider(LLMProvider):
                 logger.warning("gateway_stream_retry code=%s attempt=%d", error.code, attempt)
                 await asyncio.sleep(0.5)
 
-    async def _stream_once(self, messages, usage):
+    async def _stream_once(self, messages, usage) -> AsyncIterator[str]:
         body = {
             "model": self.settings.llm_model,
             "messages": messages,

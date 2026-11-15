@@ -1364,9 +1364,7 @@ def _review_row(**overrides):
         original_user_request=overrides.pop("prompt", ""),
         tool_calls_used=overrides.pop("tool_calls_used", 3),
         workspace=overrides.pop("workspace", ""),
-        checkpoint={
-            "commands": overrides.pop("commands", [{"tool": "write_file"}])
-        },
+        checkpoint={"commands": overrides.pop("commands", [{"tool": "write_file"}])},
         verification={"tests": "passed", **overrides.pop("verification", {})},
         facts={"file_hashes": {"a": "b"}, **overrides.pop("facts", {})},
         success_criteria={"all": ["deliverable"]},
@@ -1381,18 +1379,12 @@ def test_a_coding_task_is_not_blocked_by_a_research_hint():
     with `sources_missing`; with the web disabled that condition could never be satisfied.
     """
     controller = LocalTaskController()
-    coding = _review_row(
-        prompt="Создай приложение TaskDesk и при необходимости исследуй документацию"
-    )
+    coding = _review_row(prompt="Создай приложение TaskDesk и при необходимости исследуй документацию")
     assert controller.final_review(coding)["ok"] is True
 
-    research = _review_row(
-        prompt="Исследуй документацию FastAPI и собери источники", commands=[]
-    )
+    research = _review_row(prompt="Исследуй документацию FastAPI и собери источники", commands=[])
     review = controller.final_review(research)
     assert review["ok"] is False and review["reason"] == "sources_missing"
 
-    used = _review_row(
-        prompt="Создай приложение и исследуй документацию", commands=[{"tool": "web_search"}]
-    )
+    used = _review_row(prompt="Создай приложение и исследуй документацию", commands=[{"tool": "web_search"}])
     assert controller.final_review(used)["reason"] == "sources_missing"

@@ -126,7 +126,7 @@ class RunPodAPI:
     def configured(self):
         return bool(self.settings.runpod_api_key.get_secret_value())
 
-    def client(self, timeout=15):
+    def client(self, timeout: float = 15.0):
         if not self.configured:
             raise RunPodError("not_configured", 503)
         return httpx.AsyncClient(
@@ -139,7 +139,7 @@ class RunPodAPI:
 
     async def request(self, method: str, path: str, *, timeout: float | None = None, **kwargs):
         try:
-            async with self.client(timeout or 15) as client:
+            async with self.client(timeout or 15.0) as client:
                 response = await client.request(method, path, **kwargs)
         except httpx.TimeoutException:
             raise RunPodError("runpod_timeout", 504) from None
@@ -247,9 +247,7 @@ class RunPodAPI:
         # explicit list that omits our type proves the datacenter cannot host this storage — and a
         # placement the provider truly refuses is already handled by the candidate walk.
         types = dc.get("networkVolumeTypes") or []
-        if volume.dataCenter != self.settings.runpod_datacenter or (
-            types and volume.type not in types
-        ):
+        if volume.dataCenter != self.settings.runpod_datacenter or (types and volume.type not in types):
             raise RunPodError("volume_mismatch", 409)
         return volume
 

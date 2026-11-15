@@ -247,7 +247,7 @@ def progress_summary(facts: dict, halt: str | None) -> str:
 
 def public_assistant_text(text: str, halt: str | None = None, facts: dict | None = None) -> str:
     if halt in {"llm_unavailable", "host_offline", "empty_model_answer"}:
-        summary = progress_summary(facts, halt)
+        summary = progress_summary(facts or {}, halt)
         if summary:
             return summary
     if halt in HALT_MESSAGES:

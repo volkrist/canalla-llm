@@ -1791,11 +1791,14 @@ class ComputeAuthority:
                         installation_id=installation_id,
                         caps=caps,
                         operation_id=operation_id,
-                        reason=plan.reason,
+                        reason=plan.reason or "",
                     )
                 else:
                     self._note_search(
-                        db, reason=plan.reason, operation_id=operation_id, installation_id=installation_id
+                        db,
+                        reason=plan.reason or "",
+                        operation_id=operation_id,
+                        installation_id=installation_id,
                     )
             self.record_allocation(
                 installation_id,

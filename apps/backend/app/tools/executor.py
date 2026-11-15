@@ -520,7 +520,8 @@ class ToolExecutor:
             except ValueError as error:
                 raise ToolError(
                     "invalid_json",
-                    f"arguments are not valid JSON ({error.msg}); send one JSON object.",
+                    f"arguments are not valid JSON ({getattr(error, 'msg', str(error))}); "
+                    "send one JSON object.",
                 ) from None
         # The digest describes what the model asked for, not the schema's default values: the
         # provenance journal hashes the parsed call, so the ledger must hash the same material.

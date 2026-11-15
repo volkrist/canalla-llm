@@ -255,7 +255,12 @@ def normalise_strategy(strategy: str | None) -> str:
     return strategy if strategy in STRATEGIES else DEFAULT_STRATEGY
 
 
-def _order_key(strategy: str, tier_index: int, candidate: AllocationCandidate, position: int):
+def _order_key(
+    strategy: str,
+    tier_index: int,
+    candidate: AllocationCandidate,
+    position: int | tuple[int, int],
+):
     """The deliberate ordering of one candidate, per strategy.
 
     * ``cheapest`` — tier, then price across every placement. This is the historical order exactly

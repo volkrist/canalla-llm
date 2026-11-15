@@ -4,6 +4,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .paths import native_path
 from .plan import looks_like_computer
@@ -212,7 +213,9 @@ def select_local_route(prompt: str, context=None) -> LocalDecision:
             # writing a path into the file and calling that a completed action.
             return LocalDecision(None, {}, "content_unknown")
         path_write = resolved.path if resolved.kind == "file" else _join(root, name)
-        extra = [("read_file", {"path": path_write, "purpose": "verify write"})]
+        extra: list[tuple[str, dict[str, Any]]] = [
+            ("read_file", {"path": path_write, "purpose": "verify write"})
+        ]
         if path_write.lower().endswith(".py") and re.search(
             r"(?i)run_python|запусти|выполни|execute|run (?:the )?(?:script|file|program)", text
         ):
@@ -265,9 +268,7 @@ def select_local_route(prompt: str, context=None) -> LocalDecision:
         text,
     ) or re.search(r"(?i)winget\s+install\s+(jq|oh-?my-?posh)\b", text)
     if explicit:
-        package = (
-            "jqlang.jq" if explicit.group(1).lower() == "jq" else "JanDeDobbeleer.OhMyPosh"
-        )
+        package = "jqlang.jq" if explicit.group(1).lower() == "jq" else "JanDeDobbeleer.OhMyPosh"
         return LocalDecision(
             "install_software",
             {"package": package, "purpose": "install requested package"},

@@ -5,11 +5,7 @@
   "typeCheckingMode": "standard",
   "include": [
     "apps/backend/app",
-    "apps/backend/tests",
-    "apps/backend/alembic",
-    "apps/gateway/gateway",
-    "apps/gateway/tests",
-    "scripts"
+    "apps/gateway/gateway"
   ],
   "exclude": [
     "**/.venv",

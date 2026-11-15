@@ -21,10 +21,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from ..providers import LLMError
 from .client import CloudError
-from .state import CloudState, search_active
+from .state import CloudState, as_dict, search_active
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +233,7 @@ class SharedDemand:
 
     # ----------------------------------------------------------------------------- readouts
 
-    def compute(self) -> dict:
+    def compute(self) -> dict[str, Any]:
         return self.cloud.compute or {}
 
     def state(self) -> str | None:
@@ -428,7 +429,7 @@ class SharedDemand:
         while True:
             compute = self.compute()
             state = compute.get("state")
-            wait = compute.get("wait") if isinstance(compute.get("wait"), dict) else {}
+            wait = as_dict(compute.get("wait"))
             if state == WAIT_STATE or wait.get("active"):
                 # A7/Task-1: the user chose to keep waiting. There is no arbitrary deadline; the
                 # wait ends only when a GPU appears or the user cancels (which cancels this task).
@@ -486,7 +487,7 @@ class SharedDemand:
         capacity window). The client only waits for the deadline it was told about.
         """
         horizon = hard
-        search = compute.get("search") if isinstance(compute.get("search"), dict) else {}
+        search = as_dict(compute.get("search"))
         for value in (compute.get("startup_deadline"), search.get("deadline")):
             parsed = _parse_stamp(value)
             if parsed is not None:

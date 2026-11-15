@@ -594,12 +594,8 @@ class ToolOrchestrator:
                                 },
                                 ensure_ascii=False,
                             )
-                    assistant_calls.append(
-                        {"id": call_id, "type": "function", "function": echo}
-                    )
-                    dispatch_calls.append(
-                        {"id": call_id, "type": "function", "function": call["function"]}
-                    )
+                    assistant_calls.append({"id": call_id, "type": "function", "function": echo})
+                    dispatch_calls.append({"id": call_id, "type": "function", "function": call["function"]})
                 if not dispatch_calls:
                     exit_reason = "no_valid_calls"
                     break

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from ..config import Settings
 from .client import CloudError, GatewayClient, utc
@@ -20,6 +21,16 @@ logger = logging.getLogger(__name__)
 ACTIVE_STATES = {"searching", "gpu_found", "creating", "starting_pod", "loading_model", "ready", "generating"}
 
 CLOUD_STATES = ("connected", "connecting", "not_connected", "unavailable", "revoked", "protocol_mismatch")
+
+
+def as_dict(value: Any) -> dict[str, Any]:
+    """The block when it is a mapping, an empty mapping otherwise.
+
+    `compute.get("search") if isinstance(compute.get("search"), dict) else {}` reads correctly
+    but does not narrow: the reader sees `dict | None` and every later `.get` is a diagnostic.
+    One helper keeps the reading code honest and identical everywhere.
+    """
+    return value if isinstance(value, dict) else {}
 
 
 def search_active(compute: dict | None, *, at: datetime) -> bool:
@@ -54,8 +65,8 @@ class CloudState:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self._lock = asyncio.Lock()
         self._task = None
-        self.compute: dict | None = None
-        self.balance: dict | None = None
+        self.compute: dict[str, Any] | None = None
+        self.balance: dict[str, Any] | None = None
         self.gateway_version: str | None = None
         self.protocol_ok = True
         self.error_code: str | None = None
@@ -238,10 +249,10 @@ class CloudAi:
     def llm_public_status(self, user) -> dict:
         compute = self.cloud.compute or {}
         last_error = self.cloud.error_code or compute.get("error_code")
-        search = compute.get("search") if isinstance(compute.get("search"), dict) else {}
-        wait = compute.get("wait") if isinstance(compute.get("wait"), dict) else {}
+        search = as_dict(compute.get("search"))
+        wait = as_dict(compute.get("wait"))
         state = compute.get("state")
-        session = compute.get("session") if isinstance(compute.get("session"), dict) else {}
+        session = as_dict(compute.get("session"))
         session_active = bool(session) and session.get("state") not in {"stopped", "terminated", "offline"}
         if (
             state in {"offline", "stopped"}

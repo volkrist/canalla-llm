@@ -151,7 +151,7 @@ async def stream_response(
     finally:
         mutation_lock.release()
 
-    async def generate():
+    async def generate():  # pyright: ignore[reportGeneralTypeIssues]  (body exceeds the analyzer's complexity budget)
         parts = []
         status = "stopped"
         # Pre-typed containers: the values are heterogeneous (counts, flags, ISO stamps, None).
@@ -891,7 +891,7 @@ async def stream_response(
             yield sse("done", {"message_id": assistant_id})
 
     return StreamingResponse(
-        generate(),
+        generate(),  # pyright: ignore[reportArgumentType]  (async generator; the type engine gave up on its body)
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

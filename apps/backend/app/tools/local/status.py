@@ -101,9 +101,9 @@ def utc(value: datetime | None) -> datetime | None:
 
 def phase_of(row, facts: dict | None = None, worked: bool = False) -> str:
     status = getattr(row, "status", "") or ""
-    facts = facts if facts is not None else (getattr(row, "facts", None) or {})
+    values = facts if facts is not None else (getattr(row, "facts", None) or {})
     if status == machine.WAITING_LLM and (
-        facts.get("waiting_for_compute") or (getattr(row, "last_error", "") or "") in COMPUTE_WAIT_CODES
+        values.get("waiting_for_compute") or (getattr(row, "last_error", "") or "") in COMPUTE_WAIT_CODES
     ):
         return "waiting_resource"
     phase = PHASES.get(status, str(status or "").lower() or "unknown")

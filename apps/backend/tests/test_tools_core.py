@@ -96,9 +96,7 @@ def test_a_helper_in_the_task_scratch_is_not_a_system_change(tmp_path):
     workspace.mkdir()
     scratch = tmp_path / "scratch"
     scratch.mkdir()
-    settings = WebSettings(
-        computer_mode="trusted", workspace_roots=[str(workspace)], default_mode="off"
-    )
+    settings = WebSettings(computer_mode="trusted", workspace_roots=[str(workspace)], default_mode="off")
     helper = WriteArgs.model_validate({"path": str(scratch / "check.py"), "content": "x"})
     project = WriteArgs.model_validate({"path": str(workspace / "main.py"), "content": "x"})
     outside = WriteArgs.model_validate({"path": str(tmp_path / "outside.py"), "content": "x"})

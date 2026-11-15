@@ -52,8 +52,12 @@ INCOMPLETE_TRACE = "INCOMPLETE_TRACE"
 INVALID_PROVENANCE = "INVALID_PROVENANCE"
 
 
-def _canonical(payload: Mapping[str, Any]) -> bytes:
+def _canonical(payload: Any) -> bytes:
     """A stable byte string: sorted keys, no whitespace, no NaN surprises."""
+    if not isinstance(payload, Mapping):
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str).encode(
+            "utf-8", "replace"
+        )
     return json.dumps(
         {str(key): payload[key] for key in sorted(payload)},
         ensure_ascii=False,

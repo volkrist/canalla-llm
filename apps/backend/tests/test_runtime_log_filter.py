@@ -33,9 +33,7 @@ def test_an_access_record_keeps_the_five_fields_the_formatter_needs():
 
 
 def test_a_secret_in_an_access_path_is_redacted_without_losing_the_fields():
-    record = access_record(
-        "127.0.0.1:1", "GET", "/chats?api_key=supersecret", "1.1", 200
-    )
+    record = access_record("127.0.0.1:1", "GET", "/chats?api_key=supersecret", "1.1", 200)
     RedactTicket().filter(record)
     assert len(record.args) == 5
     rendered = record.getMessage()

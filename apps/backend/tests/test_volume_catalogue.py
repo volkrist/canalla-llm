@@ -50,9 +50,7 @@ def test_an_empty_catalogue_is_silence_not_a_refusal():
     """The real US-MO-1 answer. The volume exists there, so the quote must proceed."""
 
     async def scenario():
-        volume = await api_for(
-            "US-MO-1", volume_dc="US-MO-1", volume_type="STANDARD", types=[]
-        ).volume()
+        volume = await api_for("US-MO-1", volume_dc="US-MO-1", volume_type="STANDARD", types=[]).volume()
         assert volume.dataCenter == "US-MO-1"
         assert volume.type == "STANDARD"
 
@@ -61,9 +59,7 @@ def test_an_empty_catalogue_is_silence_not_a_refusal():
 
 def test_a_missing_type_list_is_also_silence():
     async def scenario():
-        volume = await api_for(
-            "US-MO-1", volume_dc="US-MO-1", volume_type="STANDARD", types=None
-        ).volume()
+        volume = await api_for("US-MO-1", volume_dc="US-MO-1", volume_type="STANDARD", types=None).volume()
         assert volume.dataCenter == "US-MO-1"
 
     asyncio.run(scenario())
@@ -87,9 +83,7 @@ def test_a_volume_in_another_datacenter_is_refused_even_with_silence():
 
     async def scenario():
         with pytest.raises(RunPodError) as caught:
-            await api_for(
-                "US-MO-1", volume_dc="US-TX-3", volume_type="STANDARD", types=[]
-            ).volume()
+            await api_for("US-MO-1", volume_dc="US-TX-3", volume_type="STANDARD", types=[]).volume()
         assert caught.value.code == "volume_mismatch"
 
     asyncio.run(scenario())

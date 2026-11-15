@@ -518,12 +518,8 @@ class LlamaCppProvider(LLMProvider):
                 )
                 if not response.is_success:
                     body = " ".join(response.text[:300].split())
-                    logger.warning(
-                        "model_plan_failed status=%s body=%s", response.status_code, body
-                    )
-                    raise LLMError(
-                        "tools_unsupported" if response.status_code == 400 else "llm_unavailable"
-                    )
+                    logger.warning("model_plan_failed status=%s body=%s", response.status_code, body)
+                    raise LLMError("tools_unsupported" if response.status_code == 400 else "llm_unavailable")
                 if len(response.content) > 256000:
                     raise LLMError("malformed_response")
                 value = response.json()
@@ -545,9 +541,7 @@ class LlamaCppProvider(LLMProvider):
                 if finish_reason == "length":
                     # The response was cut off mid-call. Saying so lets the caller explain the
                     # failure to the model instead of reporting a bare `invalid_arguments`.
-                    logger.warning(
-                        "model_plan_truncated tool_calls=%s chat_id=?", len(message["tool_calls"])
-                    )
+                    logger.warning("model_plan_truncated tool_calls=%s chat_id=?", len(message["tool_calls"]))
                 # The server's own answer id is the strongest available link to this exact turn.
                 # It is recorded with the decision; the orchestrator seals it into the task journal.
                 return {
@@ -665,9 +659,7 @@ class LlamaCppProvider(LLMProvider):
                     # A non-2xx here used to vanish into the generic code. The status and a bounded
                     # body are what tell an over-window request apart from a dead server.
                     body = " ".join((await response.aread()).decode("utf-8", "replace")[:300].split())
-                    logger.warning(
-                        "model_stream_failed status=%s body=%s", response.status_code, body
-                    )
+                    logger.warning("model_stream_failed status=%s body=%s", response.status_code, body)
                     raise LLMError("llm_unavailable")
                 async for line in iter_stream_lines(
                     response.aiter_lines(),

@@ -404,10 +404,7 @@ class ToolPolicy:
                     computer_mode == "trusted"
                     and bool(scratch)
                     and bool(_scope_paths(definition, args))
-                    and all(
-                        inside_trusted(path, [scratch])
-                        for path in _scope_paths(definition, args) or []
-                    )
+                    and all(inside_trusted(path, [scratch]) for path in _scope_paths(definition, args) or [])
                 )
                 or (
                     computer_mode == "trusted"

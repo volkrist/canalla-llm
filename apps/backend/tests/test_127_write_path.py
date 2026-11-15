@@ -39,17 +39,21 @@ PROMPT = (
 # enough body to pass 72 KB. `json.dumps` will escape the quotes and backslashes on the way in.
 PART = (
     '"""Тестовая задача: заметки, статусы и «умный» поиск.\n\n'
-    'Путь C:\\\\Temp\\\\TaskDesk — обратные слэши и кавычки \'single\' и "double".\n'
+    "Путь C:\\\\Temp\\\\TaskDesk — обратные слэши и кавычки 'single' и \"double\".\n"
     'columns:\n\tid\tint\n\ttitle\ttext\n"""\n'
     "def handler_%04d(payload: dict) -> dict:\n"
-    "    \"\"\"Возвращает значение; юникод: задача, статус, дедлайн.\"\"\"\n"
-    "    value = payload.get(\"title\", \"\")\n"
-    "    return {\"title\": value, \"ok\": True, \"index\": %04d}\n\n"
+    '    """Возвращает значение; юникод: задача, статус, дедлайн."""\n'
+    '    value = payload.get("title", "")\n'
+    '    return {"title": value, "ok": True, "index": %04d}\n\n'
 )
 
 TOTAL_PARTS = 220
 BIG_SOURCE = "".join(PART % (index, index) for index in range(TOTAL_PARTS))
-APPEND_PARTS = ["# part one — начало\n" * 400, "def second():\n    return 'вторая часть'\n" * 200, "# конец\n"]
+APPEND_PARTS = [
+    "# part one — начало\n" * 400,
+    "def second():\n    return 'вторая часть'\n" * 200,
+    "# конец\n",
+]
 
 
 def _call(name, arguments, call_id):
@@ -57,11 +61,7 @@ def _call(name, arguments, call_id):
         raw = arguments
     else:
         raw = json.dumps(arguments, ensure_ascii=False)
-    return {
-        "tool_calls": [
-            {"id": call_id, "type": "function", "function": {"name": name, "arguments": raw}}
-        ]
-    }
+    return {"tool_calls": [{"id": call_id, "type": "function", "function": {"name": name, "arguments": raw}}]}
 
 
 class ScriptedWrites:
@@ -83,7 +83,10 @@ class ScriptedWrites:
         root = self.root
         sequence = {
             # 1. the whole file in one call: > 72 KB even after UTF-8 encoding
-            1: ("write_file", {"path": str(root / "big.py"), "content": BIG_SOURCE, "purpose": "large module"}),
+            1: (
+                "write_file",
+                {"path": str(root / "big.py"), "content": BIG_SOURCE, "purpose": "large module"},
+            ),
             # 2. a truncated response: the JSON simply stops, exactly as a length-limited completion does
             2: ("write_file", '{"path": "' + str(root / "broken.py") + '", "content": "def broken('),
             # 3. over the content bound: the model must be told to split, not left guessing
@@ -180,9 +183,7 @@ def test_the_model_can_write_a_real_file_and_recover_from_a_bad_call(client, aut
 
     # -- 4-6. the bounded parts compose to exactly the intended file
     assert (root / "parts.py").read_text(encoding="utf-8") == "".join(APPEND_PARTS)
-    appended = [
-        text for text in planner.seen.values() if '"tool": "write_file"' in text and "mode" in text
-    ]
+    appended = [text for text in planner.seen.values() if '"tool": "write_file"' in text and "mode" in text]
     assert appended, "the append calls reached the model as real tool results"
     assert not any("write_verification_failed" in text for text in planner.seen.values())
     # The host writes the merged file before the executor's own bookkeeping runs. A crash in that
