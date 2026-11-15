@@ -282,4 +282,204 @@ def test_a_plain_folder_does_not_force_a_git_review(tmp_path, client, auth):
                 "W", (), {"root": str(root), "test_command": ["pytest"], "test_via": "run_python"}
             )()
 
+        forced = LocalTaskController().next_forced_action(_Context())
+
+    # No repository means no git review to demand; the independent verification is still owed.
+    assert forced is not None
+    assert forced[0] == "verify_result", forced
+
+
+def test_a_finished_build_owes_an_independent_verification(tmp_path, client, auth):
+    """A green suite does not close a build: the controller forces `verify_result` once.
+
+    The paid LIVE run e1845955 wrote, ran and served TaskDesk, then closed as COMPLETED while
+    provenance stayed INCOMPLETE_TRACE, because nothing ever asked for an independent
+    verification: the model simply did not call `verify_result`.
+    """
+    from app.tools.local.task import LocalTaskController
+
+    headers = auth()
+    user_id = client.get("/auth/me", headers=headers).json()["id"]
+    chat_id = client.post("/chats", headers=headers, json={}).json()["id"]
+    root = tmp_path / "plain"
+    root.mkdir()
+    written = root / "app.py"
+    written.write_text("x = 1\n", encoding="utf-8")
+    with SessionLocal() as db:
+        task = LocalTask(
+            user_id=user_id,
+            chat_id=chat_id,
+            title="plain",
+            status=machine.EXECUTING,
+            original_user_request=f"Проверь проект в {root} и исправь ошибки",
+            tool_budget=40,
+            file_change_budget=20,
+            facts={
+                "scope": {"primary_root": str(root)},
+                "tests_passed": True,
+                "file_hashes": {str(written): "a" * 64},
+            },
+            verification={"tests": "passed"},
+            checkpoint={"commands": [{"tool": "run_python"}], "test_command": ["-m", "pytest", "-q"]},
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+
+        class _Context:
+            task_id = task.id
+            autonomous = True
+            coding_task = True
+            computer_mode = "trusted"
+            workspace = type(
+                "W", (), {"root": str(root), "test_command": ["-m", "pytest"], "test_via": "run_python"}
+            )()
+
+        forced = LocalTaskController().next_forced_action(_Context())
+
+    assert forced is not None
+    name, arguments = forced
+    assert name == "verify_result", forced
+    kinds = [check["kind"] for check in arguments["checks"]]
+    assert "file_exists" in kinds
+    assert "command" in kinds
+    by_kind = {check["kind"]: check for check in arguments["checks"]}
+    assert by_kind["file_exists"]["target"] == str(written)
+    assert by_kind["command"]["exit_code"] == 0
+    assert by_kind["command"]["cwd"] == str(root)
+
+
+def test_a_recorded_verification_is_not_forced_again(tmp_path, client, auth):
+    """The model may verify itself; the controller does not repeat a fresh check."""
+    from app.tools.local.task import LocalTaskController
+
+    headers = auth()
+    user_id = client.get("/auth/me", headers=headers).json()["id"]
+    chat_id = client.post("/chats", headers=headers, json={}).json()["id"]
+    root = tmp_path / "plain"
+    root.mkdir()
+    with SessionLocal() as db:
+        task = LocalTask(
+            user_id=user_id,
+            chat_id=chat_id,
+            title="plain",
+            status=machine.EXECUTING,
+            original_user_request=f"Проверь проект в {root} и исправь ошибки",
+            tool_budget=40,
+            file_change_budget=20,
+            facts={
+                "scope": {"primary_root": str(root)},
+                "tests_passed": True,
+                "verification_recorded": True,
+            },
+            verification={"tests": "passed"},
+            checkpoint={"commands": [{"tool": "run_python"}], "test_command": ["-m", "pytest", "-q"]},
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+
+        class _Context:
+            task_id = task.id
+            autonomous = True
+            coding_task = True
+            computer_mode = "trusted"
+            workspace = type(
+                "W", (), {"root": str(root), "test_command": ["-m", "pytest"], "test_via": "run_python"}
+            )()
+
         assert LocalTaskController().next_forced_action(_Context()) is None
+
+
+def test_a_write_after_the_verification_owes_it_again(tmp_path, client, auth):
+    """An edit invalidates the check, so the obligation is recorded again."""
+    from app.tools.local.task import LocalTaskController
+
+    headers = auth()
+    user_id = client.get("/auth/me", headers=headers).json()["id"]
+    chat_id = client.post("/chats", headers=headers, json={}).json()["id"]
+    root = tmp_path / "plain"
+    root.mkdir()
+    written = root / "app.py"
+    written.write_text("x = 2\n", encoding="utf-8")
+    with SessionLocal() as db:
+        task = LocalTask(
+            user_id=user_id,
+            chat_id=chat_id,
+            title="plain",
+            status=machine.EXECUTING,
+            original_user_request=f"Проверь проект в {root} и исправь ошибки",
+            tool_budget=40,
+            file_change_budget=20,
+            facts={
+                "scope": {"primary_root": str(root)},
+                "tests_passed": True,
+                "verification_recorded": True,
+            },
+            verification={"tests": "passed"},
+            checkpoint={"commands": [{"tool": "run_python"}], "test_command": ["-m", "pytest", "-q"]},
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+        controller = LocalTaskController()
+        controller._capture_facts(
+            task,
+            "write_file",
+            {"text": "written", "metadata": {"path": str(written), "after_sha256": "b" * 64}},
+            arguments={},
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+        assert task.facts["verification_recorded"] is False
+        assert task.facts["verification_stale"] is True
+
+
+def test_the_forced_verification_is_executed_and_recorded(setup):
+    """The controller's own `verify_result` runs the project's tests and records the pass.
+
+    This is the wiring the paid LIVE run was missing: a green suite at the end of the loop is
+    turned into a real, recorded independent verification, so provenance has something to read.
+    """
+    from sqlalchemy import select
+
+    from app.tools.models import TaskEvent
+
+    context, _events, root, host = setup
+    app = root / "app.py"
+    sources = [
+        _call("read_file", {"path": str(app), "purpose": "read source"}, "v1"),
+        _call(
+            "write_file",
+            {
+                "path": str(app),
+                "content": "def add(a, b):\n    return a + b\n",
+                "purpose": "fix the failing source",
+            },
+            "v2",
+        ),
+        _call(
+            "run_python",
+            {"argv": ["-m", "pytest", "-q"], "cwd": str(root), "purpose": "project tests"},
+            "v3",
+        ),
+    ]
+    orchestrator = ToolOrchestrator(make_registry(), ToolExecutor(make_registry()))
+    asyncio.run(
+        orchestrator.prepare(
+            ScriptedPlanner(sources),
+            [{"role": "user", "content": context.user_prompt}],
+            0,
+            context,
+            {},
+        )
+    )
+
+    with SessionLocal() as db:
+        row = require_row(db, LocalTask, context.task_id)
+        assert row.facts.get("verification_recorded") is True, row.facts
+        kinds = [
+            event.kind for event in db.scalars(select(TaskEvent).where(TaskEvent.task_id == context.task_id))
+        ]
+        assert "VERIFY_PASSED" in kinds, kinds

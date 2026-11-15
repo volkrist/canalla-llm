@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
@@ -38,6 +39,23 @@ RETRYABLE = {
     "llm_timeout",
     "llm_unavailable",
 }
+
+
+def _project_python() -> str:
+    """The interpreter a `run_python` step would use, when this process is one.
+
+    The host resolves `run_python` through `ALEX_PYTHON` (set by the dev and LIVE harnesses) or a
+    Python installed on the machine. A packaged backend is `alex-backend.exe`, which must never
+    be handed `-m pytest`: the command check is omitted instead of producing a false failure.
+    """
+    configured = os.environ.get("ALEX_PYTHON") or ""
+    if configured and os.path.isfile(configured):
+        return configured
+    executable = sys.executable or ""
+    if os.path.basename(executable).lower().startswith("python"):
+        return executable
+    return ""
+
 
 # A parked WAITING_LLM task is retried automatically with a bounded exponential backoff, and only
 # inside a window. The retry resumes a model turn (never a completed tool call), so it cannot
@@ -918,6 +936,9 @@ class LocalTaskController:
         if name in WRITE_TOOLS:
             facts["tests_passed"] = False
             facts["verification_stale"] = True
+            # A verification that predates the last edit does not describe the workspace any
+            # more, so the controller owes a fresh independent check before it closes.
+            facts["verification_recorded"] = False
             facts.pop("conflict_path", None)
         # Reading back a file whose digest we recorded is a real verification of the write; a
         # passing `verify_result` is one for whatever it checked. Without this, a resumed task
@@ -929,6 +950,8 @@ class LocalTaskController:
                 facts["verification_stale"] = False
         if name == "verify_result" and not (output or {}).get("error"):
             facts["verification_stale"] = False
+            if "verification_failed" not in ((output or {}).get("errors") or []):
+                facts["verification_recorded"] = True
         row.facts = facts
         verification = dict(row.verification or {})
         if facts.get("verification_stale"):
@@ -1060,7 +1083,61 @@ class LocalTaskController:
                 if last_tool != "git_status":
                     return ("git_status", {"cwd": workspace.root, "purpose": "Final git review"})
                 return ("git_diff", {"cwd": workspace.root, "purpose": "Final git review"})
+            # A green suite is a claim, not a verification. A paid LIVE run closed as COMPLETED
+            # after writing, running and serving the app while provenance stayed
+            # INCOMPLETE_TRACE, because the model never called `verify_result` and nothing else
+            # owed that step. The controller now forces it once, with checks derived from what
+            # the task actually wrote; a later edit clears the flag and owes it again.
+            if context.coding_task and tests_ok and not facts.get("verification_recorded"):
+                checks = self._acceptance_checks(row, workspace)
+                if checks:
+                    return (
+                        "verify_result",
+                        {"checks": checks, "purpose": "Independent acceptance check"},
+                    )
         return None
+
+    def _acceptance_checks(self, row, workspace) -> list[dict]:
+        """The independent checks a finished build owes, from the workspace itself.
+
+        Only facts the controller already holds are used: the files whose digest it recorded and
+        the project's own test command. Nothing is invented, and nothing is read from the model's
+        answer. When no interpreter can be resolved (a packaged backend is not a `python.exe`),
+        the command check is omitted rather than faked.
+        """
+        facts = row.facts or {}
+        checks: list[dict] = []
+        for path in list((facts.get("file_hashes") or {}).keys())[:12]:
+            if os.path.isabs(path):
+                checks.append({"kind": "file_exists", "target": path, "min_bytes": 1})
+        command = list((row.checkpoint or {}).get("test_command") or workspace.test_command)
+        via = (row.checkpoint or {}).get("test_via") or workspace.test_via
+        if command and workspace.root:
+            if via == "run_python":
+                python = _project_python()
+                if python:
+                    checks.append(
+                        {
+                            "kind": "command",
+                            "target": " ".join(command),
+                            "argv": [python, *command],
+                            "cwd": workspace.root,
+                            "exit_code": 0,
+                            "timeout": 300,
+                        }
+                    )
+            else:
+                checks.append(
+                    {
+                        "kind": "command",
+                        "target": " ".join(command),
+                        "argv": command,
+                        "cwd": workspace.root,
+                        "exit_code": 0,
+                        "timeout": 300,
+                    }
+                )
+        return checks
 
     def maybe_revise_plan(self, db, context):
         row = self._row(db, context)
@@ -1454,9 +1531,13 @@ class LocalTaskController:
             str(item.get("tool") or "").startswith(("web_", "tor_"))
             for item in ((row.checkpoint or {}).get("commands") or [])
         )
-        if (research_used or not coding) and needs_research(row.original_user_request) and not (
-            facts.get("source_count")
-            or any(item.get("kind") == "RESEARCH_SOURCE" for item in facts.get("verified") or [])
+        if (
+            (research_used or not coding)
+            and needs_research(row.original_user_request)
+            and not (
+                facts.get("source_count")
+                or any(item.get("kind") == "RESEARCH_SOURCE" for item in facts.get("verified") or [])
+            )
         ):
             missing.append("sources_missing")
         # 1.2.7: if the task used the independent verifier, its verdict gates completion. A failed
