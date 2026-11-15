@@ -247,9 +247,10 @@ credential; production не читался и не писался.
 
 | Проверка | Статус |
 |---|---|
-| Backend full suite | **1182 passed, 1 skipped** на 5632c1f; единственный fail (`test_sidecar_stamp`, sidecar устарел после правки backend) закрыт пересборкой sidecar — см. ниже |
+| Backend full suite | **1184 passed, 1 skipped** на финальном HEAD `4166873` (включая `test_sidecar_stamp` после пересборки sidecar) |
 | Backend targeted suite | **294 passed** после правок типов и контроллера (cloud, compute, storage, allocation, provenance, agent core, long autonomy, task status) |
 | 1.2.7 suite (agent core, provenance, write path, recovery, UIA, autonomous e2e, final answer, task status) | **75 passed** |
+| Long-autonomy controller suite | **9 passed**, включая пакетную раскладку (`taskdesk/tests`) и исполненную контроллером `verify_result` |
 | Full autonomous E2E с Playwright | **PASS** |
 | Monitor self-test | **66/66 PASS** |
 | Live acceptance self-test | **31/31 PASS** (включая реальный интерпретатор проекта и package-layout) |
@@ -262,12 +263,12 @@ credential; production не читался и не писался.
 | BasedPyright (shipped code) | **0 errors, 0 warnings, 153 files** |
 | Frontend | **328 tests**, `tsc -b` clean, `vite build` OK, prettier clean, `npm audit --omit=dev`: 0 уязвимостей |
 | Rust | `cargo test`: **134 passed** (40 host-loop + 78 desktop + 16 updater), 2 ignored (network) |
-| Sidecar stamp | пересобран из текущего дерева: `product_version=1.2.6`, `source_digest=32cd3384…`, 161 файл |
+| Sidecar stamp | пересобран из текущего дерева: `product_version=1.2.6`, 161 файл, `test_sidecar_stamp` 11/11 |
 | Windows | проверено (все прогоны — Windows 11) |
 | Ubuntu/Linux | **не запускалось в этой сессии** (`BLOCKED_EXTERNAL`: нет Linux-хоста) |
 | Installed E2E (`always-ready.mjs`) | **ALWAYS READY PASS**: Computer и Tor зелёные на обычном запуске, после relaunch и после реального убийства sidecar (новый процесс, порт 8000, `/health`); одно устройство, тот же `device_id`, без кнопок |
-| Installer (NSIS, `scripts/build-desktop.ps1 -TestBuild`) | **собран** из текущего HEAD: `Canalla LLM_1.2.6_x64-setup.exe`, 96 575 072 B, `sha256:f3b087c5aa3edab2cfcf9c0629926d887efafeb79de391ce11f6f934c8bdf676`; `Get-AuthenticodeSignature: NotSigned`; updater-подпись не запрашивалась |
-| Содержимое installer'а | sidecar `f38390d46…` (stamp current, 161 файл), `tor.exe da22856f…`, `PACKAGED-GATEWAY-URL: PASS` |
+| Installer (NSIS, `scripts/build-desktop.ps1 -TestBuild`) | **собран** из HEAD `4166873`: `Canalla LLM_1.2.6_x64-setup.exe`, 96 557 288 B, `sha256:0664dff5f0b461f932db6f85dbbd8176abf72ab1cff56d9750936439166d8682`; `Get-AuthenticodeSignature: NotSigned`; updater-подпись не запрашивалась |
+| Содержимое installer'а | sidecar `51b5cf0d…` (stamp current, 161 файл), `tor.exe da22856f…`, `PACKAGED-GATEWAY-URL: PASS` |
 | Версия в артефакте | 1.2.6 — bump до 1.2.7 остаётся отдельным релизным актом, а не следствием сборки |
 | Installer / подпись | не собирались; **Authenticode — внешний блокер** (нет действительного сертификата) |
 | Публикация 1.2.7 | **не выполнялась** (запрещено без отдельного разрешения) |
