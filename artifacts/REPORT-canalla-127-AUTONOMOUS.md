@@ -265,7 +265,7 @@ credential; production не читался и не писался.
 | Sidecar stamp | пересобран из текущего дерева: `product_version=1.2.6`, `source_digest=32cd3384…`, 161 файл |
 | Windows | проверено (все прогоны — Windows 11) |
 | Ubuntu/Linux | **не запускалось в этой сессии** (`BLOCKED_EXTERNAL`: нет Linux-хоста) |
-| Installed E2E (`always-ready.mjs`) | не запускался в этой сессии: он проверяет установленную 1.2.6, а не собранную 1.2.7 |
+| Installed E2E (`always-ready.mjs`) | **ALWAYS READY PASS**: Computer и Tor зелёные на обычном запуске, после relaunch и после реального убийства sidecar (новый процесс, порт 8000, `/health`); одно устройство, тот же `device_id`, без кнопок |
 | Installer (NSIS, `scripts/build-desktop.ps1 -TestBuild`) | **собран** из текущего HEAD: `Canalla LLM_1.2.6_x64-setup.exe`, 96 575 072 B, `sha256:f3b087c5aa3edab2cfcf9c0629926d887efafeb79de391ce11f6f934c8bdf676`; `Get-AuthenticodeSignature: NotSigned`; updater-подпись не запрашивалась |
 | Содержимое installer'а | sidecar `f38390d46…` (stamp current, 161 файл), `tor.exe da22856f…`, `PACKAGED-GATEWAY-URL: PASS` |
 | Версия в артефакте | 1.2.6 — bump до 1.2.7 остаётся отдельным релизным актом, а не следствием сборки |
