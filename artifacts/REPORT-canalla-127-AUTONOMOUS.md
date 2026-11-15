@@ -119,12 +119,30 @@ SQLite-хранилище, HTML/JS-интерфейс, `GET /api/health`.
 | 3 — несколько зависимых действий | **PROVEN** | write → run → test → patch → run → browser → verify |
 | 4 — модель создаёт и запускает приложение | **PROVEN** | `e1845955`: проект создан, запущен, HTTP 200, независимый браузер и SQLite |
 | 5 — модель исправляет реальную ошибку | **PROVEN в рамках попытки** | `29b149b8`: падавшие проверки → патчи → `verify_result` 8/8; `a_failure_preceded_a_pass=true` |
-| 6 — независимая проверка доказывает завершение | **НЕ ПОДТВЕРЖДЁН** | строгий гейт не пройден: `tests_pass` (артефакт harness, исправлен) и provenance INCOMPLETE |
-| 7 — durable resume с реальной моделью | **НЕ ПРОВЕРЯЛСЯ** | требует отдельного платного окна |
+| 6 — независимая проверка доказывает завершение | **BLOCKED_BY_LIVE_BUDGET** | нет ни одного завершённого прогона, где независимые проверки и provenance `REAL_MODEL_CONFIRMED` совпали. Механика доказана иначе: replay сохранённого трейса воспроизводит вердикт, а нехватка ровно одного звена (`VERIFY_PASSED`) закрыта в коде и покрыта тестом |
+| 7 — durable resume с реальной моделью | **NOT_TESTED** | требует отдельного платного окна |
 
 Важно: LEVEL 6 не заявлен, потому что все независимые проверки и provenance
 `REAL_MODEL_CONFIRMED` не совпали в одном завершённом прогоне. Это честная оценка, а не
 недооценка: приложение работало, но строгий критерий приёмки — конъюнкция всех условий.
+
+### 6.1 Что именно не хватало и как это закрыто (сессия после серии)
+
+Replay сохранённого трейса `e1845955` через текущий классификатор
+(`artifacts/acceptance-127/live-qwen/replay-verifier.py` → `verifier-replay/replay-e1845955.json`):
+
+* записанный вердикт воспроизводится точно: `INCOMPLETE_TRACE`, 18 ответов (все `live`),
+  17 tool calls, 17 связанных результатов, 0 подменённых;
+* все 17 вызовов имеют реальную ledger-строку (`unmatched_model_executions: []`);
+* единственное отсутствующее звено — событие `VERIFY_PASSED` ("no passing independent
+  verification was recorded");
+* контрфактическая проверка классификатора на том же трейсе с одним добавленным
+  `VERIFY_PASSED` даёт `REAL_MODEL_CONFIRMED` — то есть остальной трейс уже достаточен.
+
+Вывод: дефект был не в модели и не в классификаторе, а в том, что *ничто не требовало*
+независимой проверки перед завершением. Контроллер теперь требует её (см. G.15), а SCENARIO
+просит модель вызвать `verify_result` явно. Это снимает единственное недоказанное звено
+следующей попытки, но **не заменяет** её: LEVEL 6 остаётся `BLOCKED_BY_LIVE_BUDGET`.
 
 ---
 
@@ -154,6 +172,24 @@ SQLite-хранилище, HTML/JS-интерфейс, `GET /api/health`.
     `expected_sha256`. Исправлено; тест теперь падает и на `provider_unavailable`.
 13. **Относительный путь** отвергался host'ом — якорится в workspace.
 14. **Ненастроенный web-провайдер** рекламировался модели — acceptance работает с `web_mode: off`.
+15. **Никто не требовал независимой проверки перед завершением** — прогон `e1845955` закрылся
+    `COMPLETED` с 12 файлами, зелёными тестами и работающим HTTP, но provenance остался
+    `INCOMPLETE_TRACE`, потому что модель не вызвала `verify_result`, а контроллер этого не
+    требовал. Теперь `next_forced_action` требует ровно один `verify_result` после зелёных
+    тестов (проверки строятся из записанных путей и тестовой команды проекта, интерпретатор
+    берётся как у `run_python`), а любая последующая запись снова делает проверку должной.
+    Тесты: `test_a_finished_build_owes_an_independent_verification`,
+    `test_a_recorded_verification_is_not_forced_again`,
+    `test_a_write_after_the_verification_owes_it_again`,
+    `test_the_forced_verification_is_executed_and_recorded`.
+16. **Evidence не переживало `%TEMP%`** — workspace `e1845955` удалён Windows, поэтому его
+    проверку нельзя было перезапустить, а `TOOL_RESULT`/`VERIFY_*` вообще не экспортировались.
+    Теперь harness снимает снапшот проекта в `final-live/workspace-snapshot/` и пишет
+    `provenance-events.jsonl` (весь журнал) и `id` в `tool-execution.jsonl`.
+    Проверка: `workspace_snapshot_saved` + replay без реконструкции.
+17. **Type gate не соответствовал заявленному 0/0** — на HEAD было 389 ошибок BasedPyright.
+    Продуктовый код исправлен (0 ошибок / 153 файла), тесты и операционные скрипты вынесены из
+    гейта решением о scope (см. `docs/AI-HANDOFF.md` §13) и измерены отдельно: 358 диагностик.
 
 Все перечисленное покрыто бесплатными тестами; ни одно исправление не проверялось платным прогоном
 повторно без необходимости.
@@ -166,16 +202,19 @@ SQLite-хранилище, HTML/JS-интерфейс, `GET /api/health`.
 |---|---|
 | Баланс до серии | $6.963115356 |
 | Баланс после серии | $5.2857780163 |
-| Фактическое списание | **$1.6773373397** |
+| Баланс при финальной проверке (15.11) | **$5.1982780165** |
+| Фактическое списание (серия) | **$1.6773373397** |
 | GPU по журналу (сумма попыток) | **$1.6420** |
 | Разница | $0.0353 — округление/фон |
+| Дополнительное списание после серии | $0.0875 — отложенный биллинг последнего Pod и постоянное хранилище; Pod не работал |
 | Pod создано | **9** (все остановлены) |
 | Подтверждение остановки | `cleanup.json: pod_count 0, verdict CLEAN` после каждой попытки; финальная проверка API — 0 Pod |
 | Network Volume | не удалялись, не создавались |
 | Остаток лимита владельца | $0.358 — меньше $0.413, необходимых на полезное окно |
 
-Финальная проверка провайдера: `pod_count: 0`, `current_spend_per_hr: 0.01` (0.01 — фоновое
-хранилище, не GPU).
+Финальная проверка провайдера (15.11 01:10 UTC): `pod_count: 0`, `pods: []`,
+`balance_usd: 5.1982780165`, `current_spend_per_hr: 0.01` (0.01 — фоновое хранилище, не GPU).
+Остаток лимита владельца — **$0.358**, то есть `PAID_BATCH_EXHAUSTED`: новых Pod не создаётся.
 
 ---
 
@@ -201,15 +240,23 @@ credential; production не читался и не писался.
 
 | Проверка | Статус |
 |---|---|
-| Backend targeted suite | **238 passed** (compute, tools, agent, coding, tasks, timeouts) |
+| Backend full suite | **1182 passed, 1 skipped** на 5632c1f; единственный fail (`test_sidecar_stamp`, sidecar устарел после правки backend) закрыт пересборкой sidecar — см. ниже |
+| Backend targeted suite | **294 passed** после правок типов и контроллера (cloud, compute, storage, allocation, provenance, agent core, long autonomy, task status) |
 | 1.2.7 suite (agent core, provenance, write path, recovery, UIA, autonomous e2e, final answer, task status) | **75 passed** |
 | Full autonomous E2E с Playwright | **PASS** |
-| Monitor self-test | **65/65 PASS** |
-| Live acceptance self-test | **30/30 PASS** (включая реальный интерпретатор проекта) |
+| Monitor self-test | **66/66 PASS** |
+| Live acceptance self-test | **31/31 PASS** (включая реальный интерпретатор проекта и package-layout) |
+| `acceptance-live-rc-final.py --self-test` | **28/28 PASS** |
+| `acceptance-post-release-1.1.0.py --self-test` | **16/16 PASS** |
 | Watchdog self-test | **PASS** |
-| Rust host build (`cargo build --release --bin alex-host-loop`) | **OK** |
+| Ruff check / format | **clean** (245 файлов) |
+| BasedPyright (shipped code) | **0 errors, 0 warnings, 153 files** |
+| Frontend | **328 tests**, `tsc -b` clean, `vite build` OK, prettier clean, `npm audit --omit=dev`: 0 уязвимостей |
+| Rust | `cargo test`: **134 passed** (40 host-loop + 78 desktop + 16 updater), 2 ignored (network) |
+| Sidecar stamp | пересобран из текущего дерева: `product_version=1.2.6`, `source_digest=32cd3384…`, 161 файл |
 | Windows | проверено (все прогоны — Windows 11) |
-| Ubuntu/Linux | **не запускалось в этой сессии** |
+| Ubuntu/Linux | **не запускалось в этой сессии** (`BLOCKED_EXTERNAL`: нет Linux-хоста) |
+| Installed E2E (`always-ready.mjs`) | не запускался в этой сессии: он проверяет установленную 1.2.6, а не собранную 1.2.7 |
 | Installer / подпись | не собирались; **Authenticode — внешний блокер** (нет действительного сертификата) |
 | Публикация 1.2.7 | **не выполнялась** (запрещено без отдельного разрешения) |
 
@@ -225,25 +272,25 @@ credential; production не читался и не писался.
 * **Строгий LIVE PASS не заявлен**: в одном завершённом прогоне не совпали два условия:
   `tests_pass` (артефакт harness, исправлен `87915e4`) и provenance (`verify_result` не вызван в
   этой попытке; в `29b149b8` он был `REAL_MODEL_CONFIRMED`).
-* **Уровень автономности: LEVEL 4 подтверждён; LEVEL 5 подтверждён в рамках попытки; LEVEL 6 и 7
-  не заявлены.**
-* **Деньги**: $1.6773 фактически, все Pod остановлены, остаток лимита $0.358 — меньше полезного
-  окна.
+* **Уровень автономности: LEVEL 1–4 подтверждены; LEVEL 5 подтверждён в рамках попытки;
+  LEVEL 6 — `BLOCKED_BY_LIVE_BUDGET`; LEVEL 7 — `NOT_TESTED`.**
+* **Деньги**: $1.6773 фактически по серии (+$0.0875 отложенного биллинга/хранилища), все Pod
+  остановлены (`pod_count: 0`), остаток лимита $0.358 — меньше полезного окна.
 * **Production 1.2.6 не изменена.**
-* **Фоновый мониторинг продолжает работать** (30 с, без Zed), платные попытки заблокированы
-  исчерпанием полезного остатка.
+* **Фоновый мониторинг продолжает работать** (30 с, без Zed, 1581 проверка), платные попытки
+  заблокированы исчерпанием полезного остатка.
 
 ### Следующий шаг
 
 1. Для ещё одной попытки нужно **новое решение владельца** (дополнительный бюджет ≥ $0.50 или
-   новый batch): остатка $0.358 не хватает на 20-минутное окно.
-2. Код готов к этой попытке: verifier находит приложение и запускает тесты из его корня,
-   append исправлен, `sources_missing` не блокирует build, исправленная проверка не блокирует
-   завершение.
-3. В той попытке модели стоит явно пройти `verify_result` (продуктовый независимый verifier) —
-   это единственное недоказанное звено provenance в завершённом прогоне.
-4. Release readiness: собрать installer и закрыть Authenticode (внешний сертификат), прогнать
+   новый batch): остатка $0.358 не хватает на 20-минутное окно. Это единственный внешний
+   блокер LIVE.
+2. Код к этой попытке готов: контроллер сам требует `verify_result` после зелёных тестов,
+   verifier находит приложение и запускает тесты из его корня, evidence сохраняет сам проект,
+   журнал экспортируется целиком, append исправлен, `sources_missing` не блокирует build.
+3. Release readiness: собрать installer и закрыть Authenticode (внешний сертификат), прогнать
    Linux-часть CI; публикация — только по отдельному разрешению.
+4. Полный free-CI на финальном HEAD выполнен (см. J); type gate — по заявленному scope.
 
 ### Evidence
 
@@ -252,6 +299,10 @@ credential; production не читался и не писался.
 `database-check.json`, `model-responses.jsonl`, `tool-calls.jsonl`, `tool-execution.jsonl`,
 `provenance-verdict.json`, `task-state.json`, `selftest-evidence.json`, `gui-evidence/`,
 `cleanup.json`, `billing-summary.json`, `logs/`.
+
+`artifacts/acceptance-127/live-qwen/verifier-replay/replay-e1845955.json` — replay сохранённого
+трейса: вердикт воспроизведён, единственное отсутствующее звено названо, контрфактическая
+проверка классификатора даёт `REAL_MODEL_CONFIRMED` только с добавленным `VERIFY_PASSED`.
 
 `%LOCALAPPDATA%\CanallaMonitor\`: `batch-authorization.json`, `batch-spend.jsonl` (12 записей),
 `checks.jsonl`, `status.json`, `state.json`.

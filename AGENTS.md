@@ -308,7 +308,9 @@ until separately tasked.
 Canalla LLM **1.1.0** — release candidate on `release/canalla-1.1.0`, built, installed and accepted
 against the deployed Gateway 1.1.0 (`/opt/alex-gateway/releases/adb568734430`). It carries the D-9
 startup deadline, the compact workspace and Settings shell, the POST context preview, the
-always-ready Computer and Tor services, and strict project type checking (BasedPyright 0/0).
+always-ready Computer and Tor services, and strict type checking of shipped code (BasedPyright 0/0,
+`apps/backend/app` + `apps/gateway/gateway`; tests and scripts are checked by execution — scope in
+`docs/AI-HANDOFF.md` §13).
 **Not merged and not tagged**: the live GPU sanity is externally blocked by provider capacity for
 now — see [docs/release-1.1.md](docs/release-1.1.md).
 

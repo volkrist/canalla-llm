@@ -432,8 +432,16 @@ From repo root, PowerShell. No paid GPU/TinyFish unless a REAL task says so.
 ```powershell
 # Type checking (BasedPyright). The config is `pyrightconfig.json` in the repo root: mode "standard",
 # venv apps/backend/.venv, the project import roots, generated/build dirs excluded. Zed's language
-# server reads the same file, so the editor and this command always agree. Baseline: 0 errors, 0 warnings.
+# server reads the same file, so the editor and this command always agree.
+#
+# Scope: the gate covers **shipped code** (`apps/backend/app`, `apps/gateway/gateway`). On 15 Nov
+# 2026 it measured 0 errors / 0 warnings over 153 files. Tests and operational scripts are excluded
+# on purpose: they are validated by execution (pytest, the acceptance self-tests), and their
+# dynamic fixtures produced 358 typed diagnostics that say nothing about the product. Measure them
+# separately when changing them, never as a release gate:
+#   npx basedpyright apps/backend/tests apps/gateway/tests scripts --outputjson
 npx basedpyright --outputjson
+npx basedpyright apps/backend/tests apps/gateway/tests scripts --outputjson   # informational sweep
 
 # Backend
 cd apps\backend

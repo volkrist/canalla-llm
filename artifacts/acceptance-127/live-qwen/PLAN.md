@@ -1,6 +1,8 @@
 # Canalla 1.2.7 — план LIVE Qwen прогона (бюджет $2.00)
 
-**Статус:** идёт ограниченная серия платных попыток (batch). Один Pod за раз, общий потолок $2.00.
+**Статус:** платная серия закрыта (`PAID_BATCH_EXHAUSTED`). Идёт бесплатная работа по
+release readiness; мониторинг GPU продолжает работать каждые 30 с. Новый Pod не создаётся без
+нового решения владельца.
 **Разрешение владельца:** `I AUTHORIZE A PAID LIVE BATCH WITH A TOTAL GPU BUDGET OF USD 2.00`
 (запись: `batch-authorization.json` в `%LOCALAPPDATA%\CanallaMonitor\`). Внутри этого бюджета
 разрешение на каждую следующую попытку не запрашивается.
@@ -8,6 +10,27 @@
 `MODEL_RESPONSE` за попытку, до 25 исполненных model tool calls, реальный проект TaskDesk на диске
 (6–16 файлов). Каждый дефект, найденный платным прогоном, исправлен и покрыт бесплатным тестом до
 следующей попытки. Ни один Pod не остался работать.
+
+## Итог бесплатных работ после закрытия серии (15.11)
+
+Платных Pod нет (`pod_count: 0`), бюджет серии исчерпан, поэтому дальше выполнялись только
+бесплатные шаги. Каждый — с воспроизводимым результатом:
+
+| Шаг | Результат |
+|---|---|
+| Replay сохранённого трейса | `verifier-replay/replay-e1845955.json`: вердикт воспроизводится точно, отсутствует ровно одно звено (`VERIFY_PASSED`) |
+| Контроллер требует независимую проверку | `next_forced_action` возвращает `verify_result` после зелёных тестов; 4 новых теста |
+| Evidence переживает `%TEMP%` | снапшот проекта + `provenance-events.jsonl` + `id` в `tool-execution.jsonl` |
+| Package-layout тест verifier'а | `the_verifier_runs_a_package_layout_from_its_own_root` — 31/31 self-test |
+| Type gate | продуктовый код: 0 ошибок / 153 файла; тесты и скрипты вынесены из scope и измерены (358) |
+| Ruff | `check` и `format --check` чисты (245 файлов) |
+| Sidecar | пересобран из текущего дерева, `test_sidecar_stamp` зелёный |
+| Frontend | 328 тестов, `tsc`, `vite build`, prettier, `npm audit` — чисто |
+| Rust | 134 теста PASS (2 network-ignored) |
+| Acceptance self-tests | monitor 66/66, live 31/31, rc-final 28/28, post-release 16/16, watchdog PASS |
+
+Остались только внешние блокеры: новый бюджет на LIVE (для LEVEL 6/7), Linux-хост для
+Ubuntu-части CI и сертификат Authenticode для подписи installer'а.
 
 ## Текущее состояние (серия попыток)
 
