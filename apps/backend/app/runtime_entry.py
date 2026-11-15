@@ -24,6 +24,7 @@ MIGRATION_EXIT_FAILED = 12
 JWT_EXIT_FAILED = 13
 DATA_ROOT_EXIT_FAILED = 14
 PRE_UPGRADE_BACKUP_EXIT_FAILED = 15
+DATABASE_AHEAD_EXIT_FAILED = 16
 
 
 def prepare() -> dict:
@@ -60,25 +61,43 @@ def migrate() -> None:
 
 
 def migration_state(database: Path) -> dict:
-    """Current revision, head revision and whether a migration is pending."""
+    """Current revision, head revision, and what this build may do about it.
+
+    `pending` means *this* build is older than the database and can upgrade it. A database that is
+    already **ahead** of this build (a user reinstalled the previous version) is not pending work:
+    Alembic cannot downgrade it, and attempting `upgrade head` ended in a bare `CommandError` that
+    stopped the backend with no explanation. It is reported as `ahead` instead, and the entry point
+    refuses with `database_ahead` and leaves the database and its backup alone.
+    """
     from .backup.format import sqlite_revision
     from .packaging import alembic_config
 
     current = sqlite_revision(database) if Path(database).is_file() else None
     head = None
+    known: set[str] = set()
+    ancestors: set[str] = set()
     try:
         from alembic.script import ScriptDirectory
 
-        head = ScriptDirectory.from_config(alembic_config()).get_current_head()
+        script = ScriptDirectory.from_config(alembic_config())
+        head = script.get_current_head()
+        known = {revision.revision for revision in script.walk_revisions()}
+        if current and head:
+            ancestors = {
+                revision.revision for revision in script.iterate_revisions(head, "base") if revision.revision
+            }
     except Exception:  # pragma: no cover - packaged history is always present
         head = None
     exists = Path(database).is_file()
-    pending = bool(exists and head and current != head)
+    ahead = bool(exists and head and current and current != head and current not in ancestors)
+    pending = bool(exists and head and current != head and not ahead)
     return {
         "exists": exists,
         "current": current,
         "head": head,
         "pending": pending,
+        "ahead": ahead,
+        "known_revision": current in known if current else True,
         "fresh": not exists,
     }
 
@@ -252,6 +271,25 @@ def main() -> int:
 
     state = migration_state(layout["db"])
     backup: dict | None = None
+    if state["ahead"]:
+        # The database was written by a newer build. Alembic cannot move it backwards, and
+        # attempting `upgrade head` used to end in an unexplained CommandError. Refuse out loud and
+        # touch nothing: the database, its backup and the previous installation stay as they were.
+        logging_status("migration_refused database_ahead")
+        write_migration_record(
+            layout,
+            {
+                "result": "refused_database_ahead",
+                "from": state["current"],
+                "to": state["head"],
+                "at": _now(),
+                "backup": None,
+            },
+        )
+        sys.stderr.write(
+            f"ALEX_RUNTIME_ERROR database_ahead current={state['current']} build={state['head']}\n"
+        )
+        return DATABASE_AHEAD_EXIT_FAILED
     if state["pending"]:
         backup = pre_upgrade_backup(layout, state)
         if backup is None:

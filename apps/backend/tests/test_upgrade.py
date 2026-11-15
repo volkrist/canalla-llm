@@ -273,3 +273,33 @@ def test_backup_of_an_unmigrated_database_is_accepted(tmp_path, template_databas
     assert verify_backup(Path(result["path"]))["verified"] is True
     assert migrate  # the alembic history used above is the real one
     assert sqlite3.sqlite_version
+
+
+def test_a_database_from_a_newer_build_is_refused_not_migrated(tmp_path, template_database):
+    """A rollback after a 1.2.7 migration must fail loudly, not crash with `CommandError`.
+
+    The 1.2.6 sidecar meeting an 0017 database used to treat the newer revision as pending work,
+    run `upgrade head` and die with a bare `CommandError` (found by the 1.2.7 release acceptance).
+    The database is untouched, no pointless pre-upgrade backup is written, and the entry point
+    exits with a typed code that says exactly what happened.
+    """
+    root = make_root(tmp_path, template_database, revision="0017")
+    before = counts(root)
+    with connect(root / "data" / "alex.db") as db:
+        db.execute("UPDATE alembic_version SET version_num = '9999_from_the_future'")
+        db.commit()
+
+    code, output = run_to_completion(root, wait_for_server=False, timeout=90)
+
+    assert code == 16, output[-500:]
+    assert "database_ahead" in output
+    assert counts(root) == before, "a refused rollback must not touch user data"
+    assert sqlite_revision(root / "data" / "alex.db") == "9999_from_the_future", (
+        "the newer database is left exactly as it was"
+    )
+    assert BackupService(root).list_backups() == [], (
+        "nothing is migrated, so no pre-upgrade backup is created"
+    )
+    record = migration_record(root)
+    assert record["result"] == "refused_database_ahead"
+    assert (record["from"], record["to"]) == ("9999_from_the_future", "0017")
