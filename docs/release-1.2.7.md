@@ -85,6 +85,9 @@ All of the following ran on this branch at the commit recorded in the release ga
 | Gate | Result |
 |---|---|
 | `release-gate.py candidate` (one run, 22 steps) | **PASS — 0 FAIL, 0 BLOCKED** (log: `artifacts/release-gate-1.2.7.txt`) |
+
+> The artifact was built and gated at `f770285`; the log records that commit binding. Later
+> commits on this branch touch documentation and evidence only, never the packaged bytes.
 | Backend pytest | **1184 passed, 1 skipped** |
 | Backend ruff (`check` + `format --check`) | PASS (245 files) |
 | BasedPyright, shipped code (`apps/backend/app`, `apps/gateway/gateway`) | **0 errors, 0 warnings, 153 files** |
