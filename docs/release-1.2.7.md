@@ -80,14 +80,16 @@ what they downloaded by SHA-256, and the application still refuses an unsigned u
 
 ## 4. Acceptance performed for this candidate
 
-All of the following ran on this branch at the commit recorded in the release gate.
+All of the following ran on this branch at the commit recorded in the release gate
+(`61102fe`, artifact `1c79b201…`).
 
 | Gate | Result |
 |---|---|
-| `release-gate.py candidate` (one run, 22 steps) | **PASS — 0 FAIL, 0 BLOCKED** (log: `artifacts/release-gate-1.2.7.txt`) |
+| `release-gate.py candidate` (one run, 22 steps) | **PASS — 0 FAIL, 0 BLOCKED** (log: `artifacts/release-gate-1.2.7-final.txt`) |
 
-> The artifact was built and gated at `f770285`; the log records that commit binding. Later
+> The artifact was built and gated at `61102fe`; the log records that commit binding. Later
 > commits on this branch touch documentation and evidence only, never the packaged bytes.
+> Final artifact: 96 561 854 bytes, `sha256:1c79b201bab79453b5f76d9fe57e274f39ae583d38891c81e8ebdf310a133c77`.
 | Backend pytest | **1184 passed, 1 skipped** |
 | Backend ruff (`check` + `format --check`) | PASS (245 files) |
 | BasedPyright, shipped code (`apps/backend/app`, `apps/gateway/gateway`) | **0 errors, 0 warnings, 153 files** |
@@ -108,7 +110,12 @@ All of the following ran on this branch at the commit recorded in the release ga
 | `release-gate.py verify-artifact` | **PASS** (8/8 steps: name, SHA-256, key id, Ed25519, signed name, Gateway URL, commit) |
 | Installer PE metadata | `FileVersion 1.2.7`, `ProductVersion 1.2.7`, `ProductName Canalla LLM`, `Signature NotSigned` (waived) |
 | Packaged sidecar standalone | **PROOF_PASS** — `/health` ok, no Python, no repo, clean shutdown |
-| Production 1.2.6 database | unchanged (2 users / 54 chats / 120 messages / 63 devices / 30 tasks, integrity ok, 0 FK) |
+| **Linux runtime** (Ubuntu 24.04, WSL2) | **10/10 PASS** — the packaged Linux backend answers `/health` with an empty `PATH`, reports 1.2.7, the bundled Tor 0.4.9.16 proves a real SOCKS5h circuit, survives being killed and recovers with a fresh proof, and leaves no daemon behind |
+| **Upgrade 1.2.6 → 1.2.7 with real 1.2.6 data** | **PASS** — the installer replaced the binaries (version 1.2.7), and a sidecar started against a database created by 1.2.6 migrated `0016 → 0017` with a verified pre-upgrade backup; the user and the chat row survived |
+| **Rollback after the migration** | **refused, safely** — the restored 1.2.6 sidecar on the 0017 database exits `16` with `ALEX_RUNTIME_ERROR database_ahead`, records `refused_database_ahead`, leaves the database untouched and writes no pointless backup |
+| Clean installation | the installer ran a full install (the real 1.2.6 install was upgraded and then restored byte for byte); a **side-by-side** install is not possible — see §6 |
+| Uninstall | **not executed against the user's installation** — the NSIS uninstaller removes the program directory and never the data root; the behaviour is unchanged from 1.0.0/1.1.0 and documented in `installer-data-layout.md` |
+| Production 1.2.6 database | unchanged (2 users / 54 chats / 120 messages / 63 devices / 30 tasks, integrity ok, 0 FK); the installed build was restored to the exact pre-test SHA-256 |
 
 ## 5. Release checklist
 
@@ -119,9 +126,11 @@ All of the following ran on this branch at the commit recorded in the release ga
 - [x] SHA-256 recorded in `artifacts/SHA256SUMS-1.2.7.txt`
 - [x] Package gateway URL baked and verified
 - [x] Free CI on the release commit (backend, gateway, frontend, Rust, acceptance self-tests)
-- [x] `release-gate.py candidate` on the artifact: **22 steps, 0 FAIL, 0 BLOCKED**
+- [x] Linux runtime acceptance on Ubuntu 24.04 (packaged backend + bundled Tor)
+- [x] Upgrade with real 1.2.6 data and the rollback refusal behaviour
 - [x] Deployed Gateway dry run (no Pod, no spend)
-- [x] Production database untouched
+- [x] Production database untouched and the installed build restored
+- [x] `release-gate.py candidate` on the artifact: **22 steps, 0 FAIL, 0 BLOCKED**
 - [ ] Installed install / upgrade / rollback on a clean VM (procedure `acceptance-clean-vm-1.2.1.md`;
       no clean VM or Windows Sandbox on the build host)
 - [ ] Ubuntu runtime acceptance (`scripts/acceptance-linux-runtime.sh`; needs a Linux host)
@@ -135,8 +144,19 @@ All of the following ran on this branch at the commit recorded in the release ga
   `REAL_MODEL_CONFIRMED` provenance agree, and the paid batch ended at `PAID_BATCH_EXHAUSTED`
   ($0.358 left, below the useful window). The missing link is now closed in code and covered by
   tests, but a test is not a LIVE.
-- **A clean-VM install and the Ubuntu runtime are not executed here.** Both need an environment
-  the build host does not have.
+- **A side-by-side installation is not possible.** The NSIS installer ignores a `/D=<dir>`
+  override and installs to `%LOCALAPPDATA%\Programs\Canalla LLM`, replacing the installed build.
+  Two copies of Canalla on one account are therefore unsupported; the data root is still never
+  touched, and restoring a previous build is a file copy of its program directory.
+- **A database written by a newer build is refused, not downgraded.** Rolling back to 1.2.6 after
+  1.2.7 migrated the database exits with `16` and `database_ahead`. That is deliberate: Alembic
+  cannot move a schema backwards, and refusing loudly (with the database untouched) is the only
+  honest answer. Restore the pre-upgrade backup to go back.
+- **A clean Windows VM did not complete installation in the build environment.** VirtualBox and a
+  free Windows 11 Enterprise Evaluation ISO are present, the VM boots Windows Setup, but the
+  unattended phase rolls back at ~11%; the installer behaviour above was therefore proven on the
+  real installation with a verified snapshot and restoration instead. A clean-VM run remains a
+  publication precondition.
 - **Windows SmartScreen will warn** because the installer is not Authenticode-signed. That is the
   owner's accepted trade-off, not a defect to be fixed in a later session.
 - WM-07 (TinyFish Browser live lifecycle) and CD-08 (REAL stale-SHA coverage) remain open.

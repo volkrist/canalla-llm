@@ -1,18 +1,16 @@
 # Canalla LLM 1.2.7 — SHA-256 of the release artifact and its payload
 
-61040aa86418ad6640d71e89d9b90b9af88d5be83168a2f91082c06124c4c960  96564385  Canalla LLM_1.2.7_x64-setup.exe
-cb35e7f0d30ac7847523b45e324aa58b39af62921330b4934a098d1d71be6763  424  Canalla LLM_1.2.7_x64-setup.exe.sig
-a5cb02e675eb6336b4ce8a79da40d8f8c625e628155f1ed5c62fdc0db2f6acd1  6035968  alex-llm.exe
-097f182b1391829b2b604b8a6ff2958648f751a312ecd0e672951c3850d64278  2243584  alex-host-loop.exe
-ce93221dcb57014d53a010a5d8dfd658df5e97f1841d90e65443764f39367bed  24853540  alex-backend.exe
+1c79b201bab79453b5f76d9fe57e274f39ae583d38891c81e8ebdf310a133c77  96561854  Canalla LLM_1.2.7_x64-setup.exe
+3503edff22d545bf23a3622a34ee7d7bd9e7130301481506b9e89f41ab928154  424  Canalla LLM_1.2.7_x64-setup.exe.sig
+49972ee2300455c0c3285fdf2a4e56e720aa5ca75c599b85db0beabd77c1d319  6035968  alex-llm.exe
+7bbec361f9bf18dfaf6d4150353ebb3f23e9dce16831942637a16ceda7079af2  2243584  alex-host-loop.exe
+cea3320c8463eb214bff1afe5ea2d315227e3ba2a1cda818d6d9762782b4be80  24854377  alex-backend.exe
 da22856f95ee24f8ace4ad1ab04acbd818fd6c3042bc3cf8f1d7cc3fa3edcb2b  10248704  tor.exe
 
-sidecar_stamp_source_digest  e83eab9b37aaba1fc8e69992e0d8e389ed9ba3e2f68d67d673192ceeaf7fe4ed
-sidecar_stamp_source_files   161
-sidecar_stamp_product        alex-llm 1.2.7
 authenticode                 WAIVED_BY_OWNER (not signed; see docs/release-1.2.7.md)
 updater_signature            minisign, production key 9B328EFF111D1FB2
 installer_file_version       1.2.7
 installer_product_version    1.2.7
 installer_product_name       Canalla LLM
-
+built_at_commit              61102fec9b641d56a137fe36e1e74ef8fe4301af
+release_gate                 candidate: 22 steps, 0 FAIL, 0 BLOCKED (artifacts/release-gate-1.2.7-final.txt)

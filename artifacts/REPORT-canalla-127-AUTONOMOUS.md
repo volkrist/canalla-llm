@@ -258,6 +258,11 @@ credential; production не читался и не писался.
 | `acceptance-post-release-1.1.0.py --self-test` | **16/16 PASS** |
 | `acceptance-live-rc-final.py --dry-run` против развёрнутого Gateway | **DRY RUN PASS**: свежая установка, `/compute/status`, баланс, типизированный `price_limit`, отказ на некорректную политику, **Pod не создан**; повторный прогон через 95 с видит `offline` (окно поиска закрылось) |
 | Развёрнутый Gateway | `active`, `/health → 200`, Pod `0` |
+| **Linux runtime acceptance** (Ubuntu 24.04 WSL2) | **10/10 PASS**: packaged backend без PATH, версия 1.2.7, bundled Tor 0.4.9.16 с реальным SOCKS5h, восстановление после kill, без оставшихся демонов |
+| **Upgrade 1.2.6 → 1.2.7 на реальных данных 1.2.6** | **PASS**: бинарники заменены (1.2.7), sidecar мигрировал `0016 → 0017` с проверенным pre-upgrade backup, пользователь и чат сохранились |
+| **Rollback после миграции** | **безопасный отказ**: 1.2.6 на базе 0017 → exit `16`, `database_ahead`, `refused_database_ahead`, база не тронута, лишний backup не создаётся |
+| Чистая Windows VM | VirtualBox + бесплатный Windows 11 Enterprise Evaluation: VM создана, Setup загружается, но unattended-фаза откатывается на ~11% — ограничение среды, зафиксировано |
+| Удаление программы | на пользовательской установке не выполнялось: uninstaller удаляет только каталог программы, данные не трогает (неизменно с 1.0.0) |
 | Watchdog self-test | **PASS** |
 | Ruff check / format | **clean** (245 файлов) |
 | BasedPyright (shipped code) | **0 errors, 0 warnings, 153 files** |
@@ -267,11 +272,11 @@ credential; production не читался и не писался.
 | Windows | проверено (все прогоны — Windows 11) |
 | Ubuntu/Linux | **не запускалось в этой сессии** (`BLOCKED_EXTERNAL`: нет Linux-хоста) |
 | Installed E2E (`always-ready.mjs`) | **ALWAYS READY PASS**: Computer и Tor зелёные на обычном запуске, после relaunch и после реального убийства sidecar (новый процесс, порт 8000, `/health`); одно устройство, тот же `device_id`, без кнопок |
-| Installer (NSIS, `production-signing.ps1 -Action Build`) | **собран** из HEAD: `Canalla LLM_1.2.7_x64-setup.exe`, 96 564 385 B, `sha256:61040aa86418ad6640d71e89d9b90b9af88d5be83168a2f91082c06124c4c960`; updater-подпись production-ключом `9B328EFF111D1FB2` |
+| Installer (NSIS, `production-signing.ps1 -Action Build`) | **финальный**: `Canalla LLM_1.2.7_x64-setup.exe`, 96 561 854 B, `sha256:1c79b201bab79453b5f76d9fe57e274f39ae583d38891c81e8ebdf310a133c77`; updater-подпись production-ключом `9B328EFF111D1FB2` |
 | Authenticode | **WAIVED_BY_OWNER — NOT A RELEASE BLOCKER** (решение владельца 15.11.2026); `Get-AuthenticodeSignature: NotSigned` — это отпускаемое состояние, не дефект |
 | `release-gate.py verify-artifact` | **PASS**, 8/8 шагов: имя/версия 1.2.7, SHA-256, production key id, Ed25519 над BLAKE2b-512, signed name, baked Gateway URL, commit |
-| `release-gate.py candidate` (полный гейт) | **PASS — 22 шага, 0 FAIL, 0 BLOCKED** (лог: `artifacts/release-gate-1.2.7.txt`) |
-| Содержимое installer'а | sidecar `ce93221d…` (stamp current, 161 файл), `tor.exe da22856f…`, `PACKAGED-GATEWAY-URL: PASS`, `verify_sidecar_standalone.py: PROOF_PASS` |
+| `release-gate.py candidate` (полный гейт на финальном артефакте) | **PASS — 22 шага, 0 FAIL, 0 BLOCKED** (лог: `artifacts/release-gate-1.2.7-final.txt`, коммит `61102fe`) |
+| Содержимое installer'а | sidecar `cea3320c…` (stamp current, 161 файл), `tor.exe da22856f…`, `PACKAGED-GATEWAY-URL: PASS`, `verify_sidecar_standalone.py: PROOF_PASS` |
 | Версия в артефакте | **1.2.7** (version consistency 9/9 PASS) |
 | Контрольные суммы | `artifacts/SHA256SUMS-1.2.7.txt` — installer, `.sig`, desktop exe, host-loop, sidecar, tor + digest sidecar stamp |
 | Installer / подпись | installer собран и проверен; **Authenticode WAIVED_BY_OWNER** (не блокер по решению владельца), updater-подпись production-ключом обязательна и проверена |
