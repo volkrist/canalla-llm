@@ -1,8 +1,13 @@
 # Alex LLM — agent instructions
 
 PROJECT: **Alex LLM** (user-facing name: **Canalla LLM** — see Naming)
-VERSION: **1.1.0** (release candidate on `release/canalla-1.1.0`; 1.0.0 stays released as tag
-`v1.0.0`. Bump only as a deliberate release act)
+VERSION: **1.2.7** (release candidate on `feature/canalla-1.2.7-autonomous-agent`; 1.0.0 stays
+released as tag `v1.0.0`, 1.2.6 stays installed. Bump only as a deliberate release act)
+
+Signing policy (owner decision, 15 Nov 2026): Authenticode is **WAIVED_BY_OWNER — NOT A RELEASE
+BLOCKER**; an unsigned EXE installer may be released, no certificate or signing service is
+purchased, and the Tauri **updater** minisign signature stays required. See
+`docs/release-1.2.7.md` §3.
 
 Read `docs/AI-HANDOFF.md` before changing runtime, packaging, or compute.
 
@@ -176,7 +181,9 @@ the backups live under the data root, never in the install directory.
 - WM-07 TinyFish Browser live execution/lifecycle
 - CD-08 REAL stale-SHA coverage debt
 - REAL backend restart with a live Pod is not yet live-tested
-- No production code signing yet
+- No production code signing: **Authenticode is waived by the owner** (15 Nov 2026) — an unsigned
+  installer is the release policy, SmartScreen may warn, and the .sig that matters is the Tauri
+  updater's minisign signature (production key `9B328EFF111D1FB2`), which is still verified
 - Live RunPod balance was accepted read-only **through the production credential path**: the key was saved
   in the installed app (Settings → AI / Compute → RunPod API key), landed in Credential Manager
   `Alex LLM/provider/runpod`, survived logout, full restart and reinstall, and served two users with the same
@@ -311,6 +318,14 @@ startup deadline, the compact workspace and Settings shell, the POST context pre
 always-ready Computer and Tor services, and strict type checking of shipped code (BasedPyright 0/0,
 `apps/backend/app` + `apps/gateway/gateway`; tests and scripts are checked by execution — scope in
 `docs/AI-HANDOFF.md` §13).
+
+Canalla LLM **1.2.7** — release candidate on `feature/canalla-1.2.7-autonomous-agent`, version
+bumped to `1.2.7`, installer `Canalla LLM_1.2.7_x64-setup.exe` built and updater-signed by the
+production key, `release-gate.py verify-artifact` PASS. It hardens the autonomous path (the
+controller owes an independent verification; tests run from the project's own root; evidence
+survives `%TEMP%`) and carries the Authenticode waiver above. **Not published**: release needs a
+separate owner authorization, and autonomy LEVEL 6/7 remain `BLOCKED_BY_LIVE_BUDGET` — see
+[docs/release-1.2.7.md](docs/release-1.2.7.md).
 **Not merged and not tagged**: the live GPU sanity is externally blocked by provider capacity for
 now — see [docs/release-1.1.md](docs/release-1.1.md).
 

@@ -267,10 +267,13 @@ credential; production не читался и не писался.
 | Windows | проверено (все прогоны — Windows 11) |
 | Ubuntu/Linux | **не запускалось в этой сессии** (`BLOCKED_EXTERNAL`: нет Linux-хоста) |
 | Installed E2E (`always-ready.mjs`) | **ALWAYS READY PASS**: Computer и Tor зелёные на обычном запуске, после relaunch и после реального убийства sidecar (новый процесс, порт 8000, `/health`); одно устройство, тот же `device_id`, без кнопок |
-| Installer (NSIS, `scripts/build-desktop.ps1 -TestBuild`) | **собран** из HEAD `4166873`: `Canalla LLM_1.2.6_x64-setup.exe`, 96 557 288 B, `sha256:0664dff5f0b461f932db6f85dbbd8176abf72ab1cff56d9750936439166d8682`; `Get-AuthenticodeSignature: NotSigned`; updater-подпись не запрашивалась |
-| Содержимое installer'а | sidecar `51b5cf0d…` (stamp current, 161 файл), `tor.exe da22856f…`, `PACKAGED-GATEWAY-URL: PASS` |
-| Версия в артефакте | 1.2.6 — bump до 1.2.7 остаётся отдельным релизным актом, а не следствием сборки |
-| Installer / подпись | не собирались; **Authenticode — внешний блокер** (нет действительного сертификата) |
+| Installer (NSIS, `production-signing.ps1 -Action Build`) | **собран** из HEAD: `Canalla LLM_1.2.7_x64-setup.exe`, 96 564 385 B, `sha256:61040aa86418ad6640d71e89d9b90b9af88d5be83168a2f91082c06124c4c960`; updater-подпись production-ключом `9B328EFF111D1FB2` |
+| Authenticode | **WAIVED_BY_OWNER — NOT A RELEASE BLOCKER** (решение владельца 15.11.2026); `Get-AuthenticodeSignature: NotSigned` — это отпускаемое состояние, не дефект |
+| `release-gate.py verify-artifact` | **PASS**, 8/8 шагов: имя/версия 1.2.7, SHA-256, production key id, Ed25519 над BLAKE2b-512, signed name, baked Gateway URL, commit |
+| Содержимое installer'а | sidecar `ce93221d…` (stamp current, 161 файл), `tor.exe da22856f…`, `PACKAGED-GATEWAY-URL: PASS`, `verify_sidecar_standalone.py: PROOF_PASS` |
+| Версия в артефакте | **1.2.7** (version consistency 9/9 PASS) |
+| Контрольные суммы | `artifacts/SHA256SUMS-1.2.7.txt` — installer, `.sig`, desktop exe, host-loop, sidecar, tor + digest sidecar stamp |
+| Installer / подпись | installer собран и проверен; **Authenticode WAIVED_BY_OWNER** (не блокер по решению владельца), updater-подпись production-ключом обязательна и проверена |
 | Публикация 1.2.7 | **не выполнялась** (запрещено без отдельного разрешения) |
 
 ---
@@ -301,8 +304,7 @@ credential; production не читался и не писался.
 2. Код к этой попытке готов: контроллер сам требует `verify_result` после зелёных тестов,
    verifier находит приложение и запускает тесты из его корня, evidence сохраняет сам проект,
    журнал экспортируется целиком, append исправлен, `sources_missing` не блокирует build.
-3. Release readiness: собрать installer и закрыть Authenticode (внешний сертификат), прогнать
-   Linux-часть CI; публикация — только по отдельному разрешению.
+3. Release readiness: installer **собран и прошёл `verify-artifact`** (updater-подпись production-ключом), **Authenticode снят с блокеров решением владельца**; осталось: чистый VM для install/upgrade E2E, Linux-хост для Ubuntu-части CI и отдельное разрешение на публикацию.
 4. Полный free-CI на финальном HEAD выполнен (см. J); type gate — по заявленному scope.
 
 ### Evidence

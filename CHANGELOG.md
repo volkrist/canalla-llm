@@ -5,6 +5,40 @@ shared Canalla Cloud Gateway). Internal `Alex LLM` names — data root, credenti
 product/bundle ids, binaries, environment variables, `X-Alex-*` protocol headers and the
 public endpoint — are unchanged on purpose; see the Naming section of `AGENTS.md`.
 
+## [1.2.7]
+
+Release candidate on `feature/canalla-1.2.7-autonomous-agent`. Installer
+`Canalla LLM_1.2.7_x64-setup.exe`, updater-signed by the production key `9B328EFF111D1FB2`,
+**not** Authenticode-signed by owner decision. Runtime and Gateway protocols stay at `1`.
+
+### Fixed
+
+- **A finished build could close without an independent verification.** A real model run wrote,
+  ran and served an application and still closed as `COMPLETED` with an `INCOMPLETE_TRACE`
+  provenance record, because nothing required the verifier to run. The controller now owes one
+  `verify_result` after the project's tests pass, with checks built from the files the task wrote
+  and from its own test command; a later edit makes the check owed again.
+- **Tests were run from the wrong directory.** A project laid out as `taskdesk/app` +
+  `taskdesk/tests` passes from `taskdesk/` and fails at the workspace root, where the editable
+  backend shadows the project's package. The retest and the acceptance check now choose the
+  directory the tests live in.
+- **A finished run left no readable evidence.** The workspace lived in `%TEMP%` and the journal
+  exported only model responses. Runs snapshot the produced sources into the evidence directory and
+  write the whole provenance journal, so a run can be re-read and audited afterwards.
+
+### Security
+
+- Authenticode is waived by the owner: an unsigned installer may be released, no certificate or
+  signing service is purchased, and the Tauri updater's minisign signature remains mandatory. See
+  `docs/release-1.2.7.md` §3.
+
+### Internal
+
+- Type checking covers shipped code (`apps/backend/app`, `apps/gateway/gateway`) at 0 errors / 0
+  warnings; tests and operational scripts are validated by execution.
+- The acceptance harness verifies a package-layout project it did not create, and its free
+  self-test no longer writes into a paid run's evidence directory.
+
 ## [1.2.4]
 
 Released 26 Oct 2026 as a public Windows x64 GitHub Release. Installer

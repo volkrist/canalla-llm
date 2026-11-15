@@ -49,6 +49,13 @@ No production secret is involved: the verifier reads only the **public** key alr
 `apps/desktop/src-tauri/tauri.conf.json`. The private signing key never enters this script, the CI
 runners or any untrusted host.
 
+**Authenticode is not part of this gate.** By owner decision (15 Nov 2026) the Windows installer
+ships without a publisher certificate: `WAIVED_BY_OWNER — NOT A RELEASE BLOCKER`
+([release-1.2.7.md](release-1.2.7.md) §3). The `artifact.signature*` steps above are the Tauri
+**updater** minisign signature, which stays mandatory — it is what stops a client from installing
+an update it cannot verify. A released installer is therefore unsigned to Windows and signed to
+Canalla.
+
 ## publish
 
 Refused here on purpose. Signing and uploading a real 1.2.1 happens later, from a trusted host, by

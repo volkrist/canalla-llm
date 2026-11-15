@@ -185,7 +185,10 @@ Do not “fix” these as a reliability rewrite:
 - WM-07 TinyFish Browser live execution/lifecycle — [tinyfish.md](tinyfish.md)
 - CD-08 REAL stale-SHA coverage debt
 - REAL backend restart with a live Pod not live-tested (FakeRunPod covered)
-- No production code signing / SmartScreen publisher yet
+- No production code signing: **Authenticode is waived by the owner** (15 Nov 2026). An unsigned
+  installer is the release policy and SmartScreen may warn; the updater's minisign `.sig`
+  (production key `9B328EFF111D1FB2`) is still required and verified by `release-gate.py`.
+  See [release-1.2.7.md](release-1.2.7.md) §3.
 - **No autostart at Windows login** (1.1.0): the installer registers no `Run` entry and there is no
   «start with Windows» toggle, so the Computer host comes back when Canalla is launched — the
   pairing, `device_id` and credential survive, so that launch needs no button. The shipped
