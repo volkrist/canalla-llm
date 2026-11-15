@@ -236,6 +236,7 @@ Replay сохранённого трейса `e1845955` через текущи�
 | integrity | ok | ok | нет |
 | device identity | `6413489d-6cae-4183-8446-a3b2339137dc` | тот же | нет |
 | Установленная версия | 1.2.6 | 1.2.6 | не переустанавливалась |
+| Проверка 15.11 (read-only, `mode=ro`) | — | users 2, chats 54, messages 120, paired_devices 63, local_tasks 30, `integrity ok`, 0 FK violations | не изменилась |
 
 Acceptance работал на изолированной БД (`%TEMP%\canalla-live-*\live.db`) и изолированном device
 credential; production не читался и не писался.
@@ -265,6 +266,9 @@ credential; production не читался и не писался.
 | Windows | проверено (все прогоны — Windows 11) |
 | Ubuntu/Linux | **не запускалось в этой сессии** (`BLOCKED_EXTERNAL`: нет Linux-хоста) |
 | Installed E2E (`always-ready.mjs`) | не запускался в этой сессии: он проверяет установленную 1.2.6, а не собранную 1.2.7 |
+| Installer (NSIS, `scripts/build-desktop.ps1 -TestBuild`) | **собран** из текущего HEAD: `Canalla LLM_1.2.6_x64-setup.exe`, 96 575 072 B, `sha256:f3b087c5aa3edab2cfcf9c0629926d887efafeb79de391ce11f6f934c8bdf676`; `Get-AuthenticodeSignature: NotSigned`; updater-подпись не запрашивалась |
+| Содержимое installer'а | sidecar `f38390d46…` (stamp current, 161 файл), `tor.exe da22856f…`, `PACKAGED-GATEWAY-URL: PASS` |
+| Версия в артефакте | 1.2.6 — bump до 1.2.7 остаётся отдельным релизным актом, а не следствием сборки |
 | Installer / подпись | не собирались; **Authenticode — внешний блокер** (нет действительного сертификата) |
 | Публикация 1.2.7 | **не выполнялась** (запрещено без отдельного разрешения) |
 
