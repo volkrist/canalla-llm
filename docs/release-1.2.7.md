@@ -103,6 +103,7 @@ All of the following ran on this branch at the commit recorded in the release ga
 | Installed always-ready (`e2e/always-ready.mjs`) | **PASS** — Computer and Tor green on launch, after relaunch and after a real sidecar kill; one device, same `device_id` |
 | Installer build (`production-signing.ps1 -Action Build`) | **PASS** — updater-signed by the production key |
 | `release-gate.py verify-artifact` | **PASS** (8/8 steps: name, SHA-256, key id, Ed25519, signed name, Gateway URL, commit) |
+| Installer PE metadata | `FileVersion 1.2.7`, `ProductVersion 1.2.7`, `ProductName Canalla LLM`, `Signature NotSigned` (waived) |
 | Packaged sidecar standalone | **PROOF_PASS** — `/health` ok, no Python, no repo, clean shutdown |
 | Production 1.2.6 database | unchanged (2 users / 54 chats / 120 messages / 63 devices / 30 tasks, integrity ok, 0 FK) |
 
