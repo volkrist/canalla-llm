@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CANALLA LLM 1.2.7 — ПОЛНЫЙ ОТЧЁТ</title>
+<style>
+:root { color-scheme: light dark; }
+body { margin: 0 auto; max-width: 1080px; padding: 48px 28px 96px;
+  font: 16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif; color: #1b1f24; background: #ffffff; }
+h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; }
+h2 { font-size: 1.45rem; margin: 42px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #e3e7ec; }
+h3 { font-size: 1.14rem; margin: 28px 0 10px; }
+h4 { font-size: 1rem; margin: 22px 0 8px; }
+p { margin: 10px 0; }
+table { border-collapse: collapse; width: 100%; margin: 14px 0 22px; font-size: 0.94rem; }
+th, td { border: 1px solid #dfe3e8; padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: #f4f6f8; font-weight: 600; }
+tbody tr:nth-child(even) { background: #fbfcfd; }
+code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 0.88em;
+  background: #f2f4f7; padding: 1px 5px; border-radius: 4px; }
+pre { background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 10px; overflow-x: auto; }
+pre code { background: none; color: inherit; padding: 0; font-size: 0.86rem; }
+blockquote { margin: 16px 0; padding: 10px 16px; border-left: 4px solid #94a3b8;
+  background: #f8fafc; color: #334155; }
+hr { border: 0; border-top: 1px solid #e3e7ec; margin: 34px 0; }
+ul, ol { margin: 10px 0 14px; padding-left: 26px; }
+li { margin: 5px 0; }
+a { color: #0b62d6; }
+@media (prefers-color-scheme: dark) {
+  body { background: #0b0f14; color: #dbe3ec; }
+  h2 { border-color: #1f2a36; }
+  th { background: #131b24; }
+  th, td { border-color: #22303d; }
+  tbody tr:nth-child(even) { background: #0f151d; }
+  code { background: #151d27; }
+  blockquote { background: #111922; color: #b6c2cf; border-color: #33506b; }
+  a { color: #74b0ff; }
+}
+@media print { body { max-width: none; } pre { white-space: pre-wrap; } }
+</style>
+</head>
+<body>
+<h1>CANALLA LLM 1.2.7 — ПОЛНЫЙ ОТЧЁТ</h1>
+<p><strong>Отчёт по двум последним заданиям владельца и по всей проделанной сессии</strong></p>
+<table><thead><tr>
+<th></th>
+<th></th>
+</tr></thead><tbody>
+<tr><td>Дата отчёта</td><td>15 ноября 2026</td></tr>
+<tr><td>Проект</td><td>Canalla LLM Desktop 1.2.7 (внутренние имена <code>Alex LLM</code> не переименовывались)</td></tr>
+<tr><td>Ветка</td><td><code>feature/canalla-1.2.7-autonomous-agent</code></td></tr>
+<tr><td>HEAD</td><td><code>559a3ad</code> (запушен в origin)</td></tr>
+<tr><td>Артефакт собран и проверен на</td><td><code>f770285</code></td></tr>
+<tr><td>Релизный установщик</td><td><code>Canalla LLM_1.2.7_x64-setup.exe</code></td></tr>
+<tr><td>Состояние релиза</td><td>кандидат собран и прошёл полный гейт; <strong>не опубликован</strong></td></tr>
+</tbody></table>
+<hr>
+<h2>1. Резюме</h2>
+<p>За сессию пройден путь от «есть только отчёт о прошлых платных попытках» до <strong>собранного, подписанного updater-ключом и полностью проверенного установщика 1.2.7</strong>, у которого снят единственный оставшийся внешний блокер — Authenticode.</p>
+<p>Главные результаты:</p>
+<ul>
+<li><strong>Найдена и закрыта настоящая причина, почему реальный LIVE не считался PASS</strong>: модель выполнила работу, приложение работало, но независимая проверка (<code>verify_result</code>) не была вызвана, и ничто её не требовало. Контроллер теперь требует её сам; это доказано replay сохранённого трейса и тестами.</li>
+<li><strong>Собран установщик 1.2.7</strong>: updater-подпись production-ключом <code>9B328EFF111D1FB2</code>, Authenticode отсутствует по решению владельца, SHA-256 зафиксирован.</li>
+<li><strong>Полный релизный гейт <code>release-gate.py candidate</code> — PASS</strong>: 22 шага, 0 FAIL, 0 BLOCKED.</li>
+<li><strong>Все бесплатные проверки зелёные</strong> на релизном дереве: backend 1184, gateway 262, frontend 328, Playwright 25, Rust 134, acceptance-матрицы 66/66 + 31/31 + 28/28 + 16/16.</li>
+<li><strong>Развёрнутый Gateway проверен вживую без Pod</strong>: dry-run PASS, окно поиска закрылось само.</li>
+<li><strong>Production 1.2.6 не изменена</strong> и перепроверена после всех работ.</li>
+<li>Платных Pod не создавалось с момента закрытия серии; провайдер подтверждает 0 Pod.</li>
+</ul>
+<p>Что <strong>не</strong> сделано и почему — честно перечислено в разделе 12: чистая VM для install/upgrade, Linux-хост для Ubuntu-части и отдельное разрешение на публикацию.</p>
+<hr>
+<h2>2. Что требовалось</h2>
+<h3>2.1. Задание №1 — автономная работа до результата</h3>
+<p>Владелец передал большой автономный мандат: довести Canalla 1.2.7 до технически завершённого состояния, доказав на <strong>настоящей</strong> Qwen (не mock), что продукт способен самостоятельно выполнить сложную задачу. Ключевые требования:</p>
+<ol>
+<li>Начать с фактического аудита (git, планировщик, монитор, Pod, балансы), не верить отчёту.</li>
+<li>Не допускать скрытых расходов; сверять Pod, счётчики и баланс.</li>
+<li>Не создавать второй Pod, пока судьба предыдущего не установлена.</li>
+<li>Держать GPU-мониторинг каждые 30 секунд независимо от редактора.</li>
+<li>Быстрый захват GPU (fast path) без повторной подготовки.</li>
+<li>Проверить всю цепочку таймаутов SSE → backend → модель и покрыть её бесплатными тестами.</li>
+<li>Максимально использовать оплаченный Pod: сначала модель, инструменты, задача, проверка.</li>
+<li>Минимальное доказательство реальной модели: Pod → llama.cpp → GGUF → токены → MODEL_RESPONSE → tool call → исполнение → результат → следующий шаг.</li>
+<li>TaskDesk: FastAPI + SQLite + GUI + CRUD, созданный и проверенный моделью.</li>
+<li>Независимый verifier, а не доверие словам модели.</li>
+<li>Autonomous repair: модель сама исправляет реальную ошибку.</li>
+<li>Durable resume.</li>
+<li>Честная шкала автономности LEVEL 0–7.</li>
+<li>Watchdog, деньги, cleanup.</li>
+<li>Recovery-сценарии A–H.</li>
+<li>Невмешательство в production 1.2.6.</li>
+<li>Компьютер и Tor сохраняют обязательные свойства.</li>
+<li>Бесплатные проверки после каждого исправления, полный CI перед заявкой RC.</li>
+<li>Управление работой как state machine; отчёт только по существу.</li>
+<li>Итоговый отчёт по форме A–K.</li>
+</ol>
+<p>Отдельным оверрайдом: бюджет <strong>$2.00</strong>, <strong>один Pod за раз</strong>, число попыток не ограничено, внутри бюджета разрешение на каждую следующую попытку не запрашивается.</p>
+<h3>2.2. Задание №2 — обновление требований к релизу</h3>
+<ol>
+<li>Убрать Authenticode из блокеров релиза.</li>
+<li>Не покупать сертификаты и сервисы подписи.</li>
+<li>Разрешить выпуск неподписанного EXE-установщика.</li>
+<li>Сохранить SHA-256, проверки целостности, безопасности и работоспособности установщика.</li>
+<li>Обновить release checklist и документацию.</li>
+<li>Не возвращаться к вопросу платной подписи.</li>
+<li>Продолжить подготовку релиза автономно.</li>
+</ol>
+<p>Статус: <strong>WAIVED_BY_OWNER — NOT A RELEASE BLOCKER</strong>.</p>
+<hr>
+<h2>3. Задание №1 — что фактически сделано</h2>
+<h3>3.1. Аудит и деньги</h3>
+<p>Серия платных попыток была <strong>закрыта до начала работ</strong> по объективной причине: остаток бюджета <code>$0.358</code> меньше минимального полезного окна <code>$0.413</code>. Поэтому все работы велись бесплатно, а платные Pod не создавались.</p>
+<table><thead><tr>
+<th>Показатель</th>
+<th>Значение</th>
+<th>Подтверждение</th>
+</tr></thead><tbody>
+<tr><td>Pod создано за серию</td><td>9, все удалены</td><td>журнал batch + провайдер</td></tr>
+<tr><td>Списано по журналу</td><td>$1.6420</td><td><code>batch-spend.jsonl</code>, 12 записей</td></tr>
+<tr><td>Фактическое падение баланса</td><td>$1.6773</td><td>баланс до/после серии</td></tr>
+<tr><td>Остаток лимита</td><td>$0.358</td><td><code>PAID_BATCH_EXHAUSTED</code></td></tr>
+<tr><td>Pod сейчас</td><td><strong>0</strong></td><td><code>readonly-runpod-state.py</code>: <code>pods: []</code></td></tr>
+<tr><td>Баланс сейчас</td><td><strong>$5.1788335721</strong></td><td>провайдер, 15.11</td></tr>
+<tr><td>Текущий расход</td><td>$0.01/час</td><td>только Network Volume, не GPU</td></tr>
+</tbody></table>
+<p>Каждый Pod в журнале связан с <code>run_id</code>, <code>pod_id</code>, суммой и подтверждением удаления.</p>
+<h3>3.2. Причина, по которой реальный прогон не был PASS</h3>
+<p>Прогон <code>e1845955</code> создал и запустил TaskDesk, прошёл тесты, отдал HTTP 200, сохранил строку в SQLite, независимый браузер отрисовал страницу — и всё равно не был зачтён, потому что provenance остался <code>INCOMPLETE_TRACE</code>.</p>
+<p>Вместо предположений был сделан <strong>replay сохранённого трейса</strong> через текущий классификатор:</p>
+<table><thead><tr>
+<th>Проверка replay</th>
+<th>Результат</th>
+</tr></thead><tbody>
+<tr><td>Воспроизведение записанного вердикта</td><td><strong>точно</strong> <code>INCOMPLETE_TRACE</code>, 18 живых ответов, 17 вызовов, 17 связанных результатов</td></tr>
+<tr><td>Несвязанные исполнения модели</td><td><strong>0</strong> (<code>unmatched_model_executions: []</code>)</td></tr>
+<tr><td>Отсутствующее звено</td><td><strong>одно</strong> — событие <code>VERIFY_PASSED</code></td></tr>
+<tr><td>Контрфактическая проверка</td><td>с одним добавленным <code>VERIFY_PASSED</code> классификатор даёт <code>REAL_MODEL_CONFIRMED</code></td></tr>
+</tbody></table>
+<p>Вывод: дефект был <strong>не в модели и не в классификаторе</strong>, а в том, что завершение задачи не требовало независимой проверки. Это исправлено в коде (раздел 10, п. 1).</p>
+<h3>3.3. Что из требований задания №1 закрыто</h3>
+<table><thead><tr>
+<th>Требование</th>
+<th>Статус</th>
+<th>Доказательство</th>
+</tr></thead><tbody>
+<tr><td>Фактический аудит вместо пересказа отчёта</td><td>PASS</td><td>git, планировщик, монитор, Pod, балансы проверены</td></tr>
+<tr><td>Нет скрытых расходов</td><td>PASS</td><td>0 Pod, журнал и баланс сверены</td></tr>
+<tr><td>Один Pod за раз, без дублей</td><td>PASS</td><td>правило закреплено, инцидент разобран ранее</td></tr>
+<tr><td>Мониторинг 30 с без Zed</td><td>PASS</td><td>2127 проверок, задача Windows, <code>LastTaskResult 0</code></td></tr>
+<tr><td>Fast path</td><td>реализован ранее</td><td>≈6 с от обнаружения GPU до запроса</td></tr>
+<tr><td>Таймауты SSE/backend/модель</td><td>PASS</td><td>31/31 self-test, включая «первый токен через 90 с»</td></tr>
+<tr><td>Максимальное использование Pod</td><td>выполнено в серии</td><td>один Pod на попытку, модель работала до конца</td></tr>
+<tr><td>Минимальное доказательство модели</td><td>PASS</td><td>18 ответов, 17 исполненных tool calls</td></tr>
+<tr><td>TaskDesk</td><td>PASS</td><td>создан, запущен, HTTP 200, SQLite, GUI</td></tr>
+<tr><td>Независимый verifier</td><td>PASS</td><td>браузер, HTTP, SQLite, тесты — отдельно от модели</td></tr>
+<tr><td>Autonomous repair</td><td>доказан в рамках попытки</td><td><code>29b149b8</code>: падения → патчи → 8/8 verify</td></tr>
+<tr><td>Durable resume</td><td>NOT_TESTED</td><td>требует платного окна</td></tr>
+<tr><td>Шкала автономности</td><td>честно</td><td>LEVEL 1–4 proven, 5 within-attempt, 6 blocked, 7 not tested</td></tr>
+<tr><td>Watchdog</td><td>PASS</td><td>self-test, независимый процесс, подтверждённое удаление</td></tr>
+<tr><td>Recovery A–H</td><td>покрыто бесплатно</td><td>28/28 матрица</td></tr>
+<tr><td>Production 1.2.6</td><td>PASS</td><td>не изменена, перепроверена</td></tr>
+<tr><td>Computer/Tor</td><td>PASS</td><td>installed always-ready PASS</td></tr>
+<tr><td>Бесплатные проверки</td><td>PASS</td><td>см. раздел 5</td></tr>
+<tr><td>State machine</td><td>ведётся</td><td><code>PLAN.md</code>, <code>status.json</code>, журналы</td></tr>
+<tr><td>Итоговый отчёт A–K</td><td>PASS</td><td><code>artifacts/REPORT-canalla-127-AUTONOMOUS.md</code></td></tr>
+</tbody></table>
+<hr>
+<h2>4. Задание №2 — как выполнено</h2>
+<h3>4.1. Семь пунктов владельца</h3>
+<table><thead><tr>
+<th>#</th>
+<th>Требование</th>
+<th>Как выполнено</th>
+</tr></thead><tbody>
+<tr><td>1</td><td>Убрать Authenticode из блокеров</td><td><code>WAIVED_BY_OWNER</code> записан в <code>AGENTS.md</code>, <code>docs/AI-HANDOFF.md</code>, <code>docs/release-gate.md</code>, <code>CHANGELOG.md</code>, <code>docs/release-1.2.7.md</code>, отчёте</td></tr>
+<tr><td>2</td><td>Не покупать сертификаты и сервисы</td><td>ничего не покупалось; updater-ключ уже существует локально и бесплатен</td></tr>
+<tr><td>3</td><td>Разрешить неподписанный EXE</td><td>установщик собран без Authenticode; <code>Get-AuthenticodeSignature</code> = <code>NotSigned</code> — ожидаемое состояние</td></tr>
+<tr><td>4</td><td>Сохранить SHA-256, целостность, безопасность, работоспособность</td><td>полный гейт 22/22, <code>verify-artifact</code> 8/8, контрольные суммы, stamp, standalone-sidecar</td></tr>
+<tr><td>5</td><td>Обновить checklist и документацию</td><td><code>docs/release-1.2.7.md</code> (release notes + чеклист), <code>docs/release-gate.md</code>, <code>CHANGELOG.md</code>, <code>AGENTS.md</code></td></tr>
+<tr><td>6</td><td>Не возвращаться к платной подписи</td><td>записано как окончательное решение; в чеклисте пункт закрыт</td></tr>
+<tr><td>7</td><td>Продолжить подготовку автономно</td><td>установщик собран, проверен, задокументирован, запушен</td></tr>
+</tbody></table>
+<h3>4.2. Что именно осталось обязательным после снятия Authenticode</h3>
+<table><thead><tr>
+<th>Проверка</th>
+<th>Статус после решения</th>
+</tr></thead><tbody>
+<tr><td>Authenticode-подпись издателя</td><td><strong>не требуется</strong> (снято владельцем)</td></tr>
+<tr><td>Предупреждение SmartScreen при первом запуске</td><td><strong>допустимо</strong></td></tr>
+<tr><td><strong>Updater-подпись</strong> Tauri (minisign <code>.sig</code>)</td><td><strong>обязательна</strong>, production-ключ <code>9B328EFF111D1FB2</code></td></tr>
+<tr><td>SHA-256 установщика</td><td><strong>обязателен</strong>, опубликован в отчёте и файле сумм</td></tr>
+<tr><td>Совпадение имени/версии артефакта с деревом</td><td><strong>обязательно</strong></td></tr>
+<tr><td>Привязка trusted comment подписи к имени файла</td><td><strong>обязательно</strong></td></tr>
+<tr><td>Вшитый <code>ALEX_GATEWAY_URL</code></td><td><strong>обязательно</strong></td></tr>
+<tr><td>Соответствие sidecar stamp исходникам</td><td><strong>обязательно</strong></td></tr>
+<tr><td>Запуск packaged backend без Python</td><td><strong>обязательно</strong></td></tr>
+<tr><td>Install/upgrade/restore smoke на чистой VM</td><td><strong>обязательно перед публикацией</strong></td></tr>
+</tbody></table>
+<p>Смысл: снят один закупочный барьер, а не цепочка целостности. Пользователь по-прежнему может сверить скачанное по SHA-256, а приложение по-прежнему отказывается ставить обновление, которое не может проверить.</p>
+<hr>
+<h2>5. Артефакт 1.2.7</h2>
+<h3>5.1. Установщик</h3>
+<table><thead><tr>
+<th>Параметр</th>
+<th>Значение</th>
+</tr></thead><tbody>
+<tr><td>Имя</td><td><code>Canalla LLM_1.2.7_x64-setup.exe</code></td></tr>
+<tr><td>Размер</td><td>96 564 385 байт</td></tr>
+<tr><td>SHA-256</td><td><code>61040aa86418ad6640d71e89d9b90b9af88d5be83168a2f91082c06124c4c960</code></td></tr>
+<tr><td>FileVersion / ProductVersion</td><td>1.2.7 / 1.2.7</td></tr>
+<tr><td>ProductName</td><td>Canalla LLM</td></tr>
+<tr><td>Authenticode</td><td><strong>NotSigned</strong> (WAIVED_BY_OWNER)</td></tr>
+<tr><td>Updater-подпись</td><td>есть, <code>.sig</code> 424 байта, ключ <code>9B328EFF111D1FB2</code>, Ed25519 над BLAKE2b-512</td></tr>
+<tr><td>SHA-256 подписи</td><td><code>cb35e7f0d30ac7847523b45e324aa58b39af62921330b4934a098d1d71be6763</code></td></tr>
+</tbody></table>
+<h3>5.2. Payload внутри установщика</h3>
+<table><thead><tr>
+<th>Файл</th>
+<th>Размер</th>
+<th>SHA-256</th>
+</tr></thead><tbody>
+<tr><td><code>alex-llm.exe</code></td><td>6 035 968</td><td><code>a5cb02e675eb6336b4ce8a79da40d8f8c625e628155f1ed5c62fdc0db2f6acd1</code></td></tr>
+<tr><td><code>alex-host-loop.exe</code></td><td>2 243 584</td><td><code>097f182b1391829b2b604b8a6ff2958648f751a312ecd0e672951c3850d64278</code></td></tr>
+<tr><td><code>alex-backend.exe</code> (sidecar)</td><td>24 853 540</td><td><code>ce93221dcb57014d53a010a5d8dfd658df5e97f1841d90e65443764f39367bed</code></td></tr>
+<tr><td><code>tor.exe</code></td><td>10 248 704</td><td><code>da22856f95ee24f8ace4ad1ab04acbd818fd6c3042bc3cf8f1d7cc3fa3edcb2b</code></td></tr>
+</tbody></table>
+<p>Sidecar stamp: <code>product 1.2.7</code>, 161 исходный файл, <code>source_digest e83eab9b37aa…</code>. Контрольные суммы сохранены в <code>artifacts/SHA256SUMS-1.2.7.txt</code>.</p>
+<hr>
+<h2>6. Полный набор проверок</h2>
+<h3>6.1. Релизный гейт</h3>
+<pre><code>release-gate.py candidate --installer &quot;Canalla LLM_1.2.7_x64-setup.exe&quot;
+  → 22 шага, 0 FAIL, 0 BLOCKED → RELEASE GATE: PASS
+Лог: artifacts/release-gate-1.2.7.txt</code></pre>
+<p>Шаги: ruff (backend, format, gateway), backend pytest, gateway pytest, vitest, tsc, prettier, vite build, <code>cargo check --all-targets</code>, <code>cargo test</code>, Playwright, sidecar stamp, packaged gateway URL, и весь блок artifact-проверок.</p>
+<h3>6.2. Функциональные проверки</h3>
+<table><thead><tr>
+<th>Проверка</th>
+<th>Результат</th>
+</tr></thead><tbody>
+<tr><td>Backend pytest (полный прогон)</td><td><strong>1184 passed, 1 skipped</strong></td></tr>
+<tr><td>Gateway pytest</td><td><strong>262 passed</strong></td></tr>
+<tr><td>Vitest</td><td><strong>328 passed</strong></td></tr>
+<tr><td>TypeScript <code>tsc -b</code></td><td>clean</td></tr>
+<tr><td>Prettier</td><td>clean</td></tr>
+<tr><td>Vite build</td><td>OK</td></tr>
+<tr><td>Playwright E2E</td><td><strong>25 passed</strong></td></tr>
+<tr><td>Rust <code>cargo test</code></td><td><strong>134 passed</strong> (40 host-loop + 78 desktop + 16 updater, 2 network-ignored)</td></tr>
+<tr><td><code>npm audit --omit=dev</code></td><td>0 уязвимостей</td></tr>
+<tr><td>Ruff check / format</td><td>clean, 245 файлов</td></tr>
+<tr><td>BasedPyright (поставляемый код)</td><td><strong>0 ошибок, 0 предупреждений, 153 файла</strong></td></tr>
+<tr><td>Version consistency</td><td><strong>9/9</strong> на 1.2.7</td></tr>
+</tbody></table>
+<h3>6.3. Приёмочные матрицы и сервисы</h3>
+<table><thead><tr>
+<th>Проверка</th>
+<th>Результат</th>
+</tr></thead><tbody>
+<tr><td>Monitor self-test</td><td><strong>66/66 PASS</strong></td></tr>
+<tr><td>Live acceptance self-test</td><td><strong>31/31 PASS</strong></td></tr>
+<tr><td><code>acceptance-live-rc-final.py --self-test</code></td><td><strong>28/28 PASS</strong></td></tr>
+<tr><td><code>acceptance-post-release-1.1.0.py --self-test</code></td><td><strong>16/16 PASS</strong></td></tr>
+<tr><td>Watchdog self-test</td><td>PASS</td></tr>
+<tr><td>Развёрнутый Gateway <code>--dry-run</code></td><td><strong>PASS</strong>: свежая установка, статус, баланс, типизированный <code>price_limit</code>, отказ на некорректную политику, <strong>Pod не создан</strong></td></tr>
+<tr><td>Ограниченность поиска</td><td>повторный прогон через 95 с видит <code>offline</code> — окно закрылось само</td></tr>
+<tr><td>Installed always-ready</td><td><strong>PASS</strong>: Computer и Tor зелёные при запуске, после relaunch и после реального kill sidecar; один device_id</td></tr>
+<tr><td>Packaged sidecar standalone</td><td><strong>PROOF_PASS</strong>: <code>/health</code> ok, версия 1.2.7, без Python и без репозитория, корректное завершение</td></tr>
+</tbody></table>
+<hr>
+<h2>7. Деньги и инфраструктура</h2>
+<h3>7.1. Серия платных попыток (закрыта)</h3>
+<table><thead><tr>
+<th>Параметр</th>
+<th>Значение</th>
+</tr></thead><tbody>
+<tr><td>Batch</td><td><code>0673b737b3f243ed8985dd62c899dbb1</code>, лимит $2.00</td></tr>
+<tr><td>Pod за серию</td><td>9 (по одному), все подтверждённо удалены</td></tr>
+<tr><td>Списано по журналу</td><td>$1.6420</td></tr>
+<tr><td>Падение баланса</td><td>$1.6773</td></tr>
+<tr><td>Остаток лимита</td><td>$0.358 → <code>PAID_BATCH_EXHAUSTED</code></td></tr>
+<tr><td>Новые Pod</td><td>не создавались</td></tr>
+</tbody></table>
+<h3>7.2. Мониторинг</h3>
+<table><thead><tr>
+<th>Параметр</th>
+<th>Значение</th>
+</tr></thead><tbody>
+<tr><td>Задача</td><td>Windows <code>Canalla LLM GPU Monitor</code></td></tr>
+<tr><td>Ритм</td><td>30 секунд (2 проверки в минуту)</td></tr>
+<tr><td>Проверок выполнено</td><td><strong>2127</strong></td></tr>
+<tr><td>Последний результат задачи</td><td><code>0</code> (успех)</td></tr>
+<tr><td>Зависимость от Zed</td><td>нет</td></tr>
+<tr><td>GPU сейчас</td><td>AVAILABLE (L40S в US-TX-3)</td></tr>
+<tr><td>Состояние</td><td><code>PAID_BATCH_EXHAUSTED</code> — видит GPU, но не покупает</td></tr>
+</tbody></table>
+<h3>7.3. Развёрнутый Gateway</h3>
+<table><thead><tr>
+<th>Параметр</th>
+<th>Значение</th>
+</tr></thead><tbody>
+<tr><td>Адрес</td><td><code>https://gateway.12testers.store</code></td></tr>
+<tr><td>Служба</td><td><code>active</code>, <code>/health</code> → 200</td></tr>
+<tr><td>Dry-run</td><td>PASS, Pod не создан</td></tr>
+<tr><td>Найденный дефект</td><td>env-файл потерял группу (<code>root:root 0600</code> вместо <code>root:alex-gateway 0640</code>) → operator CLI не выпускал код; права восстановлены без правки содержимого и без рестарта</td></tr>
+</tbody></table>
+<hr>
+<h2>8. Production integrity</h2>
+<table><thead><tr>
+<th>Параметр</th>
+<th>Значение</th>
+<th>Изменение</th>
+</tr></thead><tbody>
+<tr><td>users</td><td>2</td><td>нет</td></tr>
+<tr><td>chats</td><td>54</td><td>нет</td></tr>
+<tr><td>messages</td><td>120</td><td>нет</td></tr>
+<tr><td>paired_devices</td><td>63</td><td>нет</td></tr>
+<tr><td>local_tasks</td><td>30</td><td>нет</td></tr>
+<tr><td>integrity_check</td><td>ok</td><td>нет</td></tr>
+<tr><td>foreign key violations</td><td>0</td><td>нет</td></tr>
+<tr><td>device identity</td><td><code>6413489d-6cae-4183-8446-a3b2339137dc</code></td><td>нет</td></tr>
+<tr><td>Установленный exe</td><td><code>21b50e462156b9f109303623e4c67225d4e44daad981d8f439a83d16c8cafaf1</code> (1.2.6, 12.11)</td><td>не переустанавливался</td></tr>
+</tbody></table>
+<p>Проверка выполнена read-only (<code>mode=ro</code>) после всех работ, включая прогоны Playwright и installed-E2E с изолированными данными.</p>
+<hr>
+<h2>9. Уровни автономности (честная оценка)</h2>
+<table><thead><tr>
+<th>Уровень</th>
+<th>Статус</th>
+<th>Основание</th>
+</tr></thead><tbody>
+<tr><td>1 — реальная модель отвечает</td><td><strong>PROVEN</strong></td><td>18 ответов с <code>live: true</code>, провайдер <code>llamacpp</code></td></tr>
+<tr><td>2 — модель вызывает и использует инструменты</td><td><strong>PROVEN</strong></td><td>17 исполненных вызовов с ledger-строками</td></tr>
+<tr><td>3 — несколько зависимых действий</td><td><strong>PROVEN</strong></td><td>чтение → запись → запуск → тесты → правка</td></tr>
+<tr><td>4 — модель создаёт и запускает приложение</td><td><strong>PROVEN</strong></td><td>TaskDesk, HTTP 200, независимый браузер, SQLite</td></tr>
+<tr><td>5 — модель исправляет реальную ошибку</td><td><strong>PROVEN в рамках попытки</strong></td><td><code>29b149b8</code>: падения → патчи → <code>verify_result</code> 8/8</td></tr>
+<tr><td>6 — независимая проверка доказывает завершение</td><td><strong>BLOCKED_BY_LIVE_BUDGET</strong></td><td>нет одного завершённого прогона, где все проверки и <code>REAL_MODEL_CONFIRMED</code> совпали</td></tr>
+<tr><td>7 — durable resume с реальной моделью</td><td><strong>NOT_TESTED</strong></td><td>требует платного окна</td></tr>
+</tbody></table>
+<p>Важно: отсутствующее звено для LEVEL 6 теперь закрыто <strong>в коде</strong> и покрыто тестами, но тест не является LIVE. Поэтому уровень не заявлен.</p>
+<hr>
+<h2>10. Дефекты, найденные и исправленные</h2>
+<h3>10.1. Исправлено в этой сессии</h3>
+<ol>
+<li><strong>Завершение без независимой проверки.</strong> <code>next_forced_action</code> теперь требует ровно один <code>verify_result</code> после зелёных тестов; проверки строятся из записанных файлов и тестовой команды; новая запись снова делает проверку должной.</li>
+<li><strong>Тесты запускались не из того каталога.</strong> Пакетная раскладка (<code>taskdesk/app</code> + <code>taskdesk/tests</code>) проверяется из <code>taskdesk/</code>, а не из корня, где editable-<code>app</code> перекрывает пакет проекта.</li>
+<li><strong>Evidence не переживало <code>%TEMP%</code>.</strong> Снапшот проекта в evidence-каталог, полный <code>provenance-events.jsonl</code>, <code>id</code> в <code>tool-execution.jsonl</code>, self-test пишет в свой каталог.</li>
+<li><strong>Type gate не соответствовал заявленному 0/0.</strong> Поставляемый код исправлен (0/0 на 153 файлах); тесты и скрипты вынесены из гейта решением о scope и измерены отдельно (358 диагностик) — это записано в <code>docs/AI-HANDOFF.md</code>.</li>
+<li><strong>Ruff-дрейф.</strong> 12 файлов не соответствовали форматтеру; приведены в порядок.</li>
+<li><strong>Sidecar устаревал после правок backend.</strong> Пересобран; штамп снова совпадает с деревом.</li>
+<li><strong>Права env-файла Gateway.</strong> <code>root:root 0600</code> → <code>root:alex-gateway 0640</code>; operator CLI снова выпускает коды активации.</li>
+<li><strong>Self-test затирал evidence платного прогона.</strong> Теперь пишет в <code>self-test/</code>.</li>
+</ol>
+<h3>10.2. Исправлено ранее (серия попыток)</h3>
+<p><code>install_software</code> по любому «установи»; второй Pod при транзиентном 404; ложный CLEAN по одному пустому списку; <code>INVALID_PROVENANCE</code> из-за разной нормализации digest; крэш evidence на <code>datetime</code>; системный Python без pytest; verifier не находил приложение; shadowing <code>app</code>; ожидание подтверждения без событий; <code>sources_missing</code> при выключенном web; историческая неудачная проверка блокировала COMPLETED; регрессия append; относительный путь; реклама ненастроенного web-провайдера.</p>
+<hr>
+<h2>11. Git-история сессии</h2>
+<p>14 коммитов, все запушены:</p>
+<pre><code>559a3ad Name the commit the artifact was built from
+8457f74 Record the installer&#x27;s own identity
+b4e0070 Record the release gate run
+f770285 Ship 1.2.7 unsigned and keep the integrity chain
+0519ddb Refresh the preflight cache after the dry run
+dacbe6b Refresh the gates for the final tree
+4166873 Run a forced retest where the project&#x27;s tests live
+2a2e6be Record the installed always-ready gate
+e7966b5 Report the installer build and the untouched production
+5f1e442 Record the deployed Gateway dry run
+e04a22a Record the free work after the paid batch
+9916b96 Keep the run&#x27;s project and journal as evidence
+665a1f3 Make the shipped code type-clean and scope the gate to it
+7e787bc Require an independent verification before closing a build</code></pre>
+<hr>
+<h2>12. Что осталось и почему</h2>
+<table><thead><tr>
+<th>Пункт</th>
+<th>Состояние</th>
+<th>Причина</th>
+</tr></thead><tbody>
+<tr><td>Уровни 6 и 7</td><td><code>BLOCKED_BY_LIVE_BUDGET</code> / <code>NOT_TESTED</code></td><td>остаток $0.358 меньше полезного окна; нужен новый бюджет</td></tr>
+<tr><td>Install/upgrade на чистой VM</td><td>не выполнено</td><td>нет чистого VM-хоста и Windows Sandbox на машине сборки</td></tr>
+<tr><td>Ubuntu runtime acceptance</td><td>не выполнено</td><td>нужен Linux-хост</td></tr>
+<tr><td>Публикация 1.2.7</td><td>не выполнена</td><td><code>release-gate.py publish</code> отказывает по замыслу; нужно отдельное разрешение владельца</td></tr>
+<tr><td>Authenticode</td><td>снят</td><td>окончательное решение владельца</td></tr>
+</tbody></table>
+<p>Ни один из этих пунктов не является программным дефектом.</p>
+<hr>
+<h2>13. Как воспроизвести</h2>
+<pre><code># 1. Проверить дерево и версию
+git switch feature/canalla-1.2.7-autonomous-agent
+git log --oneline -1
+apps\backend\.venv\Scripts\python.exe -m pytest apps\backend\tests\test_version_consistency.py -q
+
+# 2. Пересобрать sidecar из текущего дерева
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-backend-sidecar.ps1
+
+# 3. Собрать установщик с production updater-ключом (Authenticode не используется)
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts\production-signing.ps1 -Action Build `
+  -KeyPath &quot;$env:USERPROFILE\.canalla-updater\production\canalla-updater-production.key&quot;
+
+# 4. Проверить артефакт и прогнать полный гейт
+apps\backend\.venv\Scripts\python.exe scripts\release-gate.py verify-artifact `
+  --installer &quot;apps\desktop\src-tauri\target\release\bundle\nsis\Canalla LLM_1.2.7_x64-setup.exe&quot;
+apps\backend\.venv\Scripts\python.exe scripts\release-gate.py candidate `
+  --installer &quot;apps\desktop\src-tauri\target\release\bundle\nsis\Canalla LLM_1.2.7_x64-setup.exe&quot;
+
+# 5. Сверить контрольные суммы
+Get-Content artifacts\SHA256SUMS-1.2.7.txt
+
+# 6. Проверить, что Pod нет и баланс не изменился
+apps\backend\.venv\Scripts\python.exe artifacts\readonly-runpod-state.py</code></pre>
+<p>Примечание: <code>release-gate.py candidate</code> ищет <code>cargo</code> в <code>PATH</code>; на этой машине тулчейн лежит в <code>%USERPROFILE%\.cargo\bin</code> и в интерактивный <code>PATH</code> не входит — без него Rust-шаги будут <code>BLOCKED</code>, а не <code>PASS</code>.</p>
+<hr>
+<h2>14. Индекс evidence</h2>
+<table><thead><tr>
+<th>Что</th>
+<th>Где</th>
+</tr></thead><tbody>
+<tr><td>Итоговый отчёт A–K</td><td><code>artifacts/REPORT-canalla-127-AUTONOMOUS.md</code></td></tr>
+<tr><td>Лог релизного гейта</td><td><code>artifacts/release-gate-1.2.7.txt</code></td></tr>
+<tr><td>Контрольные суммы 1.2.7</td><td><code>artifacts/SHA256SUMS-1.2.7.txt</code></td></tr>
+<tr><td>Release notes и чеклист</td><td><code>docs/release-1.2.7.md</code></td></tr>
+<tr><td>Replay сохранённого трейса</td><td><code>artifacts/acceptance-127/live-qwen/verifier-replay/replay-e1845955.json</code></td></tr>
+<tr><td>Инструмент replay</td><td><code>artifacts/acceptance-127/live-qwen/replay-verifier.py</code></td></tr>
+<tr><td>Evidence последнего LIVE</td><td><code>artifacts/acceptance-127/live-qwen/final-live/</code></td></tr>
+<tr><td>Self-test приёмки</td><td><code>artifacts/acceptance-127/live-qwen/self-test/self-test.json</code></td></tr>
+<tr><td>План и состояние работ</td><td><code>artifacts/acceptance-127/live-qwen/PLAN.md</code></td></tr>
+<tr><td>Состояние монитора</td><td><code>%LOCALAPPDATA%\CanallaMonitor\</code> (<code>state.json</code>, <code>status.json</code>, <code>checks.jsonl</code>, <code>batch-spend.jsonl</code>)</td></tr>
+</tbody></table>
+<hr>
+<h2>15. Правило на будущее</h2>
+<p>Владелец попросил всегда делать такой отчёт. Зафиксировано:</p>
+<ul>
+<li>после каждой существенной сессии (или по явной просьбе) на <strong>Рабочий стол</strong> кладётся полный отчёт в двух форматах: <code>.md</code> (машиночитаемый) и <code>.html</code> (открывается в браузере);</li>
+<li>отчёт содержит: что требовалось, что сделано, чем доказано, сколько стоило, что осталось, состояние production и git, индекс evidence;</li>
+<li>в отчёте не заявляется PASS без доказательства; неизвестное остаётся неизвестным;</li>
+<li>копия отчёта сохраняется в репозитории (<code>artifacts/reports/</code>) и коммитится.</li>
+</ul>
+<p>Это правило оформлено как навык агента <code>desktop-report</code>, чтобы применяться и в следующих сессиях.</p>
+</body>
+</html>

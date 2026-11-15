@@ -11,6 +11,23 @@ purchased, and the Tauri **updater** minisign signature stays required. See
 
 Read `docs/AI-HANDOFF.md` before changing runtime, packaging, or compute.
 
+## Reporting to the owner
+
+After every substantial block of work — and whenever the owner asks for an «отчёт» — write a full
+report to the Windows Desktop **without asking for confirmation**:
+
+- `Отчёт <product> <version> — <subject>.md` and the same content as a self-contained
+  `.html` (inline CSS, opens offline), resolved with
+  `[Environment]::GetFolderPath('Desktop')`;
+- identical copies under `artifacts/reports/`, committed with the other evidence;
+- sections: metadata → summary → what was asked → what was done (requirement → result → evidence)
+  → artifact facts and hashes → every check with real numbers → money and infrastructure →
+  production integrity → honest maturity levels → defects fixed → git history → what remains and
+  why → reproduction commands → evidence index → the reporting rule itself;
+- observed data only; never upgrade `BLOCKED`/`NOT_TESTED`/`UNKNOWN` to `PASS`; no secrets (hashes,
+  key ids and paths are fine).
+- Renderer: `artifacts/reports/report-to-html.py <in.md> <out.html>`.
+
 ## Naming
 
 The product is branded **Canalla LLM** for users: window title, installer, Shortcuts, About,
