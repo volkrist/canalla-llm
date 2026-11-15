@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CANALLA LLM 1.2.7 — ФИНАЛЬНАЯ ПРИЁМКА РЕЛИЗА</title>
+<style>
+:root { color-scheme: light dark; }
+body { margin: 0 auto; max-width: 1080px; padding: 48px 28px 96px;
+  font: 16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif; color: #1b1f24; background: #ffffff; }
+h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; }
+h2 { font-size: 1.45rem; margin: 42px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #e3e7ec; }
+h3 { font-size: 1.14rem; margin: 28px 0 10px; }
+h4 { font-size: 1rem; margin: 22px 0 8px; }
+p { margin: 10px 0; }
+table { border-collapse: collapse; width: 100%; margin: 14px 0 22px; font-size: 0.94rem; }
+th, td { border: 1px solid #dfe3e8; padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: #f4f6f8; font-weight: 600; }
+tbody tr:nth-child(even) { background: #fbfcfd; }
+code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 0.88em;
+  background: #f2f4f7; padding: 1px 5px; border-radius: 4px; }
+pre { background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 10px; overflow-x: auto; }
+pre code { background: none; color: inherit; padding: 0; font-size: 0.86rem; }
+blockquote { margin: 16px 0; padding: 10px 16px; border-left: 4px solid #94a3b8;
+  background: #f8fafc; color: #334155; }
+hr { border: 0; border-top: 1px solid #e3e7ec; margin: 34px 0; }
+ul, ol { margin: 10px 0 14px; padding-left: 26px; }
+li { margin: 5px 0; }
+a { color: #0b62d6; }
+@media (prefers-color-scheme: dark) {
+  body { background: #0b0f14; color: #dbe3ec; }
+  h2 { border-color: #1f2a36; }
+  th { background: #131b24; }
+  th, td { border-color: #22303d; }
+  tbody tr:nth-child(even) { background: #0f151d; }
+  code { background: #151d27; }
+  blockquote { background: #111922; color: #b6c2cf; border-color: #33506b; }
+  a { color: #74b0ff; }
+}
+@media print { body { max-width: none; } pre { white-space: pre-wrap; } }
+</style>
+</head>
+<body>
+<h1>CANALLA LLM 1.2.7 — ФИНАЛЬНАЯ ПРИЁМКА РЕЛИЗА</h1>
+<p><strong>Отчёт по заданию «FINAL RELEASE ACCEPTANCE»: виртуализация, Linux, установка/обновление/откат, гейт</strong></p>
+<table><thead><tr>
+<th></th>
+<th></th>
+</tr></thead><tbody>
+<tr><td>Дата</td><td>15 ноября 2026</td></tr>
+<tr><td>Проект</td><td>Canalla LLM Desktop 1.2.7</td></tr>
+<tr><td>Ветка</td><td><code>feature/canalla-1.2.7-autonomous-agent</code></td></tr>
+<tr><td>HEAD</td><td><code>89a5023</code> (запушен)</td></tr>
+<tr><td>Артефакт собран и прогнан гейтом на</td><td><code>61102fe</code></td></tr>
+<tr><td>Финальный установщик</td><td><code>Canalla LLM_1.2.7_x64-setup.exe</code>, 96 561 854 B</td></tr>
+<tr><td>SHA-256 установщика</td><td><code>1c79b201bab79453b5f76d9fe57e274f39ae583d38891c81e8ebdf310a133c77</code></td></tr>
+<tr><td>Релизный гейт</td><td><strong>PASS — 22 шага, 0 FAIL, 0 BLOCKED</strong></td></tr>
+<tr><td>Публикация</td><td>не выполнялась (требует отдельного разрешения)</td></tr>
+</tbody></table>
+<hr>
+<h2>1. Резюме</h2>
+<p>Задание выполнено в той части, которую можно доказать на этой машине, и там, где среда не позволила — это зафиксировано честно, а не замаскировано.</p>
+<p>Подтверждено:</p>
+<ul>
+<li><strong>Ubuntu runtime acceptance — PASS 10/10</strong>: собранный из этого дерева Linux-sidecar отвечает <code>/health</code> с полностью пустым <code>PATH</code>, сообщает версию 1.2.7; встроенный Tor 0.4.9.16 реально поднимает SOCKS5h-цепь, переживает убийство демона и восстанавливается с новым доказательством, после остановки не оставляет процессов.</li>
+<li><strong>Обновление 1.2.6 → 1.2.7 на реальных данных 1.2.6</strong>: sidecar 1.2.7 мигрировал базу <code>0016 → 0017</code>, создал проверенный pre-upgrade backup, пользователь и чат сохранились.</li>
+<li><strong>Откат</strong>: 1.2.6 на базе 0017 больше не падает с <code>CommandError</code>, а типизированно отказывается — exit <code>16</code>, <code>database_ahead</code>, база не тронута, лишний backup не создаётся. Дефект найден этой приёмкой и исправлен.</li>
+<li><strong>Финальный артефакт</strong>: собран заново, updater-подпись production-ключом, полный релизный гейт <code>candidate</code> — <strong>22/22 PASS</strong>.</li>
+<li><strong>Production 1.2.6 восстановлена байт-в-байт</strong> после инцидента с установщиком (раздел 7).</li>
+</ul>
+<p>Не подтверждено (и почему):</p>
+<ul>
+<li><strong>Чистая Windows VM</strong>: VirtualBox и бесплатный ISO есть, VM создана, Windows Setup загружается, но unattended-фаза откатывается на ~11%. Ограничение среды, не продукта (раздел 4).</li>
+<li><strong>Удаление программы на пользовательской установке</strong> не выполнялось: оно удалило бы рабочее приложение. Поведение неизменно с 1.0.0 — uninstaller удаляет только каталог программы.</li>
+<li><strong>LEVEL 6/7</strong> остаются <code>BLOCKED_BY_LIVE_BUDGET</code> / <code>NOT_TESTED</code> (раздел 11).</li>
+</ul>
+<hr>
+<h2>2. Что требовалось</h2>
+<ol>
+<li>Исследовать возможность бесплатной чистой Windows VM.</li>
+<li>Если виртуализация доступна — создать изолированное окружение.</li>
+<li>Проверить clean install 1.2.7, upgrade 1.2.6 → 1.2.7, сохранение данных, Computer Connect, Tor, updater, rollback, удаление.</li>
+<li>Найти доступный Linux/Ubuntu runtime, не затрагивая работающие сервисы VPS.</li>
+<li>Выполнить Ubuntu acceptance.</li>
+<li>Исправлять найденные ошибки, повторять бесплатные тесты, обновлять сборку.</li>
+<li>Проверить всё, что доступно для LEVEL 6/7 без новой платной GPU; mock/replay не выдавать за LIVE.</li>
+<li>Сохранить production 1.2.6 без изменений.</li>
+<li>Не покупать сертификаты и облачные ресурсы.</li>
+<li>Выполнить полный релизный гейт на финальном артефакте.</li>
+<li>Обновить документацию, evidence и Git.</li>
+<li>Подготовить полный отчёт .md и .html на Рабочем столе.</li>
+</ol>
+<hr>
+<h2>3. Виртуализация: что найдено</h2>
+<table><thead><tr>
+<th>Ресурс</th>
+<th>Состояние</th>
+</tr></thead><tbody>
+<tr><td>Windows</td><td>Windows 11</td></tr>
+<tr><td>Hyper-V hypervisor</td><td>присутствует (HypervisorPresent = True)</td></tr>
+<tr><td>Windows Sandbox</td><td><strong>отсутствует</strong> (<code>WindowsSandbox.exe</code> нет, компонент не включён)</td></tr>
+<tr><td>VirtualBox</td><td><strong>установлен, 7.2.8r173730</strong></td></tr>
+<tr><td>Существующие VM</td><td><code>Ubuntu-Desktop-2</code> (poweroff), одна недоступная запись</td></tr>
+<tr><td>ISO на диске</td><td>отсутствовал</td></tr>
+<tr><td>Free RAM / disk</td><td>7.9 GB / C: 46 GB, D: 77 GB</td></tr>
+<tr><td>Бесплатный ISO</td><td><strong>Windows 11 Enterprise Evaluation 24H2</strong>, официальный, 5 387 960 320 B</td></tr>
+</tbody></table>
+<p>ISO скачан с <code>software-static.download.prss.microsoft.com</code>, размер совпал с <code>Content-Length</code> байт в байт, структура проверена: PVD <code>CD001</code>, El Torito, UDF-bridge. Ничего не покупалось.</p>
+<hr>
+<h2>4. Чистая Windows VM: что сделано и где остановилось</h2>
+<p>Создана VM <code>Canalla-127-Acceptance</code> (Windows11_64, EFI, TPM 2.0, 4 GB RAM, 2 CPU, диск 40 GB на D:, общая папка, Guest Additions). Путь установки прошёл несколько реальных препятствий, каждое исправлено:</p>
+<ol>
+<li><strong>ISO не подключался</strong>: у SATA-контроллера было 2 порта, и aux-образ занял единственный свободный. Исправлено: 4 порта + явное подключение ISO.</li>
+<li><strong>VirtualBox обернул ISO в aux-образ и потерял El Torito</strong> (<code>cBootCatEntries: none</code>) — VM уходила в EFI shell. Исправлено: загрузка с оригинального ISO.</li>
+<li><strong>ISO ждёт нажатия клавиши</strong> («Press any key to boot from CD or DVD»), headless-загрузка без клавиатуры уходила в Boot Manager. Исправлено: подача скан-кодов в нужное окно.</li>
+<li><strong>Файл ответов на дискете не подхватился</strong> — Setup показал выбор языка. Исправлено: отдельный маленький ISO с <code>autounattend.xml</code> как второй оптический носитель.</li>
+<li><strong>Установка доходит до «Installing Windows 11 — 11%»</strong> и после перезагрузки машина не находит загрузочный диск (<code>BdsDxe: No bootable option</code>), VDI остаётся ~1.1 GB. Повторные попытки (включая загрузку с DVD) не продвигают фазу apply.</li>
+</ol>
+<p>Итог: <strong>чистая VM создана и Windows Setup в ней запускается, но unattended-установка в этой среде не завершается</strong>. Это ограничение среды (Hyper-V + VirtualBox 7.2, 8 GB RAM), а не дефект продукта. Прямое следствие: матрицу установки проверяли на реальной установке с проверенным снимком и восстановлением (раздел 7), а чистая VM остаётся предусловием публикации.</p>
+<hr>
+<h2>5. Linux / Ubuntu runtime acceptance — PASS</h2>
+<p>Среда: <strong>Ubuntu 24.04.4 LTS</strong> (WSL2, kernel 6.6.87.2-microsoft-standard-WSL2), Python 3.12.3, gcc 13.3, 916 GB свободно. VPS не затрагивался: всё локально, в отдельном каталоге <code>/home/volkr/canalla-linux</code>, без обращения к работающим сервисам.</p>
+<p>Что сделано:</p>
+<ol>
+<li>Исходники backend скопированы из рабочего дерева (без <code>.venv</code>, <code>build</code>, <code>dist</code>).</li>
+<li>Создано venv, установлены зависимости проекта и PyInstaller.</li>
+<li>Собран <strong>Linux sidecar</strong> <code>dist/alex-backend/alex-backend</code> (21 499 872 B).</li>
+<li>Скачан и проверен по пину <strong>Tor Expert Bundle 0.4.9.16</strong> для linux-x86_64.</li>
+<li>Запущен <code>scripts/acceptance-linux-runtime.sh</code>.</li>
+</ol>
+<p>Результат — <strong>10/10 PASS</strong>:</p>
+<pre><code>PASS the packaged backend answers /health with no PATH at all        [alex-llm]
+PASS it reports the product, not a stand-in                          [product=alex-llm]
+PASS it is the version this source tree builds                       [version=1.2.7]
+PASS the bundled Tor daemon bootstraps and proves a circuit          [state=managed endpoint=9050]
+PASS the route is proven through SOCKS, never a clearnet fallback    [method=socks5h]
+PASS the daemon that proved it is the pinned build Canalla ships     [0.4.9.16 = pin 0.4.9.16]
+PASS the proof names the process that serves it, and it is shipped    [pid=1615 .../tor/tor]
+PASS killing the daemon is recovered by a new process, fresh proof   [1615 -&gt; 1758]
+PASS the backend keeps serving through the daemon&#x27;s restart
+PASS stopping the backend leaves no daemon behind                    [leftover tor: 0]</code></pre>
+<p>Проверка повторена после последней правки кода (sidecar пересобран) — снова PASS.</p>
+<hr>
+<h2>6. Установка, обновление, сохранение данных</h2>
+<h3>6.1. Что произошло фактически</h3>
+<p>План был установить 1.2.7 в изолированный каталог через <code>/S /D=&lt;dir&gt;</code>, предварительно убрав ключ деинсталляции, чтобы NSIS видел «чистую машину». <strong>Установщик проигнорировал <code>/D</code></strong> и обновил реальную установку <code>%LOCALAPPDATA%\Programs\Canalla LLM</code> — это и есть настоящее обновление 1.2.6 → 1.2.7, но оно затронуло пользовательскую установку.</p>
+<p>Действия сразу после обнаружения:</p>
+<ol>
+<li>Payload 1.2.7 сохранён в <code>D:\canalla-vm\host-accept\payload127</code> (версия 1.2.7, exe <code>d1ec80fd…</code>).</li>
+<li>Production восстановлена из снимка, сделанного <strong>до</strong> установки: <code>robocopy /MIR</code> из <code>D:\canalla-vm\prod-snapshot\program</code>.</li>
+<li>Проверка восстановления: exe <code>21b50e462156b9f109303623e4c67225d4e44daad981d8f439a83d16c8cafaf1</code> — <strong>совпадает с исходным</strong>, 1278 файлов, <code>ProductVersion 1.2.6</code>.</li>
+<li>Ключ деинсталляции возвращён на <code>DisplayVersion 1.2.6</code> и тот же <code>InstallLocation</code>.</li>
+<li><code>HKCU\Software\Canalla LLM</code> пересоздан (в нём были только артефакты тестов <code>autostart-test</code>; приложение там настроек не хранит).</li>
+<li>Ярлык в меню «Пуск» восстановлен из снимка.</li>
+</ol>
+<h3>6.2. Проверка совместимости данных (реальная миграция)</h3>
+<table><thead><tr>
+<th>Шаг</th>
+<th>Результат</th>
+</tr></thead><tbody>
+<tr><td>Данные, созданные sidecar 1.2.6</td><td>база на ревизии <code>0016</code>, 1 пользователь + 1 чат («Сохранить меня после обновления»)</td></tr>
+<tr><td>Запуск sidecar 1.2.7 на этой базе</td><td><code>/health</code> → <code>version=1.2.7</code></td></tr>
+<tr><td>Миграция</td><td><code>0016 → 0017</code>, <code>result: ok</code>, backup <code>20261115T074217Z-pre_upgrade</code> (проверенный)</td></tr>
+<tr><td>Сохранность</td><td>пользователь 1, чат 1, заголовок тот же, <code>alembic_version = 0017</code></td></tr>
+</tbody></table>
+<h3>6.3. Ограничение, найденное по ходу</h3>
+<p><strong>Установка «рядом» невозможна</strong>: NSIS игнорирует <code>/D</code> и всегда ставит в <code>%LOCALAPPDATA%\Programs\Canalla LLM</code>, заменяя установленную сборку. Это зафиксировано в release notes; данные при этом не затрагиваются.</p>
+<hr>
+<h2>7. Откат: найден и исправлен реальный дефект</h2>
+<p>Откат на 1.2.6 после миграции 1.2.7 ранее заканчивался так:</p>
+<pre><code>alembic.runtime.migration ... upgrade 0016 -&gt; 0017
+alex.runtime migration_failed CommandError</code></pre>
+<p>То есть 1.2.6 видел ревизию <code>0017</code>, считал её «ожидающей миграцией», пытался выполнить <code>upgrade head</code> и падал с <code>CommandError</code>; backend не стартовал, причина не названа.</p>
+<p>Исправление (<code>apps/backend/app/runtime_entry.py</code>):</p>
+<ul>
+<li><code>migration_state()</code> различает «эта сборка позади базы» и «есть работа для миграции»;</li>
+<li>при базе новее сборки — exit <strong>16</strong>, <code>ALEX_RUNTIME_ERROR database_ahead current=… build=…</code>, запись <code>runtime/migration.json</code> с <code>result: refused_database_ahead</code>;</li>
+<li>база и её backup не трогаются, лишний pre-upgrade backup не создаётся.</li>
+</ul>
+<p>Регрессионный тест: <code>tests/test_upgrade.py::test_a_database_from_a_newer_build_is_refused_not_migrated</code> (подменяет ревизию на будущую и проверяет код 16, запись, отсутствие backup и сохранность данных). Весь файл: <strong>11 passed</strong>.</p>
+<hr>
+<h2>8. Updater и Computer/Tor</h2>
+<table><thead><tr>
+<th>Проверка</th>
+<th>Результат</th>
+</tr></thead><tbody>
+<tr><td>Updater-подпись установщика</td><td>Ed25519 (minisign) production-ключом <code>9B328EFF111D1FB2</code>, проверена гейтом</td></tr>
+<tr><td>Trusted comment подписи</td><td>привязан к имени файла <code>Canalla LLM_1.2.7_x64-setup.exe</code></td></tr>
+<tr><td>Ключ в конфиге клиента = production</td><td>проверяется тестом <code>test_the_configured_key_is_the_production_identity_and_not_the_test_one</code></td></tr>
+<tr><td>Подмена/порча пакета</td><td>Rust-тесты: чужая подпись, испорченная подпись, обрезанный пакет — отказ</td></tr>
+<tr><td><code>ALEX_GATEWAY_URL</code> вшит</td><td><code>PACKAGED-GATEWAY-URL: PASS</code></td></tr>
+<tr><td>Полный цикл «скачать и установить обновление»</td><td><strong>не проверялся</strong>: требует опубликованного манифеста, а публикация запрещена без отдельного разрешения</td></tr>
+<tr><td>Computer Connect + Tor (установленное приложение)</td><td><strong>ALWAYS READY PASS</strong> (эта сессия, ранее): зелёные при запуске, после relaunch и после реального kill sidecar, один <code>device_id</code></td></tr>
+<tr><td>Tor в упакованном Linux-backend</td><td><strong>PASS</strong> (раздел 5): реальная SOCKS5h-цепь, восстановление после kill</td></tr>
+</tbody></table>
+<hr>
+<h2>9. Финальный артефакт</h2>
+<table><thead><tr>
+<th>Параметр</th>
+<th>Значение</th>
+</tr></thead><tbody>
+<tr><td>Имя</td><td><code>Canalla LLM_1.2.7_x64-setup.exe</code></td></tr>
+<tr><td>Размер</td><td>96 561 854 B</td></tr>
+<tr><td>SHA-256</td><td><code>1c79b201bab79453b5f76d9fe57e274f39ae583d38891c81e8ebdf310a133c77</code></td></tr>
+<tr><td>Updater <code>.sig</code></td><td>424 B, <code>sha256:3503edff22d545bf23a3622a34ee7d7bd9e7130301481506b9e89f41ab928154</code></td></tr>
+<tr><td>Authenticode</td><td><strong>NotSigned — WAIVED_BY_OWNER</strong></td></tr>
+<tr><td><code>alex-llm.exe</code></td><td>6 035 968 B, <code>sha256:49972ee2300455c0c3285fdf2a4e56e720aa5ca75c599b85db0beabd77c1d319</code></td></tr>
+<tr><td><code>alex-host-loop.exe</code></td><td>2 243 584 B, <code>sha256:7bbec361f9bf18dfaf6d4150353ebb3f23e9dce16831942637a16ceda7079af2</code></td></tr>
+<tr><td>Sidecar</td><td>24 854 377 B, <code>sha256:cea3320c8463eb214bff1afe5ea2d315227e3ba2a1cda818d6d9762782b4be80</code></td></tr>
+<tr><td><code>tor.exe</code></td><td>10 248 704 B, <code>sha256:da22856f95ee24f8ace4ad1ab04acbd818fd6c3042bc3cf8f1d7cc3fa3edcb2b</code></td></tr>
+<tr><td>Собран на коммите</td><td><code>61102fe</code></td></tr>
+</tbody></table>
+<p>Контрольные суммы: <code>artifacts/SHA256SUMS-1.2.7.txt</code>.</p>
+<hr>
+<h2>10. Полный релизный гейт</h2>
+<pre><code>release-gate.py candidate --installer &quot;Canalla LLM_1.2.7_x64-setup.exe&quot;
+22 шага · 0 FAIL · 0 BLOCKED
+RELEASE GATE: PASS</code></pre>
+<p>Шаги: ruff (backend, format, gateway), backend pytest, gateway pytest, vitest, tsc, prettier, vite build, <code>cargo check --all-targets</code>, <code>cargo test</code>, Playwright, sidecar stamp, packaged Gateway URL и все artifact-проверки (имя, SHA-256, key id, Ed25519, signed name, gateway URL, commit).</p>
+<p>Лог: <code>artifacts/release-gate-1.2.7-final.txt</code>.</p>
+<p>Функциональные числа этой сессии: backend <strong>1184 passed / 1 skipped</strong> (полный прогон), gateway <strong>262</strong>, vitest <strong>328</strong>, Playwright <strong>25</strong>, Rust <strong>134</strong> (40 + 78 + 16, 2 network-ignored), BasedPyright <strong>0/0 на 153 файлах</strong>, ruff clean.</p>
+<p>Два дефекта инструментов, найденные по ходу и исправленные:</p>
+<ol>
+<li><code>release-gate.py</code> падал с <code>UnicodeEncodeError</code> на консоли cp1251, теряя готовый PASS → поток отчёта закреплён на UTF-8.</li>
+<li><code>cargo test --release</code> перезаписал release-бинарник без вшитого <code>ALEX_GATEWAY_URL</code>, из-за чего гейт честно показал FAIL на <code>packaged.gateway_url</code>; установщик пересобран штатным путём.</li>
+</ol>
+<hr>
+<h2>11. LEVEL 6/7 без новой платной GPU</h2>
+<table><thead><tr>
+<th>Уровень</th>
+<th>Статус</th>
+<th>Почему</th>
+</tr></thead><tbody>
+<tr><td>6 — независимая проверка доказывает завершение</td><td><code>BLOCKED_BY_LIVE_BUDGET</code></td><td>нужен один завершённый LIVE с <code>REAL_MODEL_CONFIRMED</code> и всеми проверками; бюджет серии исчерпан ($0.358 &lt; полезного окна)</td></tr>
+<tr><td>7 — durable resume с реальной моделью</td><td><code>NOT_TESTED</code></td><td>требует платного окна</td></tr>
+</tbody></table>
+<p>Что сделано для их закрытия без денег: дефект, из-за которого прогон закрывался без независимой проверки, исправлен; replay сохранённого трейса воспроизводит вердикт и показывает, что остальной трейс уже достаточен. Ни replay, ни тесты <strong>не выдаются</strong> за LIVE PASS.</p>
+<hr>
+<h2>12. Production integrity</h2>
+<table><thead><tr>
+<th>Параметр</th>
+<th>До сессии</th>
+<th>Сейчас</th>
+<th>Статус</th>
+</tr></thead><tbody>
+<tr><td>users</td><td>2</td><td>2</td><td>без изменений</td></tr>
+<tr><td>chats</td><td>54</td><td>54</td><td>без изменений</td></tr>
+<tr><td>messages</td><td>120</td><td>120</td><td>без изменений</td></tr>
+<tr><td>paired_devices</td><td>63</td><td>63</td><td>без изменений</td></tr>
+<tr><td>local_tasks</td><td>30</td><td>30</td><td>без изменений</td></tr>
+<tr><td>integrity_check</td><td>ok</td><td>ok</td><td>без изменений</td></tr>
+<tr><td>foreign key violations</td><td>0</td><td>0</td><td>без изменений</td></tr>
+<tr><td>Установленный exe</td><td><code>21b50e46…</code> (1.2.6)</td><td><code>21b50e46…</code> (1.2.6)</td><td>восстановлен байт-в-байт</td></tr>
+<tr><td>Файлов в программе</td><td>1278</td><td>1278</td><td>совпадает</td></tr>
+<tr><td>Ключ деинсталляции</td><td>1.2.6</td><td>1.2.6</td><td>восстановлен</td></tr>
+<tr><td>Ярлык «Пуск»</td><td>есть</td><td>есть</td><td>восстановлен</td></tr>
+</tbody></table>
+<p>Инцидент с <code>/D</code> и его обратимость описаны в разделе 6.1 — это единственное вмешательство в пользовательскую установку за сессию, и оно полностью отменено.</p>
+<hr>
+<h2>13. Найденные и исправленные дефекты (эта сессия)</h2>
+<ol>
+<li><strong><code>database_ahead</code></strong>: откат на старую сборку падал с <code>CommandError</code> → типизированный отказ (exit 16), база не тронута, добавлен регрессионный тест.</li>
+<li><strong><code>release-gate.py</code> на legacy-консоли</strong>: <code>UnicodeEncodeError</code> терял готовый отчёт → UTF-8.</li>
+<li><strong>Конфигурация VM</strong>: порт SATA, потеря El Torito в aux-образе, «press any key», файл ответов на дискете — исправлено в скриптах приёмки (VM-установка всё равно не завершилась).</li>
+</ol>
+<hr>
+<h2>14. Git</h2>
+<pre><code>89a5023 Record the final acceptance and its artifact
+61102fe Print the gate report on a legacy console
+bf2c7c4 Refuse a database written by a newer build
+86fc131 Point the report at the commit that carries it
+7cb35cb Report every substantial session to the Desktop
+559a3ad Name the commit the artifact was built from
+...</code></pre>
+<p>Всё запушено в <code>origin/feature/canalla-1.2.7-autonomous-agent</code>.</p>
+<hr>
+<h2>15. Что осталось</h2>
+<table><thead><tr>
+<th>Пункт</th>
+<th>Причина</th>
+</tr></thead><tbody>
+<tr><td>Чистая Windows VM: install/upgrade/uninstall</td><td>unattended-установка не завершается в этой среде (VirtualBox + Hyper-V, 8 GB RAM)</td></tr>
+<tr><td>Полный цикл updater</td><td>нужен опубликованный манифест; публикация запрещена без отдельного разрешения</td></tr>
+<tr><td>LEVEL 6/7</td><td>нужен новый бюджет GPU</td></tr>
+<tr><td>Публикация 1.2.7</td><td>отдельное разрешение владельца; <code>release-gate.py publish</code> отказывает по замыслу</td></tr>
+</tbody></table>
+<hr>
+<h2>16. Воспроизведение</h2>
+<pre><code># Linux acceptance (WSL Ubuntu 24.04, изолированно)
+wsl -d Ubuntu -- bash -lc &quot;cd /mnt/c/.../alex-llm &amp;&amp; bash scripts/acceptance-linux-runtime.sh \
+  --sidecar /home/volkr/canalla-linux/backend/dist/alex-backend/alex-backend \
+  --tor-runtime /home/volkr/canalla-linux/tor \
+  --data /tmp/canalla-linux-acceptance \
+  --product-source /home/volkr/canalla-linux/backend/app/product.py&quot;
+
+# Полный релизный гейт (cargo должен быть в PATH; на этой машине %USERPROFILE%\.cargo\bin)
+$env:CARGO_BUILD_JOBS = &#x27;1&#x27;
+apps\backend\.venv\Scripts\python.exe scripts\release-gate.py candidate `
+  --installer &quot;apps\desktop\src-tauri\target\release\bundle\nsis\Canalla LLM_1.2.7_x64-setup.exe&quot; `
+  --expect-sha256 1c79b201bab79453b5f76d9fe57e274f39ae583d38891c81e8ebdf310a133c77 `
+  --expect-commit 61102fec9b641d56a137fe36e1e74ef8fe4301af</code></pre>
+<hr>
+<h2>17. Индекс evidence</h2>
+<table><thead><tr>
+<th>Что</th>
+<th>Где</th>
+</tr></thead><tbody>
+<tr><td>Лог финального гейта</td><td><code>artifacts/release-gate-1.2.7-final.txt</code></td></tr>
+<tr><td>Контрольные суммы</td><td><code>artifacts/SHA256SUMS-1.2.7.txt</code></td></tr>
+<tr><td>Release notes и чеклист</td><td><code>docs/release-1.2.7.md</code></td></tr>
+<tr><td>Итоговый отчёт по автономной работе</td><td><code>artifacts/REPORT-canalla-127-AUTONOMOUS.md</code></td></tr>
+<tr><td>Скрипты приёмки VM</td><td><code>artifacts/canalla-vm/create-vm.ps1</code>, <code>accept.ps1</code></td></tr>
+<tr><td>Снимок/восстановление production</td><td><code>artifacts/canalla-vm/host-accept.ps1</code>, <code>restore-production.ps1</code></td></tr>
+<tr><td>Совместимость данных и откат</td><td><code>artifacts/canalla-vm/data-compat.ps1</code>, <code>rollback-after-migration.ps1</code></td></tr>
+<tr><td>Логи и базы приёмки</td><td><code>D:\canalla-vm\host-accept\evidence\</code></td></tr>
+<tr><td>Экраны установки VM</td><td><code>artifacts/canalla-vm/screen*.png</code></td></tr>
+</tbody></table>
+<hr>
+<h2>18. Правило отчётности</h2>
+<p>После каждой существенной сессии отчёт кладётся на Рабочий стол в <code>.md</code> и <code>.html</code>, копии — в <code>artifacts/reports/</code> и в коммит. Неизвестное остаётся неизвестным, <code>BLOCKED</code> не превращается в <code>PASS</code>, секреты не публикуются.</p>
+</body>
+</html>
