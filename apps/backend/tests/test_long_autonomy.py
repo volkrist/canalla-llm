@@ -483,3 +483,57 @@ def test_the_forced_verification_is_executed_and_recorded(setup):
             event.kind for event in db.scalars(select(TaskEvent).where(TaskEvent.task_id == context.task_id))
         ]
         assert "VERIFY_PASSED" in kinds, kinds
+
+
+def test_a_package_layout_is_verified_from_its_own_root(setup):
+    """The LIVE shape: `taskdesk/app` + `taskdesk/tests`, green only from `taskdesk/`.
+
+    A forced verification that ran from the workspace root would fail the very suite the model
+    made pass, because the backend is installed editable as `app` and shadows the project's own
+    package at the root. The controller has to choose the directory the tests live in.
+    """
+    from sqlalchemy import select
+
+    from app.tools.local.task import _tests_root
+    from app.tools.models import TaskEvent
+
+    context, _events, root, host = setup
+    # The fixture ships a root-level project; this case is the nested one.
+    (root / "app.py").unlink()
+    (root / "test_app.py").unlink()
+    package = root / "taskdesk"
+    (package / "app").mkdir(parents=True)
+    (package / "tests").mkdir(parents=True)
+    (package / "app" / "__init__.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (package / "tests" / "test_value.py").write_text(
+        "from app import VALUE\n\n\ndef test_value():\n    assert VALUE == 1\n",
+        encoding="utf-8",
+    )
+    assert _tests_root(str(root)) == str(package)
+
+    scripts = [
+        _call("list_directory", {"path": str(root), "purpose": "inspect"}, "n1"),
+        _call(
+            "run_python",
+            {"argv": ["-m", "pytest", "-q"], "cwd": str(package), "purpose": "project tests"},
+            "n2",
+        ),
+    ]
+    orchestrator = ToolOrchestrator(make_registry(), ToolExecutor(make_registry()))
+    asyncio.run(
+        orchestrator.prepare(
+            ScriptedPlanner(scripts),
+            [{"role": "user", "content": context.user_prompt}],
+            0,
+            context,
+            {},
+        )
+    )
+
+    with SessionLocal() as db:
+        row = require_row(db, LocalTask, context.task_id)
+        assert row.facts.get("verification_recorded") is True, row.facts
+        kinds = [
+            event.kind for event in db.scalars(select(TaskEvent).where(TaskEvent.task_id == context.task_id))
+        ]
+        assert "VERIFY_PASSED" in kinds, kinds

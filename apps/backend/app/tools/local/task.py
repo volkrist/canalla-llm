@@ -2,6 +2,7 @@ import os
 import re
 import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from sqlalchemy import func, select
 
@@ -55,6 +56,32 @@ def _project_python() -> str:
     if os.path.basename(executable).lower().startswith("python"):
         return executable
     return ""
+
+
+def _tests_root(workspace_root: str) -> str:
+    """Where the project's own tests live: the workspace root, or the child that holds them.
+
+    A model that builds `taskdesk/app/__init__.py` with `taskdesk/tests/` runs `pytest` from
+    `taskdesk/`, not from the workspace root (the backend is installed editable as `app`, so the
+    root run imports the product instead of the project). A forced retest from the wrong
+    directory would report a passing suite as an ImportError, so the same choice is made here.
+    """
+    root = Path(workspace_root)
+    if not root.is_dir():
+        return workspace_root
+
+    def has_tests(base: Path) -> bool:
+        return (base / "tests").is_dir() or any(base.glob("test_*.py"))
+
+    if has_tests(root):
+        return str(root)
+    skip = {"__pycache__", ".venv", "venv", "node_modules", "data", "dist", "build"}
+    for child in sorted(root.iterdir()):
+        if not child.is_dir() or child.name.startswith(".") or child.name in skip:
+            continue
+        if has_tests(child):
+            return str(child)
+    return str(root)
 
 
 # A parked WAITING_LLM task is retried automatically with a bounded exponential backoff, and only
@@ -1063,14 +1090,18 @@ class LocalTaskController:
                 if via == "run_python":
                     return (
                         "run_python",
-                        {"argv": command, "cwd": workspace.root, "purpose": "Verify project tests"},
+                        {
+                            "argv": command,
+                            "cwd": _tests_root(workspace.root),
+                            "purpose": "Verify project tests",
+                        },
                     )
                 return (
                     "run_process",
                     {
                         "executable": command[0],
                         "argv": command[1:],
-                        "cwd": workspace.root,
+                        "cwd": _tests_root(workspace.root),
                         "purpose": "Verify project tests",
                     },
                 )
@@ -1113,6 +1144,7 @@ class LocalTaskController:
         command = list((row.checkpoint or {}).get("test_command") or workspace.test_command)
         via = (row.checkpoint or {}).get("test_via") or workspace.test_via
         if command and workspace.root:
+            cwd = _tests_root(workspace.root)
             if via == "run_python":
                 python = _project_python()
                 if python:
@@ -1121,7 +1153,7 @@ class LocalTaskController:
                             "kind": "command",
                             "target": " ".join(command),
                             "argv": [python, *command],
-                            "cwd": workspace.root,
+                            "cwd": cwd,
                             "exit_code": 0,
                             "timeout": 300,
                         }
@@ -1132,7 +1164,7 @@ class LocalTaskController:
                         "kind": "command",
                         "target": " ".join(command),
                         "argv": command,
-                        "cwd": workspace.root,
+                        "cwd": cwd,
                         "exit_code": 0,
                         "timeout": 300,
                     }
