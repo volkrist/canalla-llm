@@ -118,7 +118,11 @@ SCENARIO = (
     "вызов write_file создаёт файл, а следующие вызовы с mode=\"append\" дописывают "
     "продолжение в конец. Не пытайся записать весь файл одним вызовом.\n\n"
     "Необходимые библиотеки уже установлены в рабочем Python: Flask, FastAPI, uvicorn, "
-    "pytest, httpx, SQLAlchemy. Не устанавливай пакеты — используй то, что есть."
+    "pytest, httpx, SQLAlchemy. Не устанавливай пакеты — используй то, что есть.\n\n"
+    "Перед тем как объявить задачу выполненной, вызови verify_result с реальными "
+    "проверками: kind=\"file_exists\" для созданных файлов и kind=\"command\" для запуска "
+    "тестов проекта (cwd — каталог проекта, exit_code=0). Это независимая проверка, и её "
+    "результат должен быть зелёным."
 )
 
 
@@ -1427,6 +1431,7 @@ def run_live(
                 "tool-execution.jsonl",
                 [
                     {
+                        "id": run.id,
                         "tool": run.tool_name,
                         "origin": run.origin,
                         "status": run.status,
@@ -1437,6 +1442,21 @@ def run_live(
                         "error": run.error_code,
                     }
                     for run in tools
+                ],
+            )
+            # The whole journal, not only the two kinds this harness used to print: a replay
+            # needs the tool results and the verification events to reach the same verdict, and
+            # e1845955's TOOL_RESULT rows were never exported.
+            _write_jsonl(
+                "provenance-events.jsonl",
+                [
+                    {
+                        "kind": row["kind"],
+                        "payload": row["payload"],
+                        "tool_run_id": row.get("tool_run_id"),
+                        "created_at": row["created_at"],
+                    }
+                    for row in events_rows
                 ],
             )
             repair_runs = [
@@ -1832,6 +1852,7 @@ def approval_self_test() -> list[dict]:
         server.server_close()
     verdict = selftest_verdict(events)
     interpreter_ok, interpreter_detail = _venv_can_build()
+    layout_ok, layout_detail = _package_layout_can_be_tested()
     return [
         {
             "check": "the_money_prompt_is_approved_once",
@@ -1853,7 +1874,77 @@ def approval_self_test() -> list[dict]:
             "ok": interpreter_ok,
             "detail": interpreter_detail,
         },
+        {
+            "check": "the_verifier_runs_a_package_layout_from_its_own_root",
+            "ok": layout_ok,
+            "detail": layout_detail,
+        },
     ]
+
+
+def _package_layout_can_be_tested() -> tuple[bool, str]:
+    """The verifier must run a package layout from the package's own root.
+
+    The e1845955 project was `taskdesk/app/__init__.py` with `create_app()` and
+    `taskdesk/tests/test_api.py`. That suite is green from `taskdesk/` and cannot import `app`
+    from the workspace root, because the backend is installed editable as `app`. The verifier
+    used to run only from the root and failed a passing suite; it now tries the project root
+    first. This check recreates exactly that layout - no model involved - and asserts the choice.
+    """
+    with tempfile.TemporaryDirectory() as root:
+        workspace = Path(root)
+        package = workspace / "taskdesk"
+        (package / "app").mkdir(parents=True)
+        (package / "tests").mkdir()
+        (package / "app" / "__init__.py").write_text(
+            "def create_app():\n    return {'ok': True}\n", encoding="utf-8"
+        )
+        (package / "tests" / "test_app.py").write_text(
+            "from app import create_app\n\n\ndef test_the_factory_answers():\n"
+            "    assert create_app() == {'ok': True}\n",
+            encoding="utf-8",
+        )
+        completed, cwd = _run_workspace_tests(workspace)
+        ok = completed.returncode == 0 and Path(cwd) == package
+        return ok, (
+            f"exit={completed.returncode} cwd={Path(cwd).name} "
+            f"tail={(completed.stdout or completed.stderr or '')[-160:]}"
+        )
+
+
+def _snapshot_workspace(workspace: Path) -> dict:
+    """Copy the model's own project into the evidence directory.
+
+    A LIVE workspace lives under `%TEMP%` and Windows removes it. The e1845955 TaskDesk survived
+    only as excerpts, so its verification could not be re-read after the fact: evidence that
+    cannot be reopened is not evidence. Sources and templates are copied here, never a database,
+    a virtual environment, a cache or a log.
+    """
+    target = LIVE / "workspace-snapshot"
+    copied: list[str] = []
+    skipped: list[str] = []
+    for path in sorted(workspace.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(workspace)
+        parts = set(relative.parts)
+        if parts & {"__pycache__", ".venv", "venv", ".git", "node_modules", "data"}:
+            skipped.append(str(relative))
+            continue
+        if path.suffix.lower() in {".db", ".sqlite", ".sqlite3", ".pyc", ".log"}:
+            skipped.append(str(relative))
+            continue
+        destination = target / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copy2(path, destination)
+        except OSError:
+            skipped.append(str(relative))
+            continue
+        copied.append(str(relative))
+        if len(copied) >= 400:
+            break
+    return {"directory": str(target), "files": copied, "skipped": skipped[:40]}
 
 
 def run_independent_checks(workspace: Path, summary: dict) -> tuple[list[dict], dict]:
@@ -1863,6 +1954,15 @@ def run_independent_checks(workspace: Path, summary: dict) -> tuple[list[dict], 
 
     def check(name: str, ok: bool, detail=""):
         checks.append({"check": name, "ok": bool(ok), "detail": str(detail)[:300]})
+
+    # Keep the model's project: the run's own workspace is deleted with %TEMP%.
+    snapshot = _snapshot_workspace(workspace)
+    payloads["workspace-snapshot.json"] = snapshot
+    check(
+        "workspace_snapshot_saved",
+        bool(snapshot["files"]),
+        f"{len(snapshot['files'])} file(s) in {Path(snapshot['directory']).name}",
+    )
 
     python_files = sorted(path.name for path in workspace.rglob("*.py"))
     check("application_files_exist", len(python_files) >= 2, python_files)
@@ -2242,6 +2342,10 @@ def main() -> int:
     RUN_ID = args.run_id or RUN_ID
     if args.evidence_dir:
         LIVE = Path(args.evidence_dir)
+    elif args.self_test:
+        # A free self-test must never write into a paid run's evidence directory: the paid run's
+        # `self-test.json` is part of what that run recorded.
+        LIVE = OUT / "self-test"
 
     if args.gpu_probe:
         print(json.dumps(gpu_probe(), ensure_ascii=False, indent=1)[:4000])

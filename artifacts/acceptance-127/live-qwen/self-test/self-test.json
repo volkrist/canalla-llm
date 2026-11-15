@@ -1,0 +1,140 @@
+{
+ "checks": [
+  {
+   "check": "confirmation_is_required",
+   "ok": true
+  },
+  {
+   "check": "budget_is_explicit",
+   "ok": true
+  },
+  {
+   "check": "budget_ceiling_is_enforced",
+   "ok": true
+  },
+  {
+   "check": "the_approved_envelope_passes",
+   "ok": true
+  },
+  {
+   "check": "a_prepared_fast_path",
+   "ok": true
+  },
+  {
+   "check": "a_stale_observation_falls_back",
+   "ok": true
+  },
+  {
+   "check": "a_prepared_placement_must_match_its_datacenter",
+   "ok": true
+  },
+  {
+   "check": "a_prepared_payload_with_an_existing_pod_is_refused",
+   "ok": true
+  },
+  {
+   "check": "a_prepared_rate_without_a_work_window_is_refused",
+   "ok": true
+  },
+  {
+   "check": "a_stale_preflight_falls_back",
+   "ok": true
+  },
+  {
+   "check": "a_prepared_payload_above_the_budget_is_refused",
+   "ok": true
+  },
+  {
+   "check": "a_lost_stream_is_evidence_not_a_crash",
+   "ok": true,
+   "detail": "{'event': 'stream_read_error', 'detail': 'URLError: <urlopen error [WinError 10061] Подключение не установлено, т.к. конечный компьютер отверг запрос на подключ"
+  },
+  {
+   "check": "the_stream_read_timeout_outlives_a_cold_first_token",
+   "ok": true,
+   "detail": "300"
+  },
+  {
+   "check": "ninety_minute_billable_ceiling",
+   "ok": true
+  },
+  {
+   "check": "eighty_minute_work_target",
+   "ok": true
+  },
+  {
+   "check": "worst_case_within_two_dollars",
+   "ok": true
+  },
+  {
+   "check": "capacity_wait_is_sixty_seconds",
+   "ok": true
+  },
+  {
+   "check": "no_twenty_minute_capacity_wait",
+   "ok": true
+  },
+  {
+   "check": "both_paid_volumes_are_approved",
+   "ok": true
+  },
+  {
+   "check": "a_real_answer_is_the_only_selftest_pass",
+   "ok": true
+  },
+  {
+   "check": "an_error_event_is_never_a_pass",
+   "ok": true
+  },
+  {
+   "check": "a_truncated_stream_is_never_a_pass",
+   "ok": true
+  },
+  {
+   "check": "a_delayed_first_token_is_not_a_failure",
+   "ok": true,
+   "detail": "{'verdict': 'PASS', 'problems': [], 'answer_chars': 15, 'answer_preview': 'готово к работе', 'delta_events': 1, 'errors': []}"
+  },
+  {
+   "check": "a_stalled_stream_is_evidence_not_a_crash",
+   "ok": true,
+   "detail": "{'event': 'stream_read_error', 'detail': 'TimeoutError: timed out'}"
+  },
+  {
+   "check": "the_global_deadline_is_a_typed_stop",
+   "ok": true,
+   "detail": "{'event': 'stream_read_error', 'detail': 'TimeoutError: timed out'} after 1.03s"
+  },
+  {
+   "check": "a_heartbeat_is_not_a_model_response",
+   "ok": true,
+   "detail": "{'verdict': 'FAIL', 'problems': ['no_real_answer'], 'answer_chars': 0, 'answer_preview': '', 'delta_events': 0, 'errors': []}"
+  },
+  {
+   "check": "the_money_prompt_is_approved_once",
+   "ok": true,
+   "detail": "[{'allow': True, 'digest': 'd1'}]"
+  },
+  {
+   "check": "an_approved_prompt_yields_a_real_answer",
+   "ok": true,
+   "detail": "{'verdict': 'PASS', 'problems': [], 'answer_chars': 24, 'answer_preview': 'готов отвечать на задачи', 'delta_events': 1, 'errors': []}"
+  },
+  {
+   "check": "the_approval_is_recorded_for_the_evidence",
+   "ok": true,
+   "detail": "[{'at': '2026-11-15T01:26:58+00:00', 'run_id': 'run-1', 'digest_bound': True, 'status': 200, 'answer': {'status': 'approved'}}]"
+  },
+  {
+   "check": "the_host_python_can_build_and_test_the_app",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "the_verifier_runs_a_package_layout_from_its_own_root",
+   "ok": true,
+   "detail": "exit=0 cwd=taskdesk tail=.                                                                        [100%]\n1 passed in 0.02s\n"
+  }
+ ],
+ "verdict": "PASS"
+}

@@ -1,0 +1,50 @@
+{
+ "kind": "evidence_replay",
+ "evidence_dir": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-127\\live-qwen\\final-live",
+ "replayed_at": "2026-11-15T00:33:53+00:00",
+ "classifier": "app.agent.provenance.classify (this checkout)",
+ "event_reconstruction": "digest_match",
+ "unmatched_model_executions": [],
+ "seal_rechecked": false,
+ "seal_note": "the run's provenance secret died with its database; tampered is not re-derived",
+ "recorded_verdict": {
+  "status": "INCOMPLETE_TRACE",
+  "model_responses": 18,
+  "live_responses": 18,
+  "tool_calls": 17,
+  "linked_results": 17,
+  "verified": false
+ },
+ "replayed_verdict": {
+  "status": "INCOMPLETE_TRACE",
+  "model_responses": 18,
+  "live_responses": 18,
+  "tool_calls": 17,
+  "linked_results": 17,
+  "verified": false
+ },
+ "verdict_matches": true,
+ "reasons": [
+  "no passing independent verification was recorded"
+ ],
+ "only_missing_link": "a passing independent verification event (VERIFY_PASSED)",
+ "executed_model_tools": 17,
+ "counterfactual_with_one_verification": {
+  "status": "REAL_MODEL_CONFIRMED",
+  "note": "not part of the run; proves the recorded trace lacks only the verification row"
+ },
+ "executed_tool_names": [
+  "list_directory",
+  "run_process",
+  "run_python",
+  "write_file"
+ ],
+ "pytest_exit_code": 2,
+ "pytest_root_cause": "E   ImportError: cannot import name 'create_app' from 'app' (C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\apps\\backend\\app\\__init__.py)",
+ "application_serves_http": true,
+ "independent_create_status": 201,
+ "sqlite_tables": {
+  "taskdesk.db:tasks": 1
+ },
+ "run_id": "e184595544d24f14a140bd9298e81ea1"
+}
