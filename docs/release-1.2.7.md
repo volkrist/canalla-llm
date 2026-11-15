@@ -84,6 +84,7 @@ All of the following ran on this branch at the commit recorded in the release ga
 
 | Gate | Result |
 |---|---|
+| `release-gate.py candidate` (one run, 22 steps) | **PASS — 0 FAIL, 0 BLOCKED** (log: `artifacts/release-gate-1.2.7.txt`) |
 | Backend pytest | **1184 passed, 1 skipped** |
 | Backend ruff (`check` + `format --check`) | PASS (245 files) |
 | BasedPyright, shipped code (`apps/backend/app`, `apps/gateway/gateway`) | **0 errors, 0 warnings, 153 files** |
@@ -114,6 +115,7 @@ All of the following ran on this branch at the commit recorded in the release ga
 - [x] SHA-256 recorded in `artifacts/SHA256SUMS-1.2.7.txt`
 - [x] Package gateway URL baked and verified
 - [x] Free CI on the release commit (backend, gateway, frontend, Rust, acceptance self-tests)
+- [x] `release-gate.py candidate` on the artifact: **22 steps, 0 FAIL, 0 BLOCKED**
 - [x] Deployed Gateway dry run (no Pod, no spend)
 - [x] Production database untouched
 - [ ] Installed install / upgrade / rollback on a clean VM (procedure `acceptance-clean-vm-1.2.1.md`;

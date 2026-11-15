@@ -270,6 +270,7 @@ credential; production не читался и не писался.
 | Installer (NSIS, `production-signing.ps1 -Action Build`) | **собран** из HEAD: `Canalla LLM_1.2.7_x64-setup.exe`, 96 564 385 B, `sha256:61040aa86418ad6640d71e89d9b90b9af88d5be83168a2f91082c06124c4c960`; updater-подпись production-ключом `9B328EFF111D1FB2` |
 | Authenticode | **WAIVED_BY_OWNER — NOT A RELEASE BLOCKER** (решение владельца 15.11.2026); `Get-AuthenticodeSignature: NotSigned` — это отпускаемое состояние, не дефект |
 | `release-gate.py verify-artifact` | **PASS**, 8/8 шагов: имя/версия 1.2.7, SHA-256, production key id, Ed25519 над BLAKE2b-512, signed name, baked Gateway URL, commit |
+| `release-gate.py candidate` (полный гейт) | **PASS — 22 шага, 0 FAIL, 0 BLOCKED** (лог: `artifacts/release-gate-1.2.7.txt`) |
 | Содержимое installer'а | sidecar `ce93221d…` (stamp current, 161 файл), `tor.exe da22856f…`, `PACKAGED-GATEWAY-URL: PASS`, `verify_sidecar_standalone.py: PROOF_PASS` |
 | Версия в артефакте | **1.2.7** (version consistency 9/9 PASS) |
 | Контрольные суммы | `artifacts/SHA256SUMS-1.2.7.txt` — installer, `.sig`, desktop exe, host-loop, sidecar, tor + digest sidecar stamp |
