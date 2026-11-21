@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import ssl
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -17,6 +18,26 @@ from urllib.parse import urljoin, urlsplit
 USER_AGENT = "CanallaResearch/1.2.7 (+https://github.com/volkrist/canalla-llm)"
 MAX_BYTES = 2_000_000
 TIMEOUT = 20.0
+
+
+def _ssl_context() -> ssl.SSLContext | None:
+    """The CA bundle the product ships with, not whatever the host happens to have.
+
+    A packaged backend cannot rely on a machine's root store: on a clean Windows host the default
+    context failed every HTTPS fetch with `unable to get local issuer certificate`, so research
+    was dead in the installed product while every offline test passed. `certifi` is a pinned
+    dependency and is bundled, so its file is the deterministic answer; if it is missing the
+    default context is used rather than disabling verification.
+    """
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # pragma: no cover - certifi is a pinned dependency
+        return None
+
+
+SSL_CONTEXT = _ssl_context()
 
 
 class FetchError(Exception):
@@ -55,7 +76,7 @@ def _robots_for(origin: str, timeout: float) -> _Robots:
     robots = _Robots()
     try:
         request = urllib.request.Request(f"{origin}/robots.txt", headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout, context=SSL_CONTEXT) as response:
             if response.status == 200:
                 current = None
                 for raw in response.read(200_000).decode("utf-8", "replace").splitlines():
@@ -102,7 +123,7 @@ def fetch_page(
         raise FetchError("robots_disallow")
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/*"})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout, context=SSL_CONTEXT) as response:
             content_type = response.headers.get("Content-Type", "")
             if "text" not in content_type and "html" not in content_type and "json" not in content_type:
                 raise FetchError("unsupported_content")
