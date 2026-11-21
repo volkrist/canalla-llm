@@ -656,6 +656,21 @@ class LocalTaskController:
         row = db.get(LocalTask, task_id)
         if not row or row.user_id != context.user_id:
             return
+        if row.status in machine.TERMINAL:
+            # Two finish paths exist (the tool loop and the answer stream, and a resumed process can
+            # race the one that died). A second call must not add a second completion event: the
+            # user gets one result, not two "готово". A conflicting request is recorded, never
+            # allowed to rewrite a verdict that was already reached.
+            if row.status != status:
+                append_event(
+                    db,
+                    row.id,
+                    "FINISH_IGNORED",
+                    {"current": row.status, "requested": status},
+                    getattr(context, "secrets", ()),
+                )
+                db.commit()
+            return
         if row.status not in machine.TERMINAL:
             try:
                 machine.transition(row, status)
