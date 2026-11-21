@@ -23,17 +23,24 @@ RESUME`. The controller, not the model's prose, owns completion.
 
 ## 2. Capability status
 
-### 2.1 Research — **VERIFIED (live fetch), PARTIAL (search provider)**
+### 2.1. Research — **VERIFIED (live search and fetch), PARTIAL (model-driven run)**
 
 - `deep_research` runs search → read → gap → requery with a bounded budget and keeps sources.
-- Code: `app/agent/research.py`, `app/tools/agent_tools.py`.
-- Evidence: `apps/backend/tests/test_web_research_gap.py` (4), `test_tor_research.py`,
-  `test_127_autonomous_e2e.py`; the tool refuses invented sources and reports gaps.
-- Live proof (21 Nov 2026): `tests/test_live_web_smoke.py -m live_web` fetches `https://example.com`
-  through the product's own client and asserts the source is recorded — 2 passed. The packaged
-  backend needed a CA-bundle fix for this to work at all (see the release notes).
-- Still not proven: a live *search* provider (TinyFish key, `live_web` marker). Tor research runs
-  only when Tor is the required route.
+- Code: `app/agent/research.py`, `app/tools/agent_tools.py`, search chain in `app/tools/search/`.
+- The search surface is provider-agnostic (`app/tools/search/chain.py`): the paid TinyFish provider
+  is used when a key exists, and four official keyless APIs answer otherwise — Wikipedia
+  (MediaWiki), arXiv (Atom), Stack Exchange and GitHub. `web_fetch` has the same fallback: the
+  product's own bounded, robots-aware reader (`app/agent/webclient.py`) reads the page when no key
+  is configured. Exact-domain filters, per-provider typed errors and URL dedupe live in the chain.
+- Evidence: `apps/backend/tests/test_free_search.py` (17, offline with `httpx.MockTransport`),
+  `test_web_research_gap.py`, `test_tor_research.py`, `test_127_autonomous_e2e.py`.
+- Live proof (22 Nov 2026): `tests/test_live_web_smoke.py -m live_web` → **5 passed** against real
+  public APIs with no key configured — a technical query answered by Stack Exchange + GitHub +
+  Wikipedia, a research query answered by arXiv + Wikipedia, `web_fetch` reading `https://example.com`.
+  Raw result: `artifacts/acceptance-search/free-search-live.json`. The packaged backend also needed
+  a CA-bundle fix for HTTPS to work at all (see the release notes).
+- Not proven: a *model-driven* research run (choice of queries, gap handling in the answer) — that
+  needs a LIVE; and the paid TinyFish path, which needs the owner's key.
 
 ### 2.2 Browser automation — **VERIFIED (local browser), PARTIAL (paid provider)**
 
@@ -98,7 +105,7 @@ RESUME`. The controller, not the model's prose, owns completion.
 
 | # | Scenario | Status | Evidence / reason |
 |---|---|---|---|
-| A | Research with verifiable sources | **PARTIAL (fetch VERIFIED)** | live HTTPS fetch + source recording proven; keyword search needs the TinyFish key |
+| A | Research with verifiable sources | **PARTIAL (search + fetch VERIFIED live)** | the free chain answers from real public APIs and `web_fetch` reads pages without a key; a model-driven research run still needs a LIVE |
 | B | Build an application end to end | **PASS** | real LIVE `e1845955` + free CI (`test_autonomous_tasks`, `test_long_autonomy`) |
 | C | Drive an installed GUI application | **PARTIAL** | UIA + installed always-ready verified; not repeated with a real model this session |
 | D | Repair a broken project | **PASS** | scripted tests + real repair inside `29b149b8` |
@@ -111,8 +118,8 @@ RESUME`. The controller, not the model's prose, owns completion.
 
 1. **LEVEL 6 and 7 need one real LIVE each.** Everything free is in place; the paid batch is
    exhausted (`$0.358 < $0.413`). No workaround is honest here.
-2. **Live web research and the paid browser lifecycle** need the owner's provider key; the code
-   path is verified offline, the live path is not.
+2. **A model-driven research run** and the paid browser lifecycle need a LIVE / the owner's key;
+   the free search and fetch paths themselves are verified live.
 3. **Long-horizon project memory** (a project worked on across days) has the storage and the
    budgets, but no end-to-end proof with a real model.
 4. **A clean Windows desktop for install/uninstall** is not available for free in this

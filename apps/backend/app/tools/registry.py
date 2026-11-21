@@ -1,6 +1,7 @@
 from .contracts import RiskLevel, ToolDefinition, ToolRegistry
 from .executor import ToolExecutor
 from .orchestrator import ToolOrchestrator
+from .search import WebFetchProvider, WebSearchProvider
 from .tinyfish.agent import AgentArgs, TinyFishAgentProvider
 from .tinyfish.browser import (
     BrowserActionProvider,
@@ -10,7 +11,7 @@ from .tinyfish.browser import (
     TinyFishBrowserProvider,
     WebBrowserArgs,
 )
-from .tinyfish.web import FetchArgs, SearchArgs, TinyFishFetchProvider, TinyFishSearchProvider
+from .tinyfish.web import FetchArgs, SearchArgs
 
 
 def make_registry():
@@ -18,28 +19,33 @@ def make_registry():
     registry.register(
         ToolDefinition(
             "web_search",
-            "Find public HTTP URLs. WHEN TO USE: simple lookup. WHEN NOT: .onion, Tor, local files, math.",
+            "Find public HTTP URLs. Works with the paid provider when a key is configured and "
+            "with free public APIs (Wikipedia, arXiv, Stack Exchange, GitHub) otherwise. "
+            "WHEN TO USE: a lookup whose answer must come from a real page. "
+            "WHEN NOT: .onion, Tor, local files, math.",
             SearchArgs,
             "search",
             RiskLevel.READ,
             "free",
             90,
-            "tinyfish",
+            "web",
         ),
-        TinyFishSearchProvider(),
+        WebSearchProvider(),
     )
     registry.register(
         ToolDefinition(
             "web_fetch",
-            "Read 1-3 public URLs as text. WHEN TO USE: after search. WHEN NOT: JS-only pages, Tor, .onion.",
+            "Read 1-3 public URLs as text. Uses the paid reader when a key is configured and the "
+            "product's own bounded, robots-aware reader otherwise. "
+            "WHEN TO USE: after search. WHEN NOT: JS-only pages, Tor, .onion.",
             FetchArgs,
             "fetch",
             RiskLevel.READ,
             "free",
             90,
-            "tinyfish",
+            "web",
         ),
-        TinyFishFetchProvider(),
+        WebFetchProvider(),
     )
     agent = TinyFishAgentProvider()
     registry.register(

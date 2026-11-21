@@ -1,0 +1,72 @@
+{
+  "captured_at": "2026-11-22",
+  "command": "apps/backend/.venv/Scripts/python.exe -m pytest tests/test_live_web_smoke.py -m live_web -q",
+  "tests": "5 passed",
+  "network": "real public APIs, no paid key configured",
+  "queries": {
+    "FastAPI dependency injection": {
+      "kind": "web",
+      "providers": ["stackexchange", "github", "wikipedia"],
+      "errors": [],
+      "sources": [
+        {
+          "provider": "stackexchange",
+          "title": "How to use dependency injection in FastAPI properly?",
+          "url": "https://stackoverflow.com/questions/77746126/how-to-use-dependency-injection-in-fastapi-properly"
+        },
+        {
+          "provider": "github",
+          "title": "Lancetnik/FastDepends",
+          "url": "https://github.com/Lancetnik/FastDepends"
+        },
+        {
+          "provider": "wikipedia",
+          "title": "Dependency injection",
+          "url": "https://en.wikipedia.org/wiki/Dependency_injection"
+        },
+        {
+          "provider": "stackexchange",
+          "title": "Fastapi Dependency Injection with CLI Arguments",
+          "url": "https://stackoverflow.com/questions/75449717/fastapi-dependency-injection-with-cli-arguments"
+        },
+        {
+          "provider": "github",
+          "title": "meadsteve/lagom",
+          "url": "https://github.com/meadsteve/lagom"
+        }
+      ]
+    },
+    "retrieval augmented generation": {
+      "kind": "research_paper",
+      "providers": ["arxiv", "wikipedia"],
+      "errors": [],
+      "sources": [
+        {
+          "provider": "arxiv",
+          "title": "AR-RAG: Autoregressive Retrieval Augmentation for Image Generation",
+          "url": "https://arxiv.org/abs/2506.06962v3"
+        },
+        {
+          "provider": "wikipedia",
+          "title": "Retrieval-augmented generation",
+          "url": "https://en.wikipedia.org/wiki/Retrieval-augmented_generation"
+        },
+        {
+          "provider": "arxiv",
+          "title": "Intelligent Interaction Strategies for Context-Aware Cognitive Augmentation",
+          "url": "https://arxiv.org/abs/2504.13684v1"
+        },
+        {
+          "provider": "wikipedia",
+          "title": "Vector database",
+          "url": "https://en.wikipedia.org/wiki/Vector_database"
+        },
+        {
+          "provider": "arxiv",
+          "title": "Factually: Exploring Wearable Fact-Checking for Augmented Truth Discernment",
+          "url": "https://arxiv.org/abs/2504.17204v1"
+        }
+      ]
+    }
+  }
+}

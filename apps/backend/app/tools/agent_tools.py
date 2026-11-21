@@ -357,18 +357,18 @@ class QueueProvider(ToolProvider[QueueArgs]):
 
 
 async def _provider_search(query: str) -> list[dict[str, Any]]:
-    """Use the product's existing free search provider when it is configured.
+    """Search through the paid provider when it is configured, the free public APIs otherwise.
 
     A missing credential is a gap, not a crash: the engine requeries, then reports the gap.
     """
     try:
-        from .tinyfish.web import SearchArgs, TinyFishSearchProvider
+        from .search.chain import search_sources
 
-        result = await TinyFishSearchProvider().execute(SearchArgs(query=query), None)
+        outcome = await search_sources(query, top=5)
     except Exception:  # noqa: BLE001 - provider/credential outage is normal in a free run
         return []
     rows = []
-    for source in result.sources or []:
+    for source in outcome.sources:
         url = str(source.get("url") or "")
         if url:
             rows.append({"url": url, "title": str(source.get("title") or "")})
