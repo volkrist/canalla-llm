@@ -113,13 +113,29 @@ def personal_fact_recall(prompt: str) -> bool:
     )
 
 
+def _supersedes(older: set[str], newer: set[str]) -> bool:
+    """A newer memory replaces an older one only when it restates the same sentence.
+
+    Two shared words are not enough on their own: two decisions of the same project share the
+    project name and a preposition ("Alpha uses FastAPI" / "Alpha tests run with pytest"), and
+    dropping the second one silently loses a fact the user asked to keep. A real replacement
+    ("lives in Kazan" -> "lives in Moscow") shares half of its vocabulary, so the ratio is what
+    separates a correction from a different fact.
+    """
+    shared = older & newer
+    if len(shared) < 2:
+        return False
+    shorter = min(len(older), len(newer)) or 1
+    return len(shared) / shorter >= 0.5
+
+
 def _drop_superseded(scored):
     newest_first = sorted(scored, key=lambda pair: pair[0].updated_at, reverse=True)
     kept, winners = [], []
     for row, score in newest_first:
         tokens = expand_tokens(words(row.content))
         superseded = any(
-            len(tokens & expand_tokens(words(other.content))) >= 2 and not other.is_pinned
+            _supersedes(tokens, expand_tokens(words(other.content))) and not other.is_pinned
             for other, _score in winners
         )
         if superseded and not row.is_pinned:

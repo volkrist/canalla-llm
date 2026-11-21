@@ -76,13 +76,23 @@ RESUME`. The controller, not the model's prose, owns completion.
   (`a_write_after_the_test_run_forces_verification`, `the_forced_verification_is_executed_and_recorded`),
   and the real repair inside `29b149b8` (failing checks → patches → `verify_result` 8/8).
 
-### 2.6 Memory and projects — **IMPLEMENTED, PARTIAL verification**
+### 2.6. Memory and projects — **VERIFIED (restart and isolation), PARTIAL (real model)**
 
 - Tables and API exist (`Memory` model, memories per user, project links, document indexing with
   FastEmbed, context builder budgets, `docs/memory.md`, `docs/context-builder.md`).
-- Evidence: memory API tests inside the backend suite; the context builder has budget tests.
-- Not proven this session: a real model resuming a long project across restarts with memory — that
-  needs a LIVE (LEVEL 7).
+- Evidence: `apps/backend/tests/test_127_memory_resume.py` — three **separate processes** share only
+  the SQLite file: one writes a project, a chat history and four memories (two project, one pinned
+  general, one for another project, one for another account), a second builds the model context
+  after a restart, a third deletes a row and a fourth restart proves it is gone. The test asserts
+  that the project decisions reach the assembled messages without the user repeating them, that
+  neither the other project's nor the other account's memory leaks in, that `use_count` increments
+  durably, and that `use_memory = false` disables retrieval.
+- Defect found by that test and fixed: `_drop_superseded` in `app/context_builder.py` treated two
+  shared words as "the same fact", so two decisions of one project ("Alpha uses FastAPI…" /
+  "Alpha tests run with pytest…") silently dropped the older one. Supersession now requires the
+  shared vocabulary to be at least half of the shorter memory, which still replaces a correction
+  (Kazan → Moscow) and keeps a different fact.
+- Not proven: a real model resuming a long project across days — that needs a LIVE (LEVEL 7).
 
 ### 2.7 Security — **VERIFIED (offline)**
 
@@ -111,7 +121,7 @@ RESUME`. The controller, not the model's prose, owns completion.
 | D | Repair a broken project | **PASS** | scripted tests + real repair inside `29b149b8` |
 | E | Recovery after an interruption | **PASS (mechanics)** / LEVEL 7 NOT_TESTED | `test_127_recovery_e2e.py`; a real-model resume needs a paid LIVE |
 | F | Security review of an allowed target | **PARTIAL** | offline SAST/TLS/port/secret checks pass; no authorised live target was scanned |
-| G | Memory restores a project after restart | **PARTIAL** | memory + context builder implemented and tested; live cross-restart resume not proven |
+| G | Memory restores a project after restart | **PASS (context)** / LEVEL 7 NOT_TESTED | `test_127_memory_resume.py`: cross-process restore, project and account isolation, durable usage counters, deletion; a live model continuation still needs a paid LIVE |
 | H | No capacity / inference unavailable | **PASS** | typed `WAITING_LLM`/`gpu_unavailable` paths, backoff window, no second Pod, budget rules (`test_on_demand_ai`, `test_cloud_demand`, monitor) |
 
 ## 4. Known gaps, in the order they matter
@@ -120,8 +130,8 @@ RESUME`. The controller, not the model's prose, owns completion.
    exhausted (`$0.358 < $0.413`). No workaround is honest here.
 2. **A model-driven research run** and the paid browser lifecycle need a LIVE / the owner's key;
    the free search and fetch paths themselves are verified live.
-3. **Long-horizon project memory** (a project worked on across days) has the storage and the
-   budgets, but no end-to-end proof with a real model.
+3. **Long-horizon project memory** (a project worked on across days) has the storage, the budgets
+   and a cross-process restart proof; only the real-model continuation is unproven.
 4. **A clean Windows desktop for install/uninstall** is not available for free in this
    environment: VirtualBox + Hyper-V on an 8 GB host cannot finish the Windows install, and the CI
    token cannot add a workflow (`workflow` scope missing). The install/uninstall matrix is
