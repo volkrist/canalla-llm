@@ -1,0 +1,99 @@
+{
+  "schema": 1,
+  "project": "Canalla LLM Desktop",
+  "version": "1.2.7",
+  "branch": "feature/canalla-1.2.7-autonomous-agent",
+  "updated_at": "2026-11-21",
+  "goal": "Finish 1.2.7 acceptance without paid spend, then grow Canalla into a verified autonomous agent",
+  "phase": "P1 - release candidate acceptance",
+  "state_machine": "DISCOVER -> BASELINE -> PLAN -> IMPLEMENT -> TEST -> VERIFY -> COMMIT -> NEXT",
+  "steps": [
+    {
+      "id": "AUDIT",
+      "name": "Read-only audit of repo, production, monitor and spend",
+      "status": "PASS",
+      "evidence": "HEAD d5a072e; origin in sync; production 2/54/120/63/30 integrity ok; 0 Pods"
+    },
+    {
+      "id": "WINDOWS-CI",
+      "name": "Free Windows environment: dispatch the existing CI workflow on windows-latest",
+      "status": "RUNNING",
+      "evidence": "gh run 44903490468 on feature/canalla-1.2.7-autonomous-agent"
+    },
+    {
+      "id": "WINDOWS-INSTALL",
+      "name": "Clean install / first run / restart / uninstall on the host with snapshot+rename isolation",
+      "status": "PENDING",
+      "evidence": ""
+    },
+    {
+      "id": "UPDATER-E2E",
+      "name": "Updater E2E without publishing (local manifest + production-signed package)",
+      "status": "PENDING",
+      "evidence": ""
+    },
+    {
+      "id": "DURABLE-RESUME",
+      "name": "Durable resume evidence (LEVEL 7 mechanics) without a paid GPU",
+      "status": "PASS_PARTIAL",
+      "evidence": "tests/test_127_recovery_e2e.py: killed process -> new process resumes the same task"
+    },
+    {
+      "id": "GAP-ANALYSIS",
+      "name": "Capability gap analysis: research, browser, computer, coding, repair, memory, security",
+      "status": "PENDING",
+      "evidence": ""
+    },
+    {
+      "id": "SCENARIOS",
+      "name": "Scenario matrix A-H statuses with reproducible evidence",
+      "status": "PENDING",
+      "evidence": ""
+    },
+    {
+      "id": "ZED-MODEL",
+      "name": "Verify the Zed development model configuration (read-only unless a safe change is needed)",
+      "status": "PENDING",
+      "evidence": ""
+    },
+    {
+      "id": "LEVEL6",
+      "name": "Real-model verified completion (one LIVE run)",
+      "status": "BLOCKED_BY_LIVE_BUDGET",
+      "evidence": "batch 0673b737 exhausted: $0.358 left < $0.413 useful window; no new budget authorized"
+    },
+    {
+      "id": "LEVEL7",
+      "name": "Durable resume with a real model",
+      "status": "NOT_TESTED",
+      "evidence": "needs a paid LIVE; mechanics proven with a scripted planner"
+    },
+    {
+      "id": "REPORT",
+      "name": "Full report to Desktop (.md + .html) and artifacts/reports",
+      "status": "PENDING",
+      "evidence": ""
+    }
+  ],
+  "production": {
+    "installed_version": "1.2.6",
+    "installed_exe_sha256": "21b50e462156b9f109303623e4c67225d4e44daad981d8f439a83d16c8cafaf1",
+    "db_counts": {"users": 2, "chats": 54, "messages": 120, "paired_devices": 63, "local_tasks": 30},
+    "integrity": "ok",
+    "foreign_key_violations": 0
+  },
+  "money": {
+    "batch_id": "0673b737b3f243ed8985dd62c899dbb1",
+    "cap_usd": 2.0,
+    "spent_usd": 1.642,
+    "balance_delta_usd": 1.6773,
+    "remaining_usd": 0.358,
+    "state": "PAID_BATCH_EXHAUSTED",
+    "active_pods": 0
+  },
+  "blockers": [
+    {"id": "LIVE-BUDGET", "reason": "no paid GPU budget", "status": "BLOCKED_BY_AUTHORIZATION"},
+    {"id": "CI-WORKFLOW-SCOPE", "reason": "the gh token has no workflow scope, so a new Windows install job cannot be pushed", "status": "BLOCKED"},
+    {"id": "CI-DEFAULT-BRANCH", "reason": "workflow_dispatch only registers workflows that exist on the default branch (main)", "status": "BLOCKED"}
+  ]
+}

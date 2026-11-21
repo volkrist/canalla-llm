@@ -36,6 +36,21 @@ legacy_program_done:
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+  ; Tor и sidecar запускаются самим продуктом (always-ready) и держат файлы в $INSTDIR. Без этого
+  ; шага деинсталлятор не может удалить runtime\tor\tor.exe и оставляет каталог программы
+  ; вместе с работающим демоном (найдено приёмкой 1.2.7). Останавливаются только процессы,
+  ; чей исполняемый файл лежит внутри $INSTDIR: чужой Tor, Tor Browser и любой другой процесс
+  ; с тем же именем не затрагиваются.
+  System::Call 'kernel32::SetEnvironmentVariable(t "CANALLA_UNINSTALL_DIR", t "$EXEDIR")'
+  FileOpen $9 "$TEMP\canalla-uninstall.log" w
+  FileWrite $9 "exedir=$EXEDIR instdir=$INSTDIR$\r$\n"
+  FileClose $9
+  nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "$$d=$$env:CANALLA_UNINSTALL_DIR; Get-Process -Name alex-llm,alex-backend,alex-host-loop,tor -ErrorAction SilentlyContinue | Where-Object { $$_.Path -and $$_.Path.StartsWith($$d, [StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force -ErrorAction SilentlyContinue"'
+  Pop $0
+  FileOpen $9 "$TEMP\canalla-uninstall.log" a
+  FileWrite $9 "nsExec=$0$\r$\n"
+  FileClose $9
+  Sleep 2000
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
