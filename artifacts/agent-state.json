@@ -17,44 +17,44 @@
     {
       "id": "WINDOWS-CI",
       "name": "Free Windows environment: dispatch the existing CI workflow on windows-latest",
-      "status": "RUNNING",
-      "evidence": "gh run 44903490468 on feature/canalla-1.2.7-autonomous-agent"
+      "status": "PASS",
+      "evidence": "CI on windows-latest: 7/7 jobs PASS (runs 44903490468, 44907058233); Linux gate 7m05s PASS"
     },
     {
       "id": "WINDOWS-INSTALL",
       "name": "Clean install / first run / restart / uninstall on the host with snapshot+rename isolation",
-      "status": "PENDING",
-      "evidence": ""
+      "status": "PASS",
+      "evidence": "clean install 1.2.7 (1088 files, Tor+host present), first run and restart on an isolated data root, uninstall removes the directory and keeps the data root; production restored byte for byte"
     },
     {
       "id": "UPDATER-E2E",
       "name": "Updater E2E without publishing (local manifest + production-signed package)",
-      "status": "PENDING",
-      "evidence": ""
+      "status": "PARTIAL",
+      "evidence": "signature/key/URL/tamper-refusal verified by the gate and Rust tests; full download+install needs a published manifest, which is not authorized"
     },
     {
       "id": "DURABLE-RESUME",
       "name": "Durable resume evidence (LEVEL 7 mechanics) without a paid GPU",
       "status": "PASS_PARTIAL",
-      "evidence": "tests/test_127_recovery_e2e.py: killed process -> new process resumes the same task"
+      "evidence": "tests/test_127_recovery_e2e.py: killed process -> new process resumes the same task, verifies the side effect instead of repeating it"
     },
     {
       "id": "GAP-ANALYSIS",
       "name": "Capability gap analysis: research, browser, computer, coding, repair, memory, security",
-      "status": "PENDING",
-      "evidence": ""
+      "status": "PASS",
+      "evidence": "docs/agent-capabilities.md: 84 tools inventoried, capabilities classified, scenarios A-H scored"
     },
     {
       "id": "SCENARIOS",
       "name": "Scenario matrix A-H statuses with reproducible evidence",
-      "status": "PENDING",
-      "evidence": ""
+      "status": "PASS",
+      "evidence": "A PARTIAL, B PASS, C PARTIAL, D PASS, E PASS mechanics / LEVEL 7 NOT_TESTED, F PARTIAL, G PARTIAL, H PASS"
     },
     {
       "id": "ZED-MODEL",
       "name": "Verify the Zed development model configuration (read-only unless a safe change is needed)",
-      "status": "PENDING",
-      "evidence": ""
+      "status": "PASS",
+      "evidence": "Zed 1.26.2 settings: provider deepseek, model deepseek-flash, thinking on, effort high; no change needed"
     },
     {
       "id": "LEVEL6",
@@ -78,7 +78,13 @@
   "production": {
     "installed_version": "1.2.6",
     "installed_exe_sha256": "21b50e462156b9f109303623e4c67225d4e44daad981d8f439a83d16c8cafaf1",
-    "db_counts": {"users": 2, "chats": 54, "messages": 120, "paired_devices": 63, "local_tasks": 30},
+    "db_counts": {
+      "users": 2,
+      "chats": 54,
+      "messages": 120,
+      "paired_devices": 63,
+      "local_tasks": 30
+    },
     "integrity": "ok",
     "foreign_key_violations": 0
   },
@@ -92,8 +98,27 @@
     "active_pods": 0
   },
   "blockers": [
-    {"id": "LIVE-BUDGET", "reason": "no paid GPU budget", "status": "BLOCKED_BY_AUTHORIZATION"},
-    {"id": "CI-WORKFLOW-SCOPE", "reason": "the gh token has no workflow scope, so a new Windows install job cannot be pushed", "status": "BLOCKED"},
-    {"id": "CI-DEFAULT-BRANCH", "reason": "workflow_dispatch only registers workflows that exist on the default branch (main)", "status": "BLOCKED"}
-  ]
+    {
+      "id": "LIVE-BUDGET",
+      "reason": "no paid GPU budget",
+      "status": "BLOCKED_BY_AUTHORIZATION"
+    },
+    {
+      "id": "CI-WORKFLOW-SCOPE",
+      "reason": "the gh token has no workflow scope, so a new Windows install job cannot be pushed",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "CI-DEFAULT-BRANCH",
+      "reason": "workflow_dispatch only registers workflows that exist on the default branch (main)",
+      "status": "BLOCKED"
+    }
+  ],
+  "release_artifact": {
+    "name": "Canalla LLM_1.2.7_x64-setup.exe",
+    "size": 96556872,
+    "sha256": "d0a5836f392b65da1ca1fc895234146bc6cb889b90f44ecb70898c32188f3734",
+    "built_at_commit": "4bc117eee9f28bb1eb6eba9c6f882963a116ba06",
+    "release_gate": "candidate: 22 steps, 0 FAIL, 0 BLOCKED"
+  }
 }

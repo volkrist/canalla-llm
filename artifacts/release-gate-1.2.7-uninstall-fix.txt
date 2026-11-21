@@ -1,0 +1,25 @@
+[PASS   ] ruff.backend — alembic
+[PASS   ] ruff.format.backend — alembic
+[PASS   ] pytest.backend — -q
+[PASS   ] ruff.gateway — .
+[PASS   ] pytest.gateway — -q
+[PASS   ] frontend.vitest — test
+[PASS   ] frontend.tsc — false
+[PASS   ] frontend.prettier — format:check
+[PASS   ] frontend.vite — build
+[PASS   ] rust.check — --all-targets
+[PASS   ] rust.test — test
+[PASS   ] frontend.playwright — test:e2e
+[PASS   ] sidecar.stamp — C:\Users\Volkr\Documents\Codex\2026-09-13\x20\outputs\alex-llm\apps\desktop\src-tauri\sidecar\alex-backend\build-stamp.json
+[PASS   ] packaged.gateway_url — C:\Users\Volkr\Documents\Codex\2026-09-13\x20\outputs\alex-llm\apps\desktop\src-tauri\target\release\alex-llm.exe
+[PASS   ] artifact.exists — Canalla LLM_1.2.7_x64-setup.exe
+[PASS   ] artifact.name — Canalla LLM_1.2.7_x64-setup.exe
+[PASS   ] artifact.sha256 — d0a5836f392b65da1ca1fc895234146bc6cb889b90f44ecb70898c32188f3734
+[PASS   ] artifact.key_identity — 9B328EFF111D1FB2
+[PASS   ] artifact.signature_verifies — Ed25519 over BLAKE2b-512 (minisign ED)
+[PASS   ] artifact.signed_name — trusted comment: timestamp:1795266196	file:Canalla LLM_1.2.7_x64-setup.exe
+[PASS   ] artifact.gateway_url — https://gateway.12testers.store baked in alex-llm.exe (the installer is compressed)
+[PASS   ] artifact.commit — 4bc117eee9f28bb1eb6eba9c6f882963a116ba06
+------------------------------------------------------------
+22 steps · 0 FAIL · 0 BLOCKED
+RELEASE GATE: PASS

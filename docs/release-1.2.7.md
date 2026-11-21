@@ -81,7 +81,7 @@ what they downloaded by SHA-256, and the application still refuses an unsigned u
 ## 4. Acceptance performed for this candidate
 
 All of the following ran on this branch at the commit recorded in the release gate
-(`61102fe`, artifact `1c79b201…`).
+(`4bc117e`, artifact `d0a5836f…`).
 
 | Gate | Result |
 |---|---|
@@ -89,7 +89,8 @@ All of the following ran on this branch at the commit recorded in the release ga
 
 > The artifact was built and gated at `61102fe`; the log records that commit binding. Later
 > commits on this branch touch documentation and evidence only, never the packaged bytes.
-> Final artifact: 96 561 854 bytes, `sha256:1c79b201bab79453b5f76d9fe57e274f39ae583d38891c81e8ebdf310a133c77`.
+> Final artifact: 96 556 872 bytes, `sha256:d0a5836f392b65da1ca1fc895234146bc6cb889b90f44ecb70898c32188f3734`
+> (the uninstall hook fix; `artifacts/release-gate-1.2.7-uninstall-fix.txt`).
 | Backend pytest | **1184 passed, 1 skipped** |
 | Backend ruff (`check` + `format --check`) | PASS (245 files) |
 | BasedPyright, shipped code (`apps/backend/app`, `apps/gateway/gateway`) | **0 errors, 0 warnings, 153 files** |
@@ -113,8 +114,10 @@ All of the following ran on this branch at the commit recorded in the release ga
 | **Linux runtime** (Ubuntu 24.04, WSL2) | **10/10 PASS** — the packaged Linux backend answers `/health` with an empty `PATH`, reports 1.2.7, the bundled Tor 0.4.9.16 proves a real SOCKS5h circuit, survives being killed and recovers with a fresh proof, and leaves no daemon behind |
 | **Upgrade 1.2.6 → 1.2.7 with real 1.2.6 data** | **PASS** — the installer replaced the binaries (version 1.2.7), and a sidecar started against a database created by 1.2.6 migrated `0016 → 0017` with a verified pre-upgrade backup; the user and the chat row survived |
 | **Rollback after the migration** | **refused, safely** — the restored 1.2.6 sidecar on the 0017 database exits `16` with `ALEX_RUNTIME_ERROR database_ahead`, records `refused_database_ahead`, leaves the database untouched and writes no pointless backup |
-| Clean installation | the installer ran a full install (the real 1.2.6 install was upgraded and then restored byte for byte); a **side-by-side** install is not possible — see §6 |
-| Uninstall | **not executed against the user's installation** — the NSIS uninstaller removes the program directory and never the data root; the behaviour is unchanged from 1.0.0/1.1.0 and documented in `installer-data-layout.md` |
+| **Clean installation** (isolated data root + credential, programme renamed away and restored) | **PASS** — installer exit 0, product 1.2.7, 1088 files, Tor and host-loop present, registry 1.2.7 |
+| **First run and restart** | **PASS** — `/health` 1.2.7 twice on the same isolated data root; the database was created and survived the restart; no leftover processes |
+| **Uninstall** | **PASS** — program directory removed, uninstall entry removed, data root preserved, no processes left. Required the pre-uninstall hook fix below |
+| **Windows CI on a free GitHub runner** | `CI` dispatches on `windows-latest`: **7/7 jobs PASS** (developer gate, native gate, frontend E2E, Tor runtime, llama runtime, installer build); `Linux gate` 7m05s PASS |
 | Production 1.2.6 database | unchanged (2 users / 54 chats / 120 messages / 63 devices / 30 tasks, integrity ok, 0 FK); the installed build was restored to the exact pre-test SHA-256 |
 
 ## 5. Release checklist
@@ -128,6 +131,8 @@ All of the following ran on this branch at the commit recorded in the release ga
 - [x] Free CI on the release commit (backend, gateway, frontend, Rust, acceptance self-tests)
 - [x] Linux runtime acceptance on Ubuntu 24.04 (packaged backend + bundled Tor)
 - [x] Upgrade with real 1.2.6 data and the rollback refusal behaviour
+- [x] **Clean install, first run, restart, uninstall** on an isolated data root (programme renamed away and restored byte for byte)
+- [x] Windows `CI` on `windows-latest`: **7/7 jobs**; `Linux gate` PASS
 - [x] Deployed Gateway dry run (no Pod, no spend)
 - [x] Production database untouched and the installed build restored
 - [x] `release-gate.py candidate` on the artifact: **22 steps, 0 FAIL, 0 BLOCKED**
