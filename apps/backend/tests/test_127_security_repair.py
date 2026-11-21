@@ -110,8 +110,10 @@ def test_the_report_counts_by_severity_and_never_claims_clean_when_it_is_not():
     assert payload["ok"] is False, "a tree with high findings must not be called clean"
 
 
-def test_a_scope_refuses_a_target_outside_the_workspace():
-    scope = SecurityScope(targets=["C:/work/project"], authorized=True)
-    assert_target_allowed(scope, "C:/work/project/app/db.py")
+def test_a_scope_refuses_a_target_outside_the_workspace(tmp_path):
+    inside = tmp_path / "project"
+    inside.mkdir()
+    scope = SecurityScope(targets=[str(inside)], authorized=True)
+    assert_target_allowed(scope, str(inside / "app" / "db.py"))
     with pytest.raises(ScopeError):
-        assert_target_allowed(scope, "C:/Windows/System32/drivers/etc/hosts")
+        assert_target_allowed(scope, str(tmp_path / "outside" / "hosts"))

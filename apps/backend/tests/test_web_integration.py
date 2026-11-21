@@ -133,13 +133,28 @@ def test_off_never_calls_tools(client, auth, fake_tools):
     assert fake_tools.get("web_search")[1].calls == []
 
 
-def test_missing_key_chat_still_completes(client, auth):
+def test_missing_key_chat_still_completes(client, auth, monkeypatch):
+    """No paid key is not a broken tool: the free chain runs, and its failure is typed.
+
+    Before 1.2.7 the only advertised search provider needed a key, so this path surfaced
+    `provider_not_configured` to the user. The free chain now answers instead; when every free
+    provider is down the reason is `search_unavailable`, and the chat still completes.
+    """
+    from app.tools.search.chain import SearchOutcome
+    from app.tools.search import provider as search_provider
+
+    async def offline(query, **kwargs):
+        return SearchOutcome(errors=["wikipedia:timeout", "stackexchange:rate_limited"])
+
+    monkeypatch.setattr(search_provider, "search_sources", offline)
     headers = auth()
     chat = client.post("/chats", headers=headers, json={}).json()["id"]
     response = client.post(
         f"/chats/{chat}/stream", headers=headers, json={"content": "Current docs", "web_mode": "on"}
     )
-    assert "provider_not_configured" in response.text and "event: done" in response.text
+    assert "event: done" in response.text
+    assert "provider_not_configured" not in response.text
+    assert "search_unavailable" in response.text or "wikipedia:timeout" in response.text
     assert "test-only-provider-credential" not in response.text
 
 

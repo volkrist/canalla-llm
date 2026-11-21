@@ -184,5 +184,8 @@ def assert_check_allowed(scope: SecurityScope, check: str) -> None:
 
 def assert_target_allowed(scope: SecurityScope, path: str) -> None:
     resolved = _norm(path)
-    if not any(_inside(resolved, root) for root in scope.targets):
+    # Both sides are normalised: a scope built from a UI or prompt path may carry the other
+    # separator style, and comparing a resolved target against a raw root silently refused a
+    # path that was inside the workspace.
+    if not any(_inside(resolved, _norm(root)) for root in scope.targets):
         raise ScopeError("security_target_out_of_scope", f"{path} вне разрешённого scope проверки")
