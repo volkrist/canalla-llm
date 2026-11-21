@@ -18,7 +18,7 @@
       "id": "WINDOWS-CI",
       "name": "Free Windows environment: dispatch the existing CI workflow on windows-latest",
       "status": "PASS",
-      "evidence": "CI on windows-latest: 7/7 jobs PASS (runs 44903490468, 44907058233); Linux gate 7m05s PASS"
+      "evidence": "CI on windows-latest: 7/7 jobs PASS (runs 44903490468, 44907058233); Linux gate 7m05s PASS; final runs on a11eab8: CI 44913607831 and Linux gate 44913594316 dispatched (result recorded in the next report)"
     },
     {
       "id": "WINDOWS-INSTALL",
@@ -71,8 +71,8 @@
     {
       "id": "REPORT",
       "name": "Full report to Desktop (.md + .html) and artifacts/reports",
-      "status": "PENDING",
-      "evidence": ""
+      "status": "PASS",
+      "evidence": "artifacts/reports/CANALLA-1.2.7-AUTONOMOUS-CONTINUATION.md/.html (commit f66e2e5); identical copies on the Desktop as \"Отчёт Canalla 1.2.7 — автономная разработка 21.11.*\""
     }
   ],
   "production": {
