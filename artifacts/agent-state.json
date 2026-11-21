@@ -42,7 +42,7 @@
       "id": "GAP-ANALYSIS",
       "name": "Capability gap analysis: research, browser, computer, coding, repair, memory, security",
       "status": "PASS",
-      "evidence": "docs/agent-capabilities.md: 84 tools inventoried, capabilities classified, scenarios A-H scored"
+      "evidence": "docs/agent-capabilities.md: 84 tools inventoried, capabilities classified, scenarios A-H scored; research live fetch proven by test_live_web_smoke.py"
     },
     {
       "id": "SCENARIOS",
@@ -116,9 +116,9 @@
   ],
   "release_artifact": {
     "name": "Canalla LLM_1.2.7_x64-setup.exe",
-    "size": 96556872,
-    "sha256": "d0a5836f392b65da1ca1fc895234146bc6cb889b90f44ecb70898c32188f3734",
-    "built_at_commit": "4bc117eee9f28bb1eb6eba9c6f882963a116ba06",
+    "size": 96568902,
+    "sha256": "ec47412e2dd01ca2b0438447ff1fa512ec606031c30b845f5b2ec63deed4d103",
+    "built_at_commit": "e78ca91b9fdb40a035839a44a4e4ec583caf773d",
     "release_gate": "candidate: 22 steps, 0 FAIL, 0 BLOCKED"
   }
 }

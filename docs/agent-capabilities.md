@@ -23,14 +23,17 @@ RESUME`. The controller, not the model's prose, owns completion.
 
 ## 2. Capability status
 
-### 2.1 Research — **VERIFIED (mechanics), PARTIAL (live web)**
+### 2.1 Research — **VERIFIED (live fetch), PARTIAL (search provider)**
 
 - `deep_research` runs search → read → gap → requery with a bounded budget and keeps sources.
 - Code: `app/agent/research.py`, `app/tools/agent_tools.py`.
 - Evidence: `apps/backend/tests/test_web_research_gap.py` (4), `test_tor_research.py`,
   `test_127_autonomous_e2e.py`; the tool refuses invented sources and reports gaps.
-- Not proven here: a live TinyFish search/fetch this session (needs the owner's key and the
-  `live_web` marker). Tor research runs only when Tor is the required route.
+- Live proof (21 Nov 2026): `tests/test_live_web_smoke.py -m live_web` fetches `https://example.com`
+  through the product's own client and asserts the source is recorded — 2 passed. The packaged
+  backend needed a CA-bundle fix for this to work at all (see the release notes).
+- Still not proven: a live *search* provider (TinyFish key, `live_web` marker). Tor research runs
+  only when Tor is the required route.
 
 ### 2.2 Browser automation — **VERIFIED (local browser), PARTIAL (paid provider)**
 
@@ -95,7 +98,7 @@ RESUME`. The controller, not the model's prose, owns completion.
 
 | # | Scenario | Status | Evidence / reason |
 |---|---|---|---|
-| A | Research with verifiable sources | **PARTIAL** | pipeline + offline tests; live web needs the owner's TinyFish key (not exercised) |
+| A | Research with verifiable sources | **PARTIAL (fetch VERIFIED)** | live HTTPS fetch + source recording proven; keyword search needs the TinyFish key |
 | B | Build an application end to end | **PASS** | real LIVE `e1845955` + free CI (`test_autonomous_tasks`, `test_long_autonomy`) |
 | C | Drive an installed GUI application | **PARTIAL** | UIA + installed always-ready verified; not repeated with a real model this session |
 | D | Repair a broken project | **PASS** | scripted tests + real repair inside `29b149b8` |

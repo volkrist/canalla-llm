@@ -81,7 +81,7 @@ what they downloaded by SHA-256, and the application still refuses an unsigned u
 ## 4. Acceptance performed for this candidate
 
 All of the following ran on this branch at the commit recorded in the release gate
-(`4bc117e`, artifact `d0a5836f…`).
+(`e78ca91`, artifact `ec47412e…`).
 
 | Gate | Result |
 |---|---|
@@ -89,8 +89,8 @@ All of the following ran on this branch at the commit recorded in the release ga
 
 > The artifact was built and gated at `61102fe`; the log records that commit binding. Later
 > commits on this branch touch documentation and evidence only, never the packaged bytes.
-> Final artifact: 96 556 872 bytes, `sha256:d0a5836f392b65da1ca1fc895234146bc6cb889b90f44ecb70898c32188f3734`
-> (the uninstall hook fix; `artifacts/release-gate-1.2.7-uninstall-fix.txt`).
+> Final artifact: 96 568 902 bytes, `sha256:ec47412e2dd01ca2b0438447ff1fa512ec606031c30b845f5b2ec63deed4d103`
+> (uninstall hook + research CA bundle; `artifacts/release-gate-1.2.7-research-fix.txt`).
 | Backend pytest | **1184 passed, 1 skipped** |
 | Backend ruff (`check` + `format --check`) | PASS (245 files) |
 | BasedPyright, shipped code (`apps/backend/app`, `apps/gateway/gateway`) | **0 errors, 0 warnings, 153 files** |
