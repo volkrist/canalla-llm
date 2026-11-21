@@ -94,12 +94,20 @@ RESUME`. The controller, not the model's prose, owns completion.
   (Kazan → Moscow) and keeps a different fact.
 - Not proven: a real model resuming a long project across days — that needs a LIVE (LEVEL 7).
 
-### 2.7 Security — **VERIFIED (offline)**
+### 2.7. Security — **VERIFIED (offline engine, find → fix → re-check)**
 
 - `security_active` covers SAST-style review, dependency/config checks, TLS/HTTPS probes, port
   inspection on explicitly allowed targets, secret scanning; scope is enforced by the policy.
-- Evidence: `test_127_security_active.py`, `test_security_assessment.py`, `docs/local-risk-policy.md`.
-- Not run this session: active checks against a real target (needs an authorised scope).
+- Evidence: `test_127_security_active.py`, `test_security_assessment.py`,
+  `test_127_security_repair.py` (5), `docs/local-risk-policy.md`.
+- `test_127_security_repair.py` scans a deliberately vulnerable local project with the product's
+  own rule engine and asserts every planted defect with its CWE — SQL built by string (CWE-89),
+  a hardcoded secret (CWE-798, redacted in the evidence), disabled TLS verification (CWE-295),
+  `shell=True` (CWE-78), dynamic `eval` (CWE-95), debug mode (CWE-489). It then applies a fix and
+  re-runs the *same* engine: the four high-risk rules disappear and the fixed tree scans clean;
+  the report refuses a verdict of clean while findings exist. The fix itself is scripted in the
+  test — a model-driven repair conversation is a LIVE claim and is not made.
+- Not run: active checks against a real authorised target (needs an owner-approved scope).
 
 ### 2.8 Orchestration, durability, verification — **VERIFIED (mechanics)**
 
@@ -120,7 +128,7 @@ RESUME`. The controller, not the model's prose, owns completion.
 | C | Drive an installed GUI application | **PARTIAL** | UIA + installed always-ready verified; not repeated with a real model this session |
 | D | Repair a broken project | **PASS** | scripted tests + real repair inside `29b149b8` |
 | E | Recovery after an interruption | **PASS (mechanics)** / LEVEL 7 NOT_TESTED | `test_127_recovery_e2e.py`; a real-model resume needs a paid LIVE |
-| F | Security review of an allowed target | **PARTIAL** | offline SAST/TLS/port/secret checks pass; no authorised live target was scanned |
+| F | Security review of an allowed target | **PARTIAL (engine VERIFIED)** | the planted-defect matrix and the fix→re-check loop run against the product's own scanner on a local fixture; the fix is scripted, and no owner-approved live target was scanned |
 | G | Memory restores a project after restart | **PASS (context)** / LEVEL 7 NOT_TESTED | `test_127_memory_resume.py`: cross-process restore, project and account isolation, durable usage counters, deletion; a live model continuation still needs a paid LIVE |
 | H | No capacity / inference unavailable | **PASS** | typed `WAITING_LLM`/`gpu_unavailable` paths, backoff window, no second Pod, budget rules (`test_on_demand_ai`, `test_cloud_demand`, monitor) |
 
