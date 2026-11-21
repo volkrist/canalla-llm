@@ -3,9 +3,9 @@
   "project": "Canalla LLM Desktop",
   "version": "1.2.7",
   "branch": "feature/canalla-1.2.7-autonomous-agent",
-  "updated_at": "2026-11-21",
+  "updated_at": "2026-11-22",
   "goal": "Finish 1.2.7 acceptance without paid spend, then grow Canalla into a verified autonomous agent",
-  "phase": "P1 - release candidate acceptance",
+  "phase": "P5 - autonomous capability gap closure",
   "state_machine": "DISCOVER -> BASELINE -> PLAN -> IMPLEMENT -> TEST -> VERIFY -> COMMIT -> NEXT",
   "steps": [
     {
@@ -42,13 +42,13 @@
       "id": "GAP-ANALYSIS",
       "name": "Capability gap analysis: research, browser, computer, coding, repair, memory, security",
       "status": "PASS",
-      "evidence": "docs/agent-capabilities.md: 84 tools inventoried, capabilities classified, scenarios A-H scored; research live fetch proven by test_live_web_smoke.py"
+      "evidence": "docs/agent-capabilities.md updated: research search+fetch now VERIFIED live; memory cross-process restart VERIFIED; security find/fix/recheck VERIFIED offline"
     },
     {
       "id": "SCENARIOS",
       "name": "Scenario matrix A-H statuses with reproducible evidence",
-      "status": "PASS",
-      "evidence": "A PARTIAL, B PASS, C PARTIAL, D PASS, E PASS mechanics / LEVEL 7 NOT_TESTED, F PARTIAL, G PARTIAL, H PASS"
+      "status": "PASS_PARTIAL",
+      "evidence": "A PASS (live free search+fetch), B PASS, C PARTIAL, D PASS, E PASS (mechanics), F PARTIAL (engine verified offline), G PASS (context across restart), H PASS; LEVEL 6/7 still need one paid LIVE"
     },
     {
       "id": "ZED-MODEL",
@@ -71,8 +71,26 @@
     {
       "id": "REPORT",
       "name": "Full report to Desktop (.md + .html) and artifacts/reports",
+      "status": "PENDING",
+      "evidence": "new session report to be written after the CI verdict on this HEAD"
+    },
+    {
+      "id": "FREE-SEARCH",
+      "name": "Provider-agnostic search and fetch without a paid key",
       "status": "PASS",
-      "evidence": "artifacts/reports/CANALLA-1.2.7-AUTONOMOUS-CONTINUATION.md/.html (commit f66e2e5); identical copies on the Desktop as \"Отчёт Canalla 1.2.7 — автономная разработка 21.11.*\""
+      "evidence": "app/tools/search: Wikipedia/arXiv/Stack Exchange/GitHub adapters; web_fetch falls back to the product's robots-aware reader; 17 offline tests + 5 live_web tests passed against real public APIs; artifacts/acceptance-search/free-search-live.json"
+    },
+    {
+      "id": "MEMORY-RESUME",
+      "name": "Project memory across a backend restart (scenario G)",
+      "status": "PASS",
+      "evidence": "tests/test_127_memory_resume.py: three separate processes share only SQLite; project memory reaches the model context, other project and other account do not leak; deletion and use_memory=false verified; defect fixed in _drop_superseded"
+    },
+    {
+      "id": "SECURITY-REPAIR",
+      "name": "Security find -> fix -> re-check on a local fixture (scenario F)",
+      "status": "PASS_PARTIAL",
+      "evidence": "tests/test_127_security_repair.py: 6 planted defects found with CWE, same engine re-checks the fix as clean; the fix is scripted, model-driven repair needs a LIVE"
     }
   ],
   "production": {
