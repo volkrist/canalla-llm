@@ -116,6 +116,15 @@ RESUME`. The controller, not the model's prose, owns completion.
 - Evidence: `test_127_recovery_e2e.py` — a child process performs an irreversible side effect and
   dies with `os._exit(17)`; a second process resumes the *same* task id, verifies the side effect
   instead of repeating it, and completes with `evidence_ok`.
+- `test_127_recovery_matrix.py` (5) covers the rest of the controlled failures: a tool run that
+  never returned is failed as `backend_interrupted` instead of being replayed, an in-flight task is
+  left `INTERRUPTED` (resumable, not finished), a stale claim returns to `QUEUED` **with its
+  completed digests**, `WAITING_LLM` and `PAUSED` survive startup reconciliation, and finishing the
+  same task twice records exactly one `COMPLETED` event.
+- Defect fixed by that matrix: `LocalTaskController.finish()` appended a completion event even for
+  an already terminal task, so two finish paths (tool loop / answer stream, or a resumed process
+  racing the dead one) could report "готово" twice. It now returns early and records only a
+  conflicting request as `FINISH_IGNORED`.
 - `test_127_provenance.py` proves the journal/ledger chain; the LIVE replay reproduces
   `INCOMPLETE_TRACE` and shows the one missing event.
 
@@ -127,7 +136,7 @@ RESUME`. The controller, not the model's prose, owns completion.
 | B | Build an application end to end | **PASS** | real LIVE `e1845955` + free CI (`test_autonomous_tasks`, `test_long_autonomy`) |
 | C | Drive an installed GUI application | **PARTIAL** | UIA + installed always-ready verified; not repeated with a real model this session |
 | D | Repair a broken project | **PASS** | scripted tests + real repair inside `29b149b8` |
-| E | Recovery after an interruption | **PASS (mechanics)** / LEVEL 7 NOT_TESTED | `test_127_recovery_e2e.py`; a real-model resume needs a paid LIVE |
+| E | Recovery after an interruption | **PASS (mechanics)** / LEVEL 7 NOT_TESTED | `test_127_recovery_e2e.py` + `test_127_recovery_matrix.py` (5 controlled failures, single completion); a real-model resume needs a paid LIVE |
 | F | Security review of an allowed target | **PARTIAL (engine VERIFIED)** | the planted-defect matrix and the fix→re-check loop run against the product's own scanner on a local fixture; the fix is scripted, and no owner-approved live target was scanned |
 | G | Memory restores a project after restart | **PASS (context)** / LEVEL 7 NOT_TESTED | `test_127_memory_resume.py`: cross-process restore, project and account isolation, durable usage counters, deletion; a live model continuation still needs a paid LIVE |
 | H | No capacity / inference unavailable | **PASS** | typed `WAITING_LLM`/`gpu_unavailable` paths, backoff window, no second Pod, budget rules (`test_on_demand_ai`, `test_cloud_demand`, monitor) |
