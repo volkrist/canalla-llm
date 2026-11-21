@@ -53,8 +53,11 @@
   `tor-runtime`, `llama-runtime`, `llama-runtime-image`, **`installer-build`** (реальная сборка
   NSIS на чистой Windows-машине).
 - Повторный прогон после исправления uninstall: run `44907058233`, 18m01s, **success**.
-- Финальный прогон на `a11eab8`: run `44913607831` (запущен в этой сессии).
-- `Linux gate` (Ubuntu 24.04, нативный Rust + сборка) — **success**, 7m05s.
+- Финальный прогон на `a11eab8`: run `44913607831` — **success, 17m36s, 7/7 job'ов PASS**
+  (`developer-gate` 17m32s, `installer-build` 9m56s, `frontend-e2e` 7m28s, `native-gate` 5m30s,
+  `llama-runtime-image` 5m46s, `tor-runtime` 2m15s, `llama-runtime` 40s).
+- `Linux gate` (Ubuntu 24.04, нативный Rust + сборка) на `a11eab8`: run `44913594316` —
+  **success, 7m53s** (на `4bc117e` было 7m05s).
 
 ### C.2. Матрица чистой установки, первого запуска и удаления
 

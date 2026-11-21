@@ -18,7 +18,7 @@
       "id": "WINDOWS-CI",
       "name": "Free Windows environment: dispatch the existing CI workflow on windows-latest",
       "status": "PASS",
-      "evidence": "CI on windows-latest: 7/7 jobs PASS (runs 44903490468, 44907058233); Linux gate 7m05s PASS; final runs on a11eab8: CI 44913607831 and Linux gate 44913594316 dispatched (result recorded in the next report)"
+      "evidence": "CI on windows-latest: 7/7 jobs PASS on d5a072e (44903490468), 4bc117e (44907058233) and a11eab8 (44913607831, 17m36s); Linux gate PASS 7m05s on 4bc117e (44907052631) and 7m53s on a11eab8 (44913594316); installer-build job built NSIS on a clean runner"
     },
     {
       "id": "WINDOWS-INSTALL",

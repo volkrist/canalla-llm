@@ -83,8 +83,8 @@ a { color: #0b62d6; }
 <li><code>gh workflow run CI --ref feature/canalla-1.2.7-autonomous-agent</code> — запуск на нашей ветке.</li>
 <li>Результат: <strong>7/7 job'ов PASS</strong> — <code>developer-gate</code>, <code>native-gate</code>, <code>frontend-e2e</code>, <code>tor-runtime</code>, <code>llama-runtime</code>, <code>llama-runtime-image</code>, <strong><code>installer-build</code></strong> (реальная сборка NSIS на чистой Windows-машине).</li>
 <li>Повторный прогон после исправления uninstall: run <code>44907058233</code>, 18m01s, <strong>success</strong>.</li>
-<li>Финальный прогон на <code>a11eab8</code>: run <code>44913607831</code> (запущен в этой сессии).</li>
-<li><code>Linux gate</code> (Ubuntu 24.04, нативный Rust + сборка) — <strong>success</strong>, 7m05s.</li>
+<li>Финальный прогон на <code>a11eab8</code>: run <code>44913607831</code> — <strong>success, 17m36s, 7/7 job'ов PASS</strong> (<code>developer-gate</code> 17m32s, <code>installer-build</code> 9m56s, <code>frontend-e2e</code> 7m28s, <code>native-gate</code> 5m30s, <code>llama-runtime-image</code> 5m46s, <code>tor-runtime</code> 2m15s, <code>llama-runtime</code> 40s).</li>
+<li><code>Linux gate</code> (Ubuntu 24.04, нативный Rust + сборка) на <code>a11eab8</code>: run <code>44913594316</code> — <strong>success, 7m53s</strong> (на <code>4bc117e</code> было 7m05s).</li>
 </ul>
 <h3>C.2. Матрица чистой установки, первого запуска и удаления</h3>
 <p>Чистая VM невозможна, поэтому применён безопасный метод: рабочая установка <strong>переименована</strong> (не удалена), установщик ставит 1.2.7 в штатный путь, тест работает с <strong>изолированным data root</strong> и <strong>изолированным device credential</strong>, после чего всё восстанавливается байт-в-байт.</p>
