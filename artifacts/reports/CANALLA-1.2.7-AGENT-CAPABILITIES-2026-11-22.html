@@ -50,11 +50,11 @@ a { color: #0b62d6; }
 <tr><td>Дата</td><td>22 ноября 2026</td></tr>
 <tr><td>Проект</td><td>Canalla LLM Desktop 1.2.7</td></tr>
 <tr><td>Ветка</td><td><code>feature/canalla-1.2.7-autonomous-agent</code></td></tr>
-<tr><td>HEAD на момент отчёта</td><td><code>f6a1de3</code></td></tr>
+<tr><td>HEAD на момент отчёта</td><td><code>fa43168</code></td></tr>
 <tr><td>Артефакт релиза</td><td><code>Canalla LLM_1.2.7_x64-setup.exe</code>, 96 568 902 B, <code>ec47412e…</code> (не менялся)</td></tr>
 <tr><td>Расходы этой сессии</td><td><strong>$0.00</strong> — 0 Pod, платных операций не было</td></tr>
 <tr><td>Production</td><td>1.2.6, не изменена: 2/54/120/63/30, integrity ok, 0 FK, alembic <code>0016</code></td></tr>
-<tr><td>CI на этом HEAD</td><td>run <code>44963140611</code> (Windows) и <code>44963137374</code> (Linux) — запущены в этой сессии</td></tr>
+<tr><td>CI на этом HEAD</td><td>Windows CI <code>44967663631</code> — <strong>success, 18m07s, 7/7 job'ов</strong>; Linux gate <code>44966302721</code> — <strong>success 7m43s</strong></td></tr>
 </tbody></table>
 <hr>
 <h2>A. Что требовалось</h2>
@@ -120,7 +120,20 @@ a { color: #0b62d6; }
 </tbody></table>
 <p>Затем применяется исправление и <strong>тот же</strong> движок перепроверяет дерево: четыре high-правила исчезают, исправленное дерево сканируется чисто, а отчёт отказывается называть дерево с high- находками чистым. Дополнительно проверено, что scope не пропускает путь вне workspace.</p>
 <p>Честная граница: само исправление здесь <strong>scripted</strong>; разговор модели «нашла → объяснила → исправила» — это LIVE-утверждение, и оно не делается.</p>
-<h3>C.4. Регрессии и статический анализ</h3>
+<h3>C.4. Матрица recovery — пять контролируемых сбоев — <strong>PASS (механика)</strong></h3>
+<p><code>apps/backend/tests/test_127_recovery_matrix.py</code> фиксирует каждый сбой отдельной строкой:</p>
+<table><thead><tr>
+<th>Сбой</th>
+<th>Ожидаемое безопасное состояние</th>
+</tr></thead><tbody>
+<tr><td>вызов инструмента не вернулся (рестарт backend)</td><td><code>ToolRun</code> → <code>failed / backend_interrupted</code>, задача → <code>INTERRUPTED</code>, но не завершена и не переиграна</td></tr>
+<tr><td>задача ждёт inference (<code>WAITING_LLM</code>)</td><td>старт-реконсиляция её <strong>не трогает</strong>: окно повтора сохраняется</td></tr>
+<tr><td>claim мёртвого воркера</td><td>задача возвращается в <code>QUEUED</code> <strong>вместе с <code>digests_completed</code></strong> — выполненное действие не повторяется</td></tr>
+<tr><td>повторный <code>finish</code></td><td>ровно одно событие <code>COMPLETED</code>, конфликтующее требование — <code>FINISH_IGNORED</code></td></tr>
+<tr><td>пауза пользователя</td><td><code>PAUSED</code> не превращается в <code>INTERRUPTED</code>: это решение, а не сбой</td></tr>
+</tbody></table>
+<p><strong>Найден и исправлен дефект:</strong> <code>LocalTaskController.finish()</code> добавлял событие завершения даже для уже терминальной задачи. Два пути завершения (tool loop и поток ответа, либо возобновлённый процесс, гоняющийся с погибшим) могли дать два «готово» по одной задаче. Теперь второй вызов возвращается сразу и фиксирует только конфликт как <code>FINISH_IGNORED</code>.</p>
+<h3>C.5. Регрессии и статический анализ</h3>
 <table><thead><tr>
 <th>Проверка</th>
 <th>Результат</th>
@@ -129,15 +142,28 @@ a { color: #0b62d6; }
 <tr><td><code>test_coding_agent</code>, <code>test_autonomous_tasks</code></td><td><strong>48 passed</strong></td></tr>
 <tr><td><code>test_091_reliability</code>, <code>test_context_usage</code>, <code>test_personal_presence</code>, <code>test_127_agent_core</code></td><td><strong>81 passed</strong></td></tr>
 <tr><td><code>test_autonomous_tasks</code> (после правки памяти)</td><td><strong>35 passed</strong></td></tr>
-<tr><td><code>ruff check</code> по изменённым файлам</td><td><strong>All checks passed</strong></td></tr>
-<tr><td>BasedPyright <code>apps/backend/app</code></td><td><strong>0 errors, 0 warnings</strong></td></tr>
+<tr><td><code>test_autonomous_tasks</code>, <code>test_127_agent_core</code>, <code>test_127_recovery_e2e</code>, <code>test_127_autonomous_e2e</code> (после правки <code>finish</code>)</td><td><strong>52 passed</strong></td></tr>
+<tr><td><code>test_127_recovery_matrix</code></td><td><strong>5 passed</strong></td></tr>
+<tr><td>Локальный <code>release-gate.py developer</code> на <code>fa43168</code></td><td><strong>9 steps · 0 FAIL · 0 BLOCKED — PASS</strong></td></tr>
+<tr><td>Windows CI в GitHub Actions на <code>fa43168</code></td><td><strong>7/7 job'ов PASS</strong> (<code>developer-gate</code>, <code>native-gate</code>, <code>frontend-e2e</code>, <code>tor-runtime</code>, <code>llama-runtime</code>, <code>llama-runtime-image</code>, <code>installer-build</code>)</td></tr>
+<tr><td>Linux gate на <code>fa43168</code></td><td><strong>PASS, 7m43s</strong></td></tr>
+<tr><td>Staged sidecar</td><td>пересобран из нового источника: digest <code>fbd7f1a0…</code>, exe sha256 <code>16477198…</code>, 24 873 833 B</td></tr>
 </tbody></table>
+<p>Что нашли сами прогоны (не только локальные тесты):</p>
+<ul>
+<li>Linux gate отверг <code>test_127_security_repair</code> — и это был настоящий переносимый дефект в <code>assert_target_allowed</code> (нормализовалась только цель), а не ошибка теста; исправлено;</li>
+<li>Windows developer gate в CI проверяет не только <code>ruff check</code>, но и <code>ruff format</code>: пять новых файлов были неотформатированы, шаг красный; исправлено (<code>1 FAIL → 0 FAIL</code>);</li>
+<li>локальный developer gate дополнительно требует, чтобы staged sidecar соответствовал исходникам: он был устаревшим, поэтому sidecar пересобран и <code>check</code> теперь возвращает <code>backend sidecar is current</code>. | <code>ruff check</code> по изменённым файлам | <strong>All checks passed</strong> | | BasedPyright <code>apps/backend/app</code> | <strong>0 errors, 0 warnings</strong> |</li>
+</ul>
 <hr>
 <h2>D. Исправленные дефекты</h2>
 <ol>
 <li><strong>Мёртвые <code>web_search</code> / <code>web_fetch</code> без ключа</strong> — заменены на провайдер-независимую цепочку с бесплатными официальными API и собственным reader'ом продукта.</li>
 <li><strong><code>_drop_superseded</code> терял разные факты одного проекта</strong> — правило замены переведено с «два общих слова» на отношение общего словаря к короткой записи (≥ 0.5).</li>
 <li><strong>Модель видела недоступный провайдер как обычный инструмент</strong> — описание инструментов теперь соответствует реальному поведению (платный путь — оптимизация, не условие работы).</li>
+<li><strong>Двойное «готово» по одной задаче</strong> — <code>finish()</code> больше не добавляет событие завершения терминальной задаче; конфликт фиксируется как <code>FINISH_IGNORED</code>.</li>
+<li><strong>Scope проверки безопасности отвергал путь внутри workspace на POSIX</strong> — цель нормализовалась, а корень — нет (найдено Linux gate). Теперь нормализуются обе стороны.</li>
+<li><strong>Тест <code>test_missing_key_chat_still_completes</code> кодировал старый дефект</strong> — ожидал <code>provider_not_configured</code> для отсутствующего платного ключа. Контракт обновлён: бесплатная цепочка запускается, а при недоступности всех бесплатных провайдеров причина — <code>search_unavailable</code>, и чат всё равно завершается.</li>
 </ol>
 <hr>
 <h2>E. Независимые доказательства</h2>
@@ -145,6 +171,7 @@ a { color: #0b62d6; }
 <li>живые сетевые прогоны (<code>-m live_web</code>, 5 passed) и сохранённые реальные URL/заголовки;</li>
 <li>кросс-процессные проверки памяти: между фазами не переживает ни один Python-объект;</li>
 <li>сканирование уязвимого проекта и повторное сканирование после исправления <strong>одним и тем же</strong> движком;</li>
+<li>пять контролируемых сбоев recovery, каждый — на реальных строках SQLite и реальной реконсиляции старта (<code>reconcile_tools</code>, <code>recover_interrupted</code>), включая правило одного завершения;</li>
 <li>отчёт сканера отказывается объявлять дерево чистым при наличии high-находок;</li>
 <li>CI на предыдущем HEAD: 7/7 job'ов Windows + Linux gate — без изменений в этой сессии.</li>
 </ul>
@@ -165,7 +192,12 @@ a { color: #0b62d6; }
 <p>Не изменялась. Проверено read-only по <code>%LOCALAPPDATA%\Alex LLM\data\alex.db</code>: users 2, chats 54, messages 120, paired_devices 63, local_tasks 30, <code>integrity_check = ok</code>, <code>foreign_key_check = 0</code>, alembic <code>0016</code> (1.2.6). Установщик 1.2.7 не пересобирался.</p>
 <hr>
 <h2>H. Git</h2>
-<pre><code>f6a1de3 Record the capability work in the agent state
+<pre><code>fa43168 Make the new tests pass the formatter gate
+342a679 Normalise both sides of the security scope check
+10aa1e7 Record the recovery matrix in the capability inventory
+e36c97f Stop a second finish from reporting a second completion
+e7e4b1d Report the free search, memory and security work
+f6a1de3 Record the capability work in the agent state
 87c6745 Pin the security find-fix-recheck loop to a fixture
 c470693 Prove project memory across a restart, fix supersession
 e22715b Give web search and fetch a free provider chain
@@ -192,7 +224,7 @@ fcaaf60 Record the final CI verdict on the gated commit</code></pre>
 <li><strong>Полный updater E2E</strong> — нужен опубликованный манифест; публикация не разрешена.</li>
 <li><strong>Чистая Windows VM</strong> — недоступна бесплатно (VirtualBox на 8 ГБ не завершает установку).</li>
 </ol>
-<p>Следующая автоматически выбранная задача: дождаться вердикта CI на <code>f6a1de3</code>; при красном — исправить и перезапустить; затем расширить recovery-матрицу (stale claim → повторный claim, прерванный tool-run, WAITING_LLM) и добавить интеграционный тест Computer Use на изолированном тестовом приложении.</p>
+<p>Следующая автоматически выбранная задача: добавить интеграционный тест Computer Use (сценарий C) на изолированном тестовом приложении и подготовить один платный LIVE как единое окно для LEVEL 6/7 (когда бюджет появится).</p>
 <hr>
 <h2>K. Воспроизведение</h2>
 <pre><code>cd apps/backend
@@ -214,6 +246,7 @@ gh workflow run CI --repo volkrist/canalla-llm --ref feature/canalla-1.2.7-auton
 <tr><td><code>apps/backend/tests/test_live_web_smoke.py</code></td><td>5 живых сетевых тестов</td></tr>
 <tr><td><code>apps/backend/tests/test_127_memory_resume.py</code> + <code>tests/helpers/memory_worker.py</code></td><td>память через перезапуск</td></tr>
 <tr><td><code>apps/backend/tests/test_127_security_repair.py</code></td><td>find → fix → recheck</td></tr>
+<tr><td><code>apps/backend/tests/test_127_recovery_matrix.py</code></td><td>пять контролируемых сбоев recovery</td></tr>
 <tr><td><code>docs/agent-capabilities.md</code></td><td>обновлённая матрица возможностей A–H</td></tr>
 <tr><td><code>artifacts/agent-state.json</code></td><td>machine-readable состояние и следующий шаг</td></tr>
 </tbody></table>

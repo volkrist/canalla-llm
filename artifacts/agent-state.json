@@ -18,7 +18,7 @@
       "id": "WINDOWS-CI",
       "name": "Free Windows environment: dispatch the existing CI workflow on windows-latest",
       "status": "PASS",
-      "evidence": "CI on windows-latest: 7/7 jobs PASS on d5a072e (44903490468), 4bc117e (44907058233) and a11eab8 (44913607831, 17m36s); Linux gate PASS 7m05s on 4bc117e (44907052631) and 7m53s on a11eab8 (44913594316); installer-build job built NSIS on a clean runner"
+      "evidence": "CI on fa43168: 7/7 jobs PASS (run 44967663631, 18m07s); Linux gate 44966302721 PASS 7m43s; local release-gate developer 9/9 PASS"
     },
     {
       "id": "WINDOWS-INSTALL",
@@ -71,8 +71,8 @@
     {
       "id": "REPORT",
       "name": "Full report to Desktop (.md + .html) and artifacts/reports",
-      "status": "PENDING",
-      "evidence": "new session report to be written after the CI verdict on this HEAD"
+      "status": "PASS",
+      "evidence": "artifacts/reports/CANALLA-1.2.7-AGENT-CAPABILITIES-2026-11-22.md/.html + Desktop copies; describes HEAD fa43168"
     },
     {
       "id": "FREE-SEARCH",
@@ -138,5 +138,7 @@
     "sha256": "ec47412e2dd01ca2b0438447ff1fa512ec606031c30b845f5b2ec63deed4d103",
     "built_at_commit": "e78ca91b9fdb40a035839a44a4e4ec583caf773d",
     "release_gate": "candidate: 22 steps, 0 FAIL, 0 BLOCKED"
-  }
+  },
+  "head": "fa43168",
+  "note": "the 1.2.7 installer was built at e78ca91; the capability work after it does not change that artifact"
 }

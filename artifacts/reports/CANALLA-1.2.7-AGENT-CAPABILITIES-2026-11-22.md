@@ -7,11 +7,11 @@
 | Дата | 22 ноября 2026 |
 | Проект | Canalla LLM Desktop 1.2.7 |
 | Ветка | `feature/canalla-1.2.7-autonomous-agent` |
-| HEAD на момент отчёта | `f6a1de3` |
+| HEAD на момент отчёта | `fa43168` |
 | Артефакт релиза | `Canalla LLM_1.2.7_x64-setup.exe`, 96 568 902 B, `ec47412e…` (не менялся) |
 | Расходы этой сессии | **$0.00** — 0 Pod, платных операций не было |
 | Production | 1.2.6, не изменена: 2/54/120/63/30, integrity ok, 0 FK, alembic `0016` |
-| CI на этом HEAD | run `44963140611` (Windows) и `44963137374` (Linux) — запущены в этой сессии |
+| CI на этом HEAD | Windows CI `44967663631` — **success, 18m07s, 7/7 job'ов**; Linux gate `44966302721` — **success 7m43s** |
 
 ---
 
@@ -114,7 +114,24 @@ pytest…») молча теряли более старое. Теперь за�
 Честная граница: само исправление здесь **scripted**; разговор модели «нашла → объяснила →
 исправила» — это LIVE-утверждение, и оно не делается.
 
-### C.4. Регрессии и статический анализ
+### C.4. Матрица recovery — пять контролируемых сбоев — **PASS (механика)**
+
+`apps/backend/tests/test_127_recovery_matrix.py` фиксирует каждый сбой отдельной строкой:
+
+| Сбой | Ожидаемое безопасное состояние |
+|---|---|
+| вызов инструмента не вернулся (рестарт backend) | `ToolRun` → `failed / backend_interrupted`, задача → `INTERRUPTED`, но не завершена и не переиграна |
+| задача ждёт inference (`WAITING_LLM`) | старт-реконсиляция её **не трогает**: окно повтора сохраняется |
+| claim мёртвого воркера | задача возвращается в `QUEUED` **вместе с `digests_completed`** — выполненное действие не повторяется |
+| повторный `finish` | ровно одно событие `COMPLETED`, конфликтующее требование — `FINISH_IGNORED` |
+| пауза пользователя | `PAUSED` не превращается в `INTERRUPTED`: это решение, а не сбой |
+
+**Найден и исправлен дефект:** `LocalTaskController.finish()` добавлял событие завершения даже
+для уже терминальной задачи. Два пути завершения (tool loop и поток ответа, либо возобновлённый
+процесс, гоняющийся с погибшим) могли дать два «готово» по одной задаче. Теперь второй вызов
+возвращается сразу и фиксирует только конфликт как `FINISH_IGNORED`.
+
+### C.5. Регрессии и статический анализ
 
 | Проверка | Результат |
 |---|---|
@@ -122,6 +139,21 @@ pytest…») молча теряли более старое. Теперь за�
 | `test_coding_agent`, `test_autonomous_tasks` | **48 passed** |
 | `test_091_reliability`, `test_context_usage`, `test_personal_presence`, `test_127_agent_core` | **81 passed** |
 | `test_autonomous_tasks` (после правки памяти) | **35 passed** |
+| `test_autonomous_tasks`, `test_127_agent_core`, `test_127_recovery_e2e`, `test_127_autonomous_e2e` (после правки `finish`) | **52 passed** |
+| `test_127_recovery_matrix` | **5 passed** |
+| Локальный `release-gate.py developer` на `fa43168` | **9 steps · 0 FAIL · 0 BLOCKED — PASS** |
+| Windows CI в GitHub Actions на `fa43168` | **7/7 job'ов PASS** (`developer-gate`, `native-gate`, `frontend-e2e`, `tor-runtime`, `llama-runtime`, `llama-runtime-image`, `installer-build`) |
+| Linux gate на `fa43168` | **PASS, 7m43s** |
+| Staged sidecar | пересобран из нового источника: digest `fbd7f1a0…`, exe sha256 `16477198…`, 24 873 833 B |
+
+Что нашли сами прогоны (не только локальные тесты):
+
+- Linux gate отверг `test_127_security_repair` — и это был настоящий переносимый дефект в
+  `assert_target_allowed` (нормализовалась только цель), а не ошибка теста; исправлено;
+- Windows developer gate в CI проверяет не только `ruff check`, но и `ruff format`: пять новых
+  файлов были неотформатированы, шаг красный; исправлено (`1 FAIL → 0 FAIL`);
+- локальный developer gate дополнительно требует, чтобы staged sidecar соответствовал исходникам:
+  он был устаревшим, поэтому sidecar пересобран и `check` теперь возвращает `backend sidecar is current`.
 | `ruff check` по изменённым файлам | **All checks passed** |
 | BasedPyright `apps/backend/app` | **0 errors, 0 warnings** |
 
@@ -135,6 +167,14 @@ pytest…») молча теряли более старое. Теперь за�
    общих слова» на отношение общего словаря к короткой записи (≥ 0.5).
 3. **Модель видела недоступный провайдер как обычный инструмент** — описание инструментов теперь
    соответствует реальному поведению (платный путь — оптимизация, не условие работы).
+4. **Двойное «готово» по одной задаче** — `finish()` больше не добавляет событие завершения
+   терминальной задаче; конфликт фиксируется как `FINISH_IGNORED`.
+5. **Scope проверки безопасности отвергал путь внутри workspace на POSIX** — цель
+   нормализовалась, а корень — нет (найдено Linux gate). Теперь нормализуются обе стороны.
+6. **Тест `test_missing_key_chat_still_completes` кодировал старый дефект** — ожидал
+   `provider_not_configured` для отсутствующего платного ключа. Контракт обновлён: бесплатная
+   цепочка запускается, а при недоступности всех бесплатных провайдеров причина —
+   `search_unavailable`, и чат всё равно завершается.
 
 ---
 
@@ -144,6 +184,8 @@ pytest…») молча теряли более старое. Теперь за�
 - кросс-процессные проверки памяти: между фазами не переживает ни один Python-объект;
 - сканирование уязвимого проекта и повторное сканирование после исправления **одним и тем же**
   движком;
+- пять контролируемых сбоев recovery, каждый — на реальных строках SQLite и реальной
+  реконсиляции старта (`reconcile_tools`, `recover_interrupted`), включая правило одного завершения;
 - отчёт сканера отказывается объявлять дерево чистым при наличии high-находок;
 - CI на предыдущем HEAD: 7/7 job'ов Windows + Linux gate — без изменений в этой сессии.
 
@@ -172,6 +214,11 @@ users 2, chats 54, messages 120, paired_devices 63, local_tasks 30, `integrity_c
 ## H. Git
 
 ```
+fa43168 Make the new tests pass the formatter gate
+342a679 Normalise both sides of the security scope check
+10aa1e7 Record the recovery matrix in the capability inventory
+e36c97f Stop a second finish from reporting a second completion
+e7e4b1d Report the free search, memory and security work
 f6a1de3 Record the capability work in the agent state
 87c6745 Pin the security find-fix-recheck loop to a fixture
 c470693 Prove project memory across a restart, fix supersession
@@ -206,10 +253,9 @@ fcaaf60 Record the final CI verdict on the gated commit
 5. **Полный updater E2E** — нужен опубликованный манифест; публикация не разрешена.
 6. **Чистая Windows VM** — недоступна бесплатно (VirtualBox на 8 ГБ не завершает установку).
 
-Следующая автоматически выбранная задача: дождаться вердикта CI на `f6a1de3`; при красном —
-исправить и перезапустить; затем расширить recovery-матрицу (stale claim → повторный claim,
-прерванный tool-run, WAITING_LLM) и добавить интеграционный тест Computer Use на изолированном
-тестовом приложении.
+Следующая автоматически выбранная задача: добавить интеграционный тест Computer Use (сценарий C)
+на изолированном тестовом приложении и подготовить один платный LIVE как единое окно для
+LEVEL 6/7 (когда бюджет появится).
 
 ---
 
@@ -237,6 +283,7 @@ gh workflow run CI --repo volkrist/canalla-llm --ref feature/canalla-1.2.7-auton
 | `apps/backend/tests/test_live_web_smoke.py` | 5 живых сетевых тестов |
 | `apps/backend/tests/test_127_memory_resume.py` + `tests/helpers/memory_worker.py` | память через перезапуск |
 | `apps/backend/tests/test_127_security_repair.py` | find → fix → recheck |
+| `apps/backend/tests/test_127_recovery_matrix.py` | пять контролируемых сбоев recovery |
 | `docs/agent-capabilities.md` | обновлённая матрица возможностей A–H |
 | `artifacts/agent-state.json` | machine-readable состояние и следующий шаг |
 
