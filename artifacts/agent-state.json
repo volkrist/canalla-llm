@@ -154,19 +154,22 @@
   "engineering_state": "LEVEL7_FREE_E2E_NEXT",
   "live_authorization_state": "BATCH_EXHAUSTED_BY_POD_LIMIT",
   "level7_free_e2e": {
-    "status": "NOT_RUN",
-    "objective_constraint": "the agent session reached its context limit before the fake OpenAI server and the two-process runner could be implemented and iterated",
-    "next_executable_steps": [
-      "1. Create artifacts/acceptance-127/live-qwen/fake_llm.py: stdlib ThreadingHTTPServer; GET /v1/models -> 200; POST /v1/chat/completions; stream=false returns choices[0].message.tool_calls from a persisted planner-call counter; stream=true returns SSE data: {\"choices\":[{\"delta\":{\"content\":...}}]} then data: [DONE].",
-      "2. Scenario (persisted in fake-llm-state.json so it survives a backend restart): calls 1..3 write part1.txt, part2.txt, part3.txt via write_file/run_python; call 4 writes final.txt; call 5 calls verify_result; then tool_calls: [].",
-      "3. Runner artifacts/acceptance-127/live-qwen/free_resume_e2e.py: start fake server; start backend A with LLM_PROVIDER=llamacpp, LLM_BASE_URL=http://127.0.0.1:<fake>, ALEX_AI_MODE=direct, isolated DATABASE_URL/ALEX_LLM_DATA_DIR; register user; POST /chats and /chats/{id}/stream; poll DB until 3 ToolRun rows are completed; assert the task is not COMPLETED; terminate backend A and assert the PID is gone; start backend B on the same database/data root/port; wait /health; POST /tasks/{id}/resume; wait for COMPLETED; assert same task_id, a new MODEL_RESPONSE and new completed tool runs after the restart, no duplicated digests, exactly one COMPLETED event; run the independent verifier over the workspace files.",
-      "4. Anti-fake controls: without the resume call the runner must fail; a changed task_id must fail; no new tool call after the restart must fail; a repeated completed digest must fail; a missing checkpoint must not pass; a model error must not produce COMPLETED; a verifier defect must produce FAIL; a backend that was never killed cannot count as durable resume.",
-      "5. Commands: apps/backend/.venv/Scripts/python.exe artifacts/acceptance-127/live-qwen/free_resume_e2e.py --self-check"
+    "status": "IN_PROGRESS",
+    "files": [
+      "artifacts/acceptance-127/live-qwen/fake_llm.py",
+      "artifacts/acceptance-127/live-qwen/free_resume_e2e.py"
     ],
-    "known_tool_schemas_to_confirm": [
-      "run_python",
-      "write_file",
-      "verify_result"
-    ]
+    "proven_so_far": [
+      "fake OpenAI server starts and answers /v1/models and /v1/chat/completions",
+      "backend A boots on the isolated DB and fake inference (LLM_CONNECTION_MODE=static)",
+      "register 201, chat created, stream 200, a real LocalTask row is created"
+    ],
+    "observed_failures": [
+      "without an autonomous-triggering prompt the turn completes with 0 tool calls (task COMPLETED, no tools)",
+      "with computer_mode=trusted the task parks in WAITING_DEVICE because no host device is paired",
+      "with the local fake the planner is not yet observed returning a tool call through the autonomy gate"
+    ],
+    "next_exact_step": "make the prompt trigger autonomous mode while computer_mode=off (use the harness SCENARIO preamble without computer tools), confirm fake-llm-state.json planner counter > 0 and a completed ToolRun, then the kill/restart/resume assertions follow unchanged in free_resume_e2e.py",
+    "constraint": "the agent session reached its context limit"
   }
 }
