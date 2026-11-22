@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CANALLA LLM — LEVEL 7 RESUME: ИСПРАВЛЕНИЕ И РЕЗУЛЬТАТ ПРОГОНА</title>
+<style>
+:root { color-scheme: light dark; }
+body { margin: 0 auto; max-width: 1080px; padding: 48px 28px 96px;
+  font: 16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif; color: #1b1f24; background: #ffffff; }
+h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; }
+h2 { font-size: 1.45rem; margin: 42px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #e3e7ec; }
+h3 { font-size: 1.14rem; margin: 28px 0 10px; }
+h4 { font-size: 1rem; margin: 22px 0 8px; }
+p { margin: 10px 0; }
+table { border-collapse: collapse; width: 100%; margin: 14px 0 22px; font-size: 0.94rem; }
+th, td { border: 1px solid #dfe3e8; padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: #f4f6f8; font-weight: 600; }
+tbody tr:nth-child(even) { background: #fbfcfd; }
+code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 0.88em;
+  background: #f2f4f7; padding: 1px 5px; border-radius: 4px; }
+pre { background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 10px; overflow-x: auto; }
+pre code { background: none; color: inherit; padding: 0; font-size: 0.86rem; }
+blockquote { margin: 16px 0; padding: 10px 16px; border-left: 4px solid #94a3b8;
+  background: #f8fafc; color: #334155; }
+hr { border: 0; border-top: 1px solid #e3e7ec; margin: 34px 0; }
+ul, ol { margin: 10px 0 14px; padding-left: 26px; }
+li { margin: 5px 0; }
+a { color: #0b62d6; }
+@media (prefers-color-scheme: dark) {
+  body { background: #0b0f14; color: #dbe3ec; }
+  h2 { border-color: #1f2a36; }
+  th { background: #131b24; }
+  th, td { border-color: #22303d; }
+  tbody tr:nth-child(even) { background: #0f151d; }
+  code { background: #151d27; }
+  blockquote { background: #111922; color: #b6c2cf; border-color: #33506b; }
+  a { color: #74b0ff; }
+}
+@media print { body { max-width: none; } pre { white-space: pre-wrap; } }
+</style>
+</head>
+<body>
+<h1>CANALLA LLM — LEVEL 7 RESUME: ИСПРАВЛЕНИЕ И РЕЗУЛЬТАТ ПРОГОНА</h1>
+<p><strong>Пропуск планировщика устранён, resume-цикл теперь вызывает <code>verify_result</code>. Открыт следующий дефект: <code>CHECK_REFUSED</code> на путях workspace. LIVE не запускался.</strong></p>
+<table><thead><tr>
+<th></th>
+<th></th>
+</tr></thead><tbody>
+<tr><td>Дата</td><td>22 ноября 2026</td></tr>
+<tr><td>Ветка</td><td><code>feature/canalla-1.2.7-autonomous-agent</code></td></tr>
+<tr><td>HEAD</td><td><strong><code>515a354</code></strong> (запушен, origin синхронизирован)</td></tr>
+<tr><td>Баланс RunPod</td><td><strong>$13.0362274796</strong>, Pod <strong>0</strong>, фон $0.01/ч</td></tr>
+<tr><td>Расход этой сессии</td><td><strong>$0.00</strong> (платных операций не было)</td></tr>
+<tr><td>Ledger серии</td><td>$0.4298 из $5.00 (не менялся)</td></tr>
+<tr><td>Production 1.2.6</td><td>не изменена</td></tr>
+<tr><td><code>LEVEL7_FREE_E2E</code></td><td><strong>FAIL</strong> (прогресс: resume вызывает <code>verify_result</code>)</td></tr>
+<tr><td>LEVEL 7</td><td><strong>NOT_PROVEN</strong></td></tr>
+</tbody></table>
+<hr>
+<h2>A. Цель блока</h2>
+<p>Устранить дефект, из-за которого resumed-задача не получала планировочного раунда, довести <code>free_resume_e2e.py</code> до <code>verify_result</code> → один <code>COMPLETED</code> → verifier PASS.</p>
+<h2>B. Что исправлено</h2>
+<h3>B.1. Пропуск планировщика — исправлено (проверено прогоном)</h3>
+<p><strong>Симптом:</strong> <code>RESUMED → RESUMED → MODEL_RESPONSE → FAILED</code>, <code>last_error = verification_required</code>, <code>COMPLETED = 0</code>, хотя файлы созданы и задача продолжалась.</p>
+<p><strong>Причина (в коде, не в отчёте):</strong> <code>ToolOrchestrator._goal_satisfied()</code> возвращал <code>True</code> по фактам файлов. В <code>prepare()</code> это выставляет <code>skip_planner = True</code>, цикл планирования не запускается, <code>verify_result</code> моделью не запрашивается. Контроллер затем корректно отказывает в завершении.</p>
+<p><strong>Исправление</strong> (<code>apps/backend/app/tools/orchestrator.py</code>): задача, изменившая файлы, считается «goal satisfied» только если <code>verification.evidence_ok == true</code> <strong>или</strong> <code>verification.tests == "passed"</code>.</p>
+<p><strong>Подтверждение эффекта:</strong> после исправления в прогоне <code>271f0ded…</code> resumed-фаза выполнила <strong>на 2 инструмента больше</strong> (<code>completed_runs</code> 3 → 5), и среди них — реальный <code>verify_result</code>.</p>
+<h3>B.2. Fake inference: абсолютные пути</h3>
+<p><code>fake_llm.py</code> теперь собирает цели проверки из абсолютных путей в транскрипте (рекурсивный обход запроса), а не из относительных имён, которые резолвились от cwd backend.</p>
+<h2>C. Результат последнего прогона (факты, не пересказ)</h2>
+<table><thead><tr>
+<th>Проверка</th>
+<th>Факт</th>
+</tr></thead><tbody>
+<tr><td>Backend A</td><td><code>/health</code> 200, регистрация 201, host loop спарен</td></tr>
+<tr><td>Реальные инструменты до kill</td><td><strong>3</strong> <code>write_file</code>: <code>part1.txt</code>, <code>part2.txt</code>, <code>part3.txt</code></td></tr>
+<tr><td>Статус перед kill</td><td><strong>EXECUTING</strong></td></tr>
+<tr><td>Backend A</td><td>exit <strong>1</strong>, stream → <code>ConnectionReset</code></td></tr>
+<tr><td>Статус после смерти</td><td><strong>EXECUTING</strong> (восстановим)</td></tr>
+<tr><td>Backend B</td><td>другой PID (15104), тот же порт/БД/data root</td></tr>
+<tr><td>Host B</td><td>новый PID (1900)</td></tr>
+<tr><td><code>task_id</code></td><td><strong>тот же</strong> (<code>271f0ded-184c-4d4b-94f0-92c977ee87ea</code>)</td></tr>
+<tr><td>Новый прогресс после рестарта</td><td><strong>есть</strong> (3 → 5 завершённых tool runs)</td></tr>
+<tr><td><code>verify_result</code></td><td><strong>выполнен</strong> (это и есть новый tool call после restart)</td></tr>
+<tr><td>Файлы</td><td>part1, part2, part3, final — все существуют</td></tr>
+<tr><td><code>COMPLETED</code> событий</td><td><strong>0</strong></td></tr>
+<tr><td>Вердикт</td><td><strong>FAIL</strong></td></tr>
+</tbody></table>
+<h2>D. Открытый дефект (блокирующий PASS)</h2>
+<p>Из tool ledger последнего прогона:</p>
+<pre><code>verify_result  completed  ok=False
+evidence: {&#x27;total&#x27;: 2, &#x27;ok&#x27;: 0, &#x27;failed&#x27;: 2,
+           &#x27;kinds&#x27;: {&#x27;CHECK_REFUSED&#x27;: {&#x27;ok&#x27;: 0, &#x27;failed&#x27;: 2}}}</code></pre>
+<p>Обе проверки отклонены guard'ом workspace-roots в <code>verify_result</code> (<code>_roots</code> / <code>_inside</code>), поэтому <code>evidence_ok = false</code>, задача завершилась <code>FAILED / verification_required</code>.</p>
+<p>Это не дефект сценария: реальные файлы лежат в workspace задачи, но guard на resume-пути их не признаёт. Требуется либо включить <code>context.workspace.primary_root</code> в <code>_roots</code>, либо нормализовать пути перед сравнением (как уже сделано в <code>security_assessment.scope</code> после Linux-гейта).</p>
+<h2>E. Сопутствующие наблюдения</h2>
+<ul>
+<li><code>write_file final.txt</code> один раз завершился <code>failed / backend_interrupted</code> (прерванный tool call), затем <code>completed</code>. Файл создан <strong>один раз</strong>, дубликата нет — поведение корректное, нужно закрепить регрессией.</li>
+<li>Двойное событие <code>RESUMED</code> (два подряд) зафиксировано, но не подтверждено как дефект: требует отдельной проверки на дублирование при повторном resume.</li>
+</ul>
+<h2>F. Тесты</h2>
+<table><thead><tr>
+<th>Проверка</th>
+<th>Результат</th>
+</tr></thead><tbody>
+<tr><td><code>free_resume_e2e.py</code> (полный прогон)</td><td><strong>FAIL</strong> — см. раздел D</td></tr>
+<tr><td><code>monitor/test_monitor_armed.py</code></td><td><strong>8/8 PASS</strong> (ранее в этой сессии)</td></tr>
+<tr><td><code>live_acceptance.py --self-test</code></td><td><strong>PASS</strong>, 30 проверок</td></tr>
+<tr><td><code>test_127_level7_negative.py</code></td><td>3 passed</td></tr>
+<tr><td><code>test_batch_budget.py</code></td><td>11/11</td></tr>
+</tbody></table>
+<h2>G. Деньги и инфраструктура</h2>
+<ul>
+<li>Платных Pod: <strong>0</strong>, расход <strong>$0.00</strong>, баланс $13.0362274796, резерв $8.50 не тронут.</li>
+<li>Ledger серии не изменялся: $0.4298, Pod 3/3, <code>PAID_BATCH_EXHAUSTED</code>.</li>
+<li>Новый batch не создавался, лимиты не сбрасывались, watchdog не отключался.</li>
+</ul>
+<h2>H. Production</h2>
+<p>Не изменялась: users 2, chats 54, messages 120, paired_devices 63, local_tasks 30, integrity ok, FK 0, alembic 0016. Тесты работали в <code>%TEMP%</code> с изолированной БД, data root, device dir и портами.</p>
+<h2>I. Git</h2>
+<pre><code>515a354 Require a real check before a changed task looks finished
+71d3f5b Report the free LEVEL 7 E2E session
+e6099e3 Add the fake inference server and the free resume runner
+9ad46b4 Checkpoint the LEVEL 7 free E2E plan and tool schemas</code></pre>
+<p>Force-push и destructive reset не выполнялись.</p>
+<h2>J. Следующий исполняемый шаг</h2>
+<ol>
+<li>Диагностика <code>CHECK_REFUSED</code>: вывести отклонённые цели и <code>_roots(context)</code> в <code>verify_result</code>.</li>
+<li>Исправить сопоставление путей на resume-пути.</li>
+<li>Прогнать <code>free_resume_e2e.py</code> до <code>ok=true</code>, одного <code>COMPLETED</code>, verifier PASS.</li>
+<li>Регрессия на прерванный tool call (нет дубликата файла) и на двойное <code>RESUMED</code>.</li>
+<li>Только после зелёного E2E — ARMED manifest и LIVE LEVEL 7 в пределах действующего бюджета.</li>
+</ol>
+<h2>K. Воспроизведение</h2>
+<pre><code>apps/backend/.venv/Scripts/python.exe artifacts/acceptance-127/live-qwen/free_resume_e2e.py
+cd artifacts/acceptance-127/live-qwen/monitor &amp;&amp; ../../../../apps/backend/.venv/Scripts/python.exe test_monitor_armed.py
+cd ../.. &amp;&amp; ../../../../apps/backend/.venv/Scripts/python.exe live_acceptance.py --self-test</code></pre>
+<h2>L. Правило отчётности</h2>
+<p>Отчёт создаётся после каждого существенного блока, без напоминаний: <code>.md</code> + самодостаточный офлайн <code>.html</code> на Рабочем столе и побайтовые копии в <code>artifacts/reports/</code>, с проверкой хешей.</p>
+</body>
+</html>

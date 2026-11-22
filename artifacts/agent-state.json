@@ -5,7 +5,7 @@
   "branch": "feature/canalla-1.2.7-autonomous-agent",
   "updated_at": "2026-11-22",
   "goal": "Finish 1.2.7 acceptance without paid spend, then grow Canalla into a verified autonomous agent",
-  "phase": "LEVEL 7 blocked by the series Pod limit",
+  "phase": "LEVEL 7: resume now plans and calls verify_result; workspace guard blocks it",
   "state_machine": "DISCOVER -> BASELINE -> PLAN -> IMPLEMENT -> TEST -> VERIFY -> COMMIT -> NEXT",
   "steps": [
     {
@@ -72,7 +72,7 @@
       "id": "REPORT",
       "name": "Full report to Desktop (.md + .html) and artifacts/reports",
       "status": "PASS",
-      "evidence": "artifacts/reports/CANALLA-1.2.7-FREE-E2E-2026-11-22.md/.html + Desktop copies"
+      "evidence": "artifacts/reports/CANALLA-1.2.7-RESUME-FIX-2026-11-22.md/.html + Desktop copies"
     },
     {
       "id": "FREE-SEARCH",
@@ -149,29 +149,14 @@
     "built_at_commit": "e78ca91b9fdb40a035839a44a4e4ec583caf773d",
     "release_gate": "candidate: 22 steps, 0 FAIL, 0 BLOCKED"
   },
-  "head": "55e5ecb",
+  "head": "515a354",
   "note": "the 1.2.7 installer was built at e78ca91; the capability work after it does not change that artifact",
   "engineering_state": "LEVEL7_FREE_E2E_NEXT",
   "live_authorization_state": "BATCH_EXHAUSTED_BY_POD_LIMIT",
   "level7_free_e2e": {
     "status": "FAIL",
-    "files": [
-      "artifacts/acceptance-127/live-qwen/fake_llm.py",
-      "artifacts/acceptance-127/live-qwen/free_resume_e2e.py"
-    ],
-    "proven_so_far": [
-      "fake OpenAI server starts and answers /v1/models and /v1/chat/completions",
-      "backend A boots on the isolated DB and fake inference (LLM_CONNECTION_MODE=static)",
-      "register 201, chat created, stream 200, a real LocalTask row is created"
-    ],
-    "observed_failures": [
-      "without an autonomous-triggering prompt the turn completes with 0 tool calls (task COMPLETED, no tools)",
-      "with computer_mode=trusted the task parks in WAITING_DEVICE because no host device is paired",
-      "with the local fake the planner is not yet observed returning a tool call through the autonomy gate"
-    ],
-    "next_exact_step": "make the prompt trigger autonomous mode while computer_mode=off (use the harness SCENARIO preamble without computer tools), confirm fake-llm-state.json planner counter > 0 and a completed ToolRun, then the kill/restart/resume assertions follow unchanged in free_resume_e2e.py",
-    "constraint": "the agent session reached its context limit",
-    "evidence": "two-process run 17150c58: same task id, new backend/host PIDs, 3 real tool runs before the kill, task EXECUTING after death, new progress after restart; then FAILED verification_required because the resume stream performs no planning round, so verify_result is never requested. 0 COMPLETED events.",
-    "open_defect": "resume_task_id path in chat_stream/continue_task goes straight to generation; it must run a planning round when verification is still pending"
+    "evidence": "run 271f0ded: same task id, new backend host PIDs, 3 write_file before the kill, task EXECUTING after death, resume made progress (3->5 completed runs) and executed verify_result",
+    "open_defect": "verify_result refuses both absolute workspace paths with CHECK_REFUSED, so evidence_ok stays false and the task ends verification_required",
+    "fixed": "orchestrator._goal_satisfied now requires evidence_ok or a passing test run when files changed (planner no longer skipped on resume)"
   }
 }
