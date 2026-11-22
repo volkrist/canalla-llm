@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CANALLA LLM — CHECK_REFUSED ИСПРАВЛЕН, RESUME УПИРАЕТСЯ В ТРЕБОВАНИЕ ТЕСТОВ</title>
+<style>
+:root { color-scheme: light dark; }
+body { margin: 0 auto; max-width: 1080px; padding: 48px 28px 96px;
+  font: 16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif; color: #1b1f24; background: #ffffff; }
+h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; }
+h2 { font-size: 1.45rem; margin: 42px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #e3e7ec; }
+h3 { font-size: 1.14rem; margin: 28px 0 10px; }
+h4 { font-size: 1rem; margin: 22px 0 8px; }
+p { margin: 10px 0; }
+table { border-collapse: collapse; width: 100%; margin: 14px 0 22px; font-size: 0.94rem; }
+th, td { border: 1px solid #dfe3e8; padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: #f4f6f8; font-weight: 600; }
+tbody tr:nth-child(even) { background: #fbfcfd; }
+code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 0.88em;
+  background: #f2f4f7; padding: 1px 5px; border-radius: 4px; }
+pre { background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 10px; overflow-x: auto; }
+pre code { background: none; color: inherit; padding: 0; font-size: 0.86rem; }
+blockquote { margin: 16px 0; padding: 10px 16px; border-left: 4px solid #94a3b8;
+  background: #f8fafc; color: #334155; }
+hr { border: 0; border-top: 1px solid #e3e7ec; margin: 34px 0; }
+ul, ol { margin: 10px 0 14px; padding-left: 26px; }
+li { margin: 5px 0; }
+a { color: #0b62d6; }
+@media (prefers-color-scheme: dark) {
+  body { background: #0b0f14; color: #dbe3ec; }
+  h2 { border-color: #1f2a36; }
+  th { background: #131b24; }
+  th, td { border-color: #22303d; }
+  tbody tr:nth-child(even) { background: #0f151d; }
+  code { background: #151d27; }
+  blockquote { background: #111922; color: #b6c2cf; border-color: #33506b; }
+  a { color: #74b0ff; }
+}
+@media print { body { max-width: none; } pre { white-space: pre-wrap; } }
+</style>
+</head>
+<body>
+<h1>CANALLA LLM — CHECK_REFUSED ИСПРАВЛЕН, RESUME УПИРАЕТСЯ В ТРЕБОВАНИЕ ТЕСТОВ</h1>
+<p><strong><code>verify_result</code> больше не отклоняет файлы workspace (<code>ok=true</code>). Открыт следующий барьер LEVEL 7: кодирующая задача обязана иметь пройденный прогон тестов.</strong></p>
+<table><thead><tr>
+<th></th>
+<th></th>
+</tr></thead><tbody>
+<tr><td>Дата</td><td>22 ноября 2026</td></tr>
+<tr><td>Ветка / HEAD</td><td><code>feature/canalla-1.2.7-autonomous-agent</code> / <strong><code>653c967</code></strong></td></tr>
+<tr><td>Баланс RunPod</td><td><strong>$13.0362274796</strong>, Pod <strong>0</strong>, фон $0.01/ч</td></tr>
+<tr><td>Расход сессии</td><td><strong>$0.00</strong></td></tr>
+<tr><td>Ledger серии</td><td>$0.4298 из $5.00 (не менялся)</td></tr>
+<tr><td>Production 1.2.6</td><td>не изменена</td></tr>
+<tr><td><code>LEVEL7_FREE_E2E</code></td><td><strong>FAIL</strong> (барьер сместился, дефект guard'а закрыт)</td></tr>
+<tr><td>LEVEL 7</td><td><strong>NOT_PROVEN</strong></td></tr>
+</tbody></table>
+<hr>
+<h2>A. Цель блока</h2>
+<p>Устранить <code>CHECK_REFUSED</code> в <code>verify_result</code>, не ослабляя guard, и довести <code>free_resume_e2e.py</code> до полного PASS.</p>
+<h2>B. Диагностика CHECK_REFUSED (факты из tool ledger)</h2>
+<p>Добавлена диагностика (по требованию): для каждого отказа записываются <code>kind</code>, исходный <code>target</code>, канонический путь, доверенные <code>roots</code>, <code>task_id</code> и причина. Пример из прогона:</p>
+<pre><code>target    = &quot;part1.txt&quot;
+canonical = &quot;...\apps\backend\part1.txt&quot;
+roots     = [&quot;...\Temp\canalla-free-e2e-&lt;id&gt;\workspace&quot;]
+reason    = outside_workspace_roots</code></pre>
+<p>Причина: <code>write_file</code> принимал файл, а <code>verify_result</code> сравнивал <strong>несопоставимые формы путей</strong> — <code>os.path.commonpath</code> не разрешает junction'ы и чувствителен к регистру/разделителям, а цель к тому же была относительной и резолвилась от cwd backend.</p>
+<h2>C. Исправление (без ослабления безопасности)</h2>
+<p><code>apps/backend/app/tools/agent_tools.py</code>:</p>
+<ul>
+<li>единая канонизация обеих сторон: <code>normcase(realpath(abspath(...)))</code>;</li>
+<li>сравнение вхождения осталось прежним — файл вне workspace по-прежнему получает <code>CHECK_REFUSED</code>;</li>
+<li>отказ теперь несёт полную диагностику (цель, канонический путь, roots, task_id);</li>
+<li>fake-модель получает реальный workspace от раннера и передаёт <strong>абсолютные</strong> цели.</li>
+</ul>
+<p><strong>Подтверждение:</strong> в tool ledger <code>verify_result</code> теперь <code>ok=True</code>, <code>refused_detail=[]</code>.</p>
+<h2>D. Что показали прогоны после исправления</h2>
+<table><thead><tr>
+<th>Прогон</th>
+<th>Итог</th>
+</tr></thead><tbody>
+<tr><td>кодирующий промпт</td><td>3 <code>write_file</code> до kill, задача <code>EXECUTING</code>, kill, рестарт, тот же <code>task_id</code>, 5 завершённых runs, <strong><code>verify_result ok=true</code></strong>, финал <code>FAILED / verification_required</code></td></tr>
+<tr><td>файловый промпт (эксперимент)</td><td>задача <strong>COMPLETED за 2 действия</strong> — до kill, поэтому для resume непригодна</td></tr>
+</tbody></table>
+<p>Состояние задачи в последнем кодирующем прогоне:</p>
+<pre><code>status=FAILED  error=verification_required
+verification.evidence_ok = True   tests = stale
+plan_has_verification = True      verification_stale = False</code></pre>
+<h2>E. Оставшийся барьер (продуктовое правило, не дефект)</h2>
+<p><code>LocalTaskController.final_review()</code> требует для кодирующего запроса <code>verification.tests == "passed"</code>. Это корректное и намеренное правило: приложение не считается готовым без прогона тестов. Сценарий fake-модели пишет файлы и вызывает <code>verify_result</code>, но <strong>не запускает тесты</strong>, поэтому контроллер отказывает в <code>COMPLETED</code>.</p>
+<p>Ослаблять критерий нельзя. Нужно расширить сценарий: fake-модель пишет тестовый файл и запускает <code>run_python</code> с pytest, после чего <code>tests</code> становится <code>passed</code> и задача может завершиться.</p>
+<h2>F. Сопутствующие проверки</h2>
+<ul>
+<li><strong>Прерванный <code>write_file</code></strong>: один вызов завершился <code>backend_interrupted</code>, затем повторный — <code>completed</code>; файл создан один раз, дубликата нет. Поведение корректное, нужна регрессия.</li>
+<li><strong>Двойное <code>RESUMED</code></strong>: зафиксировано, но не подтверждено как дефект; проверка на конкурирующие resume-запросы ещё не написана.</li>
+</ul>
+<h2>G. Тесты</h2>
+<table><thead><tr>
+<th>Проверка</th>
+<th>Результат</th>
+</tr></thead><tbody>
+<tr><td><code>free_resume_e2e.py</code></td><td><strong>FAIL</strong> — см. раздел E</td></tr>
+<tr><td><code>monitor/test_monitor_armed.py</code></td><td><strong>8/8 PASS</strong></td></tr>
+<tr><td><code>live_acceptance.py --self-test</code></td><td><strong>PASS</strong> (30)</td></tr>
+<tr><td><code>test_127_level7_negative.py</code></td><td>3 passed</td></tr>
+<tr><td><code>test_batch_budget.py</code></td><td>11/11</td></tr>
+</tbody></table>
+<h2>H. Деньги, Pod, production</h2>
+<ul>
+<li>0 Pod, расход $0.00, баланс $13.0362274796, резерв $8.50 не тронут.</li>
+<li>Ledger $0.4298 из $5.00, Pod 3/3, <code>PAID_BATCH_EXHAUSTED</code>; новый batch не создавался.</li>
+<li>Production: 2/54/120/63/30, integrity ok, FK 0, alembic 0016 — без изменений.</li>
+</ul>
+<h2>I. Git</h2>
+<pre><code>653c967 Compare workspace paths canonically in verify_result
+b2be584 Report the resume fix and the remaining workspace guard defect
+515a354 Require a real check before a changed task looks finished</code></pre>
+<h2>J. Следующий исполняемый шаг</h2>
+<ol>
+<li>Добавить в fake-сценарий шаг тестов: записать <code>test_smoke.py</code> и выполнить <code>run_python</code> с <code>python -m pytest</code> (сначала сверить схему аргументов <code>run_python</code>).</li>
+<li>Прогнать E2E до <code>tests=passed</code>, <code>verify_result ok=true</code>, одного <code>COMPLETED</code>, verifier PASS.</li>
+<li>Регрессии: прерванный tool call (нет дубля файла), конкурирующие resume-запросы.</li>
+<li>После зелёного E2E — ARMED manifest и LIVE LEVEL 7 в пределах действующего бюджета.</li>
+</ol>
+</body>
+</html>
