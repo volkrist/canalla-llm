@@ -132,14 +132,14 @@
       "status": "BLOCKED"
     },
     {
-      "id": "LEVEL7-FREE-E2E",
-      "reason": "fake-LLM two-process resume E2E is not implemented yet; LIVE is forbidden until it passes",
-      "status": "IN_PROGRESS"
-    },
-    {
       "id": "LEVEL7-POD-LIMIT",
       "reason": "3/3 Pod slots used; a new batch/limit needs owner authorization",
       "status": "BLOCKED_BY_AUTHORIZATION"
+    },
+    {
+      "id": "LEVEL7-FREE-E2E",
+      "reason": "implementation not completed: session context limit reached before the fake LLM server and runner existed",
+      "status": "IN_PROGRESS"
     }
   ],
   "release_artifact": {
@@ -151,6 +151,22 @@
   },
   "head": "55e5ecb",
   "note": "the 1.2.7 installer was built at e78ca91; the capability work after it does not change that artifact",
-  "engineering_state": "IMPLEMENTING_LEVEL_7",
-  "live_authorization_state": "BATCH_EXHAUSTED_BY_POD_LIMIT"
+  "engineering_state": "LEVEL7_FREE_E2E_NEXT",
+  "live_authorization_state": "BATCH_EXHAUSTED_BY_POD_LIMIT",
+  "level7_free_e2e": {
+    "status": "NOT_RUN",
+    "objective_constraint": "the agent session reached its context limit before the fake OpenAI server and the two-process runner could be implemented and iterated",
+    "next_executable_steps": [
+      "1. Create artifacts/acceptance-127/live-qwen/fake_llm.py: stdlib ThreadingHTTPServer; GET /v1/models -> 200; POST /v1/chat/completions; stream=false returns choices[0].message.tool_calls from a persisted planner-call counter; stream=true returns SSE data: {\"choices\":[{\"delta\":{\"content\":...}}]} then data: [DONE].",
+      "2. Scenario (persisted in fake-llm-state.json so it survives a backend restart): calls 1..3 write part1.txt, part2.txt, part3.txt via write_file/run_python; call 4 writes final.txt; call 5 calls verify_result; then tool_calls: [].",
+      "3. Runner artifacts/acceptance-127/live-qwen/free_resume_e2e.py: start fake server; start backend A with LLM_PROVIDER=llamacpp, LLM_BASE_URL=http://127.0.0.1:<fake>, ALEX_AI_MODE=direct, isolated DATABASE_URL/ALEX_LLM_DATA_DIR; register user; POST /chats and /chats/{id}/stream; poll DB until 3 ToolRun rows are completed; assert the task is not COMPLETED; terminate backend A and assert the PID is gone; start backend B on the same database/data root/port; wait /health; POST /tasks/{id}/resume; wait for COMPLETED; assert same task_id, a new MODEL_RESPONSE and new completed tool runs after the restart, no duplicated digests, exactly one COMPLETED event; run the independent verifier over the workspace files.",
+      "4. Anti-fake controls: without the resume call the runner must fail; a changed task_id must fail; no new tool call after the restart must fail; a repeated completed digest must fail; a missing checkpoint must not pass; a model error must not produce COMPLETED; a verifier defect must produce FAIL; a backend that was never killed cannot count as durable resume.",
+      "5. Commands: apps/backend/.venv/Scripts/python.exe artifacts/acceptance-127/live-qwen/free_resume_e2e.py --self-check"
+    ],
+    "known_tool_schemas_to_confirm": [
+      "run_python",
+      "write_file",
+      "verify_result"
+    ]
+  }
 }
