@@ -574,6 +574,7 @@ def _sse_stream(
 
 
 APPROVALS: list[dict] = []
+RESUME_MODE: dict = {"enabled": False, "after_tools": 3}
 
 # How fresh the monitor's own observation must be before the harness will skip its own reads.
 # The monitor checks every 30 seconds, so a payload older than this is not "the same moment" any
@@ -937,6 +938,113 @@ def _stream_recovery_wait(events: list[dict], deadline: float, max_seconds: floa
     }
 
 
+def _count_completed_runs() -> int:
+    from app.database import SessionLocal
+    from app.tools.models import ToolRun
+
+    with SessionLocal() as db:
+        return db.query(ToolRun).filter(ToolRun.status == "completed").count()
+
+
+def _interrupt_and_resume(
+    *,
+    backend,
+    backend_command: list[str],
+    env: dict,
+    base: str,
+    token: str,
+    deadline: float,
+    after_tools: int,
+    log_path: Path,
+    out: dict,
+) -> None:
+    """Kill the isolated backend after real work, restart it, and let the product resume.
+
+    Everything here is the product's own recovery path: the same SQLite database, the same data
+    root, the same workspace, and `POST /tasks/{id}/resume` (which calls `LocalTaskController.resume`
+    and streams the continuation). Nothing is replayed: the resumed turn is a new generation.
+    """
+    from app.database import SessionLocal, engine
+    from app.tools.models import LocalTask
+
+    task_id = ""
+    checkpoint: dict = {}
+    for _ in range(900):
+        if time.monotonic() > deadline - 90:
+            out["error"] = "deadline_before_interrupt"
+            return
+        with SessionLocal() as db:
+            task = db.query(LocalTask).order_by(LocalTask.started_at.desc()).first()
+            if task is not None:
+                task_id = task.id
+                runs = _count_completed_runs()
+                if runs >= after_tools:
+                    checkpoint = {
+                        "task_id": task.id,
+                        "status": task.status,
+                        "digests_completed": len((task.checkpoint or {}).get("digests_completed") or []),
+                        "tool_runs_completed": runs,
+                        "workspace": task.workspace,
+                        "captured_at": utcnow(),
+                    }
+                    break
+        time.sleep(1)
+    if not task_id or not checkpoint:
+        out["error"] = "no_task_before_interrupt"
+        return
+    out["checkpoint"] = checkpoint
+
+    backend.terminate()
+    try:
+        backend.wait(30)
+    except subprocess.TimeoutExpired:
+        backend.kill()
+        backend.wait(10)
+    engine.dispose()
+    out["interruption"] = {
+        "task_id": task_id,
+        "exit_code": backend.returncode,
+        "at": utcnow(),
+        "process_terminated": backend.poll() is not None,
+    }
+    with SessionLocal() as db:
+        row = db.get(LocalTask, task_id)
+        out["interruption"]["task_status_after_death"] = row.status if row else "missing"
+        out["interruption"]["finished_at"] = str(getattr(row, "finished_at", None))
+
+    log = log_path.open("a", encoding="utf-8", errors="replace")
+    restarted = subprocess.Popen(
+        backend_command,
+        cwd=str(BACKEND),
+        env=env,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    out["restart"] = {"pid": restarted.pid, "at": utcnow()}
+    out["backend"] = restarted
+    healthy = False
+    for _ in range(180):
+        try:
+            with urllib.request.urlopen(base + "/health", timeout=3) as response:
+                if response.status == 200:
+                    healthy = True
+                    break
+        except Exception:  # noqa: BLE001 - the process may still be starting
+            time.sleep(1)
+    out["restart"]["healthy"] = healthy
+    if not healthy:
+        out["error"] = "backend_did_not_restart"
+        return
+
+    out["resume"] = {"requested_at": utcnow(), "endpoint": f"/tasks/{task_id}/resume"}
+    events = _sse_stream(f"{base}/tasks/{task_id}/resume", token, {}, deadline)
+    out["resume"]["events"] = len(events)
+    out["resume"]["last"] = events[-1] if events else None
+    out["resume"]["tool_runs_after"] = _count_completed_runs()
+    out["resume_events"] = events
+
+
 def run_live(
     *,
     confirm: str,
@@ -1171,17 +1279,18 @@ def run_live(
     timings["database_at"] = utcnow()
     timings["database"] = database
     backend_log = (work / "backend.log").open("w", encoding="utf-8", errors="replace")
+    backend_command = [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+    ]
     backend = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "app.main:app",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-        ],
+        backend_command,
         cwd=str(BACKEND),
         env=env,
         stdout=backend_log,
@@ -1352,6 +1461,35 @@ def run_live(
                 _write_json("final-summary.json", summary)
                 print(json.dumps(summary, ensure_ascii=False, indent=1)[-4000:])
                 return 3
+        resume_state: dict = {}
+        resume_thread = None
+        if RESUME_MODE.get("enabled"):
+            import threading as _threading
+
+            def trigger(current, payload):
+                nonlocal resume_thread
+                approve(current, payload)
+                if current == "tool" and resume_thread is None:
+                    resume_thread = _threading.Thread(
+                        target=_interrupt_and_resume,
+                        kwargs={
+                            "backend": backend,
+                            "backend_command": backend_command,
+                            "env": env,
+                            "base": base,
+                            "token": token,
+                            "deadline": deadline,
+                            "after_tools": int(RESUME_MODE.get("after_tools") or 3),
+                            "log_path": work / "backend.log",
+                            "out": resume_state,
+                        },
+                        daemon=True,
+                    )
+                    resume_thread.start()
+
+            on_event = trigger
+        else:
+            on_event = approve
         events = _sse_stream(
             f"{base}/chats/{chat_id}/stream",
             token,
@@ -1364,8 +1502,14 @@ def run_live(
                 "tor_mode": "off",
             },
             deadline,
-            on_event=approve,
+            on_event=on_event,
         )
+        if resume_thread is not None:
+            resume_thread.join(timeout=max(60.0, deadline - time.monotonic()))
+            backend = resume_state.get("backend") or backend
+            events = events + list(resume_state.pop("resume_events", []) or [])
+            summary["resume"] = dict(resume_state)
+            _write_json("resume-evidence.json", summary["resume"])
         _write_json("compute-confirmations.json", APPROVALS)
         summary["stream_events"] = len(events)
         summary["stream_end"] = events[-1] if events else None
@@ -1402,6 +1546,36 @@ def run_live(
                 "workspace": task.workspace,
             }
             summary["provenance"] = verdict.to_dict()
+            if RESUME_MODE.get("enabled"):
+                resume = summary.get("resume") or {}
+                checkpoint = resume.get("checkpoint") or {}
+                interruption = resume.get("interruption") or {}
+                restart = resume.get("restart") or {}
+                resume_result = resume.get("resume") or {}
+                before = int(checkpoint.get("tool_runs_completed") or 0)
+                after = int(resume_result.get("tool_runs_after") or 0)
+                summary["resume_checks"] = {
+                    "checkpoint_captured": bool(checkpoint),
+                    "process_terminated": bool(interruption.get("process_terminated")),
+                    "task_not_completed_by_the_crash": str(
+                        interruption.get("task_status_after_death") or ""
+                    )
+                    not in {"COMPLETED"},
+                    "backend_restarted": bool(restart.get("healthy")),
+                    "same_task_id": interruption.get("task_id") == task.id,
+                    "new_progress_after_restart": after > before,
+                    "resume_stream_events": int(resume_result.get("events") or 0),
+                }
+                required = (
+                    "checkpoint_captured",
+                    "process_terminated",
+                    "backend_restarted",
+                    "same_task_id",
+                    "new_progress_after_restart",
+                )
+                if not all(summary["resume_checks"].get(key) for key in required):
+                    summary["verdict"] = "RESUME_FAILED"
+                    summary.setdefault("reasons", []).append("LEVEL 7 resume did not complete")
             tools = db.query(ToolRun).order_by(ToolRun.started_at).all()
             _write_jsonl(
                 "model-responses.jsonl",
@@ -2330,6 +2504,12 @@ def main() -> int:
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--gpu-probe", action="store_true")
     parser.add_argument("--live", action="store_true")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="LEVEL 7: kill the isolated backend after real work, restart it and resume the same task",
+    )
+    parser.add_argument("--resume-after-tools", type=int, default=3)
     parser.add_argument("--confirm", default="")
     parser.add_argument("--budget-usd", type=float, default=None)
     parser.add_argument("--volume", default=DEFAULT_VOLUME, choices=list(APPROVED_VOLUMES))
@@ -2361,6 +2541,8 @@ def main() -> int:
     parser.add_argument("--min-work-minutes", type=int, default=MIN_WORK_MINUTES)
     args = parser.parse_args()
     RUN_ID = args.run_id or RUN_ID
+    RESUME_MODE["enabled"] = bool(getattr(args, "resume", False))
+    RESUME_MODE["after_tools"] = max(1, int(getattr(args, "resume_after_tools", 3) or 3))
     if args.evidence_dir:
         LIVE = Path(args.evidence_dir)
     elif args.self_test:

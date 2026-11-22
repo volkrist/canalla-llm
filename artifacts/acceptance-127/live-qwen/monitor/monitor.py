@@ -45,6 +45,7 @@ Guarantees this file is responsible for
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -509,6 +510,71 @@ def grant_path(rdir: Path) -> Path:
     return rdir / "authorization-grant.json"
 
 
+PAUSED_FILE = "monitor.paused"
+MANIFEST_FILE = "execution-manifest.json"
+
+
+def is_paused(rdir: Path) -> bool:
+    """An operator pause that a running process cannot overwrite.
+
+    `monitoring_enabled` lives in `state.json`, which every pass rewrites from memory. An instance
+    that was already running when the operator disabled monitoring simply wrote `True` back on its
+    next pass, and the one-minute scheduled trigger then re-armed the whole paid path. The pause is
+    therefore its own file: it survives a process restart, a scheduler restart and a reboot.
+    """
+    return (rdir / PAUSED_FILE).is_file()
+
+
+def read_manifest(rdir: Path) -> dict:
+    try:
+        payload = json.loads((rdir / MANIFEST_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _git_head() -> str:
+    import subprocess
+
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(REPO), capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return completed.stdout.strip() if completed.returncode == 0 else ""
+
+
+def manifest_problem(rdir: Path, batch_state: dict) -> str | None:
+    """`None` only when a prepared run is ARMED for this batch and this exact code."""
+    manifest = read_manifest(rdir)
+    if not manifest:
+        return "no_armed_manifest"
+    if str(manifest.get("state") or "").upper() != "ARMED":
+        return f"manifest_{str(manifest.get('state') or 'unknown').lower()}"
+    if not batch_state or manifest.get("batch_id") != batch_state.get("batch_id"):
+        return "manifest_batch_mismatch"
+    if not manifest.get("scenario_id") or not manifest.get("scenario_hash"):
+        return "manifest_scenario_missing"
+    harness = REPO / "artifacts" / "acceptance-127" / "live-qwen" / "live_acceptance.py"
+    try:
+        digest = hashlib.sha256(harness.read_bytes()).hexdigest()
+    except OSError:
+        return "manifest_harness_unreadable"
+    if manifest.get("scenario_hash") != digest:
+        return "manifest_scenario_changed"
+    head = manifest.get("code_commit")
+    current = _git_head()
+    if not head or not current or head != current:
+        return "manifest_code_changed"
+    try:
+        if float(manifest.get("max_cost") or 0) > float(manifest.get("authorized_cost") or 0):
+            return "manifest_over_authorized_cost"
+    except (TypeError, ValueError):
+        return "manifest_malformed"
+    return None
+
+
 def read_grant(rdir: Path, now: datetime | None = None) -> dict:
     """The stored permission, validated. Silence, prose or a GPU sighting never substitutes."""
     path = grant_path(rdir)
@@ -645,10 +711,18 @@ def child_grant_from_batch(
     harness can never spend more than the series has left. It is created only when the batch is
     active, no attempt is in flight, the previous outcome is known, and enough money remains for a
     useful window.
+
+    A paid attempt also needs an ARMED execution manifest. Money plus an available card is not a
+    reason to start a run: the owner's previous incident was a scheduler restart that re-armed an
+    exhausted *scenario*. The manifest names the run that is prepared right now, and its code commit
+    and harness hash must still match the checkout.
     """
     current = read_grant(rdir)
     if current["valid"]:
         return current, batch_state, "existing"
+    problem = manifest_problem(rdir, batch_state)
+    if problem:
+        return {"valid": False, "reason": problem, "grant": None}, batch_state, problem
     ok, reason, _need = batch_module.can_start(batch_state, rate)
     if not ok:
         return {"valid": False, "reason": reason, "grant": None}, batch_state, reason
@@ -814,6 +888,14 @@ def run_check(
     state = state_override or load_state(rdir)
     if scheduler.get("task_name"):
         state["scheduler_task"] = scheduler["task_name"]
+    if is_paused(rdir):
+        # Checked before anything else and never derived from the mutable state: a scheduler restart
+        # must not re-arm a paid path the operator stopped.
+        state["monitoring_enabled"] = False
+        state["live_execution_state"] = "PAUSED_BY_OPERATOR"
+        state["updated_at"] = utcnow()
+        save_json(rdir / "state.json", state)
+        return {"skipped": "paused_by_operator", "state": state}
     if not state.get("monitoring_enabled", True):
         state["updated_at"] = utcnow()
         save_json(rdir / "state.json", state)
@@ -1688,6 +1770,8 @@ def automatic_live(state: dict) -> str:
     """
     if _is_terminal(state) or state.get("paid_run_already_attempted"):
         return "DISARMED"
+    if is_paused(rdir):
+        return "PAUSED_BY_OPERATOR"
     if not state.get("monitoring_enabled", True):
         return "DISARMED"
     if state.get("paid_run_authorized"):
@@ -1821,6 +1905,12 @@ def main(argv: list[str] | None = None) -> int:
         state["monitoring_enabled"] = bool(args.enable)
         state["updated_at"] = utcnow()
         save_json(rdir / "state.json", state)
+        paused = rdir / PAUSED_FILE
+        rdir.mkdir(parents=True, exist_ok=True)
+        if args.enable:
+            paused.unlink(missing_ok=True)
+        else:
+            paused.write_text(utcnow(), encoding="utf-8")
         save_json(
             rdir / "status.json",
             build_status(state, None, {"valid": False, "reason": "n/a"}),

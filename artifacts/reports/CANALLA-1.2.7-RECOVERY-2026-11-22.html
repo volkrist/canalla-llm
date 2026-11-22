@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CANALLA LLM — ВОССТАНОВЛЕНИЕ АВТОНОМНОСТИ: ОТЧЁТ</title>
+<style>
+:root { color-scheme: light dark; }
+body { margin: 0 auto; max-width: 1080px; padding: 48px 28px 96px;
+  font: 16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif; color: #1b1f24; background: #ffffff; }
+h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; }
+h2 { font-size: 1.45rem; margin: 42px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #e3e7ec; }
+h3 { font-size: 1.14rem; margin: 28px 0 10px; }
+h4 { font-size: 1rem; margin: 22px 0 8px; }
+p { margin: 10px 0; }
+table { border-collapse: collapse; width: 100%; margin: 14px 0 22px; font-size: 0.94rem; }
+th, td { border: 1px solid #dfe3e8; padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: #f4f6f8; font-weight: 600; }
+tbody tr:nth-child(even) { background: #fbfcfd; }
+code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 0.88em;
+  background: #f2f4f7; padding: 1px 5px; border-radius: 4px; }
+pre { background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 10px; overflow-x: auto; }
+pre code { background: none; color: inherit; padding: 0; font-size: 0.86rem; }
+blockquote { margin: 16px 0; padding: 10px 16px; border-left: 4px solid #94a3b8;
+  background: #f8fafc; color: #334155; }
+hr { border: 0; border-top: 1px solid #e3e7ec; margin: 34px 0; }
+ul, ol { margin: 10px 0 14px; padding-left: 26px; }
+li { margin: 5px 0; }
+a { color: #0b62d6; }
+@media (prefers-color-scheme: dark) {
+  body { background: #0b0f14; color: #dbe3ec; }
+  h2 { border-color: #1f2a36; }
+  th { background: #131b24; }
+  th, td { border-color: #22303d; }
+  tbody tr:nth-child(even) { background: #0f151d; }
+  code { background: #151d27; }
+  blockquote { background: #111922; color: #b6c2cf; border-color: #33506b; }
+  a { color: #74b0ff; }
+}
+@media print { body { max-width: none; } pre { white-space: pre-wrap; } }
+</style>
+</head>
+<body>
+<h1>CANALLA LLM — ВОССТАНОВЛЕНИЕ АВТОНОМНОСТИ: ОТЧЁТ</h1>
+<p><strong>Причина самозапуска монитора найдена и закрыта; ARMED-manifest; <code>--resume</code> реализован в harness. Платный запуск не выполнялся: fake-LLM E2E ещё не пройден.</strong></p>
+<table><thead><tr>
+<th></th>
+<th></th>
+</tr></thead><tbody>
+<tr><td>Дата</td><td>22 ноября 2026</td></tr>
+<tr><td>Ветка / HEAD</td><td><code>feature/canalla-1.2.7-autonomous-agent</code> / <code>9501eea</code> (+ изменения этой сессии)</td></tr>
+<tr><td>ENGINEERING_STATE</td><td><strong>IMPLEMENTING_LEVEL_7</strong> (продолжается)</td></tr>
+<tr><td>LIVE_AUTHORIZATION_STATE</td><td><strong>BATCH_EXHAUSTED_BY_POD_LIMIT</strong></td></tr>
+<tr><td>Баланс / Pod</td><td>$13.0751 / <strong>0 Pod</strong>, фон $0.01/ч</td></tr>
+<tr><td>Ledger серии</td><td>$0.4298 из $5.00, Pod 3/3</td></tr>
+<tr><td>LEVEL 6</td><td><strong>PASS</strong> (не изменён)</td></tr>
+<tr><td>LEVEL 7</td><td><strong>NOT_PROVEN</strong> — harness готов к офлайн-E2E, LIVE не запускался</td></tr>
+<tr><td>Production</td><td>1.2.6, не изменена: 2/54/120/63/30, integrity ok, 0 FK</td></tr>
+</tbody></table>
+<hr>
+<h2>A. Цель</h2>
+<p>Исправить причину самопроизвольного платного запуска, реализовать LEVEL 7 resume внутри существующего harness и не блокировать инженерную работу финансовым состоянием.</p>
+<h2>B. Причина инцидента (найдена в коде, не в догадке)</h2>
+<p><code>install_monitor.ps1</code> регистрирует задачу с <code>&lt;Repetition&gt;&lt;Interval&gt;PT1M&lt;/Interval&gt;</code>, <code>StartWhenAvailable=true</code> и <code>RestartOnFailure</code> PT1M. Пауза хранилась в <code>state.json</code> — том самом файле, который каждый проход монитора <strong>перезаписывает из памяти</strong>. Процесс, уже работавший в момент паузы, записал обратно <code>monitoring_enabled: true</code>, минутный триггер поднял новый экземпляр, и тот купил Pod для уже пройденного LEVEL 6.</p>
+<p><strong>Исправление (код):</strong></p>
+<ol>
+<li><code>monitor.paused</code> — отдельный файл паузы. Проверяется <strong>до всего</strong> в <code>run_check</code> и в <code>automation_mode</code>; не может быть перезаписан состоянием. Пишется <code>--disable</code>, удаляется <code>--enable</code>; переживает рестарт процесса, планировщика и перезагрузку.</li>
+<li><strong>ARMED execution manifest</strong> (<code>execution-manifest.json</code>) — без него дочерний grant не создаётся вообще. Проверяются: <code>state == ARMED</code>, <code>batch_id</code>, <code>scenario_id</code>, <code>scenario_hash</code> (sha256 <code>live_acceptance.py</code>), <code>code_commit == git HEAD</code>, <code>max_cost &lt;= authorized_cost</code>.</li>
+<li>Монитор больше не может купить Pod «потому что GPU видна и деньги есть».</li>
+</ol>
+<h2>C. Бесплатные работы этой сессии</h2>
+<table><thead><tr>
+<th>Работа</th>
+<th>Результат</th>
+</tr></thead><tbody>
+<tr><td>Регрессия инцидента + manifest</td><td><strong>8/8 PASS</strong> (<code>test_monitor_armed.py</code>)</td></tr>
+<tr><td><code>--resume</code> в <code>live_acceptance.py</code></td><td>реализован, компилируется</td></tr>
+<tr><td><code>live_acceptance.py --self-test</code> после изменений</td><td><strong>PASS</strong> (30 проверок)</td></tr>
+<tr><td>Деньги/API</td><td>0 Pod, баланс подтверждён, ledger не изменён</td></tr>
+</tbody></table>
+<p>Новые проверки монитора:</p>
+<ul>
+<li><code>no_armed_manifest_means_no_grant</code></li>
+<li><code>a_manifest_from_another_commit_is_refused</code></li>
+<li><code>a_changed_harness_is_refused</code></li>
+<li><code>a_running_manifest_cannot_start_again</code></li>
+<li><code>a_manifest_above_the_authorized_cost_is_refused</code></li>
+<li><code>an_armed_manifest_for_this_batch_creates_one_child</code></li>
+<li><strong><code>a_scheduler_restart_does_not_rearm_a_paused_monitor</code></strong> (точная репродукция инцидента)</li>
+<li><code>enabling_clears_the_pause_file</code></li>
+</ul>
+<h2>D. Реализация <code>--resume</code> (код, не план)</h2>
+<p>В <code>live_acceptance.py</code> добавлены:</p>
+<ul>
+<li>флаг <code>--resume</code> и <code>--resume-after-tools</code>;</li>
+<li><code>_interrupt_and_resume(...)</code>: ждёт N <strong>реально завершённых</strong> <code>ToolRun</code>, пишет checkpoint (task_id, status, число digests, счётчик tool runs), завершает <strong>изолированный</strong> backend (<code>terminate</code> → <code>wait(30)</code> → <code>kill</code>), фиксирует <code>exit_code</code> и статус задачи после смерти, поднимает новый backend с той же БД, тем же data root, тем же workspace и портом, ждёт <code>/health</code>, затем вызывает штатный <code>POST /tasks/{task_id}/resume</code> и собирает SSE-поток;</li>
+<li><code>resume-evidence.json</code> с interruption/restart/resume;</li>
+<li><code>resume_checks</code>: checkpoint получен, процесс завершён, задача не была COMPLETED, backend поднят, <strong>тот же task_id</strong>, <strong>новый прогресс после рестарта</strong>; при невыполнении вердикт — <code>RESUME_FAILED</code>, а не PASS.</li>
+</ul>
+<p>Используется именно существующая цепочка продукта <code>POST /tasks/{key}/resume → LocalTaskController.resume → stream_response(action="resume")</code>; вторая система оркестрации не создавалась.</p>
+<h2>E. Что ещё не сделано и почему LIVE не запускался</h2>
+<p>Обязательный <strong>fake-LLM E2E двумя процессами</strong> (раздел 6 задания) не выполнен: нужен локальный OpenAI-совместимый сервер, детерминированно выдающий tool calls до и после прерывания. Без него <code>LEVEL7_FREE_E2E = NOT_RUN</code>, а значит LIVE запрещён и собственным preflight, и заданием.</p>
+<p>Платный запуск не выполнялся: 0 Pod создано, 0 денег потрачено в этой сессии.</p>
+<h2>F. Финансы и лимит</h2>
+<p>Исходное разрешение задавало <strong>денежный потолок $5.00</strong>, резерв $8.50 и «не более одного одновременного Pod». Лимит «3 Pod» — техническая настройка серии, а не денежное полномочие. Тем не менее самостоятельно расширять лимит я не стал: это изменение полномочий, а не инженерия. Исторические журналы не изменялись, 3/3 не сбрасывался, новый batch не создавался.</p>
+<ul>
+<li>Баланс: <strong>$13.0751163684</strong>, резерв $8.50 не тронут.</li>
+<li>Ledger: $0.4298, Pod 3/3 → <code>PAID_BATCH_EXHAUSTED</code>.</li>
+</ul>
+<h2>G. Уровни автономности</h2>
+<table><thead><tr>
+<th>Уровень</th>
+<th>Статус</th>
+</tr></thead><tbody>
+<tr><td>1–5</td><td>PROVEN (прежние LIVE)</td></tr>
+<tr><td>6</td><td><strong>PASS</strong> (run <code>0ef56950…</code>, не изменён)</td></tr>
+<tr><td>7</td><td><strong>NOT_PROVEN</strong>: код готов, офлайн-E2E ещё не пройден, LIVE не запускался</td></tr>
+</tbody></table>
+<h2>H. Следующие шаги (уже выбранные, без запроса подтверждения)</h2>
+<ol>
+<li>Локальный fake OpenAI-сервер + E2E двумя backend-процессами (SQLite/HTTP/SSE/tools/kill/resume/ verifier). Прогнать негативные случаи из раздела 6 задания.</li>
+<li>После <code>LEVEL7_FREE_E2E = PASS</code> — выставить <code>execution-manifest.json</code> в <code>ARMED</code> и запустить один Pod только при действующем разрешении на новый batch/лимит.</li>
+<li>Продолжать бесплатные направления: Computer Use E2E, verifier, память.</li>
+</ol>
+<h2>I. Git</h2>
+<p>Изменены: <code>monitor.py</code> (пауза + manifest), <code>live_acceptance.py</code> (<code>--resume</code>), <code>test_monitor_armed.py</code> (новый), evidence этой сессии. Force-push и destructive reset не выполнялись.</p>
+<h2>J. Воспроизведение</h2>
+<pre><code>cd artifacts/acceptance-127/live-qwen/monitor
+../../../../apps/backend/.venv/Scripts/python.exe test_monitor_armed.py   # 8/8 PASS
+cd ../..
+../../../../apps/backend/.venv/Scripts/python.exe live_acceptance.py --self-test  # PASS
+../../../../apps/backend/.venv/Scripts/python.exe live_acceptance.py --resume --live  # только при ARMED</code></pre>
+</body>
+</html>

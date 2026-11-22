@@ -65,14 +65,14 @@
     {
       "id": "LEVEL7",
       "name": "Durable resume with a real model",
-      "status": "BLOCKED",
-      "evidence": "BLOCKED_BY_BATCH_POD_LIMIT: the 3rd Pod of batch d516f71c... was started by an unattended monitor restart (LEVEL 6 duplicate) and was aborted and terminated by the engineer; no Pod slots remain and a new batch is not authorized. Offline recovery mechanics stay proven; no live claim is made."
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "evidence": "--resume implemented in live_acceptance.py (controlled kill of the isolated backend, restart on the same DB/data root/workspace, POST /tasks/{id}/resume, resume checks); monitor pause + ARMED manifest closed the restart incident (8/8 tests); fake-LLM two-process E2E still required before any LIVE"
     },
     {
       "id": "REPORT",
       "name": "Full report to Desktop (.md + .html) and artifacts/reports",
       "status": "PASS",
-      "evidence": "artifacts/reports/CANALLA-1.2.7-LEVEL7-2026-11-22.md/.html + Desktop copies"
+      "evidence": "artifacts/reports/CANALLA-1.2.7-RECOVERY-2026-11-22.md/.html + Desktop copies"
     },
     {
       "id": "FREE-SEARCH",
@@ -132,8 +132,13 @@
       "status": "BLOCKED"
     },
     {
+      "id": "LEVEL7-FREE-E2E",
+      "reason": "fake-LLM two-process resume E2E is not implemented yet; LIVE is forbidden until it passes",
+      "status": "IN_PROGRESS"
+    },
+    {
       "id": "LEVEL7-POD-LIMIT",
-      "reason": "3/3 Pod slots of the batch are used; a new batch is not authorized",
+      "reason": "3/3 Pod slots used; a new batch/limit needs owner authorization",
       "status": "BLOCKED_BY_AUTHORIZATION"
     }
   ],
@@ -145,5 +150,7 @@
     "release_gate": "candidate: 22 steps, 0 FAIL, 0 BLOCKED"
   },
   "head": "55e5ecb",
-  "note": "the 1.2.7 installer was built at e78ca91; the capability work after it does not change that artifact"
+  "note": "the 1.2.7 installer was built at e78ca91; the capability work after it does not change that artifact",
+  "engineering_state": "IMPLEMENTING_LEVEL_7",
+  "live_authorization_state": "BATCH_EXHAUSTED_BY_POD_LIMIT"
 }
