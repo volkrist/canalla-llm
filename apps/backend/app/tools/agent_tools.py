@@ -165,7 +165,11 @@ class VerifyProvider(ToolProvider[VerifyArgs]):
         _persist(context, ledger, {"verifier": payload["summary"], "refused": refused})
         return ToolResult(
             text=json.dumps(payload, ensure_ascii=False)[:12000],
-            metadata={"evidence": payload.get("summary"), "ok": payload["ok"], "refused_detail": refused_detail[:4]},
+            metadata={
+                "evidence": payload.get("summary"),
+                "ok": payload["ok"],
+                "refused_detail": refused_detail[:4],
+            },
             errors=["verification_failed"] if not payload["ok"] else [],
         )
 
