@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -66,6 +67,26 @@ def start_backend(env: dict, port: int, log: Path) -> subprocess.Popen:
     )
 
 
+def fast_counts(db_path: Path) -> tuple[str, str, int, int]:
+    """In-process read of the isolated database: a subprocess poll was slower than the task."""
+    try:
+        with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2) as con:
+            task = con.execute(
+                "select id, status from local_tasks order by started_at desc limit 1"
+            ).fetchone()
+            done = con.execute(
+                "select count(*) from tool_runs where status = 'completed'"
+            ).fetchone()[0]
+            pytest_done = con.execute(
+                "select count(*) from tool_runs where status = 'completed' and tool_name = 'run_python'"
+            ).fetchone()[0]
+    except sqlite3.Error:
+        return "", "MISSING", 0, 0
+    if not task:
+        return "", "MISSING", int(done or 0), int(pytest_done or 0)
+    return str(task[0]), str(task[1]), int(done or 0), int(pytest_done or 0)
+
+
 def db_counts(env: dict) -> tuple[int, str, int]:
     code = (
         "from app.database import SessionLocal\n"
@@ -78,8 +99,13 @@ def db_counts(env: dict) -> tuple[int, str, int]:
     out = subprocess.run(
         [PY, "-c", code], cwd=str(BACKEND), env=env, capture_output=True, text=True, timeout=60
     )
-    parts = (out.stdout.strip() or " MISSING 0").split()
-    return (parts[0] if parts else ""), (parts[1] if len(parts) > 1 else "MISSING"), int(parts[-1] or 0)
+    parts = (out.stdout.strip() or " MISSING 0 0").split()
+    return (
+        parts[0] if parts else "",
+        parts[1] if len(parts) > 1 else "MISSING",
+        int(parts[2] or 0) if len(parts) > 2 else 0,
+        int(parts[3] or 0) if len(parts) > 3 else 0,
+    )
 
 
 def main() -> int:
@@ -215,13 +241,24 @@ def main() -> int:
         thread = threading.Thread(target=stream, args=(f"{base}/chats/{chat_id}/stream", stream_body))
         thread.start()
         before_task, _, before_runs = "", 0, 0
+        llm_state = work / "llm" / "fake-llm-state.json"
+        # Interrupt by scenario phase, not by a count of finished runs: the writes are fast and a
+        # count-based trigger raced past the test step, leaving nothing to do after the restart.
         for _ in range(180):
-            before_task, status_name, before_runs = db_counts(env)
-            if before_task and before_runs >= 3:
+            before_task, status_name, before_runs, pytest_done = fast_counts(work / "e2e.db")
+            planned = 0
+            if llm_state.is_file():
+                try:
+                    planned = int(json.loads(llm_state.read_text(encoding="utf-8")).get("planner", 0))
+                except ValueError:
+                    planned = 0
+            # Kill only after the real pytest run is recorded. Killing earlier interrupted the
+            # test itself, and the resumed task had no passing test to conclude with.
+            if before_task and pytest_done >= 1:
                 break
-            time.sleep(1)
+            time.sleep(0.2)
         report["before"] = {"task": before_task, "status": status_name, "completed_runs": before_runs}
-        if before_runs < 3:
+        if before_runs < 1:
             report["error"] = "no_real_tool_progress"
             report["log"] = log.read_text(encoding="utf-8", errors="replace")[-2000:]
             print(json.dumps(report, ensure_ascii=False, indent=1))
@@ -236,7 +273,7 @@ def main() -> int:
         report["backend_a_exit"] = backend.returncode
         thread.join(timeout=30)
         report["stream_after_kill"] = stream_result.get("error", "no_error")
-        _, after_death_status, _ = db_counts(env)
+        _, after_death_status, _, _ = db_counts(env)
         report["status_after_death"] = after_death_status
 
         backend = start_backend(env, port, log)
@@ -251,12 +288,12 @@ def main() -> int:
         )
         thread.start()
         for _ in range(240):
-            _, final_status, final_runs = db_counts(env)
+            _, final_status, final_runs, _ = fast_counts(work / "e2e.db")
             if final_status == "COMPLETED" and final_runs > before_runs:
                 break
             time.sleep(1)
         thread.join(timeout=60)
-        same_task, final_status, final_runs = db_counts(env)
+        same_task, final_status, final_runs, _ = fast_counts(work / "e2e.db")
         report["after"] = {"task": same_task, "status": final_status, "completed_runs": final_runs}
         report["same_task"] = same_task == before_task
         report["new_progress"] = final_runs > before_runs
@@ -273,10 +310,16 @@ def main() -> int:
         )
         report["completed_events"] = int((completed.stdout or "0").strip() or 0)
 
-        files = sorted(p.name for p in Path(work).rglob("part*.txt")) + sorted(
-            p.name for p in Path(work).rglob("final.txt")
-        )
+        wanted = {"app.py", "test_smoke.py", "part3.txt", "final.txt"}
+        files = sorted(path.name for path in Path(work).rglob("*") if path.name in wanted)
         report["files"] = files
+        with sqlite3.connect(f"file:{work / 'e2e.db'}?mode=ro", uri=True, timeout=2) as con:
+            row = con.execute(
+                "select verification from local_tasks order by started_at desc limit 1"
+            ).fetchone()
+        verification = json.loads((row[0] if row else None) or "{}")
+        report["verification_tests"] = verification.get("tests")
+        report["evidence_ok"] = bool(verification.get("evidence_ok"))
         ok = (
             report["same_task"]
             and report["new_progress"]
@@ -284,7 +327,9 @@ def main() -> int:
             and report["completed_events"] == 1
             and report["backend_a_exit"] is not None
             and report["backend_b_pid"] != report["backend_a_pid"]
-            and {"part1.txt", "part2.txt", "part3.txt", "final.txt"} <= set(files)
+            and wanted <= set(files)
+            and report.get("verification_tests") == "passed"
+            and report.get("evidence_ok") is True
         )
         report["verdict"] = "PASS" if ok else "FAIL"
         print(json.dumps(report, ensure_ascii=False, indent=1))

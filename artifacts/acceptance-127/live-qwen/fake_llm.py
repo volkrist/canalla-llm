@@ -1,7 +1,7 @@
 """Deterministic OpenAI-compatible inference for the free LEVEL 7 resume E2E.
 
 Only inference is fake. The backend, its SQLite, the task controller, the tools, the checkpoint and
-the verifier are the real product. The scenario counter lives in a file, so it survives the backend
+the verifier are the real product. The planner counter lives in a file, so it survives the backend
 death the test performs on purpose.
 
     GET  /v1/models            -> 200 (health)
@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -20,79 +21,54 @@ LOCK = threading.Lock()
 STATE: Path | None = None
 WORKSPACE: Path | None = None
 
-# (tool, arguments) in order. Only `write_file` is used: its schema is path+content, so the fake
-# cannot invent an argument shape the product does not have.
-def _collect_paths(node, out: list[str]) -> None:
-    """Absolute paths from the transcript, so the verifier checks real files, not the cwd."""
-    if isinstance(node, dict):
-        for value in node.values():
-            _collect_paths(value, out)
-    elif isinstance(node, list):
-        for value in node:
-            _collect_paths(value, out)
-    elif isinstance(node, str) and (node.endswith("part1.txt") or node.endswith("final.txt")):
-        out.append(node)
+APP = "def add(a, b):\n    return a + b\n"
+TEST = "from app import add\n\n\ndef test_add():\n    assert add(2, 3) == 5\n"
 
 
-SCENARIO: list[tuple[str, dict] | None] = [
-    ("write_file", {"path": "part1.txt", "content": "one\n"}),
-    ("write_file", {"path": "part2.txt", "content": "two\n"}),
-    ("write_file", {"path": "part3.txt", "content": "three\n"}),
-    ("write_file", {"path": "final.txt", "content": "done\n"}),
-    None,  # no more tools: the turn finishes with an answer
-]
+def scenario() -> list[tuple[str, dict] | None]:
+    """A real code change and a real test run, in the order the controller checks.
 
-
-def next_step(request: dict) -> tuple[int, tuple[str, dict] | None]:
-    """Decide from the conversation itself, so the scenario survives any number of restarts.
-
-    A counter alone drifted: an extra planning request shifted every later step. The transcript is
-    the durable state — once it contains a final.txt result the turn must verify, and once
-    verify_result was already asked the turn must finish.
+    `verification.tests` only becomes `passed` through `run_python` whose argv contains `-m pytest`
+    and whose exit code is 0; every later write marks it stale again. So the test run is the last
+    work step before the final independent check.
     """
+    ws = str(WORKSPACE or ".")
+    return [
+        ("write_file", {"path": "app.py", "content": APP}),
+        ("write_file", {"path": "test_smoke.py", "content": TEST}),
+        ("write_file", {"path": "part3.txt", "content": "three\n"}),
+        ("write_file", {"path": "final.txt", "content": "done\n"}),
+        (
+            "run_python",
+            {
+                "argv": ["-m", "pytest", "-q"],
+                "cwd": ws,
+                "purpose": "verify project tests",
+                "timeout_seconds": 120,
+            },
+        ),
+        (
+            "verify_result",
+            {
+                "checks": [
+                    {"kind": "file_exists", "target": f"{ws}/app.py"},
+                    {"kind": "file_exists", "target": f"{ws}/test_smoke.py"},
+                ],
+                "purpose": "level 7 resume e2e",
+            },
+        ),
+        None,
+    ]
+
+
+def next_step() -> tuple[int, tuple[str, dict] | None]:
     assert STATE is not None
     with LOCK:
         stored = json.loads(STATE.read_text(encoding="utf-8")) if STATE.is_file() else {}
         count = int(stored.get("planner", 0)) + 1
-        asked = bool(stored.get("verification_asked"))
-        text = json.dumps(request)
-        if asked:
-            STATE.write_text(json.dumps({"planner": count, "verification_asked": True}), encoding="utf-8")
-            return count, None
-        if "final.txt" in text:
-            STATE.write_text(json.dumps({"planner": count, "verification_asked": True}), encoding="utf-8")
-            # The runner names the real workspace, so the checks are absolute by construction. The
-            # transcript only carries the model's relative call arguments, and resolving those
-            # against the backend's cwd is exactly what produced CHECK_REFUSED.
-            if WORKSPACE is not None:
-                chosen = [str(WORKSPACE / "part1.txt"), str(WORKSPACE / "final.txt")]
-            else:
-                targets: list[str] = []
-                _collect_paths(request, targets)
-                chosen = [item for item in sorted(set(targets)) if item.endswith(("part1.txt", "final.txt"))]
-                if not chosen:
-                    chosen = ["part1.txt", "final.txt"]
-            return count, (
-                "verify_result",
-                {
-                    "checks": [{"kind": "file_exists", "target": item} for item in chosen],
-                    "purpose": "level 7 resume e2e",
-                },
-            )
         STATE.write_text(json.dumps({"planner": count}), encoding="utf-8")
-    if False:
-        return count, (
-            "verify_result",
-            {
-                "checks": [
-                    {"kind": "file_exists", "target": "part1.txt"},
-                    {"kind": "file_exists", "target": "final.txt"},
-                ],
-                "purpose": "level 7 resume e2e",
-            },
-        )
-    index = min(count - 1, 3)
-    return count, SCENARIO[index]
+    steps = scenario()
+    return count, steps[min(count - 1, len(steps) - 1)]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -125,7 +101,12 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             self._json({"error": "bad_json"}, 400)
             return
-        count, step = next_step(request)
+        count, step = next_step()
+        if not request.get("stream"):
+            # A deliberate gap between the planner's answer and the next call: the test kills the
+            # backend as soon as the pytest run is recorded, and without this gap the final check
+            # could already be in flight, leaving no work for the resumed process to prove.
+            time.sleep(1.2)
         if request.get("stream"):
             body = (
                 'data: {"choices":[{"delta":{"content":"resume complete"},"index":0}]}\n\n'
@@ -169,10 +150,10 @@ def main() -> int:
     global STATE, WORKSPACE
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 18080
     state_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(".")
-    if len(sys.argv) > 3:
-        WORKSPACE = Path(sys.argv[3])
     state_dir.mkdir(parents=True, exist_ok=True)
     STATE = state_dir / "fake-llm-state.json"
+    if len(sys.argv) > 3:
+        WORKSPACE = Path(sys.argv[3])
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(json.dumps({"fake_llm": "ready", "port": port, "state": str(STATE)}), flush=True)
     server.serve_forever()
