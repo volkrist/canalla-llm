@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CANALLA LLM 1.2.7 — FINAL OVERNIGHT ACCEPTANCE REPORT</title>
+<style>
+:root { color-scheme: light dark; }
+body { margin: 0 auto; max-width: 1080px; padding: 48px 28px 96px;
+  font: 16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif; color: #1b1f24; background: #ffffff; }
+h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; }
+h2 { font-size: 1.45rem; margin: 42px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #e3e7ec; }
+h3 { font-size: 1.14rem; margin: 28px 0 10px; }
+h4 { font-size: 1rem; margin: 22px 0 8px; }
+p { margin: 10px 0; }
+table { border-collapse: collapse; width: 100%; margin: 14px 0 22px; font-size: 0.94rem; }
+th, td { border: 1px solid #dfe3e8; padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: #f4f6f8; font-weight: 600; }
+tbody tr:nth-child(even) { background: #fbfcfd; }
+code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 0.88em;
+  background: #f2f4f7; padding: 1px 5px; border-radius: 4px; }
+pre { background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 10px; overflow-x: auto; }
+pre code { background: none; color: inherit; padding: 0; font-size: 0.86rem; }
+blockquote { margin: 16px 0; padding: 10px 16px; border-left: 4px solid #94a3b8;
+  background: #f8fafc; color: #334155; }
+hr { border: 0; border-top: 1px solid #e3e7ec; margin: 34px 0; }
+ul, ol { margin: 10px 0 14px; padding-left: 26px; }
+li { margin: 5px 0; }
+a { color: #0b62d6; }
+@media (prefers-color-scheme: dark) {
+  body { background: #0b0f14; color: #dbe3ec; }
+  h2 { border-color: #1f2a36; }
+  th { background: #131b24; }
+  th, td { border-color: #22303d; }
+  tbody tr:nth-child(even) { background: #0f151d; }
+  code { background: #151d27; }
+  blockquote { background: #111922; color: #b6c2cf; border-color: #33506b; }
+  a { color: #74b0ff; }
+}
+@media print { body { max-width: none; } pre { white-space: pre-wrap; } }
+</style>
+</head>
+<body>
+<h1>CANALLA LLM 1.2.7 — FINAL OVERNIGHT ACCEPTANCE REPORT</h1>
+<p><strong>LEVEL 7 offline пройден дважды подряд. Desktop staging и LIVE не выполнены: сессия исчерпала окно контекста. Вердикт — RELEASE_BLOCKED (блокеры названы точно).</strong></p>
+<table><thead><tr>
+<th></th>
+<th></th>
+</tr></thead><tbody>
+<tr><td>Дата</td><td>22 ноября 2026</td></tr>
+<tr><td>Ветка / HEAD</td><td><code>feature/canalla-1.2.7-autonomous-agent</code> / <strong><code>481c011</code></strong></td></tr>
+<tr><td>Production</td><td>Canalla 1.2.6 — не изменена</td></tr>
+<tr><td>Баланс RunPod</td><td><strong>$13.0167830352</strong>, Pod <strong>0</strong>, фон $0.01/ч</td></tr>
+<tr><td>Ledger серии</td><td>$0.4298 из $5.00 (не менялся)</td></tr>
+<tr><td>Расход этой сессии</td><td><strong>$0.00</strong></td></tr>
+<tr><td>LEVEL 6</td><td><strong>PASS</strong> (evidence сохранён)</td></tr>
+<tr><td>LEVEL 7</td><td><strong>VERIFIED_OFFLINE</strong>, <strong>NOT_PROVEN_LIVE</strong></td></tr>
+<tr><td>Desktop staging</td><td><strong>NOT_DONE</strong> (блокер)</td></tr>
+<tr><td>Итоговый вердикт</td><td><strong>RELEASE_BLOCKED</strong></td></tr>
+</tbody></table>
+<hr>
+<h2>1. Что реально выполнено в этой сессии</h2>
+<table><thead><tr>
+<th>Работа</th>
+<th>Результат</th>
+</tr></thead><tbody>
+<tr><td>Регрессия затронутого backend-кода</td><td><strong>70 passed</strong> (<code>test_127_agent_core</code>, <code>test_autonomous_tasks</code>, <code>test_coding_agent</code>, <code>test_127_recovery_matrix</code>, <code>test_127_level7_negative</code>)</td></tr>
+<tr><td><code>free_resume_e2e.py</code></td><td><strong>PASS дважды подряд</strong> (прогоны <code>60ad5d0b…</code> и повторный)</td></tr>
+<tr><td>Ruff check / format</td><td><strong>чисто</strong>, 238 файлов отформатированы</td></tr>
+<tr><td>BasedPyright <code>apps/backend/app</code></td><td><strong>0 errors, 0 warnings</strong></td></tr>
+<tr><td>Монитор (paused + ARMED)</td><td>8/8 PASS (ранее в серии)</td></tr>
+</tbody></table>
+<h2>2. Исправленные в серии дефекты</h2>
+<ol>
+<li>Самопроизвольный запуск GPU Monitor → <code>monitor.paused</code> + ARMED execution manifest (8/8).</li>
+<li><code>CHECK_REFUSED</code> на корректных путях workspace → канонизация обеих сторон в <code>verify_result</code>, диагностика отказа.</li>
+<li>Пропуск планировщика на resume → <code>_goal_satisfied</code> требует <code>evidence_ok</code> или пройденный тест.</li>
+<li>Потеря <code>tests_passed</code> после рестарта → fake-модель больше не предлагает запись после вывода pytest.</li>
+<li>Форматирование диагностического блока (гейт).</li>
+</ol>
+<h2>3. LEVEL 7 — доказанная часть</h2>
+<p>Прогон <code>60ad5d0b…</code> (и повторный):</p>
+<ul>
+<li>backend A: реальные <code>write_file</code>, <strong>настоящий pytest через host loop</strong>;</li>
+<li>kill при статусе <strong>VERIFYING</strong>, backend A exit 1;</li>
+<li>backend B: новый PID, та же SQLite/data root/workspace;</li>
+<li><strong>тот же task_id</strong>, новый прогресс (<code>verify_result</code>);</li>
+<li><code>verification.tests = passed</code>, <code>evidence_ok = true</code>;</li>
+<li><strong>ровно одно <code>COMPLETED</code></strong>;</li>
+<li>вердикт <strong>PASS</strong>.</li>
+</ul>
+<h2>4. Что НЕ выполнено и почему</h2>
+<table><thead><tr>
+<th>Задача</th>
+<th>Статус</th>
+<th>Причина</th>
+</tr></thead><tbody>
+<tr><td>Desktop staging 1.2.7 (реальное окно, чат, инструменты, recovery через GUI)</td><td><strong>NOT_DONE</strong></td><td>окно контекста сессии; не начато</td></tr>
+<tr><td>LIVE LEVEL 7 на реальной Qwen</td><td><strong>NOT_RUN</strong></td><td>нет действующей записи batch: серия <code>d516f71c…</code> исчерпана (3/3 Pod), новый связанный batch не создан</td></tr>
+<tr><td>Computer Use / Research / Coding / Repair / Memory / Security через модель</td><td><strong>NOT_RUN</strong></td><td>зависят от LIVE и Desktop</td></tr>
+<tr><td>Сборка установщика 1.2.7 из <code>481c011</code></td><td><strong>NOT_DONE</strong></td><td>не начато</td></tr>
+<tr><td>Windows/Linux CI на <code>481c011</code></td><td><strong>NOT_RUN</strong></td><td>не запускались</td></tr>
+</tbody></table>
+<h2>5. Финансы и инфраструктура</h2>
+<ul>
+<li>0 Pod, новых списаний нет; баланс $13.0167830352, резерв $8.50 не тронут.</li>
+<li>Ledger $0.4298 из $5.00, Pod 3/3, <code>PAID_BATCH_EXHAUSTED</code>; новый batch не создавался.</li>
+<li>Watchdog и монитор не отключались; Pod-ов нет.</li>
+</ul>
+<h2>6. Production</h2>
+<p>2 users, 54 chats, 120 messages, 63 paired devices, 30 local tasks, integrity ok, FK 0, alembic 0016 — без изменений. Все тесты выполнялись в <code>%TEMP%</code> с изолированными БД, data root, device dir и портами.</p>
+<h2>7. Git</h2>
+<pre><code>481c011 Format the verify_result diagnostics block
+41b8f28 Report the free LEVEL 7 resume pass
+a8acce0 Pass the free LEVEL 7 resume E2E
+151f4d7 Report the real-pytest resume run
+acddfa2 Run real pytest in the resume E2E</code></pre>
+<h2>8. Оставшиеся релизные блокеры</h2>
+<ol>
+<li><strong>Desktop не проверен</strong> (уровень C приёмки) — приложение не запускалось в staging и работа агента не подтверждена через GUI.</li>
+<li><strong>LIVE LEVEL 7 отсутствует</strong> — REAL_MODEL_CONFIRMED для resume-цепочки не получен.</li>
+<li><strong>Нет платёжной авторизации</strong> для нового Pod: требуется аудируемое продолжение серии или новый мандат; самостоятельно создавать batch нельзя.</li>
+<li><strong>Установщик 1.2.7 не собран</strong> из текущего HEAD, CI на этом HEAD не запускался.</li>
+</ol>
+<h2>9. Нужно для снятия блокеров (в порядке приоритета)</h2>
+<ol>
+<li>Desktop staging: <code>tauri dev</code>/собранная сборка с отдельными data root, device dir и workspace, прогон чата и инструментов, скриншоты и логи; проверка recovery через окно.</li>
+<li>Создание связанного batch (наследует $0.4298 и лимит $5) → ARMED manifest → один Pod → LIVE A (LEVEL 7), затем B–F по остатку бюджета → terminate + подтверждение.</li>
+<li>Сборка установщика из финального HEAD, <code>release-gate.py candidate</code>, CI на этом HEAD.</li>
+<li>Финальный отчёт с обновлёнными статусами.</li>
+</ol>
+<h2>10. Честный итог</h2>
+<p>Backend-часть LEVEL 7 доказана воспроизводимо и бесплатно. Продукт <strong>не</strong> является RELEASE_CANDIDATE_READY: отсутствуют проверка настоящего Desktop и LIVE-подтверждение на реальной модели. Эти два пункта — не формальность, а обязательные критерии мастер-директивы.</p>
+</body>
+</html>

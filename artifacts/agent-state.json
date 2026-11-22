@@ -5,7 +5,7 @@
   "branch": "feature/canalla-1.2.7-autonomous-agent",
   "updated_at": "2026-11-22",
   "goal": "Finish 1.2.7 acceptance without paid spend, then grow Canalla into a verified autonomous agent",
-  "phase": "LEVEL 7: resume now plans and calls verify_result; workspace guard blocks it",
+  "phase": "release candidate blocked: desktop staging and LIVE remain",
   "state_machine": "DISCOVER -> BASELINE -> PLAN -> IMPLEMENT -> TEST -> VERIFY -> COMMIT -> NEXT",
   "steps": [
     {
@@ -122,24 +122,24 @@
   },
   "blockers": [
     {
-      "id": "CI-WORKFLOW-SCOPE",
-      "reason": "the gh token has no workflow scope, so a new Windows install job cannot be pushed",
-      "status": "BLOCKED"
-    },
-    {
-      "id": "CI-DEFAULT-BRANCH",
-      "reason": "workflow_dispatch only registers workflows that exist on the default branch (main)",
-      "status": "BLOCKED"
-    },
-    {
-      "id": "LEVEL7-POD-LIMIT",
-      "reason": "3/3 Pod slots used; a new batch/limit needs owner authorization",
-      "status": "BLOCKED_BY_AUTHORIZATION"
+      "id": "DESKTOP-STAGING",
+      "reason": "the real 1.2.7 window, chat, tools and GUI recovery were not exercised at all",
+      "status": "IN_PROGRESS"
     },
     {
       "id": "LEVEL7-LIVE",
-      "reason": "free E2E passes; a paid LIVE needs a valid batch/limit and an ARMED manifest",
+      "reason": "no real-model resume run; the free E2E passes but is not LIVE evidence",
       "status": "BLOCKED_BY_AUTHORIZATION"
+    },
+    {
+      "id": "PAID-BATCH",
+      "reason": "series d516f71c is exhausted (3/3 pods); a linked batch continuation is required and must not be created unilaterally",
+      "status": "BLOCKED_BY_AUTHORIZATION"
+    },
+    {
+      "id": "INSTALLER",
+      "reason": "1.2.7 installer not rebuilt from 481c011 and CI not run on this HEAD",
+      "status": "IN_PROGRESS"
     }
   ],
   "release_artifact": {
@@ -149,13 +149,21 @@
     "built_at_commit": "e78ca91b9fdb40a035839a44a4e4ec583caf773d",
     "release_gate": "candidate: 22 steps, 0 FAIL, 0 BLOCKED"
   },
-  "head": "a8acce0",
+  "head": "481c011",
   "note": "the 1.2.7 installer was built at e78ca91; the capability work after it does not change that artifact",
-  "engineering_state": "LEVEL7_FREE_E2E_NEXT",
+  "engineering_state": "LEVEL7_OFFLINE_PASS; DESKTOP_STAGING_NOT_STARTED",
   "live_authorization_state": "BATCH_EXHAUSTED_BY_POD_LIMIT",
   "level7_free_e2e": {
     "status": "PASS",
     "evidence": "run 60ad5d0b: real pytest through the host loop, kill while VERIFYING, same task id, new backend host PIDs, verify_result after restart, verification.tests=passed, evidence_ok=true, exactly one COMPLETED",
     "root_cause_fixed": "the fake planner counter drifted by one call and replayed a write after pytest, marking verification stale; the scenario is now transcript-driven and never writes after the test output appears"
+  },
+  "next_executable_action": "build the staging runtime from 481c011 (isolated data root, device dir, workspace), launch the real window, drive chat and a task through the GUI",
+  "tests": {
+    "regression": "70 passed",
+    "free_resume_e2e": "PASS twice",
+    "ruff": "clean",
+    "basedpyright": "0/0",
+    "monitor_armed": "8/8"
   }
 }
