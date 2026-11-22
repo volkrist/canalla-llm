@@ -1,7 +1,7 @@
 {
  "verdict": "OK",
  "plan": {
-  "budget_usd": 1.5,
+  "budget_usd": 2.0,
   "hourly_rate_usd": 1.09,
   "billing_granularity_seconds": 60,
   "termination_grace_seconds": 30,
@@ -9,14 +9,14 @@
   "watchdog_poll_seconds": 5,
   "capacity_timeout_seconds": 60,
   "requested_max_billed_seconds": 5400,
-  "max_billed_seconds": 4920,
-  "hard_wall_seconds": 4890,
-  "stop_request_seconds": 4880,
+  "max_billed_seconds": 5400,
+  "hard_wall_seconds": 5370,
+  "stop_request_seconds": 5360,
   "target_work_seconds": 4800,
-  "worst_case_usd": 1.489667,
-  "budget_headroom_usd": 0.010333,
-  "budget_limited": true,
-  "time_limited": false,
+  "worst_case_usd": 1.635,
+  "budget_headroom_usd": 0.365,
+  "budget_limited": false,
+  "time_limited": true,
   "min_work_seconds": 2700,
   "feasible": true,
   "sufficient": true,
@@ -24,41 +24,61 @@
  },
  "events": [
   {
-   "at_seconds": 0.78,
+   "at_seconds": 0.41,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 6.44,
+   "at_seconds": 6.84,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 12.08,
+   "at_seconds": 12.81,
    "kind": "waiting-for-pod",
    "detail": ""
   },
   {
-   "at_seconds": 17.44,
+   "at_seconds": 18.84,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 24.28,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 30.34,
+   "kind": "waiting-for-pod",
+   "detail": ""
+  },
+  {
+   "at_seconds": 44.31,
    "kind": "pod-observed",
-   "detail": "j9qkl5pxf5a8y7 at $1.0900/h"
+   "detail": "bgukpu9tqcrxwb at $1.0900/h"
   },
   {
-   "at_seconds": 933.78,
+   "at_seconds": 144.38,
+   "kind": "runner-gone",
+   "detail": "the supervised runner is no longer alive; the wall still applies"
+  },
+  {
+   "at_seconds": 171.75,
    "kind": "pod-gone",
-   "detail": "billed~933.8s"
+   "detail": "billed~171.8s"
   }
  ],
- "billed_seconds": 933.78,
- "estimated_cost_usd": 0.282728,
+ "billed_seconds": 171.75,
+ "estimated_cost_usd": 0.052002,
  "stop_requested_at": null,
  "termination_confirmed": true,
  "pods_remaining": 0,
  "reasons": [],
- "run_id": "4a6f3cb47dbb4f04ba5ae61681a3ce20",
- "balance_before_usd": 6.2444566922,
- "balance_after_usd": 6.2444566922,
+ "run_id": "483a006cb1924ddd8de7f0fd9ceec9e6",
+ "balance_before_usd": 13.1153685545,
+ "balance_after_usd": 13.1153685545,
  "sleep_prevented": true,
- "runner_pid": 25912,
- "observed_at": "2026-11-14T15:07:41+00:00"
+ "runner_pid": 15440,
+ "observed_at": "2026-11-22T07:30:26+00:00"
 }

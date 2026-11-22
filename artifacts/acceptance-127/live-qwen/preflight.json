@@ -1,5 +1,5 @@
 {
- "checked_at": "2026-11-22T03:13:28+00:00",
+ "checked_at": "2026-11-22T07:26:54+00:00",
  "budget_usd": 2.0,
  "gateway": {
   "status": 200,
@@ -13,14 +13,14 @@
  "runpod": {
   "pods": [],
   "pod_count": 0,
-  "balance_usd": 13.3397474443,
+  "balance_usd": 13.1153685545,
   "ok": true
  },
  "installed_app": {
-  "status": 0,
+  "status": 200,
   "version": "1.2.6",
-  "running": false,
-  "version_source": "build-stamp",
+  "running": true,
+  "version_source": "health",
   "ok": true
  },
  "data": {
@@ -38,12 +38,12 @@
   "device_matches_local": true
  },
  "disk": {
-  "free_gb": 57.1,
+  "free_gb": 59.7,
   "ok": true
  },
  "budget": {
   "cap_usd": 2.0,
-  "balance_usd": 13.3397,
+  "balance_usd": 13.1154,
   "policy": {
    "budget_usd": 2.0,
    "hourly_rate_usd": 1.09,
@@ -80,7 +80,7 @@
   ]
  },
  "coordinator": {
-  "backend_on_8000": false,
+  "backend_on_8000": true,
   "note": "no paid runner is started here"
  },
  "verdict": "READY",

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CANALLA LLM — LEVEL 7: ОТЧЁТ ПОПЫТКИ</title>
+<style>
+:root { color-scheme: light dark; }
+body { margin: 0 auto; max-width: 1080px; padding: 48px 28px 96px;
+  font: 16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif; color: #1b1f24; background: #ffffff; }
+h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; }
+h2 { font-size: 1.45rem; margin: 42px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #e3e7ec; }
+h3 { font-size: 1.14rem; margin: 28px 0 10px; }
+h4 { font-size: 1rem; margin: 22px 0 8px; }
+p { margin: 10px 0; }
+table { border-collapse: collapse; width: 100%; margin: 14px 0 22px; font-size: 0.94rem; }
+th, td { border: 1px solid #dfe3e8; padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: #f4f6f8; font-weight: 600; }
+tbody tr:nth-child(even) { background: #fbfcfd; }
+code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 0.88em;
+  background: #f2f4f7; padding: 1px 5px; border-radius: 4px; }
+pre { background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 10px; overflow-x: auto; }
+pre code { background: none; color: inherit; padding: 0; font-size: 0.86rem; }
+blockquote { margin: 16px 0; padding: 10px 16px; border-left: 4px solid #94a3b8;
+  background: #f8fafc; color: #334155; }
+hr { border: 0; border-top: 1px solid #e3e7ec; margin: 34px 0; }
+ul, ol { margin: 10px 0 14px; padding-left: 26px; }
+li { margin: 5px 0; }
+a { color: #0b62d6; }
+@media (prefers-color-scheme: dark) {
+  body { background: #0b0f14; color: #dbe3ec; }
+  h2 { border-color: #1f2a36; }
+  th { background: #131b24; }
+  th, td { border-color: #22303d; }
+  tbody tr:nth-child(even) { background: #0f151d; }
+  code { background: #151d27; }
+  blockquote { background: #111922; color: #b6c2cf; border-color: #33506b; }
+  a { color: #74b0ff; }
+}
+@media print { body { max-width: none; } pre { white-space: pre-wrap; } }
+</style>
+</head>
+<body>
+<h1>CANALLA LLM — LEVEL 7: ОТЧЁТ ПОПЫТКИ</h1>
+<p><strong>LEVEL 7 не доказан. Неподготовленный платный Pod остановлен, бюджет сохранён, серия исчерпана по лимиту Pod.</strong></p>
+<table><thead><tr>
+<th></th>
+<th></th>
+</tr></thead><tbody>
+<tr><td>Дата</td><td>22 ноября 2026</td></tr>
+<tr><td>Ветка</td><td><code>feature/canalla-1.2.7-autonomous-agent</code></td></tr>
+<tr><td>HEAD</td><td><code>55e5ecb</code> (проверенный код LEVEL 6)</td></tr>
+<tr><td>Баланс до работы</td><td><strong>$13.1542574433</strong></td></tr>
+<tr><td>Баланс после</td><td><strong>$13.1153685545</strong> (Δ <strong>$0.0389</strong>)</td></tr>
+<tr><td>Batch</td><td><code>d516f71c83f347289452398e0f972f98</code> — <strong>exhausted по лимиту Pod</strong></td></tr>
+<tr><td>Pod</td><td><strong>0</strong>, биллинг остановлен (<code>currentSpendPerHr</code> 1.101 → <strong>0.01</strong>)</td></tr>
+<tr><td>Production</td><td>1.2.6, не изменена: 2/54/120/63/30, integrity ok, 0 FK</td></tr>
+<tr><td>LEVEL 6</td><td><strong>PASS</strong> (доказательство не перезаписано)</td></tr>
+<tr><td>LEVEL 7</td><td><strong>BLOCKED_BY_BATCH_POD_LIMIT</strong> (не пройден, не имитировался)</td></tr>
+</tbody></table>
+<hr>
+<h2>A. Цель</h2>
+<p>Доказать LEVEL 7 — реальная модель продолжает незавершённую задачу после настоящего прерывания — в пределах остатка прошлой серии: $5.00 cap, резерв $8.50, <strong>один оставшийся Pod-слот</strong>.</p>
+<h2>B. Фактический Git</h2>
+<p><code>55e5ecb</code>, ветка <code>feature/canalla-1.2.7-autonomous-agent</code>, синхронна с origin. LEVEL 6 evidence (<code>final-summary.json</code>, <code>provenance-verdict.json</code>, <code>http-check.json</code>, <code>gui-evidence/independent-page.png</code>) — mtime 12:22, <strong>не изменены</strong>.</p>
+<h2>C. Баланс до запуска</h2>
+<p>API read-only: <strong>$13.1542574433</strong>, 0 Pod, фон $0.01/ч. Доступный остаток серии $4.6091.</p>
+<h2>D. Использованный бюджет</h2>
+<table><thead><tr>
+<th>Статья</th>
+<th>Значение</th>
+</tr></thead><tbody>
+<tr><td>Ledger серии до</td><td>$0.3909</td></tr>
+<tr><td>Неподготовленный Pod (см. раздел O)</td><td><strong>+$0.0389</strong></td></tr>
+<tr><td>Ledger серии после</td><td><strong>$0.4298</strong></td></tr>
+<tr><td>Остаток лимита</td><td>$4.5702 (но Pod-слоты исчерпаны)</td></tr>
+<tr><td>Резерв $8.50</td><td>не тронут</td></tr>
+</tbody></table>
+<h2>E. Бесплатные работы</h2>
+<ul>
+<li>Аудит Git, состояния монитора, batch, API.</li>
+<li>Найдена штатная точка возобновления: <code>POST /tasks/{key}/resume</code> → <code>LocalTaskController.resume</code> → <code>stream_response(action="resume", resume_task_id=...)</code> — на ней и должен строиться LEVEL 7 без второй системы оркестрации.</li>
+<li>Добавлены отсутствовавшие negative-тесты (раздел J).</li>
+</ul>
+<h2>F. LIVE run / pod</h2>
+<p>Платного прогона LEVEL 7 <strong>не было</strong>. Созданный Pod <code>bgukpu9tqcrxwb</code> относился к повторной LEVEL 6 попытке, запущенной автоматически (раздел O), и был остановлен инженером.</p>
+<h2>G. Model provenance</h2>
+<p>Новых LIVE-генераций нет. Доказательство LEVEL 6 (модель <code>orcarouter-qwen38-27b-q5km</code>, llamacpp, <code>REAL_MODEL_CONFIRMED</code>) сохранено и относится к run <code>0ef569505ce04d73bdf5cb722949415e</code>.</p>
+<h2>H. Checkpoint</h2>
+<p>Реализация live-resume harness в этой сессии не завершена: прерывание должно происходить внутри уже сертифицированного <code>run_live</code>, чтобы использовать его Pod-жизненный цикл и watchdog. Черновик подхода зафиксирован в разделе T; он не запускался, потому что непроверенный сценарий нельзя тратить на последний Pod-слот.</p>
+<h2>I. Controlled interruption</h2>
+<p>Не выполнялось (нет подготовленного harness).</p>
+<h2>J. Restart и recovery</h2>
+<p>Не выполнялось. Офлайн-механика остаётся доказанной: <code>test_127_recovery_e2e.py</code> (убитый процесс → второй процесс продолжает тот же task_id) и <code>test_127_recovery_matrix.py</code> (5 контролируемых сбоев, одно <code>COMPLETED</code>).</p>
+<h2>K. Продолжение моделью</h2>
+<p>Не выполнялось.</p>
+<h2>L. Независимая проверка</h2>
+<p>Не выполнялось для LEVEL 7. Независимая проверка LEVEL 6 (12 тестов, HTTP 201, SQLite, GUI, provenance, <code>VERIFY_PASSED</code>) не затронута.</p>
+<h2>M. Финальный вердикт LEVEL 7</h2>
+<p><strong>BLOCKED_BY_BATCH_POD_LIMIT</strong> — объективная причина: 3 из 3 разрешённых Pod израсходованы, новый batch и новые Pod-слоты заданием запрещены. Ни offline-тест, ни SQLite-восстановление не выданы за LEVEL 7.</p>
+<h2>N. Дополнительные LIVE-сценарии</h2>
+<p>Не выполнялись: сначала требуется LEVEL 7, а Pod-слотов больше нет.</p>
+<h2>O. Найденные ошибки и исправления</h2>
+<p><strong>Инцидент.</strong> Остановленный в прошлой сессии монитор был перезапущен (планировщик/собственный цикл), снова включил <code>monitoring_enabled</code>, создал Pod <code>bgukpu9tqcrxwb</code> в 07:28:08Z и начал <strong>повторную LEVEL 6</strong> попытку (<code>AUTO_LIVE</code>), а не LEVEL 7.</p>
+<p>Действия: монитор и harness остановлены, Pod удалён через API (<code>terminate</code> → 204), ноль Pod подтверждён, биллинг вернулся к $0.01/ч, расход $0.0389 записан в ledger как <code>ABORTED_BY_ENGINEER</code>, <code>reconciliation_status = clean</code>. Серия переведена в <code>exhausted</code> по лимиту Pod (3/3) — без подделки счётчиков и без нового batch.</p>
+<p><strong>Вывод для следующей сессии:</strong> монитор нельзя оставлять способным к автономному запуску без подготовленного сценария; остановка задачи должна сопровождаться проверкой, что она не перезапускается триггером.</p>
+<h2>P. Тесты и CI</h2>
+<table><thead><tr>
+<th>Проверка</th>
+<th>Результат</th>
+</tr></thead><tbody>
+<tr><td><code>tests/test_127_level7_negative.py</code> (новые)</td><td><strong>3 passed</strong></td></tr>
+<tr><td>ruff check / ruff format (новый файл)</td><td>чисто</td></tr>
+<tr><td>Ранее в сессии</td><td>Windows CI 7/7, Linux gate PASS, developer gate 9/9 — на <code>fa43168</code></td></tr>
+</tbody></table>
+<p>Новые negative-тесты:</p>
+<table><thead><tr>
+<th>Случай</th>
+<th>Где доказан</th>
+</tr></thead><tbody>
+<tr><td>A duplicate actions</td><td><code>progress.should_block</code> → <code>already_applied</code> (<code>test_autonomous_tasks</code>)</td></tr>
+<tr><td>B interrupted tool call</td><td><code>test_127_recovery_matrix::a_tool_run_that_never_returned…</code></td></tr>
+<tr><td>C lost model connection</td><td><code>WAITING_LLM</code> не затирается recovery (та же матрица)</td></tr>
+<tr><td>D double completion</td><td><code>finish()</code> → одно <code>COMPLETED</code> (та же матрица)</td></tr>
+<tr><td>E missing checkpoint</td><td><code>test_127_level7_negative::a_task_without_a_checkpoint…</code> — READY, не COMPLETED</td></tr>
+<tr><td>F budget termination</td><td><code>test_batch_budget.py</code> (11/11), <code>PAID_BATCH_EXHAUSTED</code></td></tr>
+<tr><td>G restart during verification</td><td><code>verifier_is_runnable_after_an_interruption…</code> + «повтор не превращает FAIL в PASS»</td></tr>
+<tr><td>H production isolation</td><td><code>production-before/after.json</code> в LIVE (2/54/120/63/30, integrity ok, 0 FK)</td></tr>
+</tbody></table>
+<h2>Q. Финальный баланс</h2>
+<p><strong>$13.1153685545</strong>. Резерв $8.50 не тронут. Подписки/сертификаты/Volume не покупались.</p>
+<h2>R. Подтверждение удаления Pod</h2>
+<p><code>terminate</code> → HTTP 204; <code>pods = []</code>; повторная проверка через 90 с: <code>current_spendPerHr = 0.01</code>, <code>pod_count = 0</code>. Статус — <strong>CLEAN</strong> (подтверждён API, не предположение).</p>
+<h2>S. Production</h2>
+<p>До и после: users 2, chats 54, messages 120, paired_devices 63, local_tasks 30, integrity <code>ok</code>, FK 0. Установленная 1.2.6, её device credential и база не изменялись.</p>
+<h2>T. Следующие задачи</h2>
+<ol>
+<li><strong>Подготовить live-resume внутри <code>run_live</code></strong> (одна сессия, один Pod):</li>
+</ol>
+<ul>
+<li>новый флаг <code>--resume</code> в <code>live_acceptance.py</code>;</li>
+<li>обёртка <code>on_event</code>: после N успешных tool calls поток прерывает <strong>изолированный backend</strong> (<code>backend.terminate()</code>), пишет <code>interruption.json</code> (task_id, status, checkpoint, digests);</li>
+<li>рестарт того же backend (тот же <code>work</code>, <code>env</code>, <code>port</code>), ожидание <code>/health</code>;</li>
+<li><code>POST /tasks/{task_id}/resume</code>, сбор нового SSE-потока;</li>
+<li>проверки: новый <code>MODEL_RESPONSE</code> + успешный tool call после рестарта, тот же <code>task_id</code>, ровно одно <code>COMPLETED</code>, отсутствие повторного побочного эффекта;</li>
+<li>независимая проверка файлов/тестов/HTTP/SQLite после продолжения.</li>
+</ul>
+<ol>
+<li>Провести этот сценарий офлайн с фейковым LLM (полный прогон без денег), затем один раз — на реальной модели.</li>
+<li>Для реального запуска потребуется новое разрешение владельца на <strong>новый batch</strong> (текущий исчерпан по Pod-лимиту) либо явное расширение лимита Pod; самовольно этого не делать.</li>
+<li>Продолжить бесплатные задачи: Computer Use E2E, расширение verifier, память проектов.</li>
+</ol>
+<hr>
+<h2>Индекс доказательств</h2>
+<table><thead><tr>
+<th>Файл</th>
+<th>Содержание</th>
+</tr></thead><tbody>
+<tr><td><code>artifacts/acceptance-127/live-qwen/final-live/final-summary.json</code></td><td>LEVEL 6 PASS (не изменён)</td></tr>
+<tr><td><code>.../provenance-verdict.json</code></td><td><code>REAL_MODEL_CONFIRMED</code></td></tr>
+<tr><td><code>artifacts/acceptance-127/live-qwen/monitor/batch-spend.jsonl</code></td><td>журнал: 3 Pod, $0.4298, <code>ABORTED_BY_ENGINEER</code></td></tr>
+<tr><td><code>C:\Users\Volkr\AppData\Local\CanallaMonitor\state.json</code></td><td>монитор остановлен, <code>BATCH_EXHAUSTED</code></td></tr>
+<tr><td><code>apps/backend/tests/test_127_level7_negative.py</code></td><td>3 новых negative-теста</td></tr>
+</tbody></table>
+</body>
+</html>

@@ -5,7 +5,7 @@
   "branch": "feature/canalla-1.2.7-autonomous-agent",
   "updated_at": "2026-11-22",
   "goal": "Finish 1.2.7 acceptance without paid spend, then grow Canalla into a verified autonomous agent",
-  "phase": "P3 - LIVE acceptance: LEVEL 6 proven",
+  "phase": "LEVEL 7 blocked by the series Pod limit",
   "state_machine": "DISCOVER -> BASELINE -> PLAN -> IMPLEMENT -> TEST -> VERIFY -> COMMIT -> NEXT",
   "steps": [
     {
@@ -65,14 +65,14 @@
     {
       "id": "LEVEL7",
       "name": "Durable resume with a real model",
-      "status": "NOT_TESTED",
-      "evidence": "mechanics proven offline; the harness has no live-resume mode yet, so no live claim is made"
+      "status": "BLOCKED",
+      "evidence": "BLOCKED_BY_BATCH_POD_LIMIT: the 3rd Pod of batch d516f71c... was started by an unattended monitor restart (LEVEL 6 duplicate) and was aborted and terminated by the engineer; no Pod slots remain and a new batch is not authorized. Offline recovery mechanics stay proven; no live claim is made."
     },
     {
       "id": "REPORT",
       "name": "Full report to Desktop (.md + .html) and artifacts/reports",
       "status": "PASS",
-      "evidence": "artifacts/reports/CANALLA-1.2.7-LIVE-AUTONOMY-2026-11-22.md/.html + Desktop copies"
+      "evidence": "artifacts/reports/CANALLA-1.2.7-LEVEL7-2026-11-22.md/.html + Desktop copies"
     },
     {
       "id": "FREE-SEARCH",
@@ -109,16 +109,16 @@
   "money": {
     "batch_id": "d516f71c83f347289452398e0f972f98",
     "cap_usd": 5.0,
-    "spent_usd": 0.3909,
-    "balance_before_usd": 13.5552224647,
-    "balance_after_usd": 13.1542574433,
-    "balance_delta_usd": 0.4009,
-    "remaining_usd": 4.6091,
+    "spent_usd": 0.4298,
+    "balance_before_usd": 13.1542574433,
+    "balance_after_usd": 13.1153685545,
+    "balance_delta_usd": 0.0389,
+    "remaining_usd": 4.5702,
     "reserve_usd": 8.5,
-    "state": "ACTIVE",
-    "pods_created": 2,
+    "state": "PAID_BATCH_EXHAUSTED_BY_POD_LIMIT",
+    "pods_created": 3,
     "pods_active": 0,
-    "attempts": 2
+    "attempts": 3
   },
   "blockers": [
     {
@@ -130,6 +130,11 @@
       "id": "CI-DEFAULT-BRANCH",
       "reason": "workflow_dispatch only registers workflows that exist on the default branch (main)",
       "status": "BLOCKED"
+    },
+    {
+      "id": "LEVEL7-POD-LIMIT",
+      "reason": "3/3 Pod slots of the batch are used; a new batch is not authorized",
+      "status": "BLOCKED_BY_AUTHORIZATION"
     }
   ],
   "release_artifact": {
@@ -139,6 +144,6 @@
     "built_at_commit": "e78ca91b9fdb40a035839a44a4e4ec583caf773d",
     "release_gate": "candidate: 22 steps, 0 FAIL, 0 BLOCKED"
   },
-  "head": "fa43168",
+  "head": "55e5ecb",
   "note": "the 1.2.7 installer was built at e78ca91; the capability work after it does not change that artifact"
 }

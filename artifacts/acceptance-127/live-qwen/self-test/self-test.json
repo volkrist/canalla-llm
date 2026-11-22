@@ -123,7 +123,7 @@
   {
    "check": "the_approval_is_recorded_for_the_evidence",
    "ok": true,
-   "detail": "[{'at': '2026-11-15T01:26:58+00:00', 'run_id': 'run-1', 'digest_bound': True, 'status': 200, 'answer': {'status': 'approved'}}]"
+   "detail": "[{'at': '2026-11-22T03:12:24+00:00', 'run_id': 'run-1', 'digest_bound': True, 'status': 200, 'answer': {'status': 'approved'}}]"
   },
   {
    "check": "the_host_python_can_build_and_test_the_app",
