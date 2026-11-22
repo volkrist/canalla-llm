@@ -61,14 +61,30 @@ def scenario() -> list[tuple[str, dict] | None]:
     ]
 
 
-def next_step() -> tuple[int, tuple[str, dict] | None]:
+def next_step(request: dict) -> tuple[int, "tuple[str, dict] | None"]:
+    """Counter for the write phase, transcript for everything after the test run.
+
+    The counter drifted by one call after a restart and replayed a write after pytest had passed,
+    which correctly marked `verification.tests` stale. Once pytest's own output is in the
+    transcript, no further write is ever proposed: only the independent check remains.
+    """
     assert STATE is not None
+    text = json.dumps(request, ensure_ascii=False)
+    steps = scenario()
+    verify = next(item for item in steps if item and item[0] == "verify_result")
     with LOCK:
         stored = json.loads(STATE.read_text(encoding="utf-8")) if STATE.is_file() else {}
         count = int(stored.get("planner", 0)) + 1
-        STATE.write_text(json.dumps({"planner": count}), encoding="utf-8")
-    steps = scenario()
-    return count, steps[min(count - 1, len(steps) - 1)]
+        asked = bool(stored.get("verification_asked"))
+        if "test session starts" in text and not asked:
+            asked = True
+        STATE.write_text(
+            json.dumps({"planner": count, "verification_asked": asked}), encoding="utf-8"
+        )
+    if "test session starts" in text:
+        return count, (None if asked and count > 0 else verify)
+    index = min(count - 1, len(steps) - 1)
+    return count, steps[index]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -101,7 +117,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             self._json({"error": "bad_json"}, 400)
             return
-        count, step = next_step()
+        count, step = next_step(request)
         if not request.get("stream"):
             # A deliberate gap between the planner's answer and the next call: the test kills the
             # backend as soon as the pytest run is recorded, and without this gap the final check
