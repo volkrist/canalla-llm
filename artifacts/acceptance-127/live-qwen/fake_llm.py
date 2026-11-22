@@ -18,6 +18,7 @@ from pathlib import Path
 
 LOCK = threading.Lock()
 STATE: Path | None = None
+WORKSPACE: Path | None = None
 
 # (tool, arguments) in order. Only `write_file` is used: its schema is path+content, so the fake
 # cannot invent an argument shape the product does not have.
@@ -60,11 +61,17 @@ def next_step(request: dict) -> tuple[int, tuple[str, dict] | None]:
             return count, None
         if "final.txt" in text:
             STATE.write_text(json.dumps({"planner": count, "verification_asked": True}), encoding="utf-8")
-            targets: list[str] = []
-            _collect_paths(request, targets)
-            chosen = [item for item in sorted(set(targets)) if item.endswith(("part1.txt", "final.txt"))][:2]
-            if not chosen:
-                chosen = ["part1.txt", "final.txt"]
+            # The runner names the real workspace, so the checks are absolute by construction. The
+            # transcript only carries the model's relative call arguments, and resolving those
+            # against the backend's cwd is exactly what produced CHECK_REFUSED.
+            if WORKSPACE is not None:
+                chosen = [str(WORKSPACE / "part1.txt"), str(WORKSPACE / "final.txt")]
+            else:
+                targets: list[str] = []
+                _collect_paths(request, targets)
+                chosen = [item for item in sorted(set(targets)) if item.endswith(("part1.txt", "final.txt"))]
+                if not chosen:
+                    chosen = ["part1.txt", "final.txt"]
             return count, (
                 "verify_result",
                 {
@@ -159,9 +166,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    global STATE
+    global STATE, WORKSPACE
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 18080
     state_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(".")
+    if len(sys.argv) > 3:
+        WORKSPACE = Path(sys.argv[3])
     state_dir.mkdir(parents=True, exist_ok=True)
     STATE = state_dir / "fake-llm-state.json"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)

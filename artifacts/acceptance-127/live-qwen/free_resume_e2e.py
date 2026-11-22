@@ -112,7 +112,7 @@ def main() -> int:
         "ADMIN_EMAILS": "[]",
     }
     fake = subprocess.Popen(
-        [PY, str(FAKE), str(fake_port), str(work / "llm")],
+        [PY, str(FAKE), str(fake_port), str(work / "llm"), str(workspace)],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

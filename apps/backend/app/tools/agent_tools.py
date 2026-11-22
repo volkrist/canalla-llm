@@ -82,6 +82,20 @@ class QueueArgs(BaseModel):
     worker: str = Field(default="agent", max_length=64)
 
 
+def _canonical(value: str) -> str:
+    """One comparison form for both sides: absolute, symlink-free, case-normalised on Windows.
+
+    The writer and the verifier used to compare differently shaped strings. A path accepted by
+    `write_file` could be refused by `verify_result` because `commonpath` is case-sensitive and
+    does not resolve junctions, so a legitimate file inside the workspace looked like an escape.
+    Normalising both sides keeps the containment rule exactly the same, only comparable.
+    """
+    try:
+        return os.path.normcase(os.path.realpath(os.path.abspath(value)))
+    except OSError:
+        return os.path.normcase(os.path.abspath(value))
+
+
 def _roots(context) -> list[str]:
     settings = getattr(context, "settings", None)
     roots = list(getattr(settings, "workspace_roots", None) or [])
@@ -89,13 +103,13 @@ def _roots(context) -> list[str]:
     root = getattr(workspace, "primary_root", None) if workspace is not None else None
     if root:
         roots.append(str(root))
-    return [os.path.abspath(root) for root in roots if root]
+    return [_canonical(root) for root in roots if root]
 
 
 def _inside(path: str, roots: list[str]) -> bool:
     if not roots:
         return True  # an unscoped conversation still has its own task workspace contract
-    target = os.path.abspath(path)
+    target = _canonical(path)
     for root in roots:
         try:
             if os.path.commonpath([target, root]) == root:
@@ -113,6 +127,7 @@ class VerifyProvider(ToolProvider[VerifyArgs]):
         roots = _roots(context)
         checks = []
         refused = []
+        refused_detail: list[dict] = []
         for spec in args.checks:
             kind = str(spec.get("kind") or "")
             target = str(spec.get("target") or "")
@@ -120,6 +135,16 @@ class VerifyProvider(ToolProvider[VerifyArgs]):
             guarded = [value for value in (target if kind in PATH_KINDS else cwd,) if value]
             if any(roots and not _inside(value, roots) for value in guarded):
                 refused.append(target or cwd)
+                refused_detail.append(
+                    {
+                        "kind": kind,
+                        "target": target or cwd,
+                        "canonical": _canonical(target or cwd),
+                        "roots": roots,
+                        "task_id": getattr(context, "task_id", None),
+                        "reason": "outside_workspace_roots",
+                    }
+                )
                 continue
             checks.append(spec)
         report = Verifier(window_probe=window_present).run(checks)
@@ -136,10 +161,11 @@ class VerifyProvider(ToolProvider[VerifyArgs]):
         payload = report.to_dict()
         if refused:
             payload["ok"] = False
+            payload["refused_detail"] = refused_detail[:6]
         _persist(context, ledger, {"verifier": payload["summary"], "refused": refused})
         return ToolResult(
             text=json.dumps(payload, ensure_ascii=False)[:12000],
-            metadata={"evidence": payload.get("summary"), "ok": payload["ok"]},
+            metadata={"evidence": payload.get("summary"), "ok": payload["ok"], "refused_detail": refused_detail[:4]},
             errors=["verification_failed"] if not payload["ok"] else [],
         )
 
