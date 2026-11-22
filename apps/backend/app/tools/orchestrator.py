@@ -1173,6 +1173,16 @@ class ToolOrchestrator:
             facts = row.facts or {}
             if facts.get("verification_stale") and facts.get("plan_has_verification"):
                 return False
+            # A task that changed files is not finished before something checked them. Without
+            # this, a resumed task whose plan happened to contain no verification step looked
+            # "goal met" from the file facts alone, the planner was skipped entirely, and the
+            # controller then failed the task with `verification_required` — the model was never
+            # given a turn in which it could call `verify_result`.
+            verification = row.verification or {}
+            if int(row.files_changed or 0) > 0:
+                checked = bool(verification.get("evidence_ok")) or verification.get("tests") == "passed"
+                if not checked:
+                    return False
             return bool(goal_met(row.facts, prompt))
 
     async def _close_tinyfish_browser(self, context=None, notes=None):

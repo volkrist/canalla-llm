@@ -21,6 +21,18 @@ STATE: Path | None = None
 
 # (tool, arguments) in order. Only `write_file` is used: its schema is path+content, so the fake
 # cannot invent an argument shape the product does not have.
+def _collect_paths(node, out: list[str]) -> None:
+    """Absolute paths from the transcript, so the verifier checks real files, not the cwd."""
+    if isinstance(node, dict):
+        for value in node.values():
+            _collect_paths(value, out)
+    elif isinstance(node, list):
+        for value in node:
+            _collect_paths(value, out)
+    elif isinstance(node, str) and (node.endswith("part1.txt") or node.endswith("final.txt")):
+        out.append(node)
+
+
 SCENARIO: list[tuple[str, dict] | None] = [
     ("write_file", {"path": "part1.txt", "content": "one\n"}),
     ("write_file", {"path": "part2.txt", "content": "two\n"}),
@@ -48,13 +60,15 @@ def next_step(request: dict) -> tuple[int, tuple[str, dict] | None]:
             return count, None
         if "final.txt" in text:
             STATE.write_text(json.dumps({"planner": count, "verification_asked": True}), encoding="utf-8")
+            targets: list[str] = []
+            _collect_paths(request, targets)
+            chosen = [item for item in sorted(set(targets)) if item.endswith(("part1.txt", "final.txt"))][:2]
+            if not chosen:
+                chosen = ["part1.txt", "final.txt"]
             return count, (
                 "verify_result",
                 {
-                    "checks": [
-                        {"kind": "file_exists", "target": "part1.txt"},
-                        {"kind": "file_exists", "target": "final.txt"},
-                    ],
+                    "checks": [{"kind": "file_exists", "target": item} for item in chosen],
                     "purpose": "level 7 resume e2e",
                 },
             )
