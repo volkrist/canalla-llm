@@ -89,9 +89,7 @@ def test_arxiv_adapter_parses_atom_and_upgrades_the_scheme():
     <published>2024-01-01T00:00:00Z</published>
   </entry>
 </feed>"""
-    adapter = ArxivAdapter(
-        transport=transport_for({"export.arxiv.org": httpx.Response(200, content=atom)})
-    )
+    adapter = ArxivAdapter(transport=transport_for({"export.arxiv.org": httpx.Response(200, content=atom)}))
     hits = run(adapter.search("agents", top=5))
     assert hits[0].url == "https://arxiv.org/abs/2401.00001v1"
     assert hits[0].title == "Adaptive Agents for Real Work"
@@ -136,9 +134,7 @@ def test_stackexchange_and_github_adapters_parse_their_rows():
 
 
 def test_rate_limit_is_a_typed_failure_not_an_empty_result():
-    adapter = WikipediaAdapter(
-        transport=transport_for({"wikipedia.org": httpx.Response(429, json={})})
-    )
+    adapter = WikipediaAdapter(transport=transport_for({"wikipedia.org": httpx.Response(429, json={})}))
     with pytest.raises(AdapterError) as error:
         run(adapter.search("anything", top=3))
     assert error.value.code == "rate_limited"
@@ -210,9 +206,7 @@ def test_include_and_exclude_domains_are_applied_before_the_cut():
             Hit("https://drop.example.com/2", "drop"),
         ],
     )
-    outcome = run(
-        free_search("q", adapters=[adapter], exclude=["drop.example.com"], top=5)
-    )
+    outcome = run(free_search("q", adapters=[adapter], exclude=["drop.example.com"], top=5))
     assert [source["url"] for source in outcome.sources] == ["https://keep.example.com/1"]
 
 
@@ -269,7 +263,9 @@ def test_search_sources_falls_back_to_free_apis_when_the_key_is_missing(monkeypa
     monkeypatch.setattr(client_module, "get_tinyfish_client", lambda: Client())
 
     async def fake_free(query, **kwargs):
-        return SearchOutcome(sources=[{"url": "https://free.example.com/1", "title": "free"}], providers=["wikipedia"])
+        return SearchOutcome(
+            sources=[{"url": "https://free.example.com/1", "title": "free"}], providers=["wikipedia"]
+        )
 
     monkeypatch.setattr(chain_module, "free_search", fake_free)
     outcome = run(search_sources("query", top=3))
@@ -322,7 +318,9 @@ def test_web_fetch_uses_the_local_reader_when_no_key_exists(monkeypatch):
         content_type = "text/html; charset=utf-8"
         text = (
             "<html><head><title>Example</title></head><body><p>Hello research</p>"
-            + "<p>" + "A real paragraph with enough words to be readable by the agent. " * 6 + "</p>"
+            + "<p>"
+            + "A real paragraph with enough words to be readable by the agent. " * 6
+            + "</p>"
             + "</body></html>"
         )
         bytes = 80
@@ -330,9 +328,7 @@ def test_web_fetch_uses_the_local_reader_when_no_key_exists(monkeypatch):
     import app.tools.tinyfish.client as client_module
 
     monkeypatch.setattr(client_module, "get_tinyfish_client", lambda: Client())
-    monkeypatch.setattr(
-        "app.tools.search.provider.fetch_page", lambda url, timeout=20: Page()
-    )
+    monkeypatch.setattr("app.tools.search.provider.fetch_page", lambda url, timeout=20: Page())
 
     result = run(WebFetchProvider().execute(FetchArgs(urls=["https://example.com"]), None))
     assert result.sources[0]["title"] == "Example"
@@ -354,9 +350,7 @@ def test_web_fetch_refuses_private_addresses_before_reading(monkeypatch):
     import app.tools.tinyfish.client as client_module
 
     monkeypatch.setattr(client_module, "get_tinyfish_client", lambda: Client())
-    monkeypatch.setattr(
-        "app.tools.search.provider.fetch_page", lambda url, timeout=20: called.append(url)
-    )
+    monkeypatch.setattr("app.tools.search.provider.fetch_page", lambda url, timeout=20: called.append(url))
     with pytest.raises(ToolError) as error:
         run(WebFetchProvider().execute(FetchArgs(urls=["http://127.0.0.1:8000/"]), None))
     assert error.value.code == "unsafe_url"

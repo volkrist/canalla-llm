@@ -128,9 +128,7 @@ def forget(ids: dict, memory_id: str) -> dict:
 
 def memory_of(ids: dict, needle: str) -> dict:
     with SessionLocal() as db:
-        row = db.scalar(
-            select(Memory).where(Memory.user_id == ids["user"], Memory.content.icontains(needle))
-        )
+        row = db.scalar(select(Memory).where(Memory.user_id == ids["user"], Memory.content.icontains(needle)))
         return {"id": row.id if row else "", "use_count": row.use_count if row else 0}
 
 

@@ -140,8 +140,8 @@ def test_missing_key_chat_still_completes(client, auth, monkeypatch):
     `provider_not_configured` to the user. The free chain now answers instead; when every free
     provider is down the reason is `search_unavailable`, and the chat still completes.
     """
-    from app.tools.search.chain import SearchOutcome
     from app.tools.search import provider as search_provider
+    from app.tools.search.chain import SearchOutcome
 
     async def offline(query, **kwargs):
         return SearchOutcome(errors=["wikipedia:timeout", "stackexchange:rate_limited"])

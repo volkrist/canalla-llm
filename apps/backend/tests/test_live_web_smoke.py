@@ -61,9 +61,7 @@ def test_free_search_reaches_a_real_public_api():
 
 
 def test_free_search_returns_arxiv_papers_for_a_research_query():
-    outcome = asyncio.run(
-        free_search("retrieval augmented generation", top=3, domain_type="research_paper")
-    )
+    outcome = asyncio.run(free_search("retrieval augmented generation", top=3, domain_type="research_paper"))
     assert outcome.sources, outcome.errors
     assert any("arxiv.org" in source["url"] for source in outcome.sources)
 

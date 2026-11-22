@@ -136,11 +136,7 @@ async def free_search(
         if isinstance(result, BaseException):
             outcome.errors.append(f"{adapter.name}:unavailable")
             continue
-        hits = [
-            hit
-            for hit in result
-            if _host_allowed(hit.url, include or [], exclude or [])
-        ]
+        hits = [hit for hit in result if _host_allowed(hit.url, include or [], exclude or [])]
         if hits:
             outcome.providers.append(adapter.name)
             groups.append(hits)

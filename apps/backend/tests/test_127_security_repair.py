@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.security_assessment.audit import scan_files, report
+from app.security_assessment.audit import report, scan_files
 from app.security_assessment.scope import ScopeError, SecurityScope, assert_target_allowed
 
 VULNERABLE = {
@@ -21,9 +21,7 @@ VULNERABLE = {
     ),
     "app/config.py": 'API_KEY = "sk-live-1234567890abcdef"\nTIMEOUT = 30\n',
     "app/http.py": (
-        "import requests\n"
-        "def get(url):\n"
-        "    return requests.get(url, verify=False, timeout=10)\n"
+        "import requests\ndef get(url):\n    return requests.get(url, verify=False, timeout=10)\n"
     ),
     "app/run.py": (
         "import subprocess\n"
@@ -37,18 +35,12 @@ VULNERABLE = {
 FIXED = {
     "app/db.py": (
         "def find(name, cursor):\n"
-        "    cursor.execute(\"SELECT * FROM users WHERE name = ?\", (name,))\n"
+        '    cursor.execute("SELECT * FROM users WHERE name = ?", (name,))\n'
         "    return cursor.fetchall()\n"
     ),
-    "app/config.py": (
-        "import os\n"
-        "API_KEY = os.environ[\"API_KEY\"]\n"
-        "TIMEOUT = 30\n"
-    ),
+    "app/config.py": ('import os\nAPI_KEY = os.environ["API_KEY"]\nTIMEOUT = 30\n'),
     "app/http.py": (
-        "import requests\n"
-        "def get(url):\n"
-        "    return requests.get(url, verify=True, timeout=10)\n"
+        "import requests\ndef get(url):\n    return requests.get(url, verify=True, timeout=10)\n"
     ),
     "app/run.py": (
         "import json\n"
@@ -101,9 +93,7 @@ def test_the_recheck_is_a_real_second_scan_not_a_cached_verdict():
 
 def test_the_report_counts_by_severity_and_never_claims_clean_when_it_is_not():
     findings = [finding.as_json() for finding in scan_files(VULNERABLE)]
-    payload = report(
-        findings, files_scanned=len(VULNERABLE), packages_checked=0, advisories="not_checked"
-    )
+    payload = report(findings, files_scanned=len(VULNERABLE), packages_checked=0, advisories="not_checked")
     assert sum(payload["counts"].values()) >= 6
     assert payload["counts"]["high"] >= 3
     assert payload["blocking"] > 0
