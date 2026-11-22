@@ -149,15 +149,15 @@
     "built_at_commit": "e78ca91b9fdb40a035839a44a4e4ec583caf773d",
     "release_gate": "candidate: 22 steps, 0 FAIL, 0 BLOCKED"
   },
-  "head": "653c967",
+  "head": "acddfa2",
   "note": "the 1.2.7 installer was built at e78ca91; the capability work after it does not change that artifact",
   "engineering_state": "LEVEL7_FREE_E2E_NEXT",
   "live_authorization_state": "BATCH_EXHAUSTED_BY_POD_LIMIT",
   "level7_free_e2e": {
     "status": "FAIL",
-    "fixed_this_block": "verify_result path comparison is canonical on both sides; refused checks now carry target/canonical/roots/task_id; verify_result returns ok=true for workspace files",
-    "evidence": "tool ledger: verify_result ok=True, refused_detail=[]",
-    "remaining_barrier": "final_review requires verification.tests == \"passed\" for a coding request; the fake scenario writes files and verifies them but never runs a test suite",
-    "next": "add a test-run step to the fake scenario (write test_smoke.py + run_python pytest), then rerun the E2E"
+    "fixed_this_block": "fake scenario now writes app.py + test_smoke.py and runs real python -m pytest through the host loop; the runner kills only after the pytest ToolRun is completed (direct sqlite poll, planner paced 1.2s)",
+    "evidence": "run b6eab8c9: 6 completed tool runs incl. pytest, kill while VERIFYING, same task id, verify_result after restart, evidence_ok=true",
+    "remaining_barrier": "verification.tests is stale after the restart although pytest passed; investigate whether tests_passed/verification_stale survive in the task checkpoint",
+    "next": "compare facts/checkpoint before and after the restart; persist the verification flags in the checkpoint if they are lost"
   }
 }

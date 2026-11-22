@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CANALLA LLM — РЕАЛЬНЫЙ PYTEST В RESUME E2E: ОТЧЁТ</title>
+<style>
+:root { color-scheme: light dark; }
+body { margin: 0 auto; max-width: 1080px; padding: 48px 28px 96px;
+  font: 16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif; color: #1b1f24; background: #ffffff; }
+h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; }
+h2 { font-size: 1.45rem; margin: 42px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #e3e7ec; }
+h3 { font-size: 1.14rem; margin: 28px 0 10px; }
+h4 { font-size: 1rem; margin: 22px 0 8px; }
+p { margin: 10px 0; }
+table { border-collapse: collapse; width: 100%; margin: 14px 0 22px; font-size: 0.94rem; }
+th, td { border: 1px solid #dfe3e8; padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: #f4f6f8; font-weight: 600; }
+tbody tr:nth-child(even) { background: #fbfcfd; }
+code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 0.88em;
+  background: #f2f4f7; padding: 1px 5px; border-radius: 4px; }
+pre { background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 10px; overflow-x: auto; }
+pre code { background: none; color: inherit; padding: 0; font-size: 0.86rem; }
+blockquote { margin: 16px 0; padding: 10px 16px; border-left: 4px solid #94a3b8;
+  background: #f8fafc; color: #334155; }
+hr { border: 0; border-top: 1px solid #e3e7ec; margin: 34px 0; }
+ul, ol { margin: 10px 0 14px; padding-left: 26px; }
+li { margin: 5px 0; }
+a { color: #0b62d6; }
+@media (prefers-color-scheme: dark) {
+  body { background: #0b0f14; color: #dbe3ec; }
+  h2 { border-color: #1f2a36; }
+  th { background: #131b24; }
+  th, td { border-color: #22303d; }
+  tbody tr:nth-child(even) { background: #0f151d; }
+  code { background: #151d27; }
+  blockquote { background: #111922; color: #b6c2cf; border-color: #33506b; }
+  a { color: #74b0ff; }
+}
+@media print { body { max-width: none; } pre { white-space: pre-wrap; } }
+</style>
+</head>
+<body>
+<h1>CANALLA LLM — РЕАЛЬНЫЙ PYTEST В RESUME E2E: ОТЧЁТ</h1>
+<p><strong>pytest действительно выполняется через настоящий host loop. Остаток: после рестарта <code>verification.tests</code> возвращается в <code>stale</code>.</strong></p>
+<table><thead><tr>
+<th></th>
+<th></th>
+</tr></thead><tbody>
+<tr><td>Дата</td><td>22 ноября 2026</td></tr>
+<tr><td>Ветка / HEAD</td><td><code>feature/canalla-1.2.7-autonomous-agent</code> / <strong><code>acddfa2</code></strong></td></tr>
+<tr><td>Баланс RunPod</td><td>$13.0362274796, Pod <strong>0</strong>, фон $0.01/ч</td></tr>
+<tr><td>Расход сессии</td><td><strong>$0.00</strong></td></tr>
+<tr><td>Ledger серии</td><td>$0.4298 из $5.00 (не менялся)</td></tr>
+<tr><td>Production 1.2.6</td><td>не изменена</td></tr>
+<tr><td><code>LEVEL7_FREE_E2E</code></td><td><strong>FAIL</strong> (ближе: pytest исполняется, evidence_ok=true)</td></tr>
+<tr><td>LEVEL 7</td><td><strong>NOT_PROVEN</strong></td></tr>
+</tbody></table>
+<hr>
+<h2>A. Что установлено по схемам (не по предположению)</h2>
+<ul>
+<li><code>verification.tests = "passed"</code> ставится <strong>только</strong> в <code>LocalTaskController._capture_facts</code>: нужен <code>run_python</code>/<code>run_process</code>/<code>run_powershell</code>, чей <code>argv</code> содержит <code>-m pytest</code> (или purpose упоминает pytest), и <code>exit_code == 0</code>; тогда <code>tests_passed = True</code>, <code>verification_stale = False</code>.</li>
+<li>Любой последующий <code>WRITE_TOOLS</code> сбрасывает <code>tests_passed = False</code> и <code>verification_stale = True</code>.</li>
+<li><code>final_review()</code> для кодирующего запроса требует <code>verification.tests == "passed"</code>.</li>
+<li>Схема <code>run_python</code>: <code>argv</code>, <code>cwd</code>, <code>timeout_seconds</code>, <code>purpose</code>, <code>wait</code>.</li>
+</ul>
+<h2>B. Что реализовано</h2>
+<p><code>fake_llm.py</code> — детерминированный сценарий:</p>
+<ol>
+<li><code>write_file app.py</code> (<code>def add(a, b)</code>);</li>
+<li><code>write_file test_smoke.py</code> (реальная проверка <code>add(2,3) == 5</code>);</li>
+<li><code>write_file part3.txt</code>, <code>write_file final.txt</code>;</li>
+<li><code>run_python {argv:["-m","pytest","-q"], cwd:&lt;workspace&gt;, purpose:"verify project tests"}</code>;</li>
+<li><code>verify_result</code> по абсолютным путям workspace;</li>
+<li>завершение.</li>
+</ol>
+<p>Планировщик отвечает с задержкой 1.2 с, чтобы финальная проверка не успевала проскочить до kill.</p>
+<p><code>free_resume_e2e.py</code> — прерывание по <strong>факту</strong> завершённого pytest (прямой read-only запрос к изолированной SQLite, опрос 0.2 с), а не по счётчику запусков.</p>
+<h2>C. Фактический результат прогона</h2>
+<table><thead><tr>
+<th>Проверка</th>
+<th>Факт</th>
+</tr></thead><tbody>
+<tr><td>Backend A</td><td>запущен, host спарен, регистрация 201</td></tr>
+<tr><td>До kill</td><td>6 завершённых tool runs, включая <strong>настоящий pytest</strong></td></tr>
+<tr><td>Статус на момент kill</td><td><strong>VERIFYING</strong></td></tr>
+<tr><td>Backend A</td><td>exit 1, stream <code>ConnectionReset</code></td></tr>
+<tr><td>Backend B</td><td>новый PID 16548, та же БД/data root</td></tr>
+<tr><td>Host B</td><td>новый PID 15664</td></tr>
+<tr><td><code>task_id</code></td><td>тот же (<code>b6eab8c9-…</code>)</td></tr>
+<tr><td>Новый прогресс после рестарта</td><td><strong>есть</strong> (6 runs, verify_result)</td></tr>
+<tr><td><code>evidence_ok</code></td><td><strong>true</strong></td></tr>
+<tr><td><code>verification.tests</code></td><td><strong>stale</strong></td></tr>
+<tr><td><code>COMPLETED</code></td><td><strong>0</strong></td></tr>
+<tr><td>Вердикт</td><td><strong>FAIL</strong></td></tr>
+</tbody></table>
+<h2>D. Оставшийся дефект</h2>
+<p>После рестарта <code>tests</code> возвращается в <code>stale</code>, хотя pytest уже завершился успешно. <code>stale</code> выставляется только записью (<code>WRITE_TOOLS</code>), значит после рестарта произошёл write, либо <code>tests_passed</code> не был зафиксирован в checkpoint и был потерян при восстановлении контекста.</p>
+<p>Следующий шаг диагностики (точный): сравнить <code>facts["tests_passed"]</code> и <code>row.checkpoint</code> до kill и после рестарта; проверить, не входит ли <code>tests_passed</code>/<code>verification_stale</code> в сохраняемый checkpoint. Если флаг не переживает рестарт — сохранять его в checkpoint вместе с <code>digests_completed</code> (это штатное место для восстановимого состояния, а не ручная запись <code>passed</code> в БД).</p>
+<h2>E. Тесты</h2>
+<table><thead><tr>
+<th>Проверка</th>
+<th>Результат</th>
+</tr></thead><tbody>
+<tr><td><code>free_resume_e2e.py</code></td><td><strong>FAIL</strong> (см. раздел D)</td></tr>
+<tr><td><code>fake_llm.py</code></td><td>syntax ok, сервер отвечает</td></tr>
+<tr><td><code>monitor/test_monitor_armed.py</code></td><td><strong>8/8 PASS</strong></td></tr>
+<tr><td><code>live_acceptance.py --self-test</code></td><td><strong>PASS</strong> (30)</td></tr>
+<tr><td><code>test_127_level7_negative.py</code></td><td>3 passed</td></tr>
+<tr><td><code>test_batch_budget.py</code></td><td>11/11</td></tr>
+</tbody></table>
+<h2>F. Деньги / Pod / production</h2>
+<ul>
+<li>0 Pod, $0.00, баланс $13.0362274796, резерв $8.50 не тронут.</li>
+<li>Ledger $0.4298 из $5.00, Pod 3/3, <code>PAID_BATCH_EXHAUSTED</code>.</li>
+<li>Production: 2/54/120/63/30, integrity ok, FK 0, alembic 0016.</li>
+</ul>
+<h2>G. Git</h2>
+<pre><code>acddfa2 Run real pytest in the resume E2E
+75628fb Report the CHECK_REFUSED fix and the test-suite barrier
+653c967 Compare workspace paths canonically in verify_result</code></pre>
+<h2>H. Следующий исполняемый шаг</h2>
+<ol>
+<li>Проверить, переживает ли <code>tests_passed</code> / <code>verification_stale</code> рестарт (сравнить <code>facts</code> и <code>checkpoint</code> до/после).</li>
+<li>Если нет — включить их в сохраняемое состояние задачи (штатный checkpoint), не подменяя инструментальную проверку.</li>
+<li>Прогнать E2E до <code>tests=passed</code>, одного <code>COMPLETED</code>, verifier PASS.</li>
+<li>После зелёного E2E — ARMED manifest и LIVE LEVEL 7 в пределах действующего бюджета.</li>
+</ol>
+</body>
+</html>
