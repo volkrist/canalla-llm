@@ -1,0 +1,29 @@
+{
+ "directory": "C:\\Users\\Volkr\\Documents\\Codex\\2026-09-13\\x20\\outputs\\alex-llm\\artifacts\\acceptance-127\\live-qwen\\final-live\\workspace-snapshot",
+ "files": [
+  ".pytest_cache\\.gitignore",
+  ".pytest_cache\\CACHEDIR.TAG",
+  ".pytest_cache\\README.md",
+  ".pytest_cache\\v\\cache\\nodeids",
+  "README.md",
+  "run.py",
+  "taskdesk\\.pytest_cache\\.gitignore",
+  "taskdesk\\.pytest_cache\\CACHEDIR.TAG",
+  "taskdesk\\.pytest_cache\\README.md",
+  "taskdesk\\.pytest_cache\\v\\cache\\nodeids",
+  "taskdesk\\__init__.py",
+  "taskdesk\\__main__.py",
+  "taskdesk\\app.py",
+  "taskdesk\\db.py",
+  "taskdesk\\templates\\index.html",
+  "taskdesk\\tests\\test_api.py"
+ ],
+ "skipped": [
+  "taskdesk\\__pycache__\\__init__.cpython-312.pyc",
+  "taskdesk\\__pycache__\\app.cpython-312.pyc",
+  "taskdesk\\__pycache__\\db.cpython-312.pyc",
+  "taskdesk\\taskdesk.db",
+  "taskdesk\\tests\\__pycache__\\test_api.cpython-312-pytest-9.1.1.pyc"
+ ],
+ "run_id": "0ef569505ce04d73bdf5cb722949415e"
+}

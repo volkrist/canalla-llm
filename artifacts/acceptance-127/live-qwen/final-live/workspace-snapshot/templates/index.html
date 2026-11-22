@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TaskDesk</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #333; }
+.container { max-width: 900px; margin: 0 auto; padding: 20px; }
+h1 { text-align: center; margin-bottom: 30px; color: #2c3e50; }
+.form-card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px; }
+.form-card h2 { font-size: 18px; margin-bottom: 12px; color: #34495e; }
+.form-row { display: flex; gap: 10px; margin-bottom: 10px; }
+input, select, textarea { padding: 10px; border: 1px solid #dcdfe6; border-radius: 4px; font-size: 14px; width: 100%; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: #409eff; }
+button { padding: 10px 20px; background: #409eff; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+button:hover { background: #337ecc; }
+button.btn-sm { padding: 4px 10px; font-size: 12px; }
+button.btn-danger { background: #f56c6c; }
+button.btn-danger:hover { background: #d94848; }
+.filter-bar { display: flex; gap: 10px; margin-bottom: 15px; }
+.filter-bar input { flex: 1; }
+.task-list { background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden; }
+.task-item { padding: 14px 20px; border-bottom: 1px solid #ebeef5; display: flex; align-items: center; gap: 10px; }
+.task-item:last-child { border-bottom: none; }
+.task-title { flex: 1; font-weight: 500; }
+.task-desc { font-size: 12px; color: #909399; margin-top: 2px; }
+.badge { padding: 3px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+.badge-todo { background: #fef0f0; color: #f56c6c; }
+.badge-in_progress { background: #fdf6ec; color: #e6a23c; }
+.badge-done { background: #f0f9eb; color: #67c23a; }
+.badge-archived { background: #f4f4f5; color: #909399; }
+.task-actions { display: flex; gap: 5px; }
+.empty { padding: 30px; text-align: center; color: #909399; }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>TaskDesk</h1>
+<div class="form-card">
+<h2>Create Task</h2>
+<div class="form-row">
+<input type="text" id="task-title" placeholder="Task title (required)">
+<select id="task-status">
+<option value="todo">Todo</option>
+<option value="in_progress">In Progress</option>
+<option value="done">Done</option>
+</select>
+<button onclick="createTask()">Add</button>
+</div>
+<div class="form-row">
+<textarea id="task-desc" rows="2" placeholder="Description (optional)"></textarea>
+</div>
+</div>
+<div class="filter-bar">
+<input type="text" id="search" placeholder="Search tasks..." oninput="loadTasks()">
+<select id="status-filter" onchange="loadTasks()">
+<option value="">All statuses</option>
+<option value="todo">Todo</option>
+<option value="in_progress">In Progress</option>
+<option value="done">Done</option>
+<option value="archived">Archived</option>
+</select>
+</div>
+<div class="task-list" id="task-list">
+<div class="empty">No tasks yet</div>
+</div>
+</div>
+<script>
+async function loadTasks() {
+  const q = document.getElementById('search').value;
+  const status = document.getElementById('status-filter').value;
+  let url = '/api/tasks';
+  const params = [];
+  if (q) params.push('q=' + encodeURIComponent(q));
+  if (status) params.push('status=' + encodeURIComponent(status));
+  if (params.length) url += '?' + params.join('&');
+  const res = await fetch(url);
+  const tasks = await res.json();
+  renderTasks(tasks);
+}
+function renderTasks(tasks) {
+  const el = document.getElementById('task-list');
+  if (!tasks.length) { el.innerHTML = '<div class="empty">No tasks found</div>'; return; }
+  el.innerHTML = tasks.map(t => `
+    <div class="task-item">
+      <span class="badge badge-${t.status}">${t.status.replace('_',' ')}</span>
+      <div class="task-title">${t.title}<div class="task-desc">${t.description || ''}</div></div>
+      <select class="task-actions" onchange="updateStatus(${t.id}, this.value)">
+        <option value="todo" ${t.status==='todo'?'selected':''}>Todo</option>
+        <option value="in_progress" ${t.status==='in_progress'?'selected':''}>In Progress</option>
+        <option value="done" ${t.status==='done'?'selected':''}>Done</option>
+        <option value="archived" ${t.status==='archived'?'selected':''}>Archived</option>
+      </select>
+      <button class="btn-sm btn-danger" onclick="deleteTask(${t.id})">X</button>
+    </div>`).join('');
+}
+async function createTask() {
+  const title = document.getElementById('task-title').value.trim();
+  if (!title) return alert('Title is required');
+  const desc = document.getElementById('task-desc').value.trim();
+  const status = document.getElementById('task-status').value;
+  await fetch('/api/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, description: desc, status})});
+  document.getElementById('task-title').value = '';
+  document.getElementById('task-desc').value = '';
+  loadTasks();
+}
+async function updateStatus(id, status) {
+  await fetch(`/api/tasks/${id}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status})});
+  loadTasks();
+}
+async function deleteTask(id) {
+  await fetch(`/api/tasks/${id}`, {method:'DELETE'});
+  loadTasks();
+}
+loadTasks();
+</script>
+</body>
+</html>

@@ -148,6 +148,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="record the owner's bounded *series* of paid attempts (one budget, one Pod at a time)",
     )
+    parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="archive a finished batch before recording the new owner decision (never while in flight)",
+    )
+    parser.add_argument("--starting-balance", type=float, default=None)
+    parser.add_argument("--minimum-balance", type=float, default=0.0)
+    parser.add_argument("--max-pods", type=int, default=3)
+    parser.add_argument("--max-attempt-minutes", type=int, default=None)
     parser.add_argument("--state-dir", default=None)
     args = parser.parse_args(argv)
     rdir = runtime_dir(args.state_dir)
@@ -155,6 +164,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.batch:
         budget = args.budget_usd if args.budget_usd is not None else BUDGET_USD
+        if args.replace:
+            try:
+                archived = batch_module.archive(rdir)
+            except batch_module.BatchError as error:
+                print(json.dumps({"authorized": False, "reason": str(error)}, ensure_ascii=False))
+                return 2
+        else:
+            archived = "not_requested"
         try:
             record = batch_module.create(
                 rdir,
@@ -164,6 +181,12 @@ def main(argv: list[str] | None = None) -> int:
                 placements=placements_payload(SCOPES[args.scope]),
                 allowed_gpu=GPU_ID,
                 model_id=MODEL_ID,
+                starting_balance_usd=args.starting_balance,
+                minimum_balance_usd=args.minimum_balance,
+                max_attempt_seconds=(
+                    None if args.max_attempt_minutes is None else args.max_attempt_minutes * 60
+                ),
+                maximum_total_pods=args.max_pods,
             )
         except batch_module.BatchError as error:
             print(
@@ -171,7 +194,7 @@ def main(argv: list[str] | None = None) -> int:
                     {
                         "authorized": False,
                         "reason": str(error),
-                        "expected_phrase": batch_module.BATCH_PHRASE,
+                        "expected_phrase": batch_module.phrase_for(budget),
                     },
                     ensure_ascii=False,
                 )
@@ -182,14 +205,18 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "authorized": True,
                     "mode": "batch_created",
+                    "archived": archived,
                     "batch_id": record["batch_id"],
                     "maximum_total_gpu_spend_usd": record["maximum_total_gpu_spend_usd"],
                     "maximum_concurrent_pods": record["maximum_concurrent_pods"],
+                    "maximum_total_pods": record["maximum_total_pods"],
+                    "minimum_balance_usd": record["minimum_balance_usd"],
+                    "starting_balance_usd": record["starting_balance_usd"],
                     "placements": record["allowed_placements"],
                     "expires_at": record["expires_at"],
                     "note": (
                         "Each attempt gets its own one-shot child grant; the series stops when "
-                        "the budget is spent. At most one Pod exists at a time."
+                        "the budget or the Pod count is spent. At most one Pod exists at a time."
                     ),
                 },
                 ensure_ascii=False,

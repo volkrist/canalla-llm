@@ -1,5 +1,5 @@
 {
- "captured_at": "2026-11-14T16:31:07+00:00",
+ "captured_at": "2026-11-22T03:22:55+00:00",
  "database_present": true,
  "data_root": "C:\\Users\\Volkr\\AppData\\Local\\Alex LLM",
  "local_device_id": "6413489d-6cae-4183-8446-a3b2339137dc",
@@ -14,8 +14,8 @@
  "foreign_key_violations": 0,
  "active_device_id": "6413489d-6cae-4183-8446-a3b2339137dc",
  "installed_app": {
-  "status": 200,
-  "version": "1.2.6"
+  "status": 0,
+  "version": null
  },
- "run_id": "e184595544d24f14a140bd9298e81ea1"
+ "run_id": "0ef569505ce04d73bdf5cb722949415e"
 }

@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CANALLA LLM — LIVE И АВТОНОМНОСТЬ: ОТЧЁТ СЕРИИ</title>
+<style>
+:root { color-scheme: light dark; }
+body { margin: 0 auto; max-width: 1080px; padding: 48px 28px 96px;
+  font: 16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif; color: #1b1f24; background: #ffffff; }
+h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; }
+h2 { font-size: 1.45rem; margin: 42px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #e3e7ec; }
+h3 { font-size: 1.14rem; margin: 28px 0 10px; }
+h4 { font-size: 1rem; margin: 22px 0 8px; }
+p { margin: 10px 0; }
+table { border-collapse: collapse; width: 100%; margin: 14px 0 22px; font-size: 0.94rem; }
+th, td { border: 1px solid #dfe3e8; padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: #f4f6f8; font-weight: 600; }
+tbody tr:nth-child(even) { background: #fbfcfd; }
+code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 0.88em;
+  background: #f2f4f7; padding: 1px 5px; border-radius: 4px; }
+pre { background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 10px; overflow-x: auto; }
+pre code { background: none; color: inherit; padding: 0; font-size: 0.86rem; }
+blockquote { margin: 16px 0; padding: 10px 16px; border-left: 4px solid #94a3b8;
+  background: #f8fafc; color: #334155; }
+hr { border: 0; border-top: 1px solid #e3e7ec; margin: 34px 0; }
+ul, ol { margin: 10px 0 14px; padding-left: 26px; }
+li { margin: 5px 0; }
+a { color: #0b62d6; }
+@media (prefers-color-scheme: dark) {
+  body { background: #0b0f14; color: #dbe3ec; }
+  h2 { border-color: #1f2a36; }
+  th { background: #131b24; }
+  th, td { border-color: #22303d; }
+  tbody tr:nth-child(even) { background: #0f151d; }
+  code { background: #151d27; }
+  blockquote { background: #111922; color: #b6c2cf; border-color: #33506b; }
+  a { color: #74b0ff; }
+}
+@media print { body { max-width: none; } pre { white-space: pre-wrap; } }
+</style>
+</head>
+<body>
+<h1>CANALLA LLM — LIVE И АВТОНОМНОСТЬ: ОТЧЁТ СЕРИИ</h1>
+<p><strong>LEVEL 6 пройден на реальной Qwen: TaskDesk создан, проверен независимо, provenance подтверждён</strong></p>
+<table><thead><tr>
+<th></th>
+<th></th>
+</tr></thead><tbody>
+<tr><td>Дата</td><td>22 ноября 2026</td></tr>
+<tr><td>Проект</td><td>Canalla LLM Desktop 1.2.7</td></tr>
+<tr><td>Ветка</td><td><code>feature/canalla-1.2.7-autonomous-agent</code></td></tr>
+<tr><td>HEAD проверенного кода</td><td><code>75b809a</code> (+ изменения harness/monitor этой сессии)</td></tr>
+<tr><td>Баланс до работы B0</td><td><strong>$13.5552224647</strong> (RunPod API, read-only, 02:52Z)</td></tr>
+<tr><td>Разрешённый бюджет серии</td><td><strong>$5.00</strong>, резерв <strong>$8.50</strong> → <code>MAX_BATCH_SPEND = min(5.00, B0−8.50) = $5.00</code></td></tr>
+<tr><td>Batch</td><td><code>d516f71c83f347289452398e0f972f98</code> (cap $5.00, 3 Pod, 1 одновременно, до 06.12.2026)</td></tr>
+<tr><td>Потрачено по ledger</td><td><strong>$0.3909</strong> за 2 попытки</td></tr>
+<tr><td>Баланс после</td><td><strong>$13.1542574433</strong> (Δ $0.4009 с фоновыми $0.01/ч)</td></tr>
+<tr><td>Pod сейчас</td><td><strong>0</strong>, cleanup CLEAN</td></tr>
+<tr><td>Production</td><td>1.2.6, не изменена: 2/54/120/63/30, integrity ok, 0 FK</td></tr>
+<tr><td>LEVEL 6</td><td><strong>PASS</strong></td></tr>
+<tr><td>LEVEL 7</td><td><strong>NOT_PROVEN</strong> в этой сессии (механика доказана офлайн)</td></tr>
+</tbody></table>
+<hr>
+<h2>A. Задание и разрешённый бюджет</h2>
+<p>Владелец разрешил серию LIVE-испытаний RunPod с суммарным лимитом <strong>$5.00</strong>, резервом <strong>$8.50</strong>, не более 3 последовательных Pod и не более одного одновременно. Запрещены новые Volume, новые копии весов, публикация 1.2.7 и изменение production.</p>
+<p>Проверено: <code>MAX_BATCH_SPEND = min(5.00, max(0, 13.5552 − 8.50)) = $5.00</code>. Разрешение не выходит за математический предел, остаток после серии ($4.65) выше резерва.</p>
+<h2>B. Проверенный баланс и инфраструктура до работы</h2>
+<table><thead><tr>
+<th>Параметр</th>
+<th>Значение (API)</th>
+</tr></thead><tbody>
+<tr><td><code>clientBalance</code></td><td>$13.5552224647</td></tr>
+<tr><td>Pod</td><td>0</td></tr>
+<tr><td><code>currentSpendPerHr</code></td><td>$0.01 (фоновое хранение)</td></tr>
+<tr><td>L40S 48 GB</td><td>$1.09/ч secure</td></tr>
+<tr><td>Доступность L40S</td><td><strong>US-MO-1 — NONE</strong>; <strong>US-TX-3 — bookable</strong></td></tr>
+<tr><td>Тома</td><td><code>uwgeaie5b0</code> (TX3) и <code>y92bt25ru8</code> (MO1) существуют</td></tr>
+<tr><td>Старый batch</td><td><code>0673b737…</code> — исчерпан ($1.642 из $2.00), архивирован, журнал не изменён</td></tr>
+</tbody></table>
+<p>Факт, важный для решения: единственное доступное разрешённое размещение — <strong>US-TX-3 / uwgeaie5b0</strong>, чей прeжний self-test был записан как FAIL из-за сломанной команды <code>curl</code>. Поэтому монитор обязан был сначала доказать модель настоящим ответом (<code>requires_selftest</code>).</p>
+<h2>C. Выполненные бесплатные действия</h2>
+<ol>
+<li>Аудит Git/CI/production и read-only RunPod.</li>
+<li>Расширение механизма серии до $5.00: <code>phrase_for(amount)</code>, жёсткий потолок <code>MAX_BATCH_BUDGET_USD</code>, лимит Pod, поля <code>starting_balance_usd</code>, <code>minimum_balance_usd</code>, <code>max_attempt_seconds</code>, <code>watchdog_status</code>; безопасная архивация завершённой серии (запрещена при попытке в полёте и при неизвестном исходе).</li>
+<li><strong>11/11</strong> новых бесплатных проверок (<code>test_batch_budget.py</code>) + прежняя 64-кейсовая матрица монитора — <strong>PASS</strong>.</li>
+<li><code>live_acceptance.py --self-test</code> — <strong>PASS</strong>; <code>--preflight</code> — <strong>READY</strong>; <code>--prepare</code> — без расходов.</li>
+<li>Диагностика первой платной попытки и исправление двух критериев harness (см. раздел I).</li>
+</ol>
+<h2>D. Созданные Pod</h2>
+<table><thead><tr>
+<th>#</th>
+<th>Pod</th>
+<th>DC</th>
+<th>GPU</th>
+<th>Ставка</th>
+<th>Статус</th>
+</tr></thead><tbody>
+<tr><td>1</td><td><code>po8lpjkrher85i</code></td><td>US-TX-3</td><td>L40S 48 GB</td><td>$1.09/ч</td><td>terminated</td></tr>
+<tr><td>2</td><td><code>7u9xx10mqmjxiu</code></td><td>US-TX-3</td><td>L40S 48 GB</td><td>$1.09/ч</td><td>terminated</td></tr>
+</tbody></table>
+<p>Одновременно существовал только один Pod. Оба удалены, финальная проверка API: <strong>0 pods</strong>.</p>
+<h2>E. Платные попытки и стоимость</h2>
+<table><thead><tr>
+<th>Попытка</th>
+<th>Run ID</th>
+<th>Время</th>
+<th>Результат</th>
+<th>Ledger</th>
+</tr></thead><tbody>
+<tr><td>1</td><td><code>354c305d1b2f4b35a8528d12ab214907</code></td><td>718 с</td><td>model self-test <strong>PASS</strong>, TaskDesk собран, harness <strong>FAIL</strong> по двум своим критериям</td><td>$0.2056</td></tr>
+<tr><td>2</td><td><code>0ef569505ce04d73bdf5cb722949415e</code></td><td>641.7 с</td><td><strong>PASS</strong></td><td>$0.1853</td></tr>
+<tr><td><strong>Итого</strong></td><td></td><td></td><td></td><td><strong>$0.3909</strong></td></tr>
+</tbody></table>
+<p>Факт по API: баланс $13.5552 → $13.1543 (Δ $0.4009; разница — фоновое хранение $0.01/ч). Тарификация прекращена: <code>current_spendPerHr</code> вернулся к $0.01, Pod нет, <code>cleanup.json = CLEAN</code>.</p>
+<h2>F. LEVEL 6 — PASS</h2>
+<p>Попытка 2 (<code>0ef56950…</code>), независимые проверки harness:</p>
+<table><thead><tr>
+<th>Проверка</th>
+<th>Результат</th>
+</tr></thead><tbody>
+<tr><td>файлы проекта</td><td><code>__init__.py</code>, <code>__main__.py</code>, <code>app.py</code>, <code>db.py</code>, <code>run.py</code>, <code>test_api.py</code> (16 файлов в snapshot)</td></tr>
+<tr><td>тесты</td><td><strong>12 passed</strong> (pytest, запуск harness из каталога проекта)</td></tr>
+<tr><td>SQLite</td><td><code>taskdesk.db</code>, таблица <code>tasks</code> с записью</td></tr>
+<tr><td>HTTP</td><td>приложение запущено harness: <code>127.0.0.1:10655</code>, <code>POST /api/tasks</code> → <strong>201</strong>, задача создана</td></tr>
+<tr><td>GUI</td><td>независимый браузер harness открыл интерфейс, скриншот <code>independent-page.png</code></td></tr>
+<tr><td>инструменты</td><td>15 tool calls, 14 связанных результатов, дубликатов payload нет</td></tr>
+<tr><td>provenance</td><td><code>status = REAL_MODEL_CONFIRMED</code>, provider <code>llamacpp</code>, model <code>orcarouter-qwen38-27b-q5km</code>, <code>tampered = 0</code></td></tr>
+<tr><td>verifier</td><td><code>VERIFY_PASSED evidence_ok=true</code> (отдельное событие в трассе)</td></tr>
+<tr><td>вердикт</td><td><strong>PASS</strong>, exit 0</td></tr>
+</tbody></table>
+<p>Критерии владельца выполнены: backend отвечает, CRUD работает, SQLite сохраняет, браузер реально открывает интерфейс, тесты проходят, файлы существуют, модель вызывала инструменты, вызовы исполнялись, результат не подготовлен заранее, независимый verifier подтвердил, <code>VERIFY_PASSED</code> записан, provenance подтверждён. Обе попытки относятся к разным завершённым циклам и не склеиваются в один.</p>
+<h2>G. LEVEL 7 — NOT_PROVEN</h2>
+<p>Механика durable resume доказана офлайн (<code>test_127_recovery_e2e.py</code>, <code>test_127_recovery_matrix.py</code>), но harness не имеет режима «настоящая модель → контролируемое прерывание → продолжение». Попытку не выдавал за успех: LEVEL 7 остаётся <strong>NOT_PROVEN</strong> в этой сессии. Бюджет ($4.65) и один слот Pod сохранены для отдельного подготовленного прогона.</p>
+<h2>H. Computer Use</h2>
+<p>Сценарий C остаётся <strong>PARTIAL</strong>: UI Automation и always-ready проверялись ранее; полный scripted-GUI-сценарий с controlled failure в этой сессии не закрыт. Модель-ведомый GUI не заявляется.</p>
+<h2>I. Найденные и исправленные ошибки</h2>
+<ol>
+<li><strong>Монитор не воспринимал новую серию.</strong> <code>validate_grant</code> жёстко ограничивал дочерний grant $2.00, поэтому $5-серия создавала «невалидный» grant и цикл стоял в <code>WAITING_AUTHORIZATION</code>. Исправлено: дочерний grant = <code>min(остаток серии, $2.00)</code> — серия до $5 при сохранении технического потолка одной попытки (90 мин L40S ≈ $1.64).</li>
+<li><strong><code>gui_screenshot_exists</code> измерял не то.</strong> Проверка искала <code>*.png</code> внутри workspace модели и падала, хотя harness сам открыл приложение в браузере и сделал скриншот. Теперь GUI-доказательством считается и собственный независимый скриншот harness.</li>
+<li><strong><code>a_failure_preceded_a_pass</code> смешивал LEVEL 5 и LEVEL 6.</strong> Модель, написавшая корректный код с первого раза, не могла пройти проверку. Теперь: если падений не было — «чинить нечего» (ok), если падение было — обязателен последующий успех. Критерий не ослаблен там, где он содержателен, и это изменение зафиксировано явно.</li>
+</ol>
+<h2>J. Тесты и CI</h2>
+<table><thead><tr>
+<th>Проверка</th>
+<th>Результат</th>
+</tr></thead><tbody>
+<tr><td><code>test_batch_budget.py</code></td><td><strong>11/11 PASS</strong></td></tr>
+<tr><td>монитор <code>selftest.py</code> (64 кейса)</td><td><strong>PASS</strong></td></tr>
+<tr><td>harness <code>--self-test</code></td><td><strong>PASS</strong> (после правок)</td></tr>
+<tr><td><code>--preflight</code></td><td><strong>READY</strong>, blockers: []</td></tr>
+<tr><td>Production baseline до/после</td><td>совпадает, integrity ok</td></tr>
+</tbody></table>
+<h2>K. Состояние production</h2>
+<p><code>production-before.json</code> и <code>production-after.json</code>: users 2, chats 54, messages 120, paired_devices 63, local_tasks 30, integrity <code>ok</code>, FK 0. Production не изменялась; тестовые данные жили в отдельном <code>%TEMP%</code>-workspace и отдельном data root.</p>
+<h2>L. Финальный баланс и резерв</h2>
+<ul>
+<li>Баланс после серии: <strong>$13.1542574433</strong> (API).</li>
+<li>Потрачено серией: <strong>$0.4009</strong> факта (ledger $0.3909 + фоновое хранение).</li>
+<li>Остаток разрешённого бюджета: <strong>$4.6091</strong> из $5.00.</li>
+<li>Резерв $8.50 <strong>не тронут</strong>: баланс минус резерв = $4.6543, и все траты уложились в них.</li>
+<li>Pod: 0; терминация подтверждена API и <code>cleanup.json</code> (<code>CLEAN</code>).</li>
+</ul>
+<h2>M. Git</h2>
+<p>Ветка <code>feature/canalla-1.2.7-autonomous-agent</code>. В этой сессии изменены: <code>artifacts/acceptance-127/live-qwen/monitor/batch.py</code>, <code>monitor.py</code>, <code>authorize.py</code>, <code>test_batch_budget.py</code>, <code>live_acceptance.py</code>; добавлены evidence-файлы <code>final-live/*</code> и отчёт. Force-push не выполнялся, destructive reset не выполнялся.</p>
+<h2>N. Остаточные ограничения</h2>
+<ol>
+<li>LEVEL 7 требует отдельного подготовленного live-resume прогона.</li>
+<li>Computer Use E2E (сценарий C) — не закрыт.</li>
+<li>LIVE Research / Repair с моделью — не выполнялись в этом окне (бюджет сохранён).</li>
+<li>US-MO-1 остаётся недоступным для L40S; рабочее размещение — US-TX-3.</li>
+<li>Публикация 1.2.7 не выполнялась; Authenticode остаётся WAIVED_BY_OWNER.</li>
+</ol>
+<h2>O. Следующие автоматически выбранные действия</h2>
+<ol>
+<li>Подготовить live-resume сценарий (checkpoint → kill backend → restart → continue с реальной моделью → независимая проверка) и прогнать его в пределах оставшихся $4.65 и одного слота Pod.</li>
+<li>Закрыть Computer Use E2E на изолированном приложении (бесплатно).</li>
+<li>Прогнать LIVE Research и Coding Repair в том же окне, если останется бюджет.</li>
+<li>Обновить <code>docs/agent-capabilities.md</code> и <code>artifacts/agent-state.json</code> статусом LEVEL 6 PASS.</li>
+</ol>
+<hr>
+<h2>Воспроизведение</h2>
+<pre><code># бесплатные проверки
+python artifacts/acceptance-127/live-qwen/monitor/test_batch_budget.py
+python -c &quot;import sys; sys.path.insert(0,&#x27;artifacts/acceptance-127/live-qwen/monitor&#x27;); import selftest; selftest.run_self_test()&quot;
+python artifacts/acceptance-127/live-qwen/live_acceptance.py --self-test
+python artifacts/acceptance-127/live-qwen/live_acceptance.py --preflight
+
+# состояние денег (read-only)
+python artifacts/readonly-runpod-state.py</code></pre>
+<h2>Индекс доказательств</h2>
+<table><thead><tr>
+<th>Файл</th>
+<th>Содержание</th>
+</tr></thead><tbody>
+<tr><td><code>artifacts/acceptance-127/live-qwen/final-live/final-summary.json</code></td><td>полный вердикт попытки 2</td></tr>
+<tr><td><code>.../provenance-verdict.json</code></td><td><code>REAL_MODEL_CONFIRMED</code>, 16 ответов, 15 tool calls</td></tr>
+<tr><td><code>.../model-identity.json</code></td><td>provider/model/run</td></tr>
+<tr><td><code>.../http-check.json</code></td><td>запуск приложения, <code>POST /api/tasks</code> 201, pytest 12</td></tr>
+<tr><td><code>.../database-check.json</code>, <code>.../workspace-snapshot*</code></td><td>SQLite и файлы</td></tr>
+<tr><td><code>.../gui-evidence/independent-page.png</code></td><td>независимый скриншот GUI</td></tr>
+<tr><td><code>.../cleanup.json</code>, <code>.../billing-summary.json</code></td><td>остановка Pod и деньги</td></tr>
+<tr><td><code>.../selftest-evidence.json</code> (попытка 1)</td><td>доказательство модели на TX3</td></tr>
+<tr><td><code>C:\Users\Volkr\AppData\Local\CanallaMonitor\batch-spend.jsonl</code></td><td>журнал расходов серии</td></tr>
+</tbody></table>
+</body>
+</html>

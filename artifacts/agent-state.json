@@ -5,7 +5,7 @@
   "branch": "feature/canalla-1.2.7-autonomous-agent",
   "updated_at": "2026-11-22",
   "goal": "Finish 1.2.7 acceptance without paid spend, then grow Canalla into a verified autonomous agent",
-  "phase": "P5 - autonomous capability gap closure",
+  "phase": "P3 - LIVE acceptance: LEVEL 6 proven",
   "state_machine": "DISCOVER -> BASELINE -> PLAN -> IMPLEMENT -> TEST -> VERIFY -> COMMIT -> NEXT",
   "steps": [
     {
@@ -48,7 +48,7 @@
       "id": "SCENARIOS",
       "name": "Scenario matrix A-H statuses with reproducible evidence",
       "status": "PASS_PARTIAL",
-      "evidence": "A PASS (live free search+fetch), B PASS, C PARTIAL, D PASS, E PASS (mechanics), F PARTIAL (engine verified offline), G PASS (context across restart), H PASS; LEVEL 6/7 still need one paid LIVE"
+      "evidence": "A PARTIAL (free search live), B PASS (live TaskDesk), C PARTIAL, D PASS, E PASS (mechanics), F PARTIAL, G PASS (context), H PASS; LEVEL 6 PASS, LEVEL 7 NOT_PROVEN"
     },
     {
       "id": "ZED-MODEL",
@@ -59,20 +59,20 @@
     {
       "id": "LEVEL6",
       "name": "Real-model verified completion (one LIVE run)",
-      "status": "BLOCKED_BY_LIVE_BUDGET",
-      "evidence": "batch 0673b737 exhausted: $0.358 left < $0.413 useful window; no new budget authorized"
+      "status": "PASS",
+      "evidence": "LIVE run 0ef569505ce04d73bdf5cb722949415e: real Qwen built TaskDesk (app/db/run/test_api), 12 tests passed, POST /api/tasks 201, SQLite row, independent browser screenshot, provenance REAL_MODEL_CONFIRMED (16 responses, 15 tool calls, tampered 0), VERIFY_PASSED"
     },
     {
       "id": "LEVEL7",
       "name": "Durable resume with a real model",
       "status": "NOT_TESTED",
-      "evidence": "needs a paid LIVE; mechanics proven with a scripted planner"
+      "evidence": "mechanics proven offline; the harness has no live-resume mode yet, so no live claim is made"
     },
     {
       "id": "REPORT",
       "name": "Full report to Desktop (.md + .html) and artifacts/reports",
       "status": "PASS",
-      "evidence": "artifacts/reports/CANALLA-1.2.7-AGENT-CAPABILITIES-2026-11-22.md/.html + Desktop copies; describes HEAD fa43168"
+      "evidence": "artifacts/reports/CANALLA-1.2.7-LIVE-AUTONOMY-2026-11-22.md/.html + Desktop copies"
     },
     {
       "id": "FREE-SEARCH",
@@ -107,20 +107,20 @@
     "foreign_key_violations": 0
   },
   "money": {
-    "batch_id": "0673b737b3f243ed8985dd62c899dbb1",
-    "cap_usd": 2.0,
-    "spent_usd": 1.642,
-    "balance_delta_usd": 1.6773,
-    "remaining_usd": 0.358,
-    "state": "PAID_BATCH_EXHAUSTED",
-    "active_pods": 0
+    "batch_id": "d516f71c83f347289452398e0f972f98",
+    "cap_usd": 5.0,
+    "spent_usd": 0.3909,
+    "balance_before_usd": 13.5552224647,
+    "balance_after_usd": 13.1542574433,
+    "balance_delta_usd": 0.4009,
+    "remaining_usd": 4.6091,
+    "reserve_usd": 8.5,
+    "state": "ACTIVE",
+    "pods_created": 2,
+    "pods_active": 0,
+    "attempts": 2
   },
   "blockers": [
-    {
-      "id": "LIVE-BUDGET",
-      "reason": "no paid GPU budget",
-      "status": "BLOCKED_BY_AUTHORIZATION"
-    },
     {
       "id": "CI-WORKFLOW-SCOPE",
       "reason": "the gh token has no workflow scope, so a new Windows install job cannot be pushed",

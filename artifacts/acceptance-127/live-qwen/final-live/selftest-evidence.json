@@ -5,12 +5,12 @@
  "answer_preview": "Да,яготоввыполнятьзадачи.",
  "delta_events": 7,
  "errors": [],
- "checked_at": "2026-11-14T16:24:57+00:00",
- "chat_id": "617d1c40-5197-422e-9da6-08d912914502",
+ "checked_at": "2026-11-22T03:16:41+00:00",
+ "chat_id": "fefa201c-edda-446c-bec5-292adb9394fc",
  "identity": {
   "provider": "llamacpp",
   "model": "orcarouter-qwen38-27b-q5km",
-  "pod_id": "mjo8ak4ys9igdw",
+  "pod_id": "7u9xx10mqmjxiu",
   "gpu": "NVIDIA L40S",
   "datacenter": "US-TX-3",
   "available": true
@@ -75,7 +75,7 @@
    "line": "event: done"
   },
   {
-   "line": "data: {\"message_id\": \"203c1863-9dac-461b-9af7-fd0a17c4527d\"}"
+   "line": "data: {\"message_id\": \"25296db1-b721-4cb6-afce-c2c027abd053\"}"
   }
  ],
  "mode": "self_test",
@@ -84,5 +84,5 @@
   "volume_id": "uwgeaie5b0",
   "storage_mode": "regional_network_volume"
  },
- "run_id": "e184595544d24f14a140bd9298e81ea1"
+ "run_id": "0ef569505ce04d73bdf5cb722949415e"
 }

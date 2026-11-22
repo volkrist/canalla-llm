@@ -1,10 +1,10 @@
 {
- "checked_at": "2026-11-14T16:31:20+00:00",
- "budget_usd": 0.5,
+ "checked_at": "2026-11-22T03:26:41+00:00",
+ "budget_usd": 2.0,
  "hourly_rate_usd": 1.09,
  "balance_before_usd": null,
- "balance_after_usd": 5.3452026969,
- "estimated_policy_worst_case_usd": 0.49050000000000005,
+ "balance_after_usd": 13.2217914211,
+ "estimated_policy_worst_case_usd": 1.6350000000000002,
  "note": "The balance delta includes background storage charges; Pod cost is the policy figure.",
- "run_id": "e184595544d24f14a140bd9298e81ea1"
+ "run_id": "0ef569505ce04d73bdf5cb722949415e"
 }

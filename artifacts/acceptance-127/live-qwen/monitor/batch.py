@@ -22,7 +22,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-BATCH_PHRASE = "I AUTHORIZE A PAID LIVE BATCH WITH A TOTAL GPU BUDGET OF USD 2.00"
+BATCH_PHRASE_TEMPLATE = "I AUTHORIZE A PAID LIVE BATCH WITH A TOTAL GPU BUDGET OF USD {amount:.2f}"
+BATCH_PHRASE = BATCH_PHRASE_TEMPLATE.format(amount=2.00)
+MAX_BATCH_BUDGET_USD = 5.00
 BATCH_FILE = "batch-authorization.json"
 BATCH_JOURNAL = "batch-spend.jsonl"
 # The smallest window that can still produce a verified result: the Pod must start, the model must
@@ -94,6 +96,11 @@ def required_usd(rate: float, min_seconds: int = MIN_USEFUL_SECONDS) -> float:
     return round(rate * (min_seconds / 3600.0) + SAFETY_MARGIN_USD, 3)
 
 
+def phrase_for(amount: float) -> str:
+    """The owner's phrase must name the exact ceiling, so a bigger series cannot be smuggled in."""
+    return BATCH_PHRASE_TEMPLATE.format(amount=float(amount))
+
+
 def status(batch: dict, now: datetime | None = None) -> str:
     if not batch:
         return "absent"
@@ -105,14 +112,16 @@ def status(batch: dict, now: datetime | None = None) -> str:
     expires = _parse(batch.get("expires_at"))
     if expires is not None and expires <= now:
         return "expired"
-    # Exhaustion is about money actually spent. A reservation held by the attempt that is running
-    # right now must not make the series look finished to the reader.
     try:
         spent = float(batch.get("spent_gpu_usd") or 0)
         budget = float(batch.get("maximum_total_gpu_spend_usd") or 0)
+        created = int(batch.get("pods_created") or 0)
+        cap = int(batch.get("maximum_total_pods") or 0)
     except (TypeError, ValueError):
         return "exhausted"
     if budget - spent <= 1e-9:
+        return "exhausted"
+    if cap and created >= cap:
         return "exhausted"
     return "active"
 
@@ -130,25 +139,34 @@ def create(
     placements: list[dict],
     allowed_gpu: str,
     model_id: str,
+    starting_balance_usd: float | None = None,
+    minimum_balance_usd: float = 0.0,
+    max_attempt_seconds: int | None = None,
+    maximum_total_pods: int = 3,
 ) -> dict:
     """Record the owner's bounded series. An existing live batch is never replaced silently."""
     existing = read(rdir)
     if existing and status(existing) in {"active", "completed"}:
         raise BatchError("batch_already_exists")
-    if phrase != BATCH_PHRASE:
+    if phrase != phrase_for(budget_usd):
         raise BatchError("wrong_phrase")
-    if not 0 < budget_usd <= 2.00 + 1e-9:
+    if not 0 < budget_usd <= MAX_BATCH_BUDGET_USD + 1e-9:
         raise BatchError("budget_out_of_range")
     if days < 1 or days > 365:
         raise BatchError("days_out_of_range")
+    if not 0 < maximum_total_pods <= 10:
+        raise BatchError("pod_limit_out_of_range")
+    if minimum_balance_usd < 0:
+        raise BatchError("reserve_out_of_range")
     now = _now()
     batch = {
-        "schema": 1,
+        "schema": 2,
         "batch_id": uuid.uuid4().hex,
         "phrase": phrase,
         "owner_approval": True,
         "maximum_total_gpu_spend_usd": round(float(budget_usd), 2),
         "maximum_concurrent_pods": 1,
+        "maximum_total_pods": int(maximum_total_pods),
         "spent_gpu_usd": 0.0,
         "reserved_gpu_usd": 0.0,
         "pods_created": 0,
@@ -158,6 +176,10 @@ def create(
         "allowed_placements": placements,
         "allowed_gpu": allowed_gpu,
         "allowed_model": model_id,
+        "starting_balance_usd": None if starting_balance_usd is None else round(float(starting_balance_usd), 4),
+        "minimum_balance_usd": round(float(minimum_balance_usd), 4),
+        "max_attempt_seconds": None if max_attempt_seconds is None else int(max_attempt_seconds),
+        "watchdog_status": "not_started",
         "status": "active",
         "created_at": now.isoformat(timespec="seconds"),
         "expires_at": (now + timedelta(days=days)).isoformat(timespec="seconds"),
@@ -260,6 +282,24 @@ def mark_completed(batch: dict) -> dict:
     batch["active_run_id"] = None
     batch["reserved_gpu_usd"] = 0.0
     return batch
+
+
+def archive(rdir: Path) -> str:
+    """Retire a finished series before a new owner decision. Never touches the spend journal.
+
+    Refused while an attempt is in flight or while the previous outcome is unknown: renaming a
+    batch file must not become a way to forget an unaccounted Pod.
+    """
+    batch = read(rdir)
+    if not batch:
+        return "absent"
+    if batch.get("active_run_id"):
+        raise BatchError("attempt_in_flight")
+    if batch.get("reconciliation_status") != "clean":
+        raise BatchError("previous_outcome_unknown")
+    target = rdir / f"batch-authorization.archived-{batch.get('batch_id')}.json"
+    batch_path(rdir).replace(target)
+    return str(target)
 
 
 def save(rdir: Path, batch: dict) -> None:

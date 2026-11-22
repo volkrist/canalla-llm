@@ -1,0 +1,13 @@
+{
+ "run_id": "0ef569505ce04d73bdf5cb722949415e",
+ "verdict": "PASS",
+ "pods_created": 1,
+ "pod_ids": [
+  "7u9xx10mqmjxiu"
+ ],
+ "spend_usd": 0.1853,
+ "balance_after_usd": 13.2217914211,
+ "hourly_rate_usd": 1.09,
+ "finished_at": "2026-11-22T03:26:41+00:00",
+ "error": null
+}

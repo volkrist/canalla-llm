@@ -655,7 +655,11 @@ def child_grant_from_batch(
 
     _archive_grant(rdir, current.get("grant") or {})
     now = datetime.now(timezone.utc)
-    budget = batch_module.child_budget(batch_state)
+    # The series may hold up to $5, but a single attempt is still bounded by the product's technical
+    # ceiling: 90 billable minutes of an L40S cost about $1.64, so $2 per attempt is enough and a
+    # child grant can never widen the per-run envelope. The remaining series budget is what decides
+    # whether another attempt is allowed at all.
+    budget = round(min(batch_module.child_budget(batch_state), BUDGET_USD), 2)
     grant = {
         "schema": GRANT_SCHEMA,
         "grant_id": uuid.uuid4().hex,

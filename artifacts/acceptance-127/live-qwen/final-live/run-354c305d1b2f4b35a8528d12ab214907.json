@@ -1,0 +1,13 @@
+{
+ "run_id": "354c305d1b2f4b35a8528d12ab214907",
+ "verdict": "FAIL",
+ "pods_created": 1,
+ "pod_ids": [
+  "po8lpjkrher85i"
+ ],
+ "spend_usd": 0.2056,
+ "balance_after_usd": 13.370299236,
+ "hourly_rate_usd": 1.09,
+ "finished_at": "2026-11-22T03:09:35+00:00",
+ "error": null
+}

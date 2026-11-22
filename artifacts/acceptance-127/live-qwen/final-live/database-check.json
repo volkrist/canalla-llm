@@ -3,7 +3,8 @@
   "taskdesk.db"
  ],
  "tables": {
-  "taskdesk.db:tasks": 1
+  "taskdesk.db:tasks": 1,
+  "taskdesk.db:sqlite_sequence": 1
  },
- "run_id": "e184595544d24f14a140bd9298e81ea1"
+ "run_id": "0ef569505ce04d73bdf5cb722949415e"
 }

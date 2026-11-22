@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-14T11:18:12+00:00",
+ "generated_at": "2026-11-22T02:54:09+00:00",
  "read_only": true,
  "budget_usd": 2.0,
  "minimum_vram_gb": 48,
@@ -105,6 +105,21 @@
    "storage_mode": "regional_network_volume",
    "model_state": "VERIFIED",
    "requires_live_selftest": false
+  },
+  {
+   "gpu": "NVIDIA L40S",
+   "vram_gb": 48,
+   "hourly_rate": "1.09",
+   "cloud": "SECURE",
+   "datacenter": "US-TX-3",
+   "volume_id": "uwgeaie5b0",
+   "availability": "LOW",
+   "storage_type": "regional_network_volume",
+   "name": "L40S",
+   "hourly_price_usd": 1.09,
+   "storage_mode": "regional_network_volume",
+   "model_state": "UNVERIFIED_NEEDS_LIVE_CHECK",
+   "requires_live_selftest": true
   }
  ],
  "selected": {
@@ -138,8 +153,6 @@
    "tier": "secure",
    "datacenters": {
     "CA-MTL-3": "LOW",
-    "EU-RO-1": "LOW",
-    "US-KS-2": "LOW",
     "US-MO-1": "LOW"
    }
   },
@@ -150,9 +163,9 @@
    "hourly_price_usd": 2.19,
    "tier": "secure",
    "datacenters": {
+    "EUR-IS-1": "LOW",
     "US-KS-2": "LOW",
     "US-MD-1": "MEDIUM",
-    "US-MO-1": "LOW",
     "US-WA-1": "LOW"
    }
   },
@@ -163,8 +176,8 @@
    "hourly_price_usd": 0.59,
    "tier": "secure",
    "datacenters": {
-    "CA-MTL-1": "LOW",
-    "EU-SE-1": "LOW"
+    "CA-MTL-1": "MEDIUM",
+    "EU-SE-1": "HIGH"
    }
   },
   {
@@ -175,7 +188,8 @@
    "tier": "secure",
    "datacenters": {
     "EU-RO-1": "LOW",
-    "US-CA-2": "LOW"
+    "US-CA-2": "LOW",
+    "US-NC-2": "LOW"
    }
   },
   {
@@ -185,7 +199,8 @@
    "hourly_price_usd": 8.99,
    "tier": "secure",
    "datacenters": {
-    "US-WA-2": "LOW"
+    "EU-NL-1": "LOW",
+    "EUR-IS-1": "LOW"
    }
   },
   {
@@ -201,19 +216,10 @@
     "EU-FR-1": "LOW",
     "EUR-IS-3": "LOW",
     "EUR-NO-2": "LOW",
+    "US-CA-2": "LOW",
     "US-GA-2": "LOW",
     "US-MO-1": "LOW",
     "US-NE-1": "LOW"
-   }
-  },
-  {
-   "gpu_id": "NVIDIA H100 NVL",
-   "name": "H100 NVL",
-   "vram_gb": 94,
-   "hourly_price_usd": 3.19,
-   "tier": "secure",
-   "datacenters": {
-    "US-KS-2": "LOW"
    }
   },
   {
@@ -223,24 +229,13 @@
    "hourly_price_usd": 5.29,
    "tier": "secure",
    "datacenters": {
-    "CA-MTL-3": "LOW",
-    "CA-MTL-4": "LOW",
+    "AP-JP-1": "LOW",
     "EUR-IS-4": "LOW",
     "EUR-IS-5": "LOW",
-    "US-CA-2": "LOW",
     "US-CO-1": "LOW",
     "US-GA-2": "LOW",
-    "US-NC-1": "LOW"
-   }
-  },
-  {
-   "gpu_id": "NVIDIA L40",
-   "name": "L40",
-   "vram_gb": 48,
-   "hourly_price_usd": 0.82,
-   "tier": "secure",
-   "datacenters": {
-    "US-KS-2": "LOW"
+    "US-NC-1": "LOW",
+    "US-PA-1": "LOW"
    }
   },
   {
@@ -250,10 +245,33 @@
    "hourly_price_usd": 1.09,
    "tier": "secure",
    "datacenters": {
+    "EU-NL-1": "LOW",
     "EUR-IS-2": "LOW",
-    "OC-AU-1": "LOW",
     "US-MO-1": "LOW",
+    "US-TX-3": "LOW",
     "US-TX-4": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA RTX 6000 Ada Generation",
+   "name": "RTX 6000 Ada",
+   "vram_gb": 48,
+   "hourly_price_usd": 1.09,
+   "tier": "secure",
+   "datacenters": {
+    "US-IL-1": "LOW",
+    "US-KS-2": "LOW",
+    "US-WA-1": "LOW"
+   }
+  },
+  {
+   "gpu_id": "NVIDIA RTX A6000",
+   "name": "RTX A6000",
+   "vram_gb": 48,
+   "hourly_price_usd": 0.69,
+   "tier": "secure",
+   "datacenters": {
+    "EU-SE-1": "LOW"
    }
   }
  ],
