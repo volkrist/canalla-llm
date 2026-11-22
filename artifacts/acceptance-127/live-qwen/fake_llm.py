@@ -30,13 +30,47 @@ SCENARIO: list[tuple[str, dict] | None] = [
 ]
 
 
-def next_step() -> tuple[int, tuple[str, dict] | None]:
+def next_step(request: dict) -> tuple[int, tuple[str, dict] | None]:
+    """Decide from the conversation itself, so the scenario survives any number of restarts.
+
+    A counter alone drifted: an extra planning request shifted every later step. The transcript is
+    the durable state — once it contains a final.txt result the turn must verify, and once
+    verify_result was already asked the turn must finish.
+    """
     assert STATE is not None
     with LOCK:
-        count = int(json.loads(STATE.read_text(encoding="utf-8")).get("planner", 0)) if STATE.is_file() else 0
-        count += 1
+        stored = json.loads(STATE.read_text(encoding="utf-8")) if STATE.is_file() else {}
+        count = int(stored.get("planner", 0)) + 1
+        asked = bool(stored.get("verification_asked"))
+        text = json.dumps(request)
+        if asked:
+            STATE.write_text(json.dumps({"planner": count, "verification_asked": True}), encoding="utf-8")
+            return count, None
+        if "final.txt" in text:
+            STATE.write_text(json.dumps({"planner": count, "verification_asked": True}), encoding="utf-8")
+            return count, (
+                "verify_result",
+                {
+                    "checks": [
+                        {"kind": "file_exists", "target": "part1.txt"},
+                        {"kind": "file_exists", "target": "final.txt"},
+                    ],
+                    "purpose": "level 7 resume e2e",
+                },
+            )
         STATE.write_text(json.dumps({"planner": count}), encoding="utf-8")
-    index = min(count - 1, len(SCENARIO) - 1)
+    if False:
+        return count, (
+            "verify_result",
+            {
+                "checks": [
+                    {"kind": "file_exists", "target": "part1.txt"},
+                    {"kind": "file_exists", "target": "final.txt"},
+                ],
+                "purpose": "level 7 resume e2e",
+            },
+        )
+    index = min(count - 1, 3)
     return count, SCENARIO[index]
 
 
@@ -70,7 +104,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             self._json({"error": "bad_json"}, 400)
             return
-        count, step = next_step()
+        count, step = next_step(request)
         if request.get("stream"):
             body = (
                 'data: {"choices":[{"delta":{"content":"resume complete"},"index":0}]}\n\n'

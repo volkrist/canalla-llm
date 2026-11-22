@@ -72,7 +72,7 @@
       "id": "REPORT",
       "name": "Full report to Desktop (.md + .html) and artifacts/reports",
       "status": "PASS",
-      "evidence": "artifacts/reports/CANALLA-1.2.7-RECOVERY-2026-11-22.md/.html + Desktop copies"
+      "evidence": "artifacts/reports/CANALLA-1.2.7-FREE-E2E-2026-11-22.md/.html + Desktop copies"
     },
     {
       "id": "FREE-SEARCH",
@@ -154,7 +154,7 @@
   "engineering_state": "LEVEL7_FREE_E2E_NEXT",
   "live_authorization_state": "BATCH_EXHAUSTED_BY_POD_LIMIT",
   "level7_free_e2e": {
-    "status": "IN_PROGRESS",
+    "status": "FAIL",
     "files": [
       "artifacts/acceptance-127/live-qwen/fake_llm.py",
       "artifacts/acceptance-127/live-qwen/free_resume_e2e.py"
@@ -170,6 +170,8 @@
       "with the local fake the planner is not yet observed returning a tool call through the autonomy gate"
     ],
     "next_exact_step": "make the prompt trigger autonomous mode while computer_mode=off (use the harness SCENARIO preamble without computer tools), confirm fake-llm-state.json planner counter > 0 and a completed ToolRun, then the kill/restart/resume assertions follow unchanged in free_resume_e2e.py",
-    "constraint": "the agent session reached its context limit"
+    "constraint": "the agent session reached its context limit",
+    "evidence": "two-process run 17150c58: same task id, new backend/host PIDs, 3 real tool runs before the kill, task EXECUTING after death, new progress after restart; then FAILED verification_required because the resume stream performs no planning round, so verify_result is never requested. 0 COMPLETED events.",
+    "open_defect": "resume_task_id path in chat_stream/continue_task goes straight to generation; it must run a planning round when verification is still pending"
   }
 }

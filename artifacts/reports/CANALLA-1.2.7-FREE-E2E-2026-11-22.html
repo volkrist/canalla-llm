@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CANALLA LLM — FREE LEVEL 7 E2E: ОТЧЁТ СЕССИИ</title>
+<style>
+:root { color-scheme: light dark; }
+body { margin: 0 auto; max-width: 1080px; padding: 48px 28px 96px;
+  font: 16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif; color: #1b1f24; background: #ffffff; }
+h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; }
+h2 { font-size: 1.45rem; margin: 42px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #e3e7ec; }
+h3 { font-size: 1.14rem; margin: 28px 0 10px; }
+h4 { font-size: 1rem; margin: 22px 0 8px; }
+p { margin: 10px 0; }
+table { border-collapse: collapse; width: 100%; margin: 14px 0 22px; font-size: 0.94rem; }
+th, td { border: 1px solid #dfe3e8; padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: #f4f6f8; font-weight: 600; }
+tbody tr:nth-child(even) { background: #fbfcfd; }
+code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 0.88em;
+  background: #f2f4f7; padding: 1px 5px; border-radius: 4px; }
+pre { background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 10px; overflow-x: auto; }
+pre code { background: none; color: inherit; padding: 0; font-size: 0.86rem; }
+blockquote { margin: 16px 0; padding: 10px 16px; border-left: 4px solid #94a3b8;
+  background: #f8fafc; color: #334155; }
+hr { border: 0; border-top: 1px solid #e3e7ec; margin: 34px 0; }
+ul, ol { margin: 10px 0 14px; padding-left: 26px; }
+li { margin: 5px 0; }
+a { color: #0b62d6; }
+@media (prefers-color-scheme: dark) {
+  body { background: #0b0f14; color: #dbe3ec; }
+  h2 { border-color: #1f2a36; }
+  th { background: #131b24; }
+  th, td { border-color: #22303d; }
+  tbody tr:nth-child(even) { background: #0f151d; }
+  code { background: #151d27; }
+  blockquote { background: #111922; color: #b6c2cf; border-color: #33506b; }
+  a { color: #74b0ff; }
+}
+@media print { body { max-width: none; } pre { white-space: pre-wrap; } }
+</style>
+</head>
+<body>
+<h1>CANALLA LLM — FREE LEVEL 7 E2E: ОТЧЁТ СЕССИИ</h1>
+<p><strong>Первый настоящий двухпроцессный прогон resume выполнен. Durable resume доказан по механике, финальный PASS не получен: найден дефект resume-пути. GPU не запускался.</strong></p>
+<table><thead><tr>
+<th></th>
+<th></th>
+</tr></thead><tbody>
+<tr><td>Дата</td><td>22 ноября 2026</td></tr>
+<tr><td>Ветка</td><td><code>feature/canalla-1.2.7-autonomous-agent</code></td></tr>
+<tr><td>HEAD</td><td><strong><code>e6099e3</code></strong> (запушен, origin синхронизирован)</td></tr>
+<tr><td>Баланс RunPod</td><td><strong>$13.055671924</strong>, Pod <strong>0</strong>, фон $0.01/ч</td></tr>
+<tr><td>Расход этой сессии</td><td><strong>$0.00</strong> (платных операций не было)</td></tr>
+<tr><td>Ledger серии</td><td>$0.4298 из $5.00 (не менялся)</td></tr>
+<tr><td>Production 1.2.6</td><td>не изменена: 2/54/120/63/30, integrity ok, 0 FK</td></tr>
+<tr><td>LEVEL 6</td><td><strong>PASS</strong> (evidence не тронут)</td></tr>
+<tr><td>LEVEL 7</td><td><strong>NOT_PROVEN</strong>: <code>LEVEL7_FREE_E2E = FAIL</code></td></tr>
+<tr><td>Monitor safety</td><td><strong>PASS</strong> (8/8)</td></tr>
+</tbody></table>
+<hr>
+<h2>A. Цель сессии</h2>
+<p>Довести <code>--resume</code> до работающего сквозного сценария: fake inference → реальный backend → реальные инструменты → checkpoint → настоящее убийство процесса → второй backend → штатный <code>POST /tasks/{id}/resume</code> → продолжение → независимая проверка.</p>
+<h2>B. Состояние до работы</h2>
+<p><code>c263258</code> / <code>9ad46b4</code>: <code>--resume</code> в harness написан, но не исполнялся ни разу; fake-LLM сервера и двухпроцессного раннера не существовало; монитор был исправлен (пауза + ARMED manifest), но интеграция с реальным запуском не проверялась.</p>
+<h2>C. Выполненные работы</h2>
+<h3>C.1. Fake OpenAI-compatible inference — реализован</h3>
+<p><code>artifacts/acceptance-127/live-qwen/fake_llm.py</code> (stdlib, без GPU и API-ключей):</p>
+<ul>
+<li><code>GET /v1/models</code> → 200 (health);</li>
+<li><code>POST /v1/chat/completions</code>: <code>stream=false</code> → <code>choices[0].message.tool_calls</code> с <code>id</code>/<code>name</code>/ <code>arguments</code>; <code>stream=true</code> → SSE <code>data: {...}</code> + <code>[DONE]</code>;</li>
+<li>сценарий выводится из <strong>самого транскрипта</strong>, а не только из счётчика: наличие результата <code>final.txt</code> → <code>verify_result</code>, флаг <code>verification_asked</code> (в файле состояния) → завершение;</li>
+<li>состояние (<code>fake-llm-state.json</code>) переживает смерть backend.</li>
+</ul>
+<h3>C.2. Двухпроцессный E2E — реализован и запущен</h3>
+<p><code>artifacts/acceptance-127/live-qwen/free_resume_e2e.py</code> делает всё на реальных компонентах:</p>
+<ol>
+<li>поднимает fake-сервер и изолированную БД (alembic <code>upgrade head</code>, exit 0);</li>
+<li>backend A на свободном порту, <code>/health</code> 200, регистрация 201;</li>
+<li><code>PUT /tools/preferences</code> (<code>computer_mode=trusted</code>, <code>workspace_roots</code>), запуск настоящего <code>alex-host-loop.exe</code> (спаривание, heartbeat, jobs);</li>
+<li>стрим задачи, ожидание <strong>реально завершённых</strong> <code>ToolRun</code> (порог 3);</li>
+<li><code>terminate</code> backend A, ожидание выхода, проверка, что задача <strong>не</strong> COMPLETED;</li>
+<li>backend B на том же порту/БД/data root + перезапуск host loop;</li>
+<li><code>POST /tasks/{task_id}/resume</code>, ожидание завершения;</li>
+<li>сверка: тот же task_id, новый PID, новый прогресс, ровно одно <code>COMPLETED</code>, файлы, verifier.</li>
+</ol>
+<h2>D. Результаты прогонов (реальные, не пересказ)</h2>
+<table><thead><tr>
+<th>Прогон</th>
+<th>Что выяснилось</th>
+</tr></thead><tbody>
+<tr><td>1</td><td>backend поднимался, но задача уходила в <code>WAITING_LLM</code>: не был задан <code>LLM_CONNECTION_MODE=static</code></td></tr>
+<tr><td>2</td><td>соединение исправлено, но задача завершалась без инструментов: промпт не включал автономный режим</td></tr>
+<tr><td>3</td><td>задача в <code>WAITING_DEVICE</code>: без host loop локальные инструменты не исполняются</td></tr>
+<tr><td>4</td><td>host добавлен; <strong>3 реальных <code>write_file</code></strong>, kill, рестарт — но host умирал вместе с backend</td></tr>
+<tr><td>5</td><td>host перезапускается вместе с backend; <strong>новый прогресс после рестарта</strong> есть, финал <code>FAILED</code></td></tr>
+<tr><td>6–7</td><td>уточнение сценария fake-модели; итог тот же: <code>FAILED / verification_required</code></td></tr>
+</tbody></table>
+<p>Финальный прогон (run <code>17150c58…</code>):</p>
+<table><thead><tr>
+<th>Проверка</th>
+<th>Факт</th>
+</tr></thead><tbody>
+<tr><td>completed tool runs до kill</td><td><strong>3</strong> (<code>part1.txt</code>, <code>part2.txt</code>, <code>part3.txt</code>)</td></tr>
+<tr><td>статус задачи перед kill</td><td><strong>EXECUTING</strong> (не COMPLETED)</td></tr>
+<tr><td>backend A</td><td>exit <strong>1</strong>, stream <code>ConnectionReset</code></td></tr>
+<tr><td>статус после смерти</td><td><strong>EXECUTING</strong> (восстановим)</td></tr>
+<tr><td>backend B</td><td><strong>новый PID 3572</strong>, тот же порт/БД</td></tr>
+<tr><td>host B</td><td>новый PID 7308</td></tr>
+<tr><td><code>task_id</code></td><td><strong>тот же</strong></td></tr>
+<tr><td>новый прогресс после рестарта</td><td><strong>есть</strong> (4-е действие — <code>final.txt</code>)</td></tr>
+<tr><td>файлы</td><td>part1, part2, part3, final — все существуют</td></tr>
+<tr><td><code>COMPLETED</code> событий</td><td><strong>0</strong></td></tr>
+<tr><td>вердикт</td><td><strong>FAIL</strong></td></tr>
+</tbody></table>
+<h2>E. Найденный дефект продукта (не теста)</h2>
+<p>Цепочка событий после resume: <code>RESUMED → RESUMED → MODEL_RESPONSE → FAILED</code>. Поток <code>POST /tasks/{id}/resume</code> уходит сразу в генерацию ответа и <strong>не выполняет планировочный раунд</strong>, поэтому модель не может запросить новый инструмент (в сценарии — <code>verify_result</code>). Контроллер при этом <strong>корректно</strong> отказывается объявлять задачу выполненной: файлы изменены, независимой проверки нет (<code>last_error = verification_required</code>).</p>
+<p>Иными словами: <strong>durable resume не позволяет продолжить работу инструментом после перезапуска</strong>, если прерывание произошло между изменениями и верификацией. Это именно тот класс дефекта, который обязан ловить LEVEL 7.</p>
+<h2>F. Исправленные ошибки этой сессии</h2>
+<ol>
+<li>Fake-сервер не доходил до backend — добавлен <code>LLM_CONNECTION_MODE=static</code>.</li>
+<li>Задача не становилась автономной — промпт приведён к автономному сценарию.</li>
+<li><code>WAITING_DEVICE</code> — добавлены <code>ALEX_DEVICE_DIR</code>, <code>ALEX_DEVICE_CREDENTIAL_TARGET</code>, запуск host loop.</li>
+<li>Host умирал после kill backend — E2E перезапускает host вместе с backend B.</li>
+<li>Сценарий fake-модели «плыл» от лишнего планировочного запроса — переход на состояние из транскрипта + флаг <code>verification_asked</code>.</li>
+<li><strong>Повреждённая git-ссылка ветки</strong> после аварийной записи — восстановлена <code>update-ref</code> на существующий коммит, история не потеряна, push выполнен.</li>
+</ol>
+<h2>G. Монитор: защита от повторного инцидента</h2>
+<p>Реализовано ранее в этой сессии и проверено: <code>monitor.paused</code> (отдельный файл, проверяется до всего) и ARMED execution manifest (batch, scenario_id/hash, code_commit, лимит стоимости). Тесты: <strong>8/8 PASS</strong>, включая точную репродукцию инцидента <code>a_scheduler_restart_does_not_rearm_a_paused_monitor</code>.</p>
+<p>Текущее состояние монитора: пауза установлена (<code>monitor.paused</code>), Pod не создаются.</p>
+<h2>H. Тесты</h2>
+<table><thead><tr>
+<th>Проверка</th>
+<th>Результат</th>
+</tr></thead><tbody>
+<tr><td><code>monitor/test_monitor_armed.py</code></td><td><strong>8/8 PASS</strong></td></tr>
+<tr><td><code>live_acceptance.py --self-test</code></td><td><strong>PASS</strong> (30 проверок)</td></tr>
+<tr><td><code>free_resume_e2e.py</code> (полный прогон)</td><td><strong>FAIL</strong> — см. раздел D/E</td></tr>
+<tr><td><code>test_127_level7_negative.py</code></td><td>3 passed (ранее)</td></tr>
+<tr><td><code>test_batch_budget.py</code></td><td>11/11 (ранее)</td></tr>
+</tbody></table>
+<h2>I. Деньги и инфраструктура</h2>
+<ul>
+<li>Платных Pod: <strong>0</strong>, расход <strong>$0.00</strong>, баланс $13.055671924, резерв $8.50 не тронут.</li>
+<li>Ledger серии не изменялся: $0.4298, Pod 3/3, статус <code>PAID_BATCH_EXHAUSTED</code>.</li>
+<li>Новый batch не создавался, технический лимит не сбрасывался.</li>
+<li>GPU/Pod не запускались, watchdog не отключался.</li>
+</ul>
+<h2>J. Production</h2>
+<p>Не изменялась. Проверка до и после: users 2, chats 54, messages 120, paired_devices 63, local_tasks 30, <code>integrity_check = ok</code>, FK 0, alembic 0016.</p>
+<h2>K. Git</h2>
+<pre><code>e6099e3 Add the fake inference server and the free resume runner
+9ad46b4 Checkpoint the LEVEL 7 free E2E plan and tool schemas
+c263258 Fix the monitor restart incident and implement --resume</code></pre>
+<p>Force-push и destructive reset не выполнялись.</p>
+<h2>L. Остаточные блокеры</h2>
+<ol>
+<li><strong>Resume без планировочного раунда</strong> — исправление в <code>chat_stream</code>/<code>continue_task</code> (продукт).</li>
+<li><strong><code>LEVEL7_FREE_E2E</code></strong> — останется FAIL до исправления п.1; LIVE запрещён.</li>
+<li><strong>Лимит Pod 3/3</strong> — денежный остаток $4.57 есть, но технические слоты исчерпаны; расширение требует отдельного распоряжения (в последнем задании лимит снимался, но batch не пересоздавался).</li>
+</ol>
+<h2>M. Следующий исполняемый шаг</h2>
+<p>Исправить resume-путь так, чтобы при <code>resume_task_id</code> с незавершённой верификацией выполнялся планировочный раунд с инструментами. Регрессия — <code>free_resume_e2e.py</code>: он обязан дойти до <code>verify_result</code>, одного <code>COMPLETED</code> и <code>verifier PASS</code>. Затем — подготовка ARMED manifest для LIVE LEVEL 7 в пределах действующего денежного лимита.</p>
+<h2>N. Воспроизведение</h2>
+<pre><code>cd apps/backend
+.venv/Scripts/python.exe ../../artifacts/acceptance-127/live-qwen/free_resume_e2e.py
+cd ../../artifacts/acceptance-127/live-qwen/monitor
+../../../../apps/backend/.venv/Scripts/python.exe test_monitor_armed.py
+cd ../..
+../../../../apps/backend/.venv/Scripts/python.exe live_acceptance.py --self-test</code></pre>
+<h2>O. Индекс evidence</h2>
+<table><thead><tr>
+<th>Файл</th>
+<th>Содержание</th>
+</tr></thead><tbody>
+<tr><td><code>artifacts/acceptance-127/live-qwen/fake_llm.py</code></td><td>fake inference</td></tr>
+<tr><td><code>artifacts/acceptance-127/live-qwen/free_resume_e2e.py</code></td><td>двухпроцессный раннер</td></tr>
+<tr><td><code>%TEMP%\canalla-free-e2e-*\backend.log</code>, <code>host.log</code></td><td>логи прогонов</td></tr>
+<tr><td><code>apps/backend/tests/test_127_level7_negative.py</code></td><td>negative-матрица</td></tr>
+<tr><td><code>artifacts/agent-state.json</code></td><td>machine-readable состояние</td></tr>
+</tbody></table>
+</body>
+</html>

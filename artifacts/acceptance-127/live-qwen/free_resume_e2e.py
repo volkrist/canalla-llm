@@ -84,6 +84,8 @@ def db_counts(env: dict) -> tuple[int, str, int]:
 
 def main() -> int:
     work = Path(tempfile.mkdtemp(prefix="canalla-free-e2e-"))
+    workspace = work / "workspace"
+    workspace.mkdir()
     fake_port, port = free_port(), free_port()
     base = f"http://127.0.0.1:{port}"
     log = work / "backend.log"
@@ -92,6 +94,8 @@ def main() -> int:
         "PYTHONUTF8": "1",
         "DATABASE_URL": "sqlite:///" + (work / "e2e.db").as_posix(),
         "ALEX_LLM_DATA_DIR": str(work / "data"),
+        "ALEX_DEVICE_DIR": str(work / "device"),
+        "ALEX_DEVICE_CREDENTIAL_TARGET": "Canalla LLM/free-e2e/" + str(os.getpid()),
         "DOCUMENT_STORAGE_DIR": str(work / "documents"),
         "JWT_SECRET": "e2e-only-secret-" + "x" * 48,
         "APP_ENV": "test",
@@ -152,10 +156,44 @@ def main() -> int:
             print(json.dumps(report, ensure_ascii=False, indent=1))
             return 1
 
+        call(
+            base + "/tools/preferences",
+            token,
+            {
+                "computer_mode": "trusted",
+                "default_mode": "on",
+                "workspace_roots": [str(workspace)],
+            },
+            method="PUT",
+        )
+        def start_host() -> subprocess.Popen:
+            handle = (work / "host.log").open("a", encoding="utf-8", errors="replace")
+            process = subprocess.Popen(
+                [str(REPO / "apps/desktop/src-tauri/target/release/alex-host-loop.exe")],
+                env={
+                    **env,
+                    "ALEX_ACCEPTANCE_RUN": "1",
+                    "ALEX_BACKEND_URL": base,
+                    "ALEX_TOKEN": token,
+                    "ALEX_DEVICE_NAME": "Free E2E",
+                    "ALEX_DEVICE_DIR": str(work / "device"),
+                    "ALEX_DEVICE_CREDENTIAL_TARGET": "Canalla LLM/free-e2e-host-" + str(os.getpid()),
+                    "ALEX_WORKSPACE_ROOTS": str(workspace),
+                    "ALEX_PYTHON": str(BACKEND / ".venv" / "Scripts" / "python.exe"),
+                },
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            time.sleep(6)
+            return process
+
+        host = start_host()
+        report["host_pid"] = host.pid
         _, chat = call(base + "/chats", token, {})
         chat_id = chat["id"]
         stream_body = {
-            "content": "Создай локальное приложение: файлы part1.txt, part2.txt, part3.txt и final.txt в рабочем каталоге. Это автономная задача с инструментами.",
+            "content": "Создай локальное приложение: файлы part1.txt, part2.txt и part3.txt, затем итоговый файл в рабочем каталоге. Это автономная задача с инструментами.",
             "web_mode": "off",
             "computer_mode": "trusted",
             "tor_mode": "off",
@@ -206,6 +244,8 @@ def main() -> int:
         if not wait_health(base):
             report["error"] = "backend_b_not_healthy"
             return 1
+        host = start_host()
+        report["host_b_pid"] = host.pid
         thread = threading.Thread(
             target=stream, args=(f"{base}/tasks/{before_task}/resume", {})
         )
@@ -250,7 +290,7 @@ def main() -> int:
         print(json.dumps(report, ensure_ascii=False, indent=1))
         return 0 if ok else 1
     finally:
-        for process in (backend, fake):
+        for process in (backend, fake, locals().get("host")):
             if process is not None and process.poll() is None:
                 process.terminate()
                 try:
