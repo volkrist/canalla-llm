@@ -65,8 +65,8 @@
     {
       "id": "LEVEL7",
       "name": "Durable resume with a real model",
-      "status": "IMPLEMENTED_UNVERIFIED",
-      "evidence": "--resume implemented in live_acceptance.py (controlled kill of the isolated backend, restart on the same DB/data root/workspace, POST /tasks/{id}/resume, resume checks); monitor pause + ARMED manifest closed the restart incident (8/8 tests); fake-LLM two-process E2E still required before any LIVE"
+      "status": "VERIFIED_OFFLINE",
+      "evidence": "free_resume_e2e PASS (run 60ad5d0b); live run with the real model still required"
     },
     {
       "id": "REPORT",
@@ -137,9 +137,9 @@
       "status": "BLOCKED_BY_AUTHORIZATION"
     },
     {
-      "id": "LEVEL7-FREE-E2E",
-      "reason": "implementation not completed: session context limit reached before the fake LLM server and runner existed",
-      "status": "IN_PROGRESS"
+      "id": "LEVEL7-LIVE",
+      "reason": "free E2E passes; a paid LIVE needs a valid batch/limit and an ARMED manifest",
+      "status": "BLOCKED_BY_AUTHORIZATION"
     }
   ],
   "release_artifact": {
@@ -149,15 +149,13 @@
     "built_at_commit": "e78ca91b9fdb40a035839a44a4e4ec583caf773d",
     "release_gate": "candidate: 22 steps, 0 FAIL, 0 BLOCKED"
   },
-  "head": "acddfa2",
+  "head": "a8acce0",
   "note": "the 1.2.7 installer was built at e78ca91; the capability work after it does not change that artifact",
   "engineering_state": "LEVEL7_FREE_E2E_NEXT",
   "live_authorization_state": "BATCH_EXHAUSTED_BY_POD_LIMIT",
   "level7_free_e2e": {
-    "status": "FAIL",
-    "fixed_this_block": "fake scenario now writes app.py + test_smoke.py and runs real python -m pytest through the host loop; the runner kills only after the pytest ToolRun is completed (direct sqlite poll, planner paced 1.2s)",
-    "evidence": "run b6eab8c9: 6 completed tool runs incl. pytest, kill while VERIFYING, same task id, verify_result after restart, evidence_ok=true",
-    "remaining_barrier": "verification.tests is stale after the restart although pytest passed; investigate whether tests_passed/verification_stale survive in the task checkpoint",
-    "next": "compare facts/checkpoint before and after the restart; persist the verification flags in the checkpoint if they are lost"
+    "status": "PASS",
+    "evidence": "run 60ad5d0b: real pytest through the host loop, kill while VERIFYING, same task id, new backend host PIDs, verify_result after restart, verification.tests=passed, evidence_ok=true, exactly one COMPLETED",
+    "root_cause_fixed": "the fake planner counter drifted by one call and replayed a write after pytest, marking verification stale; the scenario is now transcript-driven and never writes after the test output appears"
   }
 }

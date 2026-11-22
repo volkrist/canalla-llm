@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CANALLA LLM — LEVEL7_FREE_E2E = PASS</title>
+<style>
+:root { color-scheme: light dark; }
+body { margin: 0 auto; max-width: 1080px; padding: 48px 28px 96px;
+  font: 16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif; color: #1b1f24; background: #ffffff; }
+h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; }
+h2 { font-size: 1.45rem; margin: 42px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #e3e7ec; }
+h3 { font-size: 1.14rem; margin: 28px 0 10px; }
+h4 { font-size: 1rem; margin: 22px 0 8px; }
+p { margin: 10px 0; }
+table { border-collapse: collapse; width: 100%; margin: 14px 0 22px; font-size: 0.94rem; }
+th, td { border: 1px solid #dfe3e8; padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: #f4f6f8; font-weight: 600; }
+tbody tr:nth-child(even) { background: #fbfcfd; }
+code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 0.88em;
+  background: #f2f4f7; padding: 1px 5px; border-radius: 4px; }
+pre { background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 10px; overflow-x: auto; }
+pre code { background: none; color: inherit; padding: 0; font-size: 0.86rem; }
+blockquote { margin: 16px 0; padding: 10px 16px; border-left: 4px solid #94a3b8;
+  background: #f8fafc; color: #334155; }
+hr { border: 0; border-top: 1px solid #e3e7ec; margin: 34px 0; }
+ul, ol { margin: 10px 0 14px; padding-left: 26px; }
+li { margin: 5px 0; }
+a { color: #0b62d6; }
+@media (prefers-color-scheme: dark) {
+  body { background: #0b0f14; color: #dbe3ec; }
+  h2 { border-color: #1f2a36; }
+  th { background: #131b24; }
+  th, td { border-color: #22303d; }
+  tbody tr:nth-child(even) { background: #0f151d; }
+  code { background: #151d27; }
+  blockquote { background: #111922; color: #b6c2cf; border-color: #33506b; }
+  a { color: #74b0ff; }
+}
+@media print { body { max-width: none; } pre { white-space: pre-wrap; } }
+</style>
+</head>
+<body>
+<h1>CANALLA LLM — LEVEL7_FREE_E2E = PASS</h1>
+<p><strong>Бесплатный двухпроцессный resume пройден полностью: pytest → kill → restart → verify_result → одно COMPLETED.</strong></p>
+<table><thead><tr>
+<th></th>
+<th></th>
+</tr></thead><tbody>
+<tr><td>Дата</td><td>22 ноября 2026</td></tr>
+<tr><td>Ветка / HEAD</td><td><code>feature/canalla-1.2.7-autonomous-agent</code> / <strong><code>a8acce0</code></strong></td></tr>
+<tr><td>Баланс RunPod</td><td>$13.0167830352, Pod <strong>0</strong>, фон $0.01/ч</td></tr>
+<tr><td>Расход сессии</td><td><strong>$0.00</strong></td></tr>
+<tr><td>Ledger серии</td><td>$0.4298 из $5.00 (не менялся)</td></tr>
+<tr><td>Production 1.2.6</td><td>не изменена</td></tr>
+<tr><td><strong><code>LEVEL7_FREE_E2E</code></strong></td><td><strong>PASS</strong></td></tr>
+<tr><td>LEVEL 7</td><td><strong>NOT_PROVEN</strong> (нужен LIVE с настоящей моделью)</td></tr>
+</tbody></table>
+<hr>
+<h2>A. Первопричина потери <code>tests_passed</code> (доказана, а не предположена)</h2>
+<p><code>verification.tests</code> становится <code>passed</code> только через <code>run_python</code> с <code>-m pytest</code> и <code>exit_code=0</code>; любой последующий <code>write_file</code> сбрасывает флаг в <code>stale</code>.</p>
+<p>После рестарта fake-модель, ориентируясь на <strong>счётчик вызовов планировщика</strong>, «доезжала» на шаг назад и повторяла запись уже после pytest — продукт корректно помечал проверку устаревшей. Счётчик дрейфовал на один вызов, потому что планировщик вызывается не только на каждый tool call.</p>
+<p><strong>Исправление:</strong> fake-модель принимает решение по <strong>транскрипту</strong>. Как только в разговоре есть собственный вывод pytest (<code>test session starts</code>), новые записи не предлагаются — остаётся только независимая проверка. Это не ручная запись <code>passed</code> в БД: флаг по-прежнему ставит продукт по реальному <code>exit_code</code> pytest.</p>
+<h2>B. Результат полного прогона</h2>
+<table><thead><tr>
+<th>Критерий</th>
+<th>Факт</th>
+</tr></thead><tbody>
+<tr><td>Backend A</td><td>запущен, host спарен, <code>/health</code> 200</td></tr>
+<tr><td>Реальные инструменты</td><td><code>app.py</code>, <code>test_smoke.py</code>, <code>part3.txt</code>, <code>final.txt</code></td></tr>
+<tr><td>Настоящий pytest</td><td>выполнен через host loop, <code>exit_code=0</code></td></tr>
+<tr><td>Статус на момент kill</td><td><strong>VERIFYING</strong></td></tr>
+<tr><td>Backend A</td><td>exit 1, stream <code>ConnectionReset</code></td></tr>
+<tr><td>Backend B</td><td>новый PID 16180</td></tr>
+<tr><td>Host B</td><td>новый PID 18424</td></tr>
+<tr><td><code>task_id</code></td><td><strong>тот же</strong> (<code>60ad5d0b-…</code>)</td></tr>
+<tr><td>Новый прогресс после рестарта</td><td><strong>есть</strong> (6 завершённых tool runs, <code>verify_result</code>)</td></tr>
+<tr><td><code>verification.tests</code></td><td><strong>passed</strong></td></tr>
+<tr><td><code>evidence_ok</code></td><td><strong>true</strong></td></tr>
+<tr><td><code>COMPLETED</code> событий</td><td><strong>1</strong></td></tr>
+<tr><td>Созданные файлы</td><td><code>app.py</code>, <code>test_smoke.py</code>, <code>part3.txt</code>, <code>final.txt</code></td></tr>
+<tr><td>Вердикт</td><td><strong>PASS</strong></td></tr>
+</tbody></table>
+<h2>C. Что проверяет тест (не фиктивность)</h2>
+<ul>
+<li>Настоящий pytest исполняется на хосте и его <code>exit_code</code> управляет <code>tests_passed</code>.</li>
+<li><code>test_smoke.py</code> проверяет поведение (<code>add(2,3) == 5</code>), а не существование файла.</li>
+<li>Kill происходит только после фиксации pytest, при статусе <code>VERIFYING</code>.</li>
+<li>После рестарта новое действие (<code>verify_result</code>) исполняется реально, <code>task_id</code> сохраняется.</li>
+<li><code>COMPLETED</code> ровно одно.</li>
+<li>Любая последующая запись сделала бы <code>tests</code> снова <code>stale</code> — механизм не отключён.</li>
+</ul>
+<h2>D. Ранее закрытые дефекты (в этой серии)</h2>
+<ol>
+<li>Пропуск планировщика на resume (<code>_goal_satisfied</code> по фактам файлов) — исправлено.</li>
+<li><code>CHECK_REFUSED</code> на корректных путях workspace — канонизация обеих сторон в <code>verify_result</code>.</li>
+<li>Потеря <code>tests_passed</code> после рестарта — сценарий больше не пишет после pytest.</li>
+</ol>
+<h2>E. Тесты</h2>
+<table><thead><tr>
+<th>Проверка</th>
+<th>Результат</th>
+</tr></thead><tbody>
+<tr><td><code>free_resume_e2e.py</code></td><td><strong>PASS</strong></td></tr>
+<tr><td><code>monitor/test_monitor_armed.py</code></td><td>8/8 PASS</td></tr>
+<tr><td><code>live_acceptance.py --self-test</code></td><td>PASS (30)</td></tr>
+<tr><td><code>test_127_level7_negative.py</code></td><td>3 passed</td></tr>
+<tr><td><code>test_batch_budget.py</code></td><td>11/11</td></tr>
+</tbody></table>
+<h2>F. Деньги / Pod / production</h2>
+<p>0 Pod, $0.00, баланс $13.0167830352, резерв $8.50 не тронут, ledger $0.4298 из $5.00. Production: 2/54/120/63/30, integrity ok, FK 0, alembic 0016.</p>
+<h2>G. Git</h2>
+<pre><code>a8acce0 Pass the free LEVEL 7 resume E2E
+151f4d7 Report the real-pytest resume run
+acddfa2 Run real pytest in the resume E2E</code></pre>
+<h2>H. Следующие шаги (по мастер-директиве)</h2>
+<ol>
+<li>Негативные регрессии к E2E: pytest FAIL, запись после теста сбрасывает проверку, потерянный checkpoint, повторный/конкурентный resume, прерванный tool call, двойное COMPLETED.</li>
+<li>Desktop staging 1.2.7: настоящий запуск приложения, чат, инструменты, отображение задачи и восстановление через GUI (уровень C приёмки).</li>
+<li>LIVE LEVEL 7 на настоящей Qwen при подтверждённом бюджете и ARMED manifest, затем удаление Pod и подтверждение прекращения тарификации.</li>
+<li>Computer Use, Research, Coding, Repair, Memory, Security — с проверкой через Desktop.</li>
+</ol>
+</body>
+</html>
