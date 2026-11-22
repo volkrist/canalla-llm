@@ -51,7 +51,7 @@ a { color: #0b62d6; }
 <tr><td>Ветка</td><td><code>feature/canalla-1.2.7-autonomous-agent</code></td></tr>
 <tr><td>HEAD</td><td><code>55e5ecb</code> (проверенный код LEVEL 6)</td></tr>
 <tr><td>Баланс до работы</td><td><strong>$13.1542574433</strong></td></tr>
-<tr><td>Баланс после</td><td><strong>$13.1153685545</strong> (Δ <strong>$0.0389</strong>)</td></tr>
+<tr><td>Баланс после</td><td><strong>$13.0751163684</strong> (Δ <strong>$0.0791</strong>, включая финальные списания Pod после удаления)</td></tr>
 <tr><td>Batch</td><td><code>d516f71c83f347289452398e0f972f98</code> — <strong>exhausted по лимиту Pod</strong></td></tr>
 <tr><td>Pod</td><td><strong>0</strong>, биллинг остановлен (<code>currentSpendPerHr</code> 1.101 → <strong>0.01</strong>)</td></tr>
 <tr><td>Production</td><td>1.2.6, не изменена: 2/54/120/63/30, integrity ok, 0 FK</td></tr>
@@ -128,7 +128,7 @@ a { color: #0b62d6; }
 <tr><td>H production isolation</td><td><code>production-before/after.json</code> в LIVE (2/54/120/63/30, integrity ok, 0 FK)</td></tr>
 </tbody></table>
 <h2>Q. Финальный баланс</h2>
-<p><strong>$13.1153685545</strong>. Резерв $8.50 не тронут. Подписки/сертификаты/Volume не покупались.</p>
+<p><strong>$13.0751163684</strong> (последнее наблюдение API; Δ к началу сессии $0.0791). В ledger на момент остановки записано $0.0389; остаток разницы — финальные списания Pod, опубликованные RunPod после удаления, и фоновое хранение. Резерв $8.50 не тронут. Подписки/сертификаты/Volume не покупались.</p>
 <h2>R. Подтверждение удаления Pod</h2>
 <p><code>terminate</code> → HTTP 204; <code>pods = []</code>; повторная проверка через 90 с: <code>current_spendPerHr = 0.01</code>, <code>pod_count = 0</code>. Статус — <strong>CLEAN</strong> (подтверждён API, не предположение).</p>
 <h2>S. Production</h2>
